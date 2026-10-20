@@ -1,0 +1,15 @@
+# GCP-06 isolated V64 candidate
+
+This standalone root describes one run-scoped, private PostgreSQL 18 Cloud SQL instance, its empty candidate database, a private object bucket for the sanitized SQL artifact, and one bucket-scoped grant to the instance service identity. It does not reference or manage the connected application SQL instance, the app service, application secrets, or Cloud Run Jobs. It has no remote backend configuration; any later backend choice requires a separately reviewed state prefix.
+
+`enable_candidate=false` by default. Creating resources also requires `confirm_candidate_release=true`. Resource names include a unique run ID, network/project/region are pinned, external IPv4 is disabled, and import storage uses UBLA and enforced public access prevention. The exact SQL object path is `gcp06/<run-id>/data.sql`; its lifecycle rule deletes objects after seven days. Deletion protection remains active unless both the destroy toggle and exact run ID confirmation match.
+
+Both temporary object bindings are separately default-off. The import service identity receives only `storage.objects.get`; the named uploader receives only `storage.objects.create`. Each condition matches the single object path and has a required future UTC expiration no more than 48 hours away. No bucket listing, object deletion, overwrite role, or operator-wide project IAM is added. The exact expiration and uploader member must be reviewed before enabling either binding.
+
+The Cloud SQL import API is invoked only in a later, separately reviewed operation. The operator uploading the SQL object and invoking import needs separate authorization; this root does not grant operator IAM or publish data. Before import, verify the target project/instance/database against the approved candidate, the artifact hash and retention, backup/rollback evidence, SQL service identity access, and cost. The SQL file itself rejects databases outside the `espacigo_gcp06_candidate_<run-id>` namespace, but the database-name guard does not replace project/instance allowlisting.
+
+The custom role uses `storage.objects.get`, the documented minimum object permission for a single SQL import; parallel imports may also require `storage.objects.list`. See [Cloud SQL PostgreSQL SQL import requirements](https://cloud.google.com/sql/docs/postgres/import-export/import-export-sql).
+
+For a continuous 730-hour month, the current list-price estimate is about **US$66.41**: `db-custom-1-3840` compute/memory at US$0.0537 per vCPU-hour plus US$0.0091 per GiB-hour, and 20 GiB Hyperdisk Balanced at US$0.000157534 per GiB-hour. One full day is about US$2.18. This excludes GCS bytes/operations, backups (disabled), network, logs, IOPS/throughput above baseline, taxes and currency conversion. Recheck the [official Cloud SQL prices](https://cloud.google.com/sql/pricing) and produce a reviewed plan before creation.
+
+Local validation uses `terraform init -backend=false`, `terraform validate`, and `terraform fmt -check`. No remote backend, Cloud API plan, apply, object upload, database import, or Cloud SQL connection was run for this root.
