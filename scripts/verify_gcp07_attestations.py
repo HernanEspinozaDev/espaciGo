@@ -66,11 +66,15 @@ def verify_archive(path: Path) -> set[str]:
 
         pending = list(descriptors)
         visited: set[str] = set()
+        image_digests: set[str] = set()
+        attestation_manifests: list[tuple[dict[str, Any], dict[str, Any]]] = []
         while pending:
             descriptor = pending.pop()
             if not isinstance(descriptor, dict):
                 continue
             digest = descriptor.get("digest", "")
+            if not isinstance(digest, str):
+                raise AttestationError("OCI archive contains an unsupported digest")
             if digest in visited:
                 continue
             visited.add(digest)
@@ -84,7 +88,25 @@ def verify_archive(path: Path) -> set[str]:
                 nested = manifest.get("manifests")
                 if isinstance(nested, list):
                     pending.extend(nested)
+                elif isinstance(manifest.get("layers"), list):
+                    image_digests.add(digest)
                 continue
+
+            attestation_manifests.append((descriptor, manifest))
+
+        for descriptor, manifest in attestation_manifests:
+            annotations = descriptor.get("annotations", {})
+            referenced_digest = (
+                annotations.get("vnd.docker.reference.digest")
+                if isinstance(annotations, dict)
+                else None
+            )
+            if (
+                not isinstance(referenced_digest, str)
+                or not re.fullmatch(r"sha256:[0-9a-f]{64}", referenced_digest)
+                or referenced_digest not in image_digests
+            ):
+                raise AttestationError("Attestation descriptor does not reference an image manifest")
 
             layers = manifest.get("layers")
             if not isinstance(layers, list):
@@ -94,6 +116,17 @@ def verify_archive(path: Path) -> set[str]:
                     continue
                 statement = _decode_json(_read_blob(archive, layer.get("digest", "")))
                 predicate_type = statement.get("predicateType")
+                subjects = statement.get("subject")
+                if not isinstance(subjects, list):
+                    raise AttestationError("Attestation statement has no subject")
+                subject_matches_image = any(
+                    isinstance(subject, dict)
+                    and isinstance(subject.get("digest"), dict)
+                    and subject["digest"].get("sha256") == referenced_digest.removeprefix("sha256:")
+                    for subject in subjects
+                )
+                if not subject_matches_image:
+                    raise AttestationError("Attestation subject does not match its referenced image")
                 if isinstance(predicate_type, str):
                     predicates.add(predicate_type)
 
