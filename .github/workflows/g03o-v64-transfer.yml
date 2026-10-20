@@ -1,0 +1,29 @@
+name: G03O V64 transfer checks
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/g03o-v64-transfer.yml"
+      - "Dockerfile.gcp03-v64-transfer"
+      - "infra/terraform/environments/testprod/gcp/main.tf"
+      - "infra/terraform/environments/testprod/gcp/variables.tf"
+      - "infra/terraform/environments/testprod/gcp03-v64-transfer/**"
+      - "planning/gcp/g03o_v64_transfer_plan_20261020.md"
+      - "scripts/gcp03_origin_v64_sanitize.sql"
+      - "scripts/gcp03_origin_v64_transfer.py"
+      - "scripts/test_gcp03_origin_v64_transfer.py"
+permissions:
+  contents: read
+jobs:
+  transfer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install pinned Python dependencies
+        run: python3 -m pip install --disable-pip-version-check --no-cache-dir -r scripts/requirements-gcp03-origin-executor.txt
+      - name: Run focused transfer tests
+        env:
+          PYTHONPATH: scripts
+        run: python3 -m unittest scripts.test_gcp03_origin_v64_transfer -v
+      - name: Compile transfer entrypoint
+        run: python3 -m py_compile scripts/gcp03_origin_v64_transfer.py
