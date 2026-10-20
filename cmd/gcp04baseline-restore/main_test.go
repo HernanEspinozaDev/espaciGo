@@ -173,7 +173,6 @@ func createFixtureRolesAndTarget(ctx context.Context, admin *pgx.Conn, adminDSN 
 		`CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
 		`CREATE ROLE espacigo_privacy_cleanup_worker NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
 		`CREATE ROLE espacigo_gadm_bootstrap NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
-		`CREATE ROLE espacigo_db_observer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT`,
 		`COMMENT ON ROLE espacigo_gadm_bootstrap IS 'NOLOGIN GADM local bootstrap group; temporary isolated login membership only.'`,
 		`CREATE ROLE espacigo_migrator_login LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`,
 		`GRANT espacigo_schema_owner TO espacigo_migrator_login WITH ADMIN FALSE, INHERIT TRUE, SET TRUE`,
@@ -184,7 +183,7 @@ func createFixtureRolesAndTarget(ctx context.Context, admin *pgx.Conn, adminDSN 
 		}
 	}
 	for _, statement := range []string{
-		`GRANT CONNECT ON DATABASE espacigo TO espacigo_schema_owner`,
+		`GRANT CONNECT ON DATABASE espacigo TO espacigo_schema_owner, espacigo_runtime, espacigo_privacy_cleanup_worker`,
 		`GRANT TEMPORARY ON DATABASE espacigo TO espacigo_schema_owner`,
 		`REVOKE TEMPORARY ON DATABASE espacigo FROM PUBLIC`,
 	} {
@@ -202,6 +201,7 @@ func createFixtureRolesAndTarget(ctx context.Context, admin *pgx.Conn, adminDSN 
 		`CREATE EXTENSION IF NOT EXISTS postgis`,
 		`CREATE EXTENSION IF NOT EXISTS unaccent`,
 		`GRANT USAGE, CREATE ON SCHEMA public TO espacigo_schema_owner`,
+		`GRANT USAGE ON SCHEMA public TO espacigo_runtime, espacigo_privacy_cleanup_worker, espacigo_gadm_bootstrap`,
 		`GRANT CREATE ON SCHEMA public TO espacigo_migrator_login`,
 	} {
 		if _, err := target.Exec(ctx, statement); err != nil {
@@ -352,17 +352,19 @@ func assertV64RestoreState(t *testing.T, ctx context.Context, conn *pgx.Conn, ex
 	if index != 64 {
 		t.Fatalf("restored ledger has %d rows, want 64", index)
 	}
-	var publicDatabaseACL, publicSchemaACL, observerACL, v60FunctionExists bool
+	var publicDatabaseACL, publicSchemaACL, runtimeACL, privacyACL, gadmACL, v60FunctionExists bool
 	if err := conn.QueryRow(ctx, `
 SELECT
   NOT EXISTS (SELECT 1 FROM pg_catalog.pg_database d CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(d.datacl,pg_catalog.acldefault('d',d.datdba))) a WHERE d.datname='espacigo' AND a.grantee=0 AND a.privilege_type IN ('CREATE','TEMPORARY')),
   (NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) a WHERE n.nspname='public' AND a.grantee=0 AND a.privilege_type='CREATE') AND EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) a WHERE n.nspname='public' AND a.grantee=0 AND a.privilege_type='USAGE')),
-	(has_database_privilege('espacigo_db_observer','espacigo','CONNECT') AND NOT has_database_privilege('espacigo_db_observer','espacigo','TEMPORARY') AND NOT has_database_privilege('espacigo_db_observer','espacigo','CREATE') AND has_schema_privilege('espacigo_db_observer','public','USAGE') AND NOT has_schema_privilege('espacigo_db_observer','public','CREATE') AND has_table_privilege('espacigo_db_observer','public.schema_migrations','SELECT') AND NOT has_table_privilege('espacigo_db_observer','public.schema_migrations','INSERT') AND NOT has_table_privilege('espacigo_db_observer','public.schema_migrations','UPDATE') AND NOT has_table_privilege('espacigo_db_observer','public.schema_migrations','DELETE') AND NOT has_table_privilege('espacigo_db_observer','public.schema_migrations','TRUNCATE')),
-	to_regprocedure('public.reject_gadm_bootstrap_identity_change()') IS NOT NULL`).Scan(&publicDatabaseACL, &publicSchemaACL, &observerACL, &v60FunctionExists); err != nil {
+	(has_database_privilege('espacigo_runtime','espacigo','CONNECT') AND NOT has_database_privilege('espacigo_runtime','espacigo','TEMPORARY') AND NOT has_database_privilege('espacigo_runtime','espacigo','CREATE') AND has_schema_privilege('espacigo_runtime','public','USAGE') AND NOT has_schema_privilege('espacigo_runtime','public','CREATE') AND has_table_privilege('espacigo_runtime','public.catalogo_ubicacion_publica','SELECT')),
+	(has_database_privilege('espacigo_privacy_cleanup_worker','espacigo','CONNECT') AND NOT has_database_privilege('espacigo_privacy_cleanup_worker','espacigo','TEMPORARY') AND NOT has_database_privilege('espacigo_privacy_cleanup_worker','espacigo','CREATE') AND has_schema_privilege('espacigo_privacy_cleanup_worker','public','USAGE') AND NOT has_schema_privilege('espacigo_privacy_cleanup_worker','public','CREATE') AND has_table_privilege('espacigo_privacy_cleanup_worker','public.verificacion_evidencia_sintetica','DELETE')),
+	(has_database_privilege('espacigo_gadm_bootstrap','espacigo','CONNECT') AND NOT has_database_privilege('espacigo_gadm_bootstrap','espacigo','TEMPORARY') AND NOT has_database_privilege('espacigo_gadm_bootstrap','espacigo','CREATE') AND has_schema_privilege('espacigo_gadm_bootstrap','public','USAGE') AND NOT has_schema_privilege('espacigo_gadm_bootstrap','public','CREATE') AND has_column_privilege('espacigo_gadm_bootstrap','public.administrador_global','usuario_id','SELECT')),
+		to_regprocedure('public.reject_gadm_bootstrap_identity_change()') IS NOT NULL`).Scan(&publicDatabaseACL, &publicSchemaACL, &runtimeACL, &privacyACL, &gadmACL, &v60FunctionExists); err != nil {
 		t.Fatal(err)
 	}
-	if !publicDatabaseACL || !publicSchemaACL || !observerACL || !v60FunctionExists {
-		t.Fatalf("restored ACL/schema check failed: database=%t public_schema=%t observer=%t V60_function=%t", publicDatabaseACL, publicSchemaACL, observerACL, v60FunctionExists)
+	if !publicDatabaseACL || !publicSchemaACL || !runtimeACL || !privacyACL || !gadmACL || !v60FunctionExists {
+		t.Fatalf("restored ACL/schema check failed: database=%t public_schema=%t runtime=%t privacy=%t GADM=%t V60_function=%t", publicDatabaseACL, publicSchemaACL, runtimeACL, privacyACL, gadmACL, v60FunctionExists)
 	}
 	var usuarioRows int
 	if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.usuario`).Scan(&usuarioRows); err != nil || usuarioRows != 0 {
