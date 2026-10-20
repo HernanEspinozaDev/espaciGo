@@ -2,7 +2,7 @@
 
 ## Vigencia actual: despliegue de ensayo y smoke final (2026-10-19)
 
-Esta actualización prevalece solo para el estado operativo vigente; las secciones W7/W6/W5/W9 fechadas abajo se conservan como historia de sus cortes. GCP-04 y GCP-05 siguen parciales. PR #438–#442 contienen la implementación; PR #443 añade el allowlist web y este registro operativo, y continúa abierto para su cierre.
+Esta actualización prevalece solo para el estado operativo vigente; las secciones W7/W6/W5/W9 fechadas abajo se conservan como historia de sus cortes. GCP-04 y GCP-05 siguen parciales. PR #438–#442 contienen la implementación; PR #443 añade el allowlist web y este registro operativo.
 
 | Área | Estado actual | Evidencia y límites |
 | --- | --- | --- |
@@ -11,7 +11,7 @@ Esta actualización prevalece solo para el estado operativo vigente; las seccion
 | Web pública | Smoke real PASS | Imagen sin rebuild, digest `b775ab74cd4bda032da86864c6ebb1928a603e417279ec45d6e429790d73e88b`. [URL pública](https://espacigo-test-public-447373903153.southamerica-west1.run.app): portada 200 (31.621 bytes), `/health/ready` 200 `ready`, categorías 200 con 8 elementos, catálogo 200 con 0 elementos; `/acceso` redirigió 307 a la entrada privada. Navegador mostró la portada renderizada; verificación visual PASS. |
 | Web privada / autenticación | IAP activo; login autenticado pendiente | [URL privada](https://espacigo-test-private-447373903153.southamerica-west1.run.app) respondió 302 a `accounts.google.com`. No se completó login Google ni E2E autenticado. |
 | Mailpit | VM preservada | COS `638-5`; SMTP privado `10.81.1.2:1025`. Sin bootstrap B1 temporal activo. |
-| Estado de corte | GCP-04 parcial operativo single-instance; GCP-05 parcial | No se demuestra multiinstancia/durabilidad/aceptación; no se importó dataset local; GCP-06/07 no están cerrados. PR #443 queda abierto para revisar este registro y su merge. |
+| Estado de corte | GCP-04 parcial operativo single-instance; GCP-05 parcial | No se demuestra multiinstancia/durabilidad/aceptación; no se importó dataset local; GCP-06/07 no están cerrados. |
 
 ## Actualización posterior: GCP-04-W7 gate observer local (2026-10-19)
 
