@@ -148,7 +148,7 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
         self.assertEqual(error.safe_details, {
             "database_endpoint": "source",
             "report_component": "database_identity",
-            "sqlstate_category": "query_or_privilege",
+            "sqlstate_category": "insufficient_privilege",
         })
         self.assertNotIn("42501", repr(error.safe_details))
         self.assertNotIn("synthetic-password", repr(error.safe_details))
@@ -159,7 +159,7 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
         self.assertEqual(error.safe_details, {
             "database_endpoint": "target",
             "report_component": "target_report",
-            "sqlstate_category": "authentication",
+            "sqlstate_category": "invalid_password",
         })
 
     def test_failure_without_sqlstate_keeps_endpoint_only(self):
@@ -178,9 +178,26 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
         self.assertEqual(error.safe_details, {
             "database_endpoint": "source",
             "report_component": "count_usuario",
-            "sqlstate_category": "query_or_privilege",
+            "sqlstate_category": "insufficient_privilege",
         })
         self.assertNotIn("42501", repr(error.safe_details))
+
+    def test_sqlstate_safe_reason_allowlist_covers_known_query_failures(self):
+        cases = [
+            (b"ERROR:  42501\n", "insufficient_privilege"),
+            (b"psql:<stdin>:6: ERROR:  42P01\n", "undefined_table"),
+            (b"psql:<stdin>:7: ERROR:  42703\n", "undefined_column"),
+            (b"psql:<stdin>:8: ERROR:  42601\n", "syntax_error"),
+            (b"ERROR:  42P99\n", "query_or_privilege"),
+            (b"ERROR:  28P01\n", "invalid_password"),
+            (b"ERROR:  99001\n", "other"),
+        ]
+        from gcp03_origin_v64_transfer import sqlstate_category
+        for stderr, expected in cases:
+            with self.subTest(stderr=stderr):
+                reason = sqlstate_category(stderr)
+                self.assertEqual(reason, expected)
+                self.assertNotIn(stderr.strip().split()[-1].decode(), reason)
 
     def test_source_report_marks_failing_component_in_one_read_only_snapshot(self):
         stdout = []
@@ -228,7 +245,7 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
         self.assertEqual(error.safe_details, {
             "database_endpoint": "source",
             "report_component": "count_usuario",
-            "sqlstate_category": "query_or_privilege",
+            "sqlstate_category": "insufficient_privilege",
         })
         self.assertNotIn("private SQL", repr(error.safe_details))
 

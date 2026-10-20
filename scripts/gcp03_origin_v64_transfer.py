@@ -80,6 +80,24 @@ SQLSTATE_CATEGORIES = {
     "58": "system",
     "XX": "internal",
 }
+SQLSTATE_REASONS = {
+    "08001": "connection_unavailable",
+    "08006": "connection_failure",
+    "28000": "invalid_authorization",
+    "28P01": "invalid_password",
+    "3D000": "database_missing",
+    "3F000": "schema_missing",
+    "42501": "insufficient_privilege",
+    "42601": "syntax_error",
+    "42P01": "undefined_table",
+    "42P02": "undefined_parameter",
+    "42P04": "duplicate_database",
+    "42P06": "duplicate_schema",
+    "42P07": "duplicate_table",
+    "42703": "undefined_column",
+    "42704": "undefined_object",
+    "42710": "duplicate_object",
+}
 SOURCE_REPORT_MARKER = "__G03O_V64_REPORT_COMPONENT__"
 SOURCE_REPORT_COMPONENTS = frozenset({
     "database_identity", "count_usuario", "count_espacio", "count_reserva",
@@ -94,7 +112,8 @@ def sqlstate_category(stderr: bytes) -> str | None:
     match = SQLSTATE_RE.search(stderr)
     if match is None:
         return None
-    return SQLSTATE_CATEGORIES.get(match.group(1)[:2].decode("ascii"), "other")
+    code = match.group(1).decode("ascii")
+    return SQLSTATE_REASONS.get(code, SQLSTATE_CATEGORIES.get(code[:2], "other"))
 
 
 class TransferStopped(RuntimeError):
