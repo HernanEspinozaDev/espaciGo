@@ -226,6 +226,13 @@ INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo)
 VALUES('a0000000-0000-4000-8000-000000000021','30000000-0000-4000-8000-000000000021',
   '90000000-0000-4000-8000-000000000021',tstzrange(now()+interval '1 day',now()+interval '2 days','[)'),'reserva',true);
 COMMIT;
+INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,
+ reglas_uso,modalidad_tarifa,precio_base_clp,direccion)
+VALUES('30000000-0000-4000-8000-000000000022','10000000-0000-4000-8000-000000000022','oficina',
+ 'Espacio tainted',repeat('Descripción sintética para prueba local. ',4),25,4,'Uso responsable','dia',25000,'Dirección sintética 2');
+INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo)
+VALUES('a0000000-0000-4000-8000-000000000022','30000000-0000-4000-8000-000000000022',NULL,
+  tstzrange(now()+interval '3 days',now()+interval '4 days','[)'),'bloqueo_manual',true,'synthetic private block');
 SQL
 EXPORT_ID="e2e-$(date -u +%Y%m%d%H%M%S)-$$"
 EXPORT_DIR=".local/testing/gcp06-stage-$EXPORT_ID"
@@ -264,6 +271,8 @@ source_reservation_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SE
 [[ "$source_reservation_count" == 1 ]] || { echo 'Synthetic source reservation changed during export.' >&2; exit 1; }
 source_occupancy_count="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM ocupacion WHERE reserva_id IS NOT NULL')"
 [[ "$source_occupancy_count" == 1 ]] || { echo 'Synthetic source occupancy changed during export.' >&2; exit 1; }
+source_manual_occupancy_count="$(psql_local -U postgres -d espacigo_local -qAt -c "SELECT count(*) FROM ocupacion WHERE tipo='bloqueo_manual'")"
+[[ "$source_manual_occupancy_count" == 1 ]] || { echo 'Synthetic source manual occupancy changed during export.' >&2; exit 1; }
 python3 - "$ROOT_DIR/$EXPORT_DIR/manifest.json" "$ROOT_DIR/$EXPORT_DIR/data.sql" <<'PY'
 import json,re,sys
 manifest_path,dump_path=sys.argv[1:]
@@ -313,8 +322,8 @@ candidate_quote_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-
 [[ "$candidate_quote_count" == 0 ]] || { echo 'Quote referencing a tainted user leaked into the candidate dump.' >&2; exit 1; }
 candidate_reservation_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.reserva_ensayo_local')"
 [[ "$candidate_reservation_count" == 0 ]] || { echo 'Reservation linked to a tainted-user quote leaked into the candidate dump.' >&2; exit 1; }
-candidate_occupancy_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.ocupacion WHERE reserva_id IS NOT NULL')"
-[[ "$candidate_occupancy_count" == 0 ]] || { echo 'Occupancy linked to a tainted-user reservation leaked into the candidate dump.' >&2; exit 1; }
+candidate_occupancy_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.ocupacion')"
+[[ "$candidate_occupancy_count" == 0 ]] || { echo 'Tainted reservation/manual occupancy leaked into the candidate dump.' >&2; exit 1; }
 if docker exec -i "$CONTAINER" psql -X -q -v ON_ERROR_STOP=1 -U postgres -d espacigo_local \
   < "$ROOT_DIR/$EXPORT_DIR/data.sql" >/dev/null 2>&1; then
   echo 'Import guard accepted a non-candidate database.' >&2
@@ -330,6 +339,8 @@ source_reservation_after_import="$(psql_local -U postgres -d espacigo_local -qAt
 [[ "$source_reservation_after_import" == 1 ]] || { echo 'Source reservation changed.' >&2; exit 1; }
 source_occupancy_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c 'SELECT count(*) FROM public.ocupacion WHERE reserva_id IS NOT NULL')"
 [[ "$source_occupancy_after_import" == 1 ]] || { echo 'Source reservation occupancy changed.' >&2; exit 1; }
+source_manual_occupancy_after_import="$(psql_local -U postgres -d espacigo_local -qAt -c "SELECT count(*) FROM public.ocupacion WHERE tipo='bloqueo_manual'")"
+[[ "$source_manual_occupancy_after_import" == 1 ]] || { echo 'Source manual occupancy changed.' >&2; exit 1; }
 ledger_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) || chr(58) || max(version) FROM public.schema_migrations')"
 [[ "$ledger_count" == '64:64' ]] || { echo 'Portable SQL dump did not restore ledger V1-V64.' >&2; exit 1; }
 seed_count="$(psql_local -U postgres -d espacigo_gcp06_candidate_e2e-test -qAt -c 'SELECT count(*) FROM public.categoria_espacio')"
