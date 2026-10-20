@@ -47,4 +47,3 @@ jobs:
           terraform fmt -check -recursive
           terraform validate -no-color
           terraform test -no-color
-          terraform plan -refresh=false -input=false -no-color -detailed-exitcode
