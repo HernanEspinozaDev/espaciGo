@@ -197,11 +197,15 @@ func run() int {
 type bundleFiles map[string][]byte
 
 func readAndVerifyBundle(cfg config) ([]byte, bundleFiles, error) {
+	return readAndVerifyBundleAt(cfg, bundleDir)
+}
+
+func readAndVerifyBundleAt(cfg config, directory string) ([]byte, bundleFiles, error) {
 	if cfg.mode != "restore" || !digestPattern.MatchString(cfg.expectedManifest) || !digestPattern.MatchString(cfg.expectedDump) {
 		return nil, nil, errors.New("invalid fixed operation inputs")
 	}
 	read := func(name string) ([]byte, error) {
-		path := filepath.Join(bundleDir, name)
+		path := filepath.Join(directory, name)
 		info, err := os.Lstat(path)
 		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0022 != 0 {
 			return nil, errors.New("bundle file is not a protected regular file")
