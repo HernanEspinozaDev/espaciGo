@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import stat
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -120,13 +121,14 @@ def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path, r
 
     if not isinstance(target_evidence, dict) or set(target_evidence) != {
         "transport",
-        "proxy_connection_name", "resource_snapshot_sha256", "challenge_nonce", "query_output_sha256", "session_user", "observed_at"
+        "proxy_connection_name", "resource_snapshot_sha256", "resource_observed_at", "challenge_nonce", "query_output_sha256", "session_user", "observed_at"
     }:
         raise VerificationError("target_evidence_shape_invalid")
     expected_evidence = {
         "transport": "cloud_sql_auth_proxy",
         "proxy_connection_name": CONNECTION_NAME,
         "resource_snapshot_sha256": target_evidence.get("resource_snapshot_sha256"),
+        "resource_observed_at": target_evidence.get("resource_observed_at"),
         "challenge_nonce": challenge_nonce,
         "query_output_sha256": hashlib.sha256(actual_path.read_bytes()).hexdigest(),
         "session_user": session_user,
@@ -139,6 +141,16 @@ def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path, r
         raise VerificationError("target_evidence_hash_invalid")
     if hashlib.sha256(resource_snapshot_raw).hexdigest() != resource_sha:
         raise VerificationError("resource_snapshot_hash_mismatch")
+    try:
+        resource_observed_at = datetime.fromisoformat(target_evidence["resource_observed_at"].replace("Z", "+00:00"))
+        query_observed_at = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        if resource_observed_at.tzinfo is None or query_observed_at.tzinfo is None:
+            raise ValueError("timezone required")
+        age_seconds = (query_observed_at.astimezone(timezone.utc) - resource_observed_at.astimezone(timezone.utc)).total_seconds()
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise VerificationError("target_evidence_time_invalid") from exc
+    if age_seconds < 0 or age_seconds > 120:
+        raise VerificationError("target_evidence_stale")
     expected_resource = {
         "name": INSTANCE,
         "region": REGION,
@@ -184,6 +196,7 @@ def verify(manifest_path: Path, actual_path: Path, target_evidence_path: Path, r
         "imported_dump_sha256": IMPORTED_DUMP_SHA256,
         "session_user": session_user,
         "observed_at": observed_at,
+        "resource_observed_at": target_evidence["resource_observed_at"],
         "challenge_nonce": challenge_nonce,
         "checks": ["manifest_format_and_private_mode", "target_evidence_and_session_binding", "imported_dump_identity", "ledger_v1_v64", "sanitized_aggregates"],
     }

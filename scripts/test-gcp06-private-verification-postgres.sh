@@ -87,6 +87,7 @@ chmod 0600 "$TMP_DIR/actual.json"
 
 python3 - "$TMP_DIR/actual.json" "$TMP_DIR/target-evidence.json" "$TMP_DIR/resource-snapshot.json" <<'PY'
 import hashlib,json,sys
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
 actual_path=Path(sys.argv[1]); actual=json.loads(actual_path.read_text(encoding='utf-8'))
 resource={"name":"espacigo-gcp06-20261020-gcp06a-pg","region":"southamerica-west1",
@@ -96,6 +97,7 @@ resource_path=Path(sys.argv[3]); resource_path.write_text(json.dumps(resource,so
 evidence={"transport":"cloud_sql_auth_proxy",
           "proxy_connection_name":"espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg",
           "resource_snapshot_sha256":hashlib.sha256(resource_path.read_bytes()).hexdigest(),
+          "resource_observed_at":(datetime.fromisoformat(actual["observed_at"].replace("Z","+00:00"))-timedelta(seconds=1)).astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00","Z"),
           "challenge_nonce":actual["challenge_nonce"],
           "query_output_sha256":hashlib.sha256(actual_path.read_bytes()).hexdigest(),
           "session_user":actual["session_user"],"observed_at":actual["observed_at"]}
@@ -135,6 +137,7 @@ PY
 
 set +e
 wrong_target_output="$(docker exec -i "$CONTAINER" psql -X -qAt -v ON_ERROR_STOP=1 -U "$LOGIN" -d postgres \
+  -v "gcp06_challenge=$CHALLENGE" \
   -f /dev/stdin < "$ROOT_DIR/planning/gcp/sql_candidates/gcp06_candidate_data_verify_v1_v64.sql" 2>&1)"
 wrong_target_status=$?
 set -e
@@ -146,6 +149,7 @@ echo 'PASS: fixed query rejects a non-candidate database before reading applicat
 
 set +e
 denied_output="$(docker exec -i "$CONTAINER" psql -X -qAt -v ON_ERROR_STOP=1 -U gcp06_inspect_abcdef012345 \
+  -v "gcp06_challenge=$CHALLENGE" \
   -d espacigo_gcp06_candidate_20261020-gcp06a \
   -f /dev/stdin < "$ROOT_DIR/planning/gcp/sql_candidates/gcp06_candidate_data_verify_v1_v64.sql" 2>&1)"
 denied_status=$?

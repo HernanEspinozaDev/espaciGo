@@ -62,6 +62,7 @@ if ! gcloud sql instances describe "$INSTANCE" --project "$PROJECT" \
   exit 1
 fi
 chmod 0600 "$RESOURCE_JSON"
+RESOURCE_OBSERVED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%6NZ)"
 PORT="$(python3 - <<'PY'
 import socket
 s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()
@@ -94,10 +95,10 @@ PY
 fi
 chmod 0600 "$ACTUAL"
 
-python3 - "$RESOURCE_JSON" "$ACTUAL" "$EVIDENCE" "$CONNECTION_NAME" "$NONCE" <<'PY'
+python3 - "$RESOURCE_JSON" "$ACTUAL" "$EVIDENCE" "$CONNECTION_NAME" "$NONCE" "$RESOURCE_OBSERVED_AT" <<'PY'
 import hashlib,json,os,sys
 from pathlib import Path
-resource_path,actual_path,evidence_path,connection_name,nonce=sys.argv[1:]
+resource_path,actual_path,evidence_path,connection_name,nonce,resource_observed_at=sys.argv[1:]
 resource_raw=Path(resource_path).read_bytes()
 resource=json.loads(resource_raw)
 actual_raw=Path(actual_path).read_bytes()
@@ -108,6 +109,7 @@ evidence={
   'transport':'cloud_sql_auth_proxy',
   'proxy_connection_name':connection_name,
   'resource_snapshot_sha256':hashlib.sha256(resource_raw).hexdigest(),
+  'resource_observed_at':resource_observed_at,
   'challenge_nonce':nonce,
   'query_output_sha256':hashlib.sha256(actual_raw).hexdigest(),
   'session_user':actual.get('session_user'),

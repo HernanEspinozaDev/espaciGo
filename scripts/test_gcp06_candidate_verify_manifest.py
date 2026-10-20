@@ -89,6 +89,7 @@ class CandidateManifestVerificationTests(unittest.TestCase):
             "transport": "cloud_sql_auth_proxy",
             "proxy_connection_name": verifier.CONNECTION_NAME,
             "resource_snapshot_sha256": hashlib.sha256(self.resource_snapshot_path.read_bytes()).hexdigest(),
+            "resource_observed_at": "2026-10-20T12:34:50.000000Z",
             "challenge_nonce": self.actual["challenge_nonce"],
             "query_output_sha256": hashlib.sha256(self.actual_path.read_bytes()).hexdigest(),
             "session_user": self.actual["session_user"],
@@ -143,6 +144,13 @@ class CandidateManifestVerificationTests(unittest.TestCase):
         self.actual["challenge_nonce"] = "b" * 64
         self._write(self.actual_path, self.actual)
         with self.assertRaisesRegex(verifier.VerificationError, "target_evidence_mismatch"):
+            verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
+
+    def test_rejects_stale_resource_snapshot(self) -> None:
+        evidence = json.loads(self.target_evidence_path.read_text(encoding="utf-8"))
+        evidence["resource_observed_at"] = "2026-10-20T12:30:00.000000Z"
+        self._write(self.target_evidence_path, evidence)
+        with self.assertRaisesRegex(verifier.VerificationError, "target_evidence_stale"):
             verifier.verify(self.manifest_path, self.actual_path, self.target_evidence_path, self.resource_snapshot_path)
 
 
