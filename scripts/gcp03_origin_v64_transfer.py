@@ -529,7 +529,7 @@ class PsqlDatabase:
 def source_report_components() -> list[tuple[str, str]]:
     components = [
         ("database_identity", "SELECT jsonb_build_object('database',current_database(),'postgres_major',current_setting('server_version_num')::int / 10000)::text"),
-        ("source_table_access", "SELECT jsonb_build_object('source_table_access',jsonb_build_object('usuario_present',to_regclass('public.usuario') IS NOT NULL,'usuario_select_allowed',CASE WHEN to_regclass('public.usuario') IS NULL THEN false ELSE has_table_privilege(current_user,'public.usuario','SELECT') END))::text"),
+        ("source_table_access", "WITH targets AS (SELECT (SELECT c.oid FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='usuario' AND c.relkind IN ('r','p','v','m','f')) AS usuario_oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_schema_owner') AS schema_owner_oid) SELECT jsonb_build_object('source_table_access',jsonb_build_object('usuario_present',usuario_oid IS NOT NULL,'usuario_select_allowed',CASE WHEN usuario_oid IS NULL THEN false ELSE has_table_privilege(current_user,usuario_oid,'SELECT') END,'public_schema_usage_allowed',has_schema_privilege(current_user,'public','USAGE'),'schema_owner_role_present',schema_owner_oid IS NOT NULL,'schema_owner_member',CASE WHEN schema_owner_oid IS NULL THEN false ELSE pg_has_role(current_user,schema_owner_oid,'MEMBER') END,'schema_owner_set_allowed',CASE WHEN schema_owner_oid IS NULL THEN false ELSE pg_has_role(current_user,schema_owner_oid,'SET') END))::text FROM targets"),
         ("count_usuario", "SELECT jsonb_build_object('counts',jsonb_build_object('usuario',(SELECT count(*) FROM public.usuario)))::text"),
         ("count_espacio", "SELECT jsonb_build_object('counts',jsonb_build_object('espacio',(SELECT count(*) FROM public.espacio)))::text"),
         ("count_reserva", "SELECT jsonb_build_object('counts',jsonb_build_object('reserva',(SELECT count(*) FROM public.reserva)))::text"),
@@ -554,8 +554,12 @@ def source_report_script() -> str:
         if name == "source_table_access":
             lines.extend([
                 query + ";",
-                "DO $$ BEGIN IF to_regclass('public.usuario') IS NULL OR "
-                "NOT has_table_privilege(current_user,'public.usuario','SELECT') THEN "
+                "DO $$ DECLARE usuario_oid oid; BEGIN "
+                "SELECT c.oid INTO usuario_oid FROM pg_catalog.pg_class c "
+                "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+                "WHERE n.nspname='public' AND c.relname='usuario' AND c.relkind IN ('r','p','v','m','f'); "
+                "IF usuario_oid IS NULL OR NOT has_table_privilege(current_user,usuario_oid,'SELECT') OR "
+                "NOT has_schema_privilege(current_user,'public','USAGE') THEN "
                 "RAISE EXCEPTION 'source access precheck failed'; END IF; END $$;",
             ])
         else:
@@ -585,15 +589,21 @@ def failed_source_table_access(stdout: bytes) -> dict | None:
         except json.JSONDecodeError:
             return None
         access = report.get("source_table_access") if isinstance(report, dict) else None
-        if not isinstance(access, dict) or set(access) != {"usuario_present", "usuario_select_allowed"}:
+        expected_keys = {
+            "usuario_present", "usuario_select_allowed", "public_schema_usage_allowed",
+            "schema_owner_role_present", "schema_owner_member", "schema_owner_set_allowed",
+        }
+        if not isinstance(access, dict) or set(access) != expected_keys:
             return None
-        present = access["usuario_present"]
-        select_allowed = access["usuario_select_allowed"]
-        if type(present) is not bool or type(select_allowed) is not bool:
+        if any(type(value) is not bool for value in access.values()):
             return None
         return {
-            "source_table_present": present,
-            "source_table_select_allowed": select_allowed,
+            "source_table_present": access["usuario_present"],
+            "source_table_select_allowed": access["usuario_select_allowed"],
+            "source_public_schema_usage_allowed": access["public_schema_usage_allowed"],
+            "source_schema_owner_role_present": access["schema_owner_role_present"],
+            "source_schema_owner_member": access["schema_owner_member"],
+            "source_schema_owner_set_allowed": access["schema_owner_set_allowed"],
         }
     return None
 

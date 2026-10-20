@@ -84,6 +84,7 @@ CREATE TABLE public.comuna_publica(id integer);
 CREATE TABLE public.region_publica(id integer);
 CREATE TABLE public.version_terminos(id integer);
 INSERT INTO public.usuario VALUES (1);
+REVOKE USAGE ON SCHEMA public FROM PUBLIC;
 SQL
 
 set +e
@@ -110,11 +111,50 @@ assert failed_source_report_component(stdout) == "source_table_access"
 assert failed_source_table_access(stdout) == {
     "source_table_present": True,
     "source_table_select_allowed": False,
+    "source_public_schema_usage_allowed": False,
+    "source_schema_owner_role_present": False,
+    "source_schema_owner_member": False,
+    "source_schema_owner_set_allowed": False,
 }
-print('Missing SELECT is reported as table-present/select-false before count; no raw SQL or error is emitted.')
+print('Missing SELECT/USAGE and absent owner role are reported as booleans before count.')
 PY
 
-psql_local -U postgres -d espacigo_scratch -c 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO g03o_report_login' >/dev/null
+psql_local -U postgres -d espacigo_scratch <<'SQL' >/dev/null
+CREATE ROLE espacigo_schema_owner NOLOGIN;
+GRANT espacigo_schema_owner TO g03o_report_login WITH ADMIN FALSE, INHERIT FALSE, SET FALSE;
+SQL
+set +e
+python3 - "$ROOT_DIR" <<'PY' | compose exec -T postgres psql -X -qAt --set=ON_ERROR_STOP=1 --set=VERBOSITY=sqlstate -U g03o_report_login -d espacigo_scratch -f - > "$TMP_DIR/member.stdout" 2> "$TMP_DIR/member.stderr"
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
+from gcp03_origin_v64_transfer import source_report_script
+sys.stdout.write(source_report_script())
+PY
+member_status=$?
+set -e
+[[ "$member_status" == 3 ]] || { echo "Expected missing access to stop before count after membership setup; exit=$member_status" >&2; exit 1; }
+python3 - "$ROOT_DIR" "$TMP_DIR/member.stdout" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
+from gcp03_origin_v64_transfer import failed_source_table_access
+assert failed_source_table_access(Path(sys.argv[2]).read_bytes()) == {
+    "source_table_present": True,
+    "source_table_select_allowed": False,
+    "source_public_schema_usage_allowed": False,
+    "source_schema_owner_role_present": True,
+    "source_schema_owner_member": True,
+    "source_schema_owner_set_allowed": False,
+}
+print('PostgreSQL 18 distinguishes owner role membership from SET ROLE permission.')
+PY
+
+psql_local -U postgres -d espacigo_scratch <<'SQL' >/dev/null
+GRANT espacigo_schema_owner TO g03o_report_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+GRANT USAGE ON SCHEMA public TO PUBLIC;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO g03o_report_login;
+SQL
 python3 - "$ROOT_DIR" <<'PY' | compose exec -T postgres psql -X -qAt --set=ON_ERROR_STOP=1 --set=VERBOSITY=sqlstate -U g03o_report_login -d espacigo_scratch -f - > "$TMP_DIR/allowed.stdout" 2> "$TMP_DIR/allowed.stderr"
 import sys
 from pathlib import Path
@@ -128,9 +168,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]) / "scripts"))
 from gcp03_origin_v64_transfer import parse_source_report_output
 report = parse_source_report_output(Path(sys.argv[2]).read_bytes())
-assert report['source_table_access'] == {'usuario_present': True, 'usuario_select_allowed': True}
+assert report['source_table_access'] == {
+    'usuario_present': True,
+    'usuario_select_allowed': True,
+    'public_schema_usage_allowed': True,
+    'schema_owner_role_present': True,
+    'schema_owner_member': True,
+    'schema_owner_set_allowed': True,
+}
 assert report['counts']['usuario'] == 1 and report['report_complete'] is True
-print('With the fixture-only SELECT grant, the report passes the guard and completes.')
+print('With fixture-only schema usage, SET ROLE membership, and SELECT, the report passes and completes.')
 PY
 
 compose down --volumes --remove-orphans >/dev/null
