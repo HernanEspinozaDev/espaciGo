@@ -77,6 +77,13 @@ SQLSTATE_CATEGORIES = {
     "58": "system",
     "XX": "internal",
 }
+SOURCE_REPORT_MARKER = "__G03O_V64_REPORT_COMPONENT__"
+SOURCE_REPORT_COMPONENTS = frozenset({
+    "database_identity", "count_usuario", "count_espacio", "count_reserva",
+    "migration_history", *(f"seed_{name}" for name in SEED_TABLES),
+    "external_sessions", "report_complete",
+})
+REPORT_COMPONENTS = SOURCE_REPORT_COMPONENTS | {"target_report"}
 
 
 def sqlstate_category(stderr: bytes) -> str | None:
@@ -421,7 +428,7 @@ class PsqlDatabase:
         except OSError:
             pass
 
-    def _query(self, sql: str) -> str:
+    def _query(self, sql: str, *, diagnostic_step: str | None = None) -> str:
         query = sql if self.database == SOURCE_DB else "SET ROLE espacigo_schema_owner; " + sql
         proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1", "--set=VERBOSITY=sqlstate", "-h", "127.0.0.1",
             "-p", str(self.port), "-U", self.user, "-d", self.database, "-c", query],
@@ -429,6 +436,8 @@ class PsqlDatabase:
         if proc.returncode:
             endpoint = "source" if self.database == SOURCE_DB else "target"
             safe_details = {"database_endpoint": endpoint}
+            if diagnostic_step in REPORT_COMPONENTS:
+                safe_details["report_component"] = diagnostic_step
             category = sqlstate_category(proc.stderr or b"")
             if category is not None:
                 safe_details["sqlstate_category"] = category
@@ -436,7 +445,24 @@ class PsqlDatabase:
         return proc.stdout.decode("utf-8", "strict").strip()
 
     def report(self) -> dict:
-        raw = self._query(report_sql(self.database))
+        if self.database == SOURCE_DB:
+            script = source_report_script()
+            proc = subprocess.run([self.psql, "-X", "-qAt", "--set=ON_ERROR_STOP=1",
+                "--set=VERBOSITY=sqlstate", "-h", "127.0.0.1", "-p", str(self.port),
+                "-U", self.user, "-d", self.database, "-f", "-"], env=self.env,
+                input=script.encode("utf-8"), stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            if proc.returncode:
+                safe_details = {"database_endpoint": "source"}
+                component = failed_source_report_component(proc.stdout or b"")
+                if component is not None:
+                    safe_details["report_component"] = component
+                category = sqlstate_category(proc.stderr or b"")
+                if category is not None:
+                    safe_details["sqlstate_category"] = category
+                raise TransferStopped("DATABASE_PREFLIGHT_QUERY_FAILED", "preflight", safe_details=safe_details)
+            return parse_source_report_output(proc.stdout)
+
+        raw = self._query(report_sql(self.database), diagnostic_step="target_report")
         try:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -473,11 +499,75 @@ class PsqlDatabase:
             raise TransferStopped("TARGET_DATA_TRANSACTION_FAILED", "database_transaction")
 
 
+def source_report_components() -> list[tuple[str, str]]:
+    components = [
+        ("database_identity", "SELECT jsonb_build_object('database',current_database(),'postgres_major',current_setting('server_version_num')::int / 10000)::text"),
+        ("count_usuario", "SELECT jsonb_build_object('counts',jsonb_build_object('usuario',(SELECT count(*) FROM public.usuario)))::text"),
+        ("count_espacio", "SELECT jsonb_build_object('counts',jsonb_build_object('espacio',(SELECT count(*) FROM public.espacio)))::text"),
+        ("count_reserva", "SELECT jsonb_build_object('counts',jsonb_build_object('reserva',(SELECT count(*) FROM public.reserva)))::text"),
+        ("migration_history", "SELECT jsonb_build_object('migration_history',(SELECT jsonb_agg(jsonb_build_object('version',version,'name',name,'checksum',checksum,'runner_checksum',runner_checksum,'applied_at',applied_at) ORDER BY version) FROM public.schema_migrations))::text"),
+    ]
+    for table in SEED_TABLES:
+        components.append((f"seed_{table}",
+            "SELECT jsonb_build_object('seed_fingerprints',jsonb_build_object('" + table + "',"
+            "md5(COALESCE(string_agg(to_jsonb(t)::text,E'\\n' ORDER BY to_jsonb(t)::text),''))))::text "
+            f"FROM public.{table} AS t"))
+    components.extend([
+        ("external_sessions", "SELECT jsonb_build_object('external_sessions',(SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()))::text"),
+        ("report_complete", "SELECT jsonb_build_object('report_complete',true)::text"),
+    ])
+    return components
+
+
+def source_report_script() -> str:
+    return "BEGIN READ ONLY;\n" + "\n".join(
+        f"\\echo {SOURCE_REPORT_MARKER}{name}\n{query};"
+        for name, query in source_report_components()) + "\nCOMMIT;\n"
+
+
+def failed_source_report_component(stdout: bytes) -> str | None:
+    marker = (SOURCE_REPORT_MARKER + "").encode("ascii")
+    component = None
+    for line in stdout.splitlines():
+        if line.startswith(marker):
+            candidate = line[len(marker):].decode("ascii", "ignore")
+            component = candidate if candidate in SOURCE_REPORT_COMPONENTS else None
+    return component
+
+
+def parse_source_report_output(stdout: bytes) -> dict:
+    report: dict = {}
+    active_component = None
+    for line in stdout.decode("utf-8", "strict").splitlines():
+        if line.startswith(SOURCE_REPORT_MARKER):
+            active_component = line[len(SOURCE_REPORT_MARKER):]
+            if active_component not in SOURCE_REPORT_COMPONENTS:
+                raise TransferStopped("DATABASE_REPORT_INVALID", "preflight")
+            continue
+        if active_component is None:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise TransferStopped("DATABASE_REPORT_INVALID", "preflight") from exc
+        if not isinstance(value, dict):
+            raise TransferStopped("DATABASE_REPORT_INVALID", "preflight")
+        for key, nested in value.items():
+            if key in {"counts", "seed_fingerprints"}:
+                report.setdefault(key, {}).update(nested)
+            else:
+                report[key] = nested
+        active_component = None
+    if report.get("report_complete") is not True:
+        raise TransferStopped("DATABASE_REPORT_INVALID", "preflight")
+    return report
+
+
 def report_sql(database: str) -> str:
-    extra = ""
-    if database == TARGET_DB:
-        excluded = ",".join("'" + name.replace("'", "''") + "'" for name in (*SEED_TABLES, "schema_migrations", "spatial_ref_sys"))
-        extra = f"""
+    if database != TARGET_DB:
+        raise ValueError("report_sql is reserved for the target endpoint")
+    excluded = ",".join("'" + name.replace("'", "''") + "'" for name in (*SEED_TABLES, "schema_migrations", "spatial_ref_sys"))
+    extra = f"""
       'nonseed_application_rows', (SELECT COALESCE(sum(row_count),0) FROM (
         SELECT ((xpath('/table/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I.%I',n.nspname,c.relname),false,true,'')))[1]::text)::bigint AS row_count
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -485,14 +575,6 @@ def report_sql(database: str) -> str:
       'schema_migrations_unchanged', (SELECT count(*)=64 FROM public.schema_migrations),
       'transfer_role_ready', (SELECT EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles u ON u.oid=m.member WHERE r.rolname='espacigo_schema_owner' AND u.rolname=session_user AND m.set_option AND NOT m.admin_option AND NOT m.inherit_option)),
       'runtime_role_login', (SELECT rolcanlogin FROM pg_roles WHERE rolname='espacigo_runtime'),
-      'external_sessions', (SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()),
-"""
-    else:
-        extra = """
-      'nonseed_application_rows', 0,
-      'schema_migrations_unchanged', true,
-      'transfer_role_ready', true,
-      'runtime_role_login', false,
       'external_sessions', (SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid()),
 """
     seed_union = " UNION ALL ".join(

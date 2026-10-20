@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import json
 import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from gcp03_origin_v64_transfer import GCSFiles, PsqlDatabase, TransferStopped
+from gcp03_origin_v64_transfer import (
+    GCSFiles, PsqlDatabase, SOURCE_REPORT_MARKER, TransferStopped,
+    source_report_components,
+)
 
 
 class Blob:
@@ -115,7 +119,7 @@ class DestinationInventoryTests(unittest.TestCase):
 
 
 class DatabasePreflightDiagnosticTests(unittest.TestCase):
-    def run_report_failure(self, database: str, stderr: bytes):
+    def run_report_failure(self, database: str, stderr: bytes, stdout: bytes = b""):
         with tempfile.TemporaryDirectory() as directory:
             password_path = Path(directory) / "db-password"
             password_path.write_text("synthetic-password\n")
@@ -125,7 +129,7 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                 password_file=password_path, port=5432 if source else 5433)
             try:
                 with patch("gcp03_origin_v64_transfer.subprocess.run",
-                    return_value=SimpleNamespace(returncode=2, stdout=b"", stderr=stderr)) as run:
+                    return_value=SimpleNamespace(returncode=2, stdout=stdout, stderr=stderr)) as run:
                     with self.assertRaises(TransferStopped) as error:
                         db.report()
                 command = run.call_args.args[0]
@@ -136,12 +140,14 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
                 db.close()
 
     def test_source_report_failure_exposes_only_endpoint_and_category(self):
-        error = self.run_report_failure("espacigo_scratch", b"ERROR:  42501\n")
+        marker = f"{SOURCE_REPORT_MARKER}database_identity\n".encode()
+        error = self.run_report_failure("espacigo_scratch", b"ERROR:  42501\n", marker)
 
         self.assertEqual(error.code, "DATABASE_PREFLIGHT_QUERY_FAILED")
         self.assertEqual(error.stage, "preflight")
         self.assertEqual(error.safe_details, {
             "database_endpoint": "source",
+            "report_component": "database_identity",
             "sqlstate_category": "query_or_privilege",
         })
         self.assertNotIn("42501", repr(error.safe_details))
@@ -152,13 +158,67 @@ class DatabasePreflightDiagnosticTests(unittest.TestCase):
 
         self.assertEqual(error.safe_details, {
             "database_endpoint": "target",
+            "report_component": "target_report",
             "sqlstate_category": "authentication",
         })
 
     def test_failure_without_sqlstate_keeps_endpoint_only(self):
         error = self.run_report_failure("espacigo", b"psql: connection reset\n")
 
-        self.assertEqual(error.safe_details, {"database_endpoint": "target"})
+        self.assertEqual(error.safe_details, {
+            "database_endpoint": "target",
+            "report_component": "target_report",
+        })
+
+    def test_source_report_marks_failing_component_in_one_read_only_snapshot(self):
+        stdout = []
+        for name, _ in source_report_components():
+            if name == "database_identity":
+                value = {"database": "espacigo_scratch", "postgres_major": 18}
+            elif name.startswith("count_"):
+                value = {"counts": {name.removeprefix("count_"): 1}}
+            elif name == "migration_history":
+                value = {"migration_history": []}
+            elif name.startswith("seed_"):
+                value = {"seed_fingerprints": {name.removeprefix("seed_"): "a" * 32}}
+            elif name == "external_sessions":
+                value = {"external_sessions": 0}
+            else:
+                value = {"report_complete": True}
+            stdout.extend([f"{SOURCE_REPORT_MARKER}{name}", json.dumps(value)])
+        completed = SimpleNamespace(returncode=0, stdout=("\n".join(stdout) + "\n").encode(), stderr=b"")
+
+        with tempfile.TemporaryDirectory() as directory:
+            password_path = Path(directory) / "db-password"
+            password_path.write_text("synthetic-password\n")
+            os.chmod(password_path, 0o600)
+            db = PsqlDatabase(database="espacigo_scratch", user="postgres",
+                password_file=password_path, port=5432)
+            try:
+                with patch("gcp03_origin_v64_transfer.subprocess.run", return_value=completed) as run:
+                    report = db.report()
+                script = run.call_args.kwargs["input"].decode()
+                self.assertTrue(script.startswith("BEGIN READ ONLY;"))
+                self.assertTrue(script.rstrip().endswith("COMMIT;"))
+                self.assertIn(f"{SOURCE_REPORT_MARKER}count_usuario", script)
+                self.assertEqual(report["counts"], {"usuario": 1, "espacio": 1, "reserva": 1})
+                self.assertEqual(report["external_sessions"], 0)
+                self.assertTrue(report["report_complete"])
+            finally:
+                db.close()
+
+    def test_source_report_failure_identifies_later_component_without_echoing_error(self):
+        stdout = (f"{SOURCE_REPORT_MARKER}database_identity\n"
+            '{"database":"espacigo_scratch","postgres_major":18}\n'
+            f"{SOURCE_REPORT_MARKER}count_usuario\n").encode()
+        error = self.run_report_failure("espacigo_scratch", b"ERROR:  42501\nprivate SQL and row data", stdout)
+
+        self.assertEqual(error.safe_details, {
+            "database_endpoint": "source",
+            "report_component": "count_usuario",
+            "sqlstate_category": "query_or_privilege",
+        })
+        self.assertNotIn("private SQL", repr(error.safe_details))
 
 
 if __name__ == "__main__":
