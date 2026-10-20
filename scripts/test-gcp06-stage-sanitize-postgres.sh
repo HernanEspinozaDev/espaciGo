@@ -193,17 +193,20 @@ SQL
 EXPORT_ID="e2e-$(date -u +%Y%m%d%H%M%S)-$$"
 EXPORT_DIR=".local/testing/gcp06-stage-$EXPORT_ID"
 psql_local -U postgres -d espacigo_local -c 'CREATE TABLE public.private_identifier_must_not_leak(id bigint)' >/dev/null
+psql_local -U postgres -d espacigo_local -c "CREATE SCHEMA private_schema_marker_must_not_leak; CREATE TYPE private_schema_marker_must_not_leak.private_type_marker_must_not_leak AS ENUM ('fixture_value_marker_must_not_leak')" >/dev/null
 MISMATCH_ID="drift-$(date -u +%Y%m%d%H%M%S)-$$"
 MISMATCH_DIR=".local/testing/gcp06-stage-$MISMATCH_ID"
 if GCP06_SOURCE_CONTAINER="$CONTAINER" GCP06_SOURCE_DATABASE_USER=postgres \
   bash "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$MISMATCH_DIR" >"$TMP_DIR/inventory.out" 2>"$TMP_DIR/inventory.err"; then
   echo 'Catalog inventory mismatch was not rejected.' >&2; exit 1
 fi
-grep -q 'catalog relation inventory mismatch' "$TMP_DIR/inventory.err" || { cat "$TMP_DIR/inventory.err" >&2; exit 1; }
-grep -q 'source_only=1' "$TMP_DIR/inventory.err"
-! grep -q 'private_identifier_must_not_leak' "$TMP_DIR/inventory.err"
-! grep -q 'opaque-local-verifier\|@dataset.invalid\|@local.invalid' "$TMP_DIR/inventory.err"
+grep -q 'catalog inventory mismatch or invalid' "$TMP_DIR/inventory.err" || { cat "$TMP_DIR/inventory.out" "$TMP_DIR/inventory.err" >&2; exit 1; }
+grep -q '"relation/r"' "$TMP_DIR/inventory.out"
+grep -q '"type/e"' "$TMP_DIR/inventory.out"
+! grep -q 'private_identifier_must_not_leak\|private_schema_marker_must_not_leak\|private_type_marker_must_not_leak\|fixture_value_marker_must_not_leak' "$TMP_DIR/inventory.out" "$TMP_DIR/inventory.err"
+! grep -q 'opaque-local-verifier\|@dataset.invalid\|@local.invalid' "$TMP_DIR/inventory.out" "$TMP_DIR/inventory.err"
 psql_local -U postgres -d espacigo_local -c 'DROP TABLE public.private_identifier_must_not_leak' >/dev/null
+psql_local -U postgres -d espacigo_local -c 'DROP SCHEMA private_schema_marker_must_not_leak CASCADE' >/dev/null 2>&1
 echo 'PASS: catalog drift preflight reports aggregate counts/digests and suppresses source identifiers and row data'
 GCP06_SOURCE_CONTAINER="$CONTAINER" GCP06_SOURCE_DATABASE_USER=postgres \
   bash "$ROOT_DIR/scripts/gcp06-local-stage-export.sh" "$EXPORT_DIR" >/dev/null

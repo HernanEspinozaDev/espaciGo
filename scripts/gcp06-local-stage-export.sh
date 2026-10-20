@@ -77,12 +77,47 @@ if any(type(report.get(key)) is not int for key in ('users','spaces','bookings')
     raise SystemExit('source row-count preflight was incomplete')
 PY
 
-# Compare only catalog relation identities before opening the data stream. The
-# query emits schema/name/kind (never rows or column values); the report keeps
-# only counts and digests so unexpected source identifiers cannot escape.
-relation_inventory() {
-  docker exec "$1" psql -X -qAt -U "$2" -d "$3" -c \
-    "BEGIN READ ONLY; SELECT n.nspname || '.' || c.relname || ':' || c.relkind::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p','S','f') ORDER BY 1; COMMIT;" 2>/dev/null
+# Compare private catalog inventories before opening the data stream. The
+# inventory covers every non-system schema plus relations, constraints,
+# domains/enums, routines, user triggers, collations, and extension versions.
+# Names stay only in private 0600 temp files; the comparer emits aggregate
+# classes/counts/digests without identifiers or row/column values.
+catalog_inventory() {
+  local container="$1" user="$2" database="$3" output="$4"
+  docker exec "$container" psql -X -qAt -U "$user" -d "$database" -c \
+    "BEGIN READ ONLY;
+     SELECT json_build_array(kind, identity)::text FROM (
+       SELECT 'relation/' || c.relkind::text AS kind, n.nspname || '.' || c.relname AS identity
+         FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
+       UNION ALL
+       SELECT 'constraint/' || co.contype::text, n.nspname || '.' || r.relname || '.' || co.conname
+         FROM pg_catalog.pg_constraint co JOIN pg_catalog.pg_class r ON r.oid=co.conrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid=r.relnamespace
+        WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
+       UNION ALL
+       SELECT 'type/' || t.typtype::text, n.nspname || '.' || t.typname
+         FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace
+        WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_' AND t.typtype IN ('d','e','r','m')
+       UNION ALL
+       SELECT 'routine/' || p.prokind::text, n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')'
+         FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
+       UNION ALL
+       SELECT 'trigger', n.nspname || '.' || r.relname || '.' || t.tgname
+         FROM pg_catalog.pg_trigger t JOIN pg_catalog.pg_class r ON r.oid=t.tgrelid
+         JOIN pg_catalog.pg_namespace n ON n.oid=r.relnamespace
+        WHERE NOT t.tgisinternal AND n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
+       UNION ALL
+       SELECT 'collation', n.nspname || '.' || c.collname
+         FROM pg_catalog.pg_collation c JOIN pg_catalog.pg_namespace n ON n.oid=c.collnamespace
+        WHERE c.collencoding=-1 AND n.nspname <> 'information_schema' AND n.nspname !~ '^pg_'
+       UNION ALL
+       SELECT 'extension/' || e.extversion, e.extname || '@' || n.nspname
+         FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n ON n.oid=e.extnamespace
+     ) inventory ORDER BY kind, identity;
+     COMMIT;" > "$output" 2>/dev/null
+  chmod 0600 "$output"
 }
 
 for version in $(seq -w 1 64); do
@@ -112,22 +147,17 @@ docker cp "$TMP_DIR/." "$CONTAINER:/tmp/migrations-v64/" >/dev/null
 docker exec -e DATABASE_URL="postgres://postgres@localhost:5432/$STAGE_DB?sslmode=disable" \
   "$CONTAINER" /tmp/dbmigrate -dir /tmp/migrations-v61 >/dev/null
 
-source_inventory="$(relation_inventory "$SOURCE_CONTAINER" "$SOURCE_USER" "$SOURCE_DB" || true)"
-stage_inventory="$(relation_inventory "$CONTAINER" postgres "$STAGE_DB" || true)"
-python3 - "$source_inventory" "$stage_inventory" <<'PY'
-import hashlib,sys
-source,stage=(set(x for x in arg.splitlines() if x) for arg in sys.argv[1:])
-if not source or not stage:
-    raise SystemExit('catalog relation inventory unavailable; no source rows were streamed')
-missing=stage-source
-extra=source-stage
-def digest(items):
-    return hashlib.sha256(('\n'.join(sorted(items))+'\n').encode()).hexdigest()
-if missing or extra:
-    print(f"catalog relation inventory mismatch (source_count={len(source)} stage_count={len(stage)} source_only={len(extra)} stage_only={len(missing)} source_sha256={digest(source)} stage_sha256={digest(stage)}); identifiers and row data suppressed",file=sys.stderr)
-    raise SystemExit(1)
-print(f"catalog relation inventory matched (relations={len(source)} sha256={digest(source)})")
-PY
+catalog_inventory "$SOURCE_CONTAINER" "$SOURCE_USER" "$SOURCE_DB" "$TMP_DIR/source-catalog.jsonl" || {
+  echo 'source catalog inventory unavailable; no source rows were streamed' >&2; exit 1;
+}
+catalog_inventory "$CONTAINER" postgres "$STAGE_DB" "$TMP_DIR/stage-catalog.jsonl" || {
+  echo 'staging catalog inventory unavailable; no source rows were streamed' >&2; exit 1;
+}
+if ! python3 "$ROOT_DIR/scripts/gcp06-compare-catalog-inventories.py" \
+  "$TMP_DIR/source-catalog.jsonl" "$TMP_DIR/stage-catalog.jsonl"; then
+  echo 'catalog inventory mismatch or invalid; no source rows were streamed; identifiers and row data suppressed' >&2
+  exit 1
+fi
 
 # The raw snapshot streams directly from the unchanged source container to the
 # disposable staging container. No unredacted dump is written to host storage.
