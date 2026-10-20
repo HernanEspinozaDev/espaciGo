@@ -1,6 +1,8 @@
 # G03O g03o-1017 → primary V64 transfer
 
-**Estado del corte:** implementación local preparada para revisión; sin imagen publicada, backend remoto inicializado, plan activo, IAM aplicado ni ejecución Cloud. El PR contiene un Job default-off y un ejecutor de una sola operación. La transferencia requiere una liberación de ejecución separada.
+**Estado del paquete inicial:** implementación local preparada para revisión; en esa etapa no se había publicado imagen, inicializado backend remoto, aplicado IAM ni ejecutado Cloud. El PR contiene un Job default-off y un ejecutor de una sola operación. La transferencia requiere una liberación de ejecución separada.
+
+**Actualización del preflight (2026-10-20):** el Job Cloud Run `espacigo-g03o-v64-transfer-22msr` llegó a levantar ambos proxies privados y terminó con `DATABASE_PREFLIGHT_QUERY_FAILED`, `transaction_outcome=not_started`. No ocurrió transferencia ni se inició una transacción. El runner ocultaba stderr y no identificaba cuál `report()` falló. La corrección local agrega solo `database_endpoint` (`source`/`target`) y una categoría SQLSTATE allowlisted cuando psql la devuelve en modo `VERBOSITY=sqlstate`; stderr se captura y nunca se imprime ni persiste. No se incluyen texto de error, SQL, filas, valores SQLSTATE ni secretos.
 
 Este corte no equivale a aceptación de producto, finalización de GCP-06 ni autorización para producción, personas/proveedores/fondos reales o despliegues.
 
@@ -28,4 +30,10 @@ Si el estado de la transacción no se puede probar, la API permanece pausada y n
 - `terraform validate` pasó para ambas raíces, tras `init -backend=false` en directorios temporales.
 - `git diff --check`: pasó.
 
-No se ejecutaron el build de imagen, harness de bases, plan remoto/activo, apply, Cloud Run Job, consulta SQL remota ni cambios a Cloud SQL, Cloud Run o Secret Manager. La validación local no acredita que las instancias, identidades, versiones de secreto, artefactos o costos sigan vigentes. El siguiente gate es revisión del PR y, después, una liberación de ejecución independiente con nuevas lecturas de estado y costo.
+En esa validación local inicial no se ejecutaron el build de imagen, harness de bases, plan remoto/activo, apply, Cloud Run Job, consulta SQL remota ni cambios a Cloud SQL, Cloud Run o Secret Manager. La validación local no acredita que las instancias, identidades, versiones de secreto, artefactos o costos sigan vigentes. El siguiente gate era revisión del PR y, después, una liberación de ejecución independiente con nuevas lecturas de estado y costo.
+
+### Diagnóstico del preflight e imagen local (2026-10-20)
+
+Las pruebas unitarias focalizadas ahora cubren fallos SQLSTATE en los dos endpoints y errores de conexión sin SQLSTATE. El reporte diferencia `source` de `target` y reduce los códigos reconocidos a categorías amplias; no propaga el stderr, el SQLSTATE literal ni el mensaje de PostgreSQL. Se ejecutaron cinco pruebas del módulo de transferencia y `py_compile`; pasaron.
+
+Se construyó localmente una imagen OCI Linux/amd64 desde el Dockerfile de este corte. Digest de manifiesto OCI local: `sha256:8b2aa88e92daa7c3b12af869e5eda9665101c14d2c91df83fc84e752df761398`; SHA-256 del archivo OCI: `1f8d8ad851342f373dbd3442e45b4b2009be9077c4a9842abaee9e2cc94d6688` (260.938.752 bytes). El artefacto está solo en `.local/testing/g03o-1017-preflight-diagnostic-20261020/` y no se publicó en Artifact Registry; este digest no acredita una referencia remota. No se actualizó el Job Cloud Run ni se repitió la ejecución. Publicación de imagen y aplicación de un digest nuevo requieren el flujo de release revisado por separado.

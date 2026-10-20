@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
-from gcp03_origin_v64_transfer import GCSFiles, TransferStopped
+from gcp03_origin_v64_transfer import GCSFiles, PsqlDatabase, TransferStopped
 
 
 class Blob:
@@ -106,6 +112,53 @@ class DestinationInventoryTests(unittest.TestCase):
         self.assertEqual(files.target.existing.generation, 42)
         self.assertEqual(files.target.existing.persisted_metadata["transfer_id"], "prior-invocation")
         self.assertEqual(files.target.existing.delete_calls, [])
+
+
+class DatabasePreflightDiagnosticTests(unittest.TestCase):
+    def run_report_failure(self, database: str, stderr: bytes):
+        with tempfile.TemporaryDirectory() as directory:
+            password_path = Path(directory) / "db-password"
+            password_path.write_text("synthetic-password\n")
+            os.chmod(password_path, 0o600)
+            source = database == "espacigo_scratch"
+            db = PsqlDatabase(database=database, user="postgres" if source else "espacigo_migrator_login",
+                password_file=password_path, port=5432 if source else 5433)
+            try:
+                with patch("gcp03_origin_v64_transfer.subprocess.run",
+                    return_value=SimpleNamespace(returncode=2, stdout=b"", stderr=stderr)) as run:
+                    with self.assertRaises(TransferStopped) as error:
+                        db.report()
+                command = run.call_args.args[0]
+                self.assertIn("--set=VERBOSITY=sqlstate", command)
+                self.assertEqual(run.call_args.kwargs["stderr"], subprocess.PIPE)
+                return error.exception
+            finally:
+                db.close()
+
+    def test_source_report_failure_exposes_only_endpoint_and_category(self):
+        error = self.run_report_failure("espacigo_scratch", b"ERROR:  42501\n")
+
+        self.assertEqual(error.code, "DATABASE_PREFLIGHT_QUERY_FAILED")
+        self.assertEqual(error.stage, "preflight")
+        self.assertEqual(error.safe_details, {
+            "database_endpoint": "source",
+            "sqlstate_category": "query_or_privilege",
+        })
+        self.assertNotIn("42501", repr(error.safe_details))
+        self.assertNotIn("synthetic-password", repr(error.safe_details))
+
+    def test_target_report_failure_exposes_endpoint_and_auth_category(self):
+        error = self.run_report_failure("espacigo", b"ERROR:  28P01\n")
+
+        self.assertEqual(error.safe_details, {
+            "database_endpoint": "target",
+            "sqlstate_category": "authentication",
+        })
+
+    def test_failure_without_sqlstate_keeps_endpoint_only(self):
+        error = self.run_report_failure("espacigo", b"psql: connection reset\n")
+
+        self.assertEqual(error.safe_details, {"database_endpoint": "target"})
 
 
 if __name__ == "__main__":
