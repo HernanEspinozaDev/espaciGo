@@ -22,10 +22,11 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 7)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 7)
-        self.assertEqual({operation for _, operation, _ in PROBES}, {"describe", "get-iam-policy", "list"})
-        self.assertEqual({service for _, _, service in PROBES if service is not None}, {
+        self.assertEqual(len(PROBES), 8)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 8)
+        self.assertEqual({operation for _, operation, _ in PROBES}, {"describe", "get-iam-policy", "list", "iap-get-iam-policy"})
+        self.assertEqual({service for _, operation, service in PROBES
+                          if service is not None and operation != "iap-get-iam-policy"}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
         for target, operation, service in PROBES:
@@ -43,7 +44,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 )
                 with self.assertRaises(ValueError):
                     build_gcloud_command(target)
-            else:
+            elif operation == "get-iam-policy":
                 command = build_gcloud_command(target)
                 self.assertEqual(command[:4], ["gcloud", "run", "services", "get-iam-policy"])
                 self.assertEqual(command[4], service)
@@ -53,6 +54,9 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("list", command)
                 self.assertNotIn("set-iam-policy", command)
                 self.assertNotIn("--log-http", command)
+            else:
+                self.assertEqual(target, "cloud_run_service.private.iap_get_iam_policy")
+                self.assertEqual(service, "private")
 
     def test_services_list_rest_probe_emits_only_permission_metadata(self):
         token = "private-short-lived-token"
@@ -245,6 +249,65 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertNotIn(marker, output.getvalue())
         self.assertNotIn("token-hidden", output.getvalue())
 
+    def test_iap_cloud_run_policy_probe_uses_post_and_emits_only_allowlisted_fields(self):
+        marker = "private-resource-and-message"
+        payload = {"error": {"code": 403, "status": "PERMISSION_DENIED", "details": [{
+            "reason": "IAM_PERMISSION_DENIED", "domain": "iap.googleapis.com",
+            "metadata": {"permission": "iap.webServices.getIamPolicy", "resource": marker},
+        }]}}
+        observed = {}
+
+        def token_runner(command, **_kwargs):
+            observed["token_command"] = command
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["body"] = request.data
+                observed["authorization"] = request.get_header("Authorization")
+                return urllib.error.HTTPError(
+                    request.full_url, 403, "Forbidden", {},
+                    io.BytesIO(json.dumps(payload).encode()),
+                )
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertFalse(run_probe(
+                    "cloud_run_service.private.iap_get_iam_policy", root,
+                    runner=token_runner, opener_factory=lambda *_: FakeOpener(),
+                    project_number="447373903153", private_service_name="espacigo-test-private",
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+        self.assertEqual(observed["method"], "POST")
+        self.assertEqual(observed["body"], b"{}")
+        self.assertEqual(observed["url"], "https://iap.googleapis.com/v1/projects/447373903153/"
+                         "iap_web/cloud_run-southamerica-west1/services/espacigo-test-private:getIamPolicy")
+        self.assertEqual(observed["authorization"], "Bearer token-hidden")
+        emitted = output.getvalue().strip()
+        self.assertEqual(emitted, "GCP08_CLOUD_RUN_PROBE stage=bootstrap "
+                         "target=cloud_run_service.private.iap_get_iam_policy "
+                         "category=permission_denied status=403 permission="
+                         "iap.webServices.getIamPolicy service=iap.googleapis.com")
+        self.assertNotIn(marker, emitted)
+        self.assertNotIn("token-hidden", emitted)
+
+    def test_iap_probe_rejects_unvalidated_resource_parameters_before_auth(self):
+        runner = Mock()
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertFalse(run_probe(
+                    "cloud_run_service.private.iap_get_iam_policy", root, runner=runner,
+                    project_number="project-number", private_service_name="private/service",
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+        runner.assert_not_called()
+        self.assertIn("category=other", output.getvalue())
+
     def test_errorinfo_permission_uses_exact_cloud_run_allowlist(self):
         def fields(permission):
             payload = {"error": {"code": 403, "details": [{
@@ -396,6 +459,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         block_start = workflow.rfind("if [[ \"$POLICY_MODE\" == bootstrap ]]", 0, start)
         self.assertGreater(block_start, workflow.index("terraform plan -input=false"))
         self.assertIn("inputs.operation == 'initial-restore'", workflow[setup:rollout])
+        self.assertIn("gcp08_bootstrap_refresh_diagnostics.py", workflow[block_start:start])
+        self.assertIn('--var-file "$GCP07D_TFVARS"', workflow[start:start + 250])
         self.assertNotRegex(workflow[start:start + 300], r"gcloud\s+run\s+services\s+list|--log-http")
 
 
