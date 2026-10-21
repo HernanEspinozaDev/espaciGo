@@ -106,6 +106,8 @@ def initial_resource(address, image):
 def bootstrap_iam_resource(address, expected):
     name, role, member = expected
     after = {"role": role, "member": member, **initial_iam_scope(address, name)}
+    if address.startswith("google_iap_web_cloud_run_service_iam_member."):
+        after["condition"] = []
     return {"address": address, "change": {"actions": ["create"], "before": None, "after": after}}
 
 
@@ -279,6 +281,25 @@ class Gcp07dPolicyTests(unittest.TestCase):
         with self.assertRaises(PolicyError):
             validate(plan, {"api": api, "web": web}, "c" * 40, "123", "update", "7")
 
+    def test_initial_restore_accepts_exact_existing_private_iap_binding_as_noop(self):
+        api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
+        web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
+        resources = ([initial_resource(address, api if component == "api" else web)
+                      for address, (component, _) in ALLOWED.items()]
+                     + [bootstrap_iam_resource(address, expected) for address, expected in BOOTSTRAP_IAM.items()])
+        evaluator_address = 'google_iap_web_cloud_run_service_iam_member.private_evaluators["user:pasteleriahijitos@gmail.com"]'
+        evaluator = next(row for row in resources if row["address"] == evaluator_address)
+        evaluator["change"]["actions"] = ["no-op"]
+        evaluator["change"]["before"] = copy.deepcopy(evaluator["change"]["after"])
+        result = validate({"applyable": True, "resource_changes": resources},
+                          {"api": api, "web": web}, "c" * 40, "123", "bootstrap", "7")
+        row = next(item for item in result["iam_changes"] if item["address"] == evaluator_address)
+        self.assertEqual(row["action"], "no-op")
+        evaluator["change"]["before"]["member"] = "user:other@example.test"
+        with self.assertRaises(PolicyError):
+            validate({"applyable": True, "resource_changes": resources},
+                     {"api": api, "web": web}, "c" * 40, "123", "bootstrap", "7")
+
     def test_initial_restore_rejects_v67_target_drift_partial_create_and_extra_resources(self):
         api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
         web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
@@ -300,6 +321,19 @@ class Gcp07dPolicyTests(unittest.TestCase):
         with self.assertRaises(PolicyError):
             validate({"applyable": True, "resource_changes": missing_iam}, expected, "c" * 40, "123", "bootstrap", "7")
 
+    def test_initial_restore_never_allows_stale_sql_state_actions(self):
+        api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
+        web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
+        resources = ([initial_resource(address, api if component == "api" else web)
+                      for address, (component, _) in ALLOWED.items()]
+                     + [bootstrap_iam_resource(address, expected) for address, expected in BOOTSTRAP_IAM.items()])
+        resources.append({"address": "google_sql_database_instance.postgres[0]",
+                          "change": {"actions": ["delete"], "before": {"name": "espacigo-testprod-pg"},
+                                     "after": None}})
+        with self.assertRaises(PolicyError):
+            validate({"applyable": True, "resource_changes": resources},
+                     {"api": api, "web": web}, "c" * 40, "123", "bootstrap", "1")
+
     def test_initial_iam_rejects_conditions_and_unallowlisted_attributes(self):
         api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
         web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
@@ -308,7 +342,7 @@ class Gcp07dPolicyTests(unittest.TestCase):
                      + [bootstrap_iam_resource(address, expected) for address, expected in BOOTSTRAP_IAM.items()])
         expected = {"api": api, "web": web}
         for index, mutation in ((3, lambda after: after.update(condition={"title": "unexpected"})),
-                                (4, lambda after: after.update(condition={"expression": "true"})),
+                                (4, lambda after: after.update(condition=[{"expression": "true"}])),
                                 (3, lambda after: after.update(unexpected_attribute="extra")),
                                 (4, lambda after: after.update(unexpected_attribute="extra"))):
             changed = copy.deepcopy(resources)
@@ -330,10 +364,24 @@ class Gcp07dPolicyTests(unittest.TestCase):
                      + [bootstrap_iam_resource(address, expected) for address, expected in BOOTSTRAP_IAM.items()])
         expected = {"api": api, "web": web}
         for index, key, value in ((3, "project", "wrong-project"), (3, "location", "wrong-region"),
-                                  (3, "name", "other-service"), (10, "project", "wrong-project"),
-                                  (10, "secret_id", "other-secret")):
+                                  (3, "name", "other-service")):
             changed = copy.deepcopy(resources)
             changed[index]["change"]["after"][key] = value
+            with self.assertRaises(PolicyError):
+                validate({"applyable": True, "resource_changes": changed}, expected,
+                         "c" * 40, "123", "bootstrap", "7")
+        scope_mutations = (
+            ("google_secret_manager_secret_iam_member.v67_api_secret_access[0]", "project", "wrong-project"),
+            ("google_secret_manager_secret_iam_member.v67_api_secret_access[0]", "secret_id", "other-secret"),
+            ('google_iap_web_cloud_run_service_iam_member.private_evaluators["user:pasteleriahijitos@gmail.com"]',
+             "cloud_run_service_name", "projects/elsewhere/iap_web/other"),
+            ('google_iap_web_cloud_run_service_iam_member.private_evaluators["user:pasteleriahijitos@gmail.com"]',
+             "member", "user:other@example.test"),
+        )
+        for address, key, value in scope_mutations:
+            changed = copy.deepcopy(resources)
+            target = next(row for row in changed if row["address"] == address)
+            target["change"]["after"][key] = value
             with self.assertRaises(PolicyError):
                 validate({"applyable": True, "resource_changes": changed}, expected,
                          "c" * 40, "123", "bootstrap", "7")

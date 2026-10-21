@@ -48,7 +48,7 @@ def valid(summary, fingerprint=None):
         if not isinstance(change, dict):
             return False
         address = change.get("address")
-        expected = initial_iam_summary(address)
+        expected = initial_iam_summary(address, change.get("action"))
         if expected is None or address in iam_seen or change != expected:
             return False
         iam_seen.add(address)

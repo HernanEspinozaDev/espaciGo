@@ -1348,7 +1348,7 @@ resource "google_service_account_iam_member" "deployer_act_as_runtime" {
 }
 
 resource "google_iap_web_cloud_run_service_iam_member" "private_evaluators" {
-  for_each               = var.enable_services ? toset(var.iap_evaluator_members) : toset([])
+  for_each               = var.enable_services ? toset(var.private_web_iap_evaluator_members) : toset([])
   project                = var.project_id
   location               = var.region
   cloud_run_service_name = google_cloud_run_v2_service.web["private"].name

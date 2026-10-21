@@ -523,7 +523,13 @@ variable "public_other_requests_per_minute" {
 
 variable "iap_evaluator_members" {
   type        = list(string)
-  description = "Explicit IAP principals. Empty by default; no public or organization-wide binding is added."
+  description = "Explicit principals allowed to open the Mailpit IAP TCP tunnel on port 8025. Empty by default."
+  default     = []
+}
+
+variable "private_web_iap_evaluator_members" {
+  type        = list(string)
+  description = "Explicit principals allowed to open the private Cloud Run web service through IAP. Empty by default."
   default     = []
 }
 

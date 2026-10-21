@@ -612,6 +612,49 @@ run "mailpit_vm_is_private_and_scoped" {
   }
 }
 
+run "private_web_iap_identity_is_separate_from_mailpit" {
+  command = plan
+
+  variables {
+    project_id                          = "espacigo-testprod"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_services                     = true
+    enable_mailpit                      = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
+    api_v67_database_instance_name      = "espacigo-testprod-db"
+    api_v67_database_name               = "espacigo_dms_stage_20261020"
+    api_v67_database_password_version   = "1"
+    api_contract_encryption_key_version = "1"
+    api_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    bucket_suffix                       = "v67-runtime"
+    iap_evaluator_members               = ["user:mailpit@example.test"]
+    private_web_iap_evaluator_members   = ["user:private-web@example.test"]
+  }
+
+  override_data {
+    target = data.google_sql_database_instance.v67_target[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+    }
+  }
+
+  assert {
+    condition     = toset(keys(google_iap_tunnel_instance_iam_member.mailpit_ui)) == toset(["user:mailpit@example.test"])
+    error_message = "Mailpit IAP tunnel access must use its independent evaluator list."
+  }
+  assert {
+    condition     = toset(keys(google_iap_web_cloud_run_service_iam_member.private_evaluators)) == toset(["user:private-web@example.test"])
+    error_message = "Private Cloud Run IAP access must use its independent evaluator list."
+  }
+}
+
 run "mailpit_vm_uses_explicit_cos_image_pin" {
   command = plan
 

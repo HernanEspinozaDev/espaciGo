@@ -149,6 +149,20 @@ jobs:
               raise SystemExit("reviewed V67 runtime preflight reference is missing")
           if protected.get("enable_services") is not True:
               raise SystemExit("protected service configuration is not enabled")
+          if os.environ.get("MODE", "").startswith("bootstrap-"):
+              if protected.get("enable_foundation") is not True:
+                  raise SystemExit("initial restore requires the reviewed foundation configuration")
+              if protected.get("enable_mailpit") is not True:
+                  raise SystemExit("initial restore must retain the existing Mailpit foundation resources")
+              if protected.get("confirm_project_inventory") is not True or protected.get("confirm_cost_policy_review") is not True:
+                  raise SystemExit("reviewed project inventory and cost/policy confirmations are missing")
+              if protected.get("iap_evaluator_members") != ["user:pasteleriahijitos@gmail.com"]:
+                  raise SystemExit("Mailpit IAP access must retain its current exact evaluator")
+              protected["private_web_iap_evaluator_members"] = ["user:pasteleriahijitos@gmail.com"]
+              protected["enable_edge"] = False
+              protected["enable_gcp06_jobs_reviewed"] = False
+              for key in ("enable_gcp06_admin_bootstrap_job", "enable_gcp06_test_access_job", "enable_gcp06_sql_inspector_job"):
+                  protected[key] = False
           if protected.get("confirm_runtime_secret_versions") is not True or protected.get("confirm_runtime_database_bootstrap") is not True:
               raise SystemExit("reviewed V67 runtime verification is missing")
           protected["enable_database"] = False

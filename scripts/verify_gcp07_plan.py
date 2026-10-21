@@ -37,6 +37,9 @@ BOOTSTRAP_IAM = {
     "google_secret_manager_secret_iam_member.v67_api_secret_access[0]": (
         "espacigo-test-database-password-v67", "roles/secretmanager.secretAccessor",
         "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com"),
+    'google_iap_web_cloud_run_service_iam_member.private_evaluators["user:pasteleriahijitos@gmail.com"]': (
+        "projects/espacigo-testprod/iap_web/cloud_run-southamerica-west1/services/espacigo-test-private",
+        "roles/iap.httpsResourceAccessor", "user:pasteleriahijitos@gmail.com"),
 }
 API_ENV_NAMES = {
     "APP_PROFILE", "LOCAL_VERIFICATION_IP_LIMIT", "DATABASE_CONNECTION_MODE",
@@ -319,15 +322,18 @@ class PolicyError(Exception):
 def initial_iam_scope(address, resource_name):
     if address.startswith("google_secret_manager_secret_iam_member."):
         return {"project": "espacigo-testprod", "secret_id": resource_name}
+    if address.startswith("google_iap_web_cloud_run_service_iam_member."):
+        return {"project": "espacigo-testprod", "location": "southamerica-west1",
+                "cloud_run_service_name": resource_name}
     return {"project": "espacigo-testprod", "location": "southamerica-west1", "name": resource_name}
 
 
-def initial_iam_summary(address):
+def initial_iam_summary(address, action="create"):
     expected = BOOTSTRAP_IAM.get(address)
-    if expected is None:
+    if expected is None or action not in {"create", "no-op"}:
         return None
     resource_name, role, member = expected
-    return {"address": address, "action": "create", **initial_iam_scope(address, resource_name),
+    return {"address": address, "action": action, **initial_iam_scope(address, resource_name),
             "role": role, "member": member}
 
 
@@ -417,10 +423,22 @@ def initial_iam_matches(address, resource):
             or any(key not in {"id", "etag"} or not isinstance(value, bool)
                    for key, value in unknown.items())):
         return False
-    if (resource.get("actions") != ["create"]
-            or resource.get("before") is not None
-            or set(after) - allowed_fields
-            or after.get("condition") is not None
+    actions = resource.get("actions")
+    before = resource.get("before")
+    if actions == ["create"]:
+        if before is not None:
+            return False
+    elif actions == ["no-op"]:
+        if not isinstance(before, dict):
+            return False
+        if (set(before) - allowed_fields or not _empty(before.get("condition"))
+                or before.get("role") != role or before.get("member") != member
+                or any(before.get(key) != value for key, value in scope.items())):
+            return False
+    else:
+        return False
+    if (set(after) - allowed_fields
+            or not _empty(after.get("condition"))
             or after.get("role") != role
             or after.get("member") != member
             or any(after.get(key) != value for key, value in scope.items())):
@@ -440,16 +458,16 @@ def validate(plan, expected, source_sha, release_run_id, mode="update", database
     seen = set()
     for item in resources:
         actions = item.get("change", {}).get("actions")
-        if actions == ["no-op"]:
-            continue
-        if item.get("mode") == "data" and actions == ["read"]:
-            continue
         address = item.get("address")
         if mode == "bootstrap" and address in BOOTSTRAP_IAM:
             if not initial_iam_matches(address, item.get("change", {})) or address in seen:
                 raise PolicyError()
-            iam_summary.append(initial_iam_summary(address))
+            iam_summary.append(initial_iam_summary(address, actions[0]))
             seen.add(address)
+            continue
+        if actions == ["no-op"]:
+            continue
+        if item.get("mode") == "data" and actions == ["read"]:
             continue
         if address not in ALLOWED or address in seen:
             raise PolicyError()
