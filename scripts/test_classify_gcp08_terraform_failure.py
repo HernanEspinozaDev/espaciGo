@@ -203,6 +203,69 @@ class ClassifyGcp08TerraformFailureTests(unittest.TestCase):
         for value in sensitive_values:
             self.assertNotIn(value, " ".join(details))
 
+    def test_multiple_service_account_get_failures_emit_only_resource_aliases(self):
+        private_values = ("private-project", "deployer@example.invalid", "api@example.invalid")
+        diagnostic = (
+            "╷\n│ Error: reading Cloud Run service IAM member\n"
+            "│ googleapi: Error 403: Permission 'iam.serviceAccounts.get' denied on "
+            "projects/private-project/serviceAccounts/deployer@example.invalid\n"
+            '│   with google_cloud_run_v2_service_iam_member.deployer_service_updater["api"],\n╵\n'
+            "╷\n│ Error: reading Secret Manager IAM member\n"
+            "│ googleapi: Error 403: Permission 'iam.serviceAccounts.get' denied on "
+            "projects/private-project/serviceAccounts/api@example.invalid\n"
+            "│   with google_secret_manager_secret_iam_member.v67_api_secret_access[0],\n╵"
+        )
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as stream:
+            stream.write(diagnostic)
+            path = stream.name
+        try:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--stage", "plan", path],
+                check=True, capture_output=True, text=True,
+            )
+        finally:
+            os.unlink(path)
+
+        output = result.stdout.strip()
+        self.assertIn("permission=iam.serviceAccounts.get", output)
+        self.assertIn("terraform_address_1=cloud_run_iam.deployer_updater.api", output)
+        self.assertIn("terraform_service_account_1=deployer", output)
+        self.assertIn("terraform_operation_1=get", output)
+        self.assertIn("terraform_address_2=secret_manager_iam.v67_api_secret_access", output)
+        self.assertIn("terraform_service_account_2=api", output)
+        self.assertIn("terraform_operation_2=get", output)
+        for value in private_values:
+            self.assertNotIn(value, result.stdout + result.stderr)
+
+    def test_ambiguous_run_forbidden_blocks_include_address_operation_and_sa_alias(self):
+        diagnostic = (
+            "╷\n│ Error: reading Cloud Run service IAM member\n"
+            "│ googleapi: Error 403: run.googleapis.com permission denied\n"
+            '│   with google_cloud_run_v2_service_iam_member.deployer_service_updater["api"],\n╵\n'
+            "╷\n│ Error: reading secret IAM member\n"
+            "│ googleapi: Error 403: run.googleapis.com permission denied\n"
+            "│   with google_secret_manager_secret_iam_member.v67_api_secret_access[0],\n╵"
+        )
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as stream:
+            stream.write(diagnostic)
+            path = stream.name
+        try:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--stage", "plan", path],
+                check=True, capture_output=True, text=True,
+            )
+        finally:
+            os.unlink(path)
+
+        output = result.stdout.strip()
+        self.assertIn("service=run.googleapis.com", output)
+        self.assertIn("terraform_address_1=cloud_run_iam.deployer_updater.api", output)
+        self.assertIn("terraform_service_account_1=deployer", output)
+        self.assertIn("terraform_operation_1=read", output)
+        self.assertIn("terraform_address_2=secret_manager_iam.v67_api_secret_access", output)
+        self.assertIn("terraform_service_account_2=api", output)
+        self.assertIn("terraform_operation_2=read", output)
+
     def test_proto_errorinfo_format_and_api_methods_map_to_fixed_operations(self):
         diagnostic = (
             'googleapi: Error 403: ErrorInfo{Reason: IAM_PERMISSION_DENIED, '

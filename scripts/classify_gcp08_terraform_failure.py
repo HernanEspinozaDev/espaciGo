@@ -117,6 +117,14 @@ TERRAFORM_ADDRESS_ENUMS = {
     **TERRAFORM_ADDRESSES,
     "google_iap_web_cloud_run_service_iam_member.private_evaluators[<key>]": "iap_iam.private_evaluators",
 }
+# These allowlisted aliases identify the service-account member associated with
+# a Terraform refresh address without copying member emails into summaries.
+TERRAFORM_SERVICE_ACCOUNT_ALIASES = {
+    "cloud_run_iam.deployer_updater.api": "deployer",
+    "cloud_run_iam.deployer_updater.public": "deployer",
+    "cloud_run_iam.deployer_updater.private": "deployer",
+    "secret_manager_iam.v67_api_secret_access": "api",
+}
 PERMISSION_OPERATIONS = {
     "get": "get", "getIamPolicy": "getIamPolicy", "setIamPolicy": "setIamPolicy",
     "create": "create", "update": "update",
@@ -239,6 +247,9 @@ def safe_details(diagnostic):
     operation = terraform_operation(diagnostic, permission)
     if address:
         details.append(f"address={address}")
+        account_alias = TERRAFORM_SERVICE_ACCOUNT_ALIASES.get(address)
+        if account_alias:
+            details.append(f"service_account={account_alias}")
     if operation:
         details.append(f"operation={operation}")
     return details
@@ -259,10 +270,13 @@ def main():
     details = safe_details(diagnostic) if category == "iam" else []
     contexts = terraform_403_contexts(diagnostic) if category == "iam" else []
     if len(contexts) > 1:
-        details = [item for item in details if not item.startswith(("address=", "operation="))]
+        details = [item for item in details if not item.startswith(("address=", "service_account=", "operation="))]
         for index, (address, operation) in enumerate(contexts, 1):
             if address:
                 details.append(f"terraform_address_{index}={address}")
+                account_alias = TERRAFORM_SERVICE_ACCOUNT_ALIASES.get(address)
+                if account_alias:
+                    details.append(f"terraform_service_account_{index}={account_alias}")
             if operation:
                 details.append(f"terraform_operation_{index}={operation}")
     detail = f" {' '.join(details)}" if details else ""

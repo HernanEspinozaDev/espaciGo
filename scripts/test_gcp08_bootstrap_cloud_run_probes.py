@@ -15,7 +15,7 @@ from unittest.mock import Mock
 from gcp08_bootstrap_cloud_run_probes import (
     PROBES, SAFE_CATEGORIES, _write_private_response, build_gcloud_command,
     build_rest_url, classify_rest_response, read_probe_configuration, run_probe, _sqladmin_rest_url,
-    safe_rest_fields,
+    safe_auth_context, safe_rest_fields,
 )
 
 
@@ -23,6 +23,31 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
+    def test_auth_context_reports_only_shared_credential_file_and_impersonation_flags(self):
+        private_path = "/runner/private/wif-credentials.json"
+        private_identity = "service-account@example.invalid"
+        context = safe_auth_context({
+            "GOOGLE_APPLICATION_CREDENTIALS": private_path,
+            "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE": private_path,
+            "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT": "",
+            "CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT": private_identity,
+        })
+        self.assertEqual(context, {
+            "terraform_adc": "present",
+            "gcloud_credential_override": "present",
+            "shared_credential_file": "yes",
+            "terraform_impersonation_env": "absent",
+            "gcloud_impersonation_env": "present",
+        })
+        self.assertNotIn(private_path, " ".join(context.values()))
+        self.assertNotIn(private_identity, " ".join(context.values()))
+
+        mismatched = safe_auth_context({
+            "GOOGLE_APPLICATION_CREDENTIALS": "/runner/private/terraform.json",
+            "CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE": "/runner/private/gcloud.json",
+        })
+        self.assertEqual(mismatched["shared_credential_file"], "no")
+
     def test_dependency_permission_details_are_allowlisted_without_resource_values(self):
         marker = "private-resource-name"
         for permission, domain in (
@@ -251,8 +276,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("token-hidden", emitted)
 
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 38)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 38)
+        self.assertEqual(len(PROBES), 39)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 39)
         self.assertEqual({operation for _, operation, _ in PROBES}, {
             "describe", "get-iam-policy", "list", "iap-get-iam-policy", "iap-test-iam",
             "project-get", "project-test-iam",
@@ -260,7 +285,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
             "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
             "secretmanager-secret-test-iam", "sa-metadata-get", "sa-get-iam-policy",
-            "sa-test-get-iam-policy",
+            "sa-test-get-iam-policy", "sa-test-get-metadata",
         })
         self.assertEqual({service for _, operation, service in PROBES
                           if service is not None and operation not in {
@@ -270,7 +295,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                               "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
                               "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
                               "secretmanager-secret-test-iam", "sa-metadata-get",
-                              "sa-get-iam-policy", "sa-test-get-iam-policy",
+                              "sa-get-iam-policy", "sa-test-get-iam-policy", "sa-test-get-metadata",
                           }}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
@@ -304,6 +329,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 "sql-instance-get", "run-test-iam",
                 "run-parent-test-iam", "sa-test-iam",
                 "sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy",
+                "sa-test-get-metadata",
             }:
                 self.assertIn(target, {
                     "cloud_run_service.private.iap_get_iam_policy",
@@ -321,6 +347,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 "secret.v67.test_iam_permissions",
                 "service_account.deployer.metadata.get", "service_account.deployer.iam_policy.get",
                 "service_account.deployer.test_get_iam_policy",
+                "service_account.deployer.test_get_metadata",
                 "service_account.api.metadata.get", "service_account.api.iam_policy.get",
                 "service_account.api.test_get_iam_policy",
                 "service_account.public.metadata.get", "service_account.public.iam_policy.get",
@@ -792,6 +819,54 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         })
         self.assertIn("permission=iam.serviceAccounts.actAs result=granted", output.getvalue())
         self.assertIn("permission=iam.serviceAccounts.get result=granted", output.getvalue())
+
+    def test_deployer_test_iam_permissions_checks_only_service_account_get(self):
+        marker = "unapproved-permission-marker"
+        observed = {}
+
+        def token_runner(command, **_kwargs):
+            observed["token_command"] = command
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                return json.dumps({"permissions": ["iam.serviceAccounts.get", marker]}).encode()
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["body"] = json.loads(request.data)
+                return FakeResponse()
+
+        target = "service_account.deployer.test_get_metadata"
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertTrue(run_probe(
+                    target, root, runner=token_runner, opener_factory=lambda *_: FakeOpener(),
+                ))
+
+        self.assertEqual(observed["token_command"], ["gcloud", "auth", "print-access-token"])
+        self.assertEqual(observed["url"], "https://iam.googleapis.com/v1/projects/espacigo-testprod/"
+                         "serviceAccounts/espacigo-test-deployer%40espacigo-testprod.iam.gserviceaccount.com:testIamPermissions")
+        self.assertEqual(observed["method"], "POST")
+        self.assertEqual(observed["body"], {"permissions": ["iam.serviceAccounts.get"]})
+        emitted = output.getvalue()
+        self.assertIn("target=service_account.deployer.test_get_metadata", emitted)
+        self.assertIn("permission=iam.serviceAccounts.get result=granted", emitted)
+        self.assertNotIn(marker, emitted)
+        self.assertNotIn("token-hidden", emitted)
+        self.assertNotIn("espacigo-test-deployer@", emitted)
 
     def test_service_account_metadata_and_policy_probes_are_fixed_read_only_requests(self):
         accounts = {

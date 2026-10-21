@@ -35,6 +35,7 @@ TARGETS = (
 # Each plan targets one address, but Terraform also refreshes that address's dependency closure.
 SAFE_DETAIL_KEYS = {
     "status", "reason", "permission", "service", "resource_type", "address", "operation",
+    "service_account",
 }
 
 
