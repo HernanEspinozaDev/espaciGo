@@ -66,7 +66,7 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
             'google_iap_web_cloud_run_service_iam_member.private_evaluators["user:pasteleriahijitos@gmail.com"]',
         }
         targets = set(re.findall(r"-target=([^'\s]+)", scope))
-        self.assertIn("-refresh=false", scope)
+        self.assertNotIn("-refresh=false", scope)
         self.assertEqual(targets, expected_targets)
         self.assertIn('"${plan_scope[@]}"', workflow)
 

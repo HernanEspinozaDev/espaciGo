@@ -220,10 +220,9 @@ jobs:
           }
           plan_scope=()
           if [[ "$POLICY_MODE" == bootstrap ]]; then
-            # Avoid refreshing the unrelated foundation state. Read-only V67 data sources remain dependencies;
+            # Refresh the targeted resources and dependencies, but leave unrelated foundation state out of scope;
             # the validator still requires all three services and exactly the nine bootstrap IAM bindings.
             plan_scope=(
-              -refresh=false
               '-target=google_cloud_run_v2_service.api[0]'
               '-target=google_cloud_run_v2_service.web["public"]'
               '-target=google_cloud_run_v2_service.web["private"]'
