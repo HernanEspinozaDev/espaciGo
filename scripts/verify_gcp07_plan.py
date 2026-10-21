@@ -316,6 +316,21 @@ class PolicyError(Exception):
     pass
 
 
+def initial_iam_scope(address, resource_name):
+    if address.startswith("google_secret_manager_secret_iam_member."):
+        return {"project": "espacigo-testprod", "secret_id": resource_name}
+    return {"project": "espacigo-testprod", "location": "southamerica-west1", "name": resource_name}
+
+
+def initial_iam_summary(address):
+    expected = BOOTSTRAP_IAM.get(address)
+    if expected is None:
+        return None
+    resource_name, role, member = expected
+    return {"address": address, "action": "create", **initial_iam_scope(address, resource_name),
+            "role": role, "member": member}
+
+
 def image_of(resource, side):
     try:
         containers = resource["template"][0]["containers"]
@@ -395,16 +410,22 @@ def initial_iam_matches(address, resource):
     if expected is None or not isinstance(after, dict):
         return False
     name, role, member = expected
+    scope = initial_iam_scope(address, name)
+    allowed_fields = set(scope) | {"role", "member", "condition", "id", "etag"}
+    unknown = resource.get("after_unknown") or {}
+    if (not isinstance(unknown, dict)
+            or any(key not in {"id", "etag"} or not isinstance(value, bool)
+                   for key, value in unknown.items())):
+        return False
     if (resource.get("actions") != ["create"]
             or resource.get("before") is not None
+            or set(after) - allowed_fields
+            or after.get("condition") is not None
             or after.get("role") != role
-            or after.get("member") != member):
+            or after.get("member") != member
+            or any(after.get(key) != value for key, value in scope.items())):
         return False
-    if address.startswith("google_secret_manager_secret_iam_member."):
-        return after.get("secret_id") == name
-    return (after.get("project") == "espacigo-testprod"
-            and after.get("location") == "southamerica-west1"
-            and after.get("name") == name)
+    return True
 
 
 def validate(plan, expected, source_sha, release_run_id, mode="update", database_password_version=""):
@@ -427,9 +448,7 @@ def validate(plan, expected, source_sha, release_run_id, mode="update", database
         if mode == "bootstrap" and address in BOOTSTRAP_IAM:
             if not initial_iam_matches(address, item.get("change", {})) or address in seen:
                 raise PolicyError()
-            after = item["change"]["after"]
-            iam_summary.append({"address": address, "action": "create",
-                                "role": after["role"], "member": after["member"]})
+            iam_summary.append(initial_iam_summary(address))
             seen.add(address)
             continue
         if address not in ALLOWED or address in seen:
@@ -495,7 +514,7 @@ def main():
         result = validate(plan, expected, args.source_sha, args.release_run_id,
                           args.mode, args.database_password_version)
         with open(args.output, "w", encoding="utf-8") as stream:
-            json.dump(result, stream, sort_keys=True, separators=(",", ":"))
+            json.dump(result, stream, sort_keys=True, indent=2)
             stream.write("\n")
     except (OSError, ValueError, KeyError, TypeError, PolicyError):
         print("Terraform plan rejected by GCP-07D image-only policy", file=sys.stderr)

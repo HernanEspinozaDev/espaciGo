@@ -5,7 +5,7 @@ import argparse
 import re
 import sys
 
-from verify_gcp07_plan import BOOTSTRAP_IAM
+from verify_gcp07_plan import BOOTSTRAP_IAM, initial_iam_summary
 
 SHA = re.compile(r"^[0-9a-f]{64}$")
 TARGETS = {
@@ -48,9 +48,8 @@ def valid(summary, fingerprint=None):
         if not isinstance(change, dict):
             return False
         address = change.get("address")
-        expected = BOOTSTRAP_IAM.get(address)
-        if (expected is None or address in iam_seen or change.get("action") != "create"
-                or change.get("role") != expected[1] or change.get("member") != expected[2]):
+        expected = initial_iam_summary(address)
+        if expected is None or address in iam_seen or change != expected:
             return False
         iam_seen.add(address)
     return iam_seen == set(BOOTSTRAP_IAM)

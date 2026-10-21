@@ -12,7 +12,7 @@ from verify_gcp07_environment import (
     successful_preview_exists,
     v67_runtime_ready,
 )
-from verify_gcp07_plan import ALLOWED, BOOTSTRAP_IAM, IMAGE_PATH, PolicyError, initial_service_matches, validate, web_api_references_are_exact
+from verify_gcp07_plan import ALLOWED, BOOTSTRAP_IAM, IMAGE_PATH, PolicyError, initial_iam_scope, initial_service_matches, validate, web_api_references_are_exact
 from classify_gcp07_release_changes import classify, migrations_pending
 from verify_gcp07_manifest_scope import baseline_has_v67_migration, rollout_allowed
 
@@ -105,12 +105,7 @@ def initial_resource(address, image):
 
 def bootstrap_iam_resource(address, expected):
     name, role, member = expected
-    after = {"role": role, "member": member}
-    if address.startswith("google_secret_manager_secret_iam_member."):
-        after["project"] = "espacigo-testprod"
-        after["secret_id"] = name
-    else:
-        after.update({"project": "espacigo-testprod", "location": "southamerica-west1", "name": name})
+    after = {"role": role, "member": member, **initial_iam_scope(address, name)}
     return {"address": address, "change": {"actions": ["create"], "before": None, "after": after}}
 
 
@@ -304,6 +299,44 @@ class Gcp07dPolicyTests(unittest.TestCase):
         missing_iam = copy.deepcopy(resources[:-1])
         with self.assertRaises(PolicyError):
             validate({"applyable": True, "resource_changes": missing_iam}, expected, "c" * 40, "123", "bootstrap", "7")
+
+    def test_initial_iam_rejects_conditions_and_unallowlisted_attributes(self):
+        api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
+        web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
+        resources = ([initial_resource(address, api if component == "api" else web)
+                      for address, (component, _) in ALLOWED.items()]
+                     + [bootstrap_iam_resource(address, expected) for address, expected in BOOTSTRAP_IAM.items()])
+        expected = {"api": api, "web": web}
+        for index, mutation in ((3, lambda after: after.update(condition={"title": "unexpected"})),
+                                (4, lambda after: after.update(condition={"expression": "true"})),
+                                (3, lambda after: after.update(unexpected_attribute="extra")),
+                                (4, lambda after: after.update(unexpected_attribute="extra"))):
+            changed = copy.deepcopy(resources)
+            mutation(changed[index]["change"]["after"])
+            with self.assertRaises(PolicyError):
+                validate({"applyable": True, "resource_changes": changed}, expected,
+                         "c" * 40, "123", "bootstrap", "7")
+        changed = copy.deepcopy(resources)
+        changed[3]["change"]["after"]["after_unknown"] = {"condition": {"expression": True}}
+        with self.assertRaises(PolicyError):
+            validate({"applyable": True, "resource_changes": changed}, expected,
+                     "c" * 40, "123", "bootstrap", "7")
+
+    def test_initial_iam_requires_exact_binding_scope(self):
+        api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
+        web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
+        resources = ([initial_resource(address, api if component == "api" else web)
+                      for address, (component, _) in ALLOWED.items()]
+                     + [bootstrap_iam_resource(address, expected) for address, expected in BOOTSTRAP_IAM.items()])
+        expected = {"api": api, "web": web}
+        for index, key, value in ((3, "project", "wrong-project"), (3, "location", "wrong-region"),
+                                  (3, "name", "other-service"), (10, "project", "wrong-project"),
+                                  (10, "secret_id", "other-secret")):
+            changed = copy.deepcopy(resources)
+            changed[index]["change"]["after"][key] = value
+            with self.assertRaises(PolicyError):
+                validate({"applyable": True, "resource_changes": changed}, expected,
+                         "c" * 40, "123", "bootstrap", "7")
 
     def test_initial_service_projection_rejects_out_of_scope_fields(self):
         image = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
