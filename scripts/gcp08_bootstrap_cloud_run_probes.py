@@ -27,10 +27,14 @@ SECRET_MANAGER_API_ROOT = "https://secretmanager.googleapis.com/v1"
 RESOURCE_MANAGER_API_ROOT = "https://cloudresourcemanager.googleapis.com/v3"
 DEFAULT_PRIVATE_SERVICE_NAME = "espacigo-test-private"
 V67_DATABASE_SECRET = "espacigo-test-database-password-v67"
-RUNTIME_SERVICE_ACCOUNTS = {
+SERVICE_ACCOUNT_RESOURCES = {
+    "deployer": "espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com",
     "api": "espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
     "public": "espacigo-test-public-web@espacigo-testprod.iam.gserviceaccount.com",
     "private": "espacigo-test-private-web@espacigo-testprod.iam.gserviceaccount.com",
+}
+RUNTIME_SERVICE_ACCOUNTS = {
+    label: SERVICE_ACCOUNT_RESOURCES[label] for label in ("api", "public", "private")
 }
 TESTED_RUN_PERMISSIONS = tuple(sorted({
     "run.services.get", "run.services.getIamPolicy", "run.services.setIamPolicy",
@@ -42,6 +46,7 @@ TESTED_RUN_PARENT_PERMISSIONS = tuple(sorted({
 TESTED_SA_PERMISSIONS = tuple(sorted({
     "iam.serviceAccounts.actAs", "iam.serviceAccounts.get",
 }))
+TESTED_SA_POLICY_PERMISSIONS = ("iam.serviceAccounts.getIamPolicy",)
 TESTED_SECRET_PERMISSIONS = tuple(sorted({
     "secretmanager.secrets.get", "secretmanager.secrets.getIamPolicy",
     "secretmanager.secrets.setIamPolicy",
@@ -64,6 +69,18 @@ PROBES = (
     ("runtime_service_account.api.test_act_as", "sa-test-iam", "api"),
     ("runtime_service_account.public.test_act_as", "sa-test-iam", "public"),
     ("runtime_service_account.private.test_act_as", "sa-test-iam", "private"),
+    ("service_account.deployer.metadata.get", "sa-metadata-get", "deployer"),
+    ("service_account.deployer.iam_policy.get", "sa-get-iam-policy", "deployer"),
+    ("service_account.deployer.test_get_iam_policy", "sa-test-get-iam-policy", "deployer"),
+    ("service_account.api.metadata.get", "sa-metadata-get", "api"),
+    ("service_account.api.iam_policy.get", "sa-get-iam-policy", "api"),
+    ("service_account.api.test_get_iam_policy", "sa-test-get-iam-policy", "api"),
+    ("service_account.public.metadata.get", "sa-metadata-get", "public"),
+    ("service_account.public.iam_policy.get", "sa-get-iam-policy", "public"),
+    ("service_account.public.test_get_iam_policy", "sa-test-get-iam-policy", "public"),
+    ("service_account.private.metadata.get", "sa-metadata-get", "private"),
+    ("service_account.private.iam_policy.get", "sa-get-iam-policy", "private"),
+    ("service_account.private.test_get_iam_policy", "sa-test-get-iam-policy", "private"),
     ("compute_network.testprod.get", "compute-network-get", "espacigo-testprod"),
     ("compute_subnetwork.serverless.get", "compute-subnetwork-get", "espacigo-testprod-serverless"),
     ("compute_subnetwork.api_serverless.get", "compute-subnetwork-get", "espacigo-testprod-api-serverless"),
@@ -89,7 +106,9 @@ SAFE_RUN_PERMISSIONS = {
 }
 SAFE_IAP_PERMISSIONS = {"iap.webServices.getIamPolicy"}
 SAFE_SQL_PERMISSIONS = {"cloudsql.instances.get"}
-SAFE_SA_PERMISSIONS = {"iam.serviceAccounts.actAs", "iam.serviceAccounts.get"}
+SAFE_SA_PERMISSIONS = {
+    "iam.serviceAccounts.actAs", "iam.serviceAccounts.get", "iam.serviceAccounts.getIamPolicy",
+}
 SAFE_COMPUTE_PERMISSIONS = {"compute.networks.get", "compute.subnetworks.get"}
 SAFE_SERVICE_USAGE_PERMISSIONS = {"serviceusage.services.get"}
 SAFE_SECRET_MANAGER_PERMISSIONS = {
@@ -156,6 +175,16 @@ def build_rest_url(target):
             raise ValueError("invalid runtime service-account probe")
         account = RUNTIME_SERVICE_ACCOUNTS[service]
         return f"{IAM_API_ROOT}/projects/{PROJECT}/serviceAccounts/{urllib.parse.quote(account, safe='')}:testIamPermissions"
+    if operation in {"sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy"}:
+        if service not in SERVICE_ACCOUNT_RESOURCES:
+            raise ValueError("invalid service-account probe")
+        account = SERVICE_ACCOUNT_RESOURCES[service]
+        resource = f"{IAM_API_ROOT}/projects/{PROJECT}/serviceAccounts/{urllib.parse.quote(account, safe='')}"
+        if operation == "sa-metadata-get":
+            return resource
+        if operation == "sa-get-iam-policy":
+            return f"{resource}:getIamPolicy?options.requestedPolicyVersion=3"
+        return f"{resource}:testIamPermissions"
     if operation == "compute-network-get":
         if service != "espacigo-testprod":
             raise ValueError("invalid Compute Engine network probe")
@@ -391,8 +420,13 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
             _emit(target, "other")
             return False
         method, body = "GET", None
+    elif operation == "sa-get-iam-policy":
+        url = build_rest_url(target)
+        # The IAM REST method is POST with policy version in the query and an empty body.
+        method, body = "POST", b""
     elif operation in {
-        "run-test-iam", "run-parent-test-iam", "sa-test-iam", "secretmanager-secret-test-iam",
+        "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
+        "secretmanager-secret-test-iam",
     }:
         url = build_rest_url(target)
         if operation == "run-test-iam":
@@ -401,6 +435,8 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
             requested_permissions = TESTED_RUN_PARENT_PERMISSIONS
         elif operation == "sa-test-iam":
             requested_permissions = TESTED_SA_PERMISSIONS
+        elif operation == "sa-test-get-iam-policy":
+            requested_permissions = TESTED_SA_POLICY_PERMISSIONS
         else:
             requested_permissions = TESTED_SECRET_PERMISSIONS
         method = "POST"
@@ -431,12 +467,14 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
         http_status, response_body = _fetch_rest_response(
             url, token, opener_factory, timeout, method=method, body=body,
             read_success_body=operation in {
-                "run-test-iam", "run-parent-test-iam", "sa-test-iam", "secretmanager-secret-test-iam",
+                "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
+                "secretmanager-secret-test-iam",
             },
         )
         if isinstance(http_status, int) and 200 <= http_status < 300:
             if operation in {
-                "run-test-iam", "run-parent-test-iam", "sa-test-iam", "secretmanager-secret-test-iam",
+                "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
+                "secretmanager-secret-test-iam",
             }:
                 response_path = private_dir / "response.json"
                 try:
@@ -449,6 +487,8 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                 actual = set(actual) if isinstance(actual, list) and all(isinstance(item, str) for item in actual) else set()
                 if operation == "sa-test-iam":
                     allowed = SAFE_SA_PERMISSIONS
+                elif operation == "sa-test-get-iam-policy":
+                    allowed = set(TESTED_SA_POLICY_PERMISSIONS)
                 elif operation == "secretmanager-secret-test-iam":
                     allowed = SAFE_SECRET_MANAGER_PERMISSIONS
                 elif operation == "run-parent-test-iam":
@@ -461,6 +501,8 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                 elif operation == "run-test-iam":
                     method, resource_scope = "services.testIamPermissions", "cloud_run_service"
                 elif operation == "sa-test-iam":
+                    method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
+                elif operation == "sa-test-get-iam-policy":
                     method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
                 else:
                     method, resource_scope = "secrets.testIamPermissions", "secret"
@@ -536,6 +578,7 @@ def run_probe(target, private_root, runner=subprocess.run,
     if operation in {
         "describe", "list", "iap-get-iam-policy", "sql-instance-get",
         "run-test-iam", "run-parent-test-iam", "sa-test-iam",
+        "sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy",
         "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
         "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
         "secretmanager-secret-test-iam",
