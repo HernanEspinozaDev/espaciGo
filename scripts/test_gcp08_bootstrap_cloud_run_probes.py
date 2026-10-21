@@ -22,15 +22,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 10)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 10)
+        self.assertEqual(len(PROBES), 15)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 15)
         self.assertEqual({operation for _, operation, _ in PROBES}, {
             "describe", "get-iam-policy", "list", "iap-get-iam-policy",
-            "sql-instance-get", "sql-database-get",
+            "sql-instance-get", "run-test-iam", "sa-test-iam",
         })
         self.assertEqual({service for _, operation, service in PROBES
                           if service is not None and operation not in {
-                              "iap-get-iam-policy", "sql-instance-get", "sql-database-get",
+                              "iap-get-iam-policy", "sql-instance-get", "run-test-iam", "sa-test-iam",
                           }}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
@@ -62,7 +62,13 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             else:
                 self.assertIn(target, {
                     "cloud_run_service.private.iap_get_iam_policy",
-                    "cloud_sql_instance.v67.get", "cloud_sql_database.v67.get",
+                    "cloud_sql_instance.v67.get",
+                    "cloud_run_service.api.test_iam_permissions",
+                    "cloud_run_service.public.test_iam_permissions",
+                    "cloud_run_service.private.test_iam_permissions",
+                    "runtime_service_account.api.test_act_as",
+                    "runtime_service_account.public.test_act_as",
+                    "runtime_service_account.private.test_act_as",
                 })
 
     def test_cloudsql_probe_urls_use_only_validated_v67_identifiers(self):
@@ -70,16 +76,9 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             _sqladmin_rest_url("sql-instance-get", "espacigo-testprod-db"),
             "https://sqladmin.googleapis.com/sql/v1beta4/projects/espacigo-testprod/instances/espacigo-testprod-db",
         )
-        self.assertEqual(
-            _sqladmin_rest_url("sql-database-get", "espacigo-testprod-db", "espacigo_dms_stage_20261020"),
-            "https://sqladmin.googleapis.com/sql/v1beta4/projects/espacigo-testprod/instances/"
-            "espacigo-testprod-db/databases/espacigo_dms_stage_20261020",
-        )
         for invalid in ("../instance", "instance/name", "private project"):
             with self.assertRaises(ValueError):
                 _sqladmin_rest_url("sql-instance-get", invalid)
-        with self.assertRaises(ValueError):
-            _sqladmin_rest_url("sql-database-get", "espacigo-testprod-db", "../database")
 
     def test_probe_configuration_uses_pinned_iap_service_default_and_reads_v67_identifiers(self):
         with tempfile.TemporaryDirectory() as root:
@@ -87,14 +86,12 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             vars_path.write_text(json.dumps({
                 "project_number": 447373903153,
                 "api_v67_database_instance_name": "espacigo-testprod-db",
-                "api_v67_database_name": "espacigo_dms_stage_20261020",
             }))
             config = read_probe_configuration(vars_path)
         self.assertEqual(config, {
             "project_number": "447373903153",
             "private_service_name": "espacigo-test-private",
             "sql_instance_name": "espacigo-testprod-db",
-            "sql_database_name": "espacigo_dms_stage_20261020",
         })
 
     def test_services_list_rest_probe_emits_only_permission_metadata(self):
@@ -347,47 +344,6 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         runner.assert_not_called()
         self.assertIn("category=other", output.getvalue())
 
-    def test_cloudsql_database_get_reports_exact_permission_without_resource_values(self):
-        marker = "private-project-instance-database-and-message"
-        payload = {"error": {"code": 403, "status": "PERMISSION_DENIED", "details": [{
-            "reason": "IAM_PERMISSION_DENIED", "domain": "sqladmin.googleapis.com",
-            "metadata": {"permission": "cloudsql.databases.get", "resource": marker},
-        }]}}
-        observed = {}
-
-        def token_runner(_command, **_kwargs):
-            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
-
-        class FakeOpener:
-            def open(self, request, timeout):
-                observed["url"] = request.full_url
-                observed["method"] = request.get_method()
-                return urllib.error.HTTPError(
-                    request.full_url, 403, "Forbidden", {},
-                    io.BytesIO(json.dumps(payload).encode()),
-                )
-
-        with tempfile.TemporaryDirectory() as root:
-            output = io.StringIO()
-            with redirect_stdout(output):
-                self.assertFalse(run_probe(
-                    "cloud_sql_database.v67.get", root, runner=token_runner,
-                    opener_factory=lambda *_: FakeOpener(),
-                    sql_instance_name="espacigo-testprod-db",
-                    sql_database_name="espacigo_dms_stage_20261020",
-                ))
-            self.assertEqual(list(Path(root).iterdir()), [])
-        self.assertEqual(observed["method"], "GET")
-        self.assertEqual(observed["url"], "https://sqladmin.googleapis.com/sql/v1beta4/projects/"
-                         "espacigo-testprod/instances/espacigo-testprod-db/databases/"
-                         "espacigo_dms_stage_20261020")
-        emitted = output.getvalue().strip()
-        self.assertEqual(emitted, "GCP08_CLOUD_RUN_PROBE stage=bootstrap "
-                         "target=cloud_sql_database.v67.get category=permission_denied "
-                         "status=403 permission=cloudsql.databases.get service=sqladmin.googleapis.com")
-        self.assertNotIn(marker, emitted)
-        self.assertNotIn("token-hidden", emitted)
-
     def test_cloudsql_instance_probe_reports_only_allowlisted_permission_and_service(self):
         payload = {"error": {"code": 403, "details": [{
             "reason": "IAM_PERMISSION_DENIED", "domain": "sqladmin.googleapis.com",
@@ -416,6 +372,120 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertIn("service=sqladmin.googleapis.com", output.getvalue())
         self.assertNotIn("private-resource", output.getvalue())
         self.assertNotIn("token-hidden", output.getvalue())
+
+    def test_cloud_run_test_iam_permissions_reports_only_allowlisted_grants(self):
+        observed = {}
+        marker = "private-extra-permission"
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                return json.dumps({"permissions": ["run.services.create", "run.services.update", marker]}).encode()
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["body"] = json.loads(request.data)
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertTrue(run_probe(
+                    "cloud_run_service.private.test_iam_permissions", root,
+                    runner=token_runner, opener_factory=lambda *_: FakeOpener(),
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+        self.assertEqual(observed["method"], "POST")
+        self.assertEqual(observed["url"], "https://run.googleapis.com/v2/projects/espacigo-testprod/"
+                         "locations/southamerica-west1/services/espacigo-test-private:testIamPermissions")
+        self.assertEqual(set(observed["body"]["permissions"]), {
+            "run.operations.get", "run.services.create", "run.services.get",
+            "run.services.getIamPolicy", "run.services.list", "run.services.setIamPolicy",
+            "run.services.update",
+        })
+        emitted = output.getvalue()
+        self.assertIn("permission=run.services.create result=granted", emitted)
+        self.assertIn("permission=run.services.update result=granted", emitted)
+        self.assertIn("permission=run.services.get result=not_granted", emitted)
+        self.assertNotIn(marker, emitted)
+        self.assertNotIn("token-hidden", emitted)
+
+    def test_runtime_service_account_actas_test_uses_exact_account_and_safe_result(self):
+        observed = {}
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                return b'{"permissions":["iam.serviceAccounts.actAs"]}'
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["body"] = json.loads(request.data)
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertTrue(run_probe(
+                    "runtime_service_account.private.test_act_as", root,
+                    runner=token_runner, opener_factory=lambda *_: FakeOpener(),
+                ))
+        self.assertEqual(observed["url"], "https://iam.googleapis.com/v1/projects/espacigo-testprod/"
+                         "serviceAccounts/espacigo-test-private-web%40espacigo-testprod.iam.gserviceaccount.com:testIamPermissions")
+        self.assertEqual(observed["method"], "POST")
+        self.assertEqual(observed["body"], {"permissions": ["iam.serviceAccounts.actAs"]})
+        self.assertIn("permission=iam.serviceAccounts.actAs result=granted", output.getvalue())
+
+    def test_missing_iap_cloud_run_service_is_reported_as_not_found(self):
+        payload = {"error": {"code": 404, "status": "NOT_FOUND"}}
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                return urllib.error.HTTPError(
+                    request.full_url, 404, "Not Found", {},
+                    io.BytesIO(json.dumps(payload).encode()),
+                )
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertFalse(run_probe(
+                    "cloud_run_service.private.iap_get_iam_policy", root,
+                    runner=token_runner, opener_factory=lambda *_: FakeOpener(),
+                    project_number="447373903153", private_service_name="espacigo-test-private",
+                ))
+        self.assertIn("category=not_found status=404", output.getvalue())
+        self.assertNotIn("permission=", output.getvalue())
 
     def test_errorinfo_permission_uses_exact_cloud_run_allowlist(self):
         def fields(permission):

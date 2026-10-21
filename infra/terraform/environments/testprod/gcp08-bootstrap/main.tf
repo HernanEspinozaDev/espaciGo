@@ -149,9 +149,9 @@ resource "google_project_iam_custom_role" "v67_cloudsql_metadata_reader" {
   project     = var.project_id
   role_id     = "espacigoGcp08V67CloudSqlMetadataReader"
   title       = "EspaciGo GCP-08 temporary V67 Cloud SQL metadata read"
-  description = "Read only the named V67 Cloud SQL instance and its database metadata for the bootstrap plan."
+  description = "Read only metadata for the named V67 Cloud SQL instance during the bootstrap plan."
   stage       = "GA"
-  permissions = ["cloudsql.instances.get", "cloudsql.databases.get"]
+  permissions = ["cloudsql.instances.get"]
 
   depends_on = [terraform_data.bootstrap_expiry_guard]
 }

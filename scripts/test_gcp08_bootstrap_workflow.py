@@ -84,14 +84,17 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
         self.assertEqual(targets, expected_targets)
         self.assertIn('"${plan_scope[@]}"', workflow)
 
-    def test_bootstrap_plan_failure_runs_refresh_contrast_before_fixed_api_probes(self):
+    def test_bootstrap_plan_failure_runs_state_and_refresh_diagnostics_before_fixed_api_probes(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
         plan = workflow.index('terraform plan -input=false -lock-timeout=5m')
         bootstrap_branch = workflow.index('if [[ "$POLICY_MODE" == bootstrap ]]', plan)
         refresh_diagnostic = workflow.index("gcp08_bootstrap_refresh_diagnostics.py")
+        state_inventory = workflow.index("gcp08_bootstrap_state_inventory.py")
         fixed_probes = workflow.index("gcp08_bootstrap_cloud_run_probes.py")
         self.assertGreater(bootstrap_branch, plan)
+        self.assertLess(state_inventory, refresh_diagnostic)
         self.assertLess(refresh_diagnostic, fixed_probes)
+        self.assertIn('"$RUNNER_TEMP/gcp07d/state-inventory"', workflow[state_inventory:refresh_diagnostic])
         diagnostic_block = workflow[refresh_diagnostic:fixed_probes]
         self.assertIn("--terraform-dir", diagnostic_block)
         self.assertIn('--var-file "$GCP07D_TFVARS"', diagnostic_block)

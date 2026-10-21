@@ -106,13 +106,6 @@ data "google_sql_database_instance" "v67_target" {
   name    = var.api_v67_database_instance_name
 }
 
-data "google_sql_database" "v67_target" {
-  count    = local.api_v67_target_enabled ? 1 : 0
-  project  = var.project_id
-  instance = var.api_v67_database_instance_name
-  name     = var.api_v67_database_name
-}
-
 # Read only. The V67 runtime credential and its IAM grant are provisioned and
 # verified outside this root; Terraform never reads the secret payload.
 data "google_secret_manager_secret" "v67_database_password" {
@@ -876,7 +869,7 @@ resource "google_cloud_run_v2_service" "api" {
         data.google_sql_database_instance.v67_target[0].database_version == "POSTGRES_18" &&
         data.google_sql_database_instance.v67_target[0].connection_name == "espacigo-testprod:southamerica-west1:espacigo-testprod-db" &&
         data.google_sql_database_instance.v67_target[0].private_ip_address != "" &&
-        data.google_sql_database.v67_target[0].name == "espacigo_dms_stage_20261020" &&
+        var.api_v67_database_name == "espacigo_dms_stage_20261020" &&
         data.google_secret_manager_secret.v67_database_password[0].secret_id == "espacigo-test-database-password-v67" &&
         can(regex("^[1-9][0-9]*$", var.api_v67_database_password_version))
       )

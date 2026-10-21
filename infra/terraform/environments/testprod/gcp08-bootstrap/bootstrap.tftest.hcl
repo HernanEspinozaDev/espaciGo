@@ -92,8 +92,8 @@ run "bootstrap_access_is_constrained_and_expires" {
   }
 
   assert {
-    condition     = toset(google_project_iam_custom_role.v67_cloudsql_metadata_reader[0].permissions) == toset(["cloudsql.instances.get", "cloudsql.databases.get"])
-    error_message = "Bootstrap may read only Cloud SQL instance and database metadata."
+    condition     = toset(google_project_iam_custom_role.v67_cloudsql_metadata_reader[0].permissions) == toset(["cloudsql.instances.get"])
+    error_message = "Bootstrap may read only the named Cloud SQL instance metadata; database metadata is pinned by validated configuration."
   }
 
   assert {
