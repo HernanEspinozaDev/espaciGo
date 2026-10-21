@@ -46,6 +46,30 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
         self.assertIn(guard, rollout_job)
         self.assertLess(workflow.index(guard), bootstrap_auth)
 
+    def test_initial_restore_plan_is_targeted_and_skips_unrelated_refresh(self):
+        workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
+        start = workflow.index('if [[ "$POLICY_MODE" == bootstrap ]]')
+        end = workflow.index("          fi", start)
+        scope = workflow[start:end]
+        expected_targets = {
+            "google_cloud_run_v2_service.api[0]",
+            'google_cloud_run_v2_service.web["public"]',
+            'google_cloud_run_v2_service.web["private"]',
+            'google_cloud_run_v2_service_iam_member.api_invoker["public"]',
+            'google_cloud_run_v2_service_iam_member.api_invoker["private"]',
+            'google_cloud_run_v2_service_iam_member.deployer_service_updater["api"]',
+            'google_cloud_run_v2_service_iam_member.deployer_service_updater["public"]',
+            'google_cloud_run_v2_service_iam_member.deployer_service_updater["private"]',
+            "google_cloud_run_v2_service_iam_member.public_web_invoker[0]",
+            "google_cloud_run_v2_service_iam_member.private_iap_invoker[0]",
+            "google_secret_manager_secret_iam_member.v67_api_secret_access[0]",
+            'google_iap_web_cloud_run_service_iam_member.private_evaluators["user:pasteleriahijitos@gmail.com"]',
+        }
+        targets = set(re.findall(r"-target=([^'\s]+)", scope))
+        self.assertIn("-refresh=false", scope)
+        self.assertEqual(targets, expected_targets)
+        self.assertIn('"${plan_scope[@]}"', workflow)
+
     def test_normal_and_automatic_rollouts_keep_the_restricted_deployer(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
         start = workflow.index("      - name: Authenticate restricted application deployer")

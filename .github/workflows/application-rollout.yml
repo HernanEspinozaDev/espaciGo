@@ -218,7 +218,27 @@ jobs:
             python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage workspace "$RUNNER_TEMP/gcp07d/workspace.log" | tee -a "$GITHUB_STEP_SUMMARY"
             echo "Terraform workspace selection failed; raw diagnostics remain private on runner"; exit 1;
           }
-          terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || {
+          plan_scope=()
+          if [[ "$POLICY_MODE" == bootstrap ]]; then
+            # Avoid refreshing the unrelated foundation state. Read-only V67 data sources remain dependencies;
+            # the validator still requires all three services and exactly the nine bootstrap IAM bindings.
+            plan_scope=(
+              -refresh=false
+              '-target=google_cloud_run_v2_service.api[0]'
+              '-target=google_cloud_run_v2_service.web["public"]'
+              '-target=google_cloud_run_v2_service.web["private"]'
+              '-target=google_cloud_run_v2_service_iam_member.api_invoker["public"]'
+              '-target=google_cloud_run_v2_service_iam_member.api_invoker["private"]'
+              '-target=google_cloud_run_v2_service_iam_member.deployer_service_updater["api"]'
+              '-target=google_cloud_run_v2_service_iam_member.deployer_service_updater["public"]'
+              '-target=google_cloud_run_v2_service_iam_member.deployer_service_updater["private"]'
+              '-target=google_cloud_run_v2_service_iam_member.public_web_invoker[0]'
+              '-target=google_cloud_run_v2_service_iam_member.private_iap_invoker[0]'
+              '-target=google_secret_manager_secret_iam_member.v67_api_secret_access[0]'
+              '-target=google_iap_web_cloud_run_service_iam_member.private_evaluators["user:pasteleriahijitos@gmail.com"]'
+            )
+          fi
+          terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" "${plan_scope[@]}" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || {
             python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage plan "$RUNNER_TEMP/gcp07d/plan.log" | tee -a "$GITHUB_STEP_SUMMARY"
             echo "Terraform plan failed; raw diagnostics remain private on runner"; exit 1;
           }

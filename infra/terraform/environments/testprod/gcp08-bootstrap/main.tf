@@ -7,6 +7,9 @@ locals {
     "roles/run.invoker",
     "projects/${var.project_id}/roles/espacigoCloudRunServiceUpdater",
   ]
+  bootstrap_v67_instance_name = "projects/${var.project_id}/instances/espacigo-testprod-db"
+  bootstrap_v67_secret_name   = "projects/${var.project_number}/secrets/espacigo-test-database-password-v67"
+  bootstrap_iap_service_name  = "projects/${var.project_number}/iap_web/cloud_run-${var.region}/services/espacigo-test-private"
   runtime_service_account_names = [
     "projects/${var.project_id}/serviceAccounts/espacigo-test-api@${var.project_id}.iam.gserviceaccount.com",
     "projects/${var.project_id}/serviceAccounts/espacigo-test-public-web@${var.project_id}.iam.gserviceaccount.com",
@@ -98,6 +101,92 @@ resource "google_project_iam_member" "cloud_run_bootstrap" {
     title       = "gcp08-initial-restore-expiry"
     description = "Expires automatically within 24 hours; only the separate protected restore workflow receives this role."
     expression  = "${local.bootstrap_expiry} && api.getAttribute('iam.googleapis.com/modifiedGrantsByRole', []).hasOnly(${jsonencode(local.bootstrap_cloud_run_iam_roles)})"
+  }
+
+  depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_custom_role" "v67_cloudsql_metadata_reader" {
+  count       = var.enable_bootstrap ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoGcp08V67CloudSqlMetadataReader"
+  title       = "EspaciGo GCP-08 temporary V67 Cloud SQL metadata read"
+  description = "Read only the named V67 Cloud SQL instance and its database metadata for the bootstrap plan."
+  stage       = "GA"
+  permissions = ["cloudsql.instances.get", "cloudsql.databases.get"]
+
+  depends_on = [terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_member" "v67_cloudsql_metadata_reader" {
+  count   = var.enable_bootstrap ? 1 : 0
+  project = var.project_id
+  role    = google_project_iam_custom_role.v67_cloudsql_metadata_reader[0].name
+  member  = local.workload_member
+
+  condition {
+    title       = "gcp08-v67-cloudsql-metadata-expiry"
+    description = "Expires within 24 hours and is restricted to the existing V67 SQL instance metadata."
+    expression  = "${local.bootstrap_expiry} && resource.type == 'sqladmin.googleapis.com/Instance' && resource.name == '${local.bootstrap_v67_instance_name}'"
+  }
+
+  depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_custom_role" "v67_secret_metadata_reader" {
+  count       = var.enable_bootstrap ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoGcp08V67SecretMetadataReader"
+  title       = "EspaciGo GCP-08 temporary V67 secret metadata read"
+  description = "Read metadata only for the single V67 runtime database secret; does not read secret versions or payloads."
+  stage       = "GA"
+  permissions = [
+    "secretmanager.secrets.get",
+    "secretmanager.secrets.getIamPolicy",
+    "secretmanager.secrets.setIamPolicy",
+  ]
+
+  depends_on = [terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_secret_manager_secret_iam_member" "v67_secret_metadata_reader" {
+  count     = var.enable_bootstrap ? 1 : 0
+  project   = var.project_id
+  secret_id = "espacigo-test-database-password-v67"
+  role      = google_project_iam_custom_role.v67_secret_metadata_reader[0].name
+  member    = local.workload_member
+
+  condition {
+    title       = "gcp08-v67-secret-metadata-expiry"
+    description = "Expires within 24 hours; grants metadata read on the single V67 runtime database secret only."
+    expression  = "${local.bootstrap_expiry} && resource.type == 'secretmanager.googleapis.com/Secret' && resource.name == '${local.bootstrap_v67_secret_name}'"
+  }
+
+  depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_custom_role" "private_iap_policy_manager" {
+  count       = var.enable_bootstrap ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoGcp08PrivateIapPolicyManager"
+  title       = "EspaciGo GCP-08 temporary private IAP policy manager"
+  description = "Read and set policy only for the private Cloud Run IAP WebService used by the initial restore."
+  stage       = "GA"
+  permissions = ["iap.webServices.getIamPolicy", "iap.webServices.setIamPolicy"]
+
+  depends_on = [terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_member" "private_iap_policy_manager" {
+  count   = var.enable_bootstrap ? 1 : 0
+  project = var.project_id
+  role    = google_project_iam_custom_role.private_iap_policy_manager[0].name
+  member  = local.workload_member
+
+  condition {
+    title       = "gcp08-private-iap-policy-expiry"
+    description = "Expires within 24 hours and is limited to the private Cloud Run IAP WebService policy."
+    expression  = "${local.bootstrap_expiry} && resource.type == 'iap.googleapis.com/WebService' && resource.name == '${local.bootstrap_iap_service_name}'"
   }
 
   depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
