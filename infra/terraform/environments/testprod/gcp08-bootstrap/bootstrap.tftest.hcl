@@ -14,6 +14,11 @@ run "disabled_by_default" {
   }
 
   assert {
+    condition     = length(google_project_iam_custom_role.iam_role_metadata_reader) == 0 && length(google_project_iam_member.iam_role_metadata_reader) == 0
+    error_message = "Disabled bootstrap must create no temporary IAM role metadata permission or binding."
+  }
+
+  assert {
     condition     = length(local.bootstrap_pool_display_name) <= local.wif_display_name_max_chars && length(local.bootstrap_provider_display_name) <= local.wif_display_name_max_chars
     error_message = "Pool and provider display names must respect the Google API's 32-character limit."
   }
@@ -21,6 +26,22 @@ run "disabled_by_default" {
 
 run "bootstrap_access_is_constrained_and_expires" {
   command = plan
+
+  override_resource {
+    target          = google_iam_workload_identity_pool.bootstrap[0]
+    override_during = plan
+    values = {
+      name = "projects/447373903153/locations/global/workloadIdentityPools/espacigo-gcp08-bootstrap"
+    }
+  }
+
+  override_resource {
+    target          = google_project_iam_custom_role.iam_role_metadata_reader[0]
+    override_during = plan
+    values = {
+      name = "projects/espacigo-testprod/roles/espacigoGcp08IamRoleReader"
+    }
+  }
 
   variables {
     enable_bootstrap     = true
@@ -42,6 +63,16 @@ run "bootstrap_access_is_constrained_and_expires" {
       "run.services.update",
     ])
     error_message = "Temporary Cloud Run bootstrap must contain only the six reviewed service permissions."
+  }
+
+  assert {
+    condition     = toset(google_project_iam_custom_role.iam_role_metadata_reader[0].permissions) == toset(["iam.roles.get"])
+    error_message = "The separate temporary IAM role metadata role must contain only iam.roles.get."
+  }
+
+  assert {
+    condition     = google_project_iam_member.iam_role_metadata_reader[0].role == google_project_iam_custom_role.iam_role_metadata_reader[0].name && google_project_iam_member.iam_role_metadata_reader[0].member == local.workload_member && google_project_iam_member.iam_role_metadata_reader[0].condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"
+    error_message = "IAM role metadata read must go only to the exact bootstrap workflow principal and share its expiry; it must not depend on IAM resource name attributes."
   }
 
   assert {
