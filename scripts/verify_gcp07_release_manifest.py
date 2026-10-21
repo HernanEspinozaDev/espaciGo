@@ -2,12 +2,11 @@
 """Validate a release run and its digest manifest without printing untrusted data."""
 import json
 import os
-import re
 import subprocess
 import sys
 import urllib.request
 
-PREFIX = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/"
+from gcp07_release_policy import release_manifest_matches
 
 
 def affects_application(path):
@@ -29,13 +28,7 @@ def main(path):
                      "X-GitHub-Api-Version": "2022-11-28"})
         with urllib.request.urlopen(request, timeout=20) as response:
             run = json.loads(response.read())
-        if (manifest.get("schema") != 1 or manifest.get("repository") != repo
-                or str(manifest.get("run_id")) != str(run_id) or run.get("status") != "completed"
-                or run.get("conclusion") != "success" or run.get("event") != "push"
-                or run.get("head_branch") != "main" or run.get("path") != ".github/workflows/application-release.yml"
-                or manifest.get("source_sha") != run.get("head_sha")
-                or not isinstance(manifest.get("contains_migrations"), bool)
-                or not isinstance(manifest.get("publish_only"), bool)):
+        if not release_manifest_matches(manifest, run, repo, run_id):
             raise ValueError()
         source_sha = manifest["source_sha"]
         current = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
@@ -44,13 +37,7 @@ def main(path):
         later_paths = subprocess.check_output(["git", "diff", "--name-only", source_sha, current], text=True).splitlines()
         if any(affects_application(path) for path in later_paths):
             raise ValueError()
-        images = manifest.get("images")
-        if not isinstance(images, dict) or not images or set(images) - {"api", "web"}:
-            raise ValueError()
-        for component, image in images.items():
-            name = "espacigo-api" if component == "api" else "espacigo-web"
-            if not re.fullmatch(re.escape(PREFIX + name) + r"@sha256:[0-9a-f]{64}", image):
-                raise ValueError()
+        images = manifest["images"]
         with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
             stream.write(f"GCP07D_SOURCE_SHA={manifest['source_sha']}\n")
         os.makedirs(os.path.join(os.environ["RUNNER_TEMP"], "gcp07d"), mode=0o700, exist_ok=True)
