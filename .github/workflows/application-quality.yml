@@ -41,7 +41,7 @@ jobs:
       - name: Test BuildKit attestation verifier
         run: python3 -m unittest discover -s scripts -p 'test_verify_gcp07_attestations.py'
       - name: Test GCP-07D environment and Terraform plan policy
-        run: python3 -m unittest discover -s scripts -p 'test_gcp07d_policy.py'
+        run: python3 -m unittest discover -s scripts -p 'test_gcp07d_policy.py' && python3 -m unittest discover -s scripts -p 'test_gcp08_preview_summary.py'
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
         with:
           terraform_version: 1.16.6

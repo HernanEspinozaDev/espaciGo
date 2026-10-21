@@ -8,10 +8,16 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Create a review summary, or re-plan and apply an approved summary
+        description: Preview or re-plan and apply an approved Cloud Run plan
         required: true
         type: choice
         options: [preview, apply]
+      operation:
+        description: Existing image update or the one-time initial V67 Cloud Run restore
+        required: true
+        type: choice
+        default: update
+        options: [update, initial-restore]
       release_run_id:
         description: Successful application-release run on main
         required: true
@@ -25,7 +31,7 @@ on:
         required: false
         type: string
       confirmation:
-        description: Type APPLY GCP-07D to authorize this workflow's apply attempt
+        description: Type APPLY GCP-07D for updates or APPLY GCP-08 INITIAL RESTORE for first creation
         required: false
         type: string
 
@@ -43,6 +49,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      pull-requests: read
     outputs:
       ready: ${{ steps.verify.outputs.ready }}
       migration_free: ${{ steps.scope.outputs.migration_free }}
@@ -57,9 +64,11 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
-          MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
+          MODE: ${{ github.event_name == 'workflow_run' && 'auto' || (inputs.operation == 'initial-restore' && format('bootstrap-{0}', inputs.mode) || inputs.mode) }}
           PUBLISH_ENABLED: ${{ vars.GCP07C_PUBLISH_ENABLED }}
           ROLLOUT_ENABLED: ${{ vars.GCP07D_ROLLOUT_ENABLED }}
+          V67_RUNTIME_PASSWORD_VERSION: ${{ vars.GCP08_V67_DATABASE_PASSWORD_VERSION }}
+          V67_RUNTIME_PREFLIGHT_SHA: ${{ vars.GCP08_V67_RUNTIME_PREFLIGHT_SHA }}
           CONFIRMATION: ${{ inputs.confirmation }}
           PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
           FINGERPRINT: ${{ inputs.approved_fingerprint }}
@@ -116,8 +125,10 @@ jobs:
       - name: Configure private Terraform inputs and image references
         env:
           TFVARS_JSON: ${{ secrets.GCP07D_TFVARS_JSON }}
-          MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
+          MODE: ${{ github.event_name == 'workflow_run' && 'auto' || (inputs.operation == 'initial-restore' && 'bootstrap' || 'update') }}
           RELEASE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
+          V67_RUNTIME_PASSWORD_VERSION: ${{ vars.GCP08_V67_DATABASE_PASSWORD_VERSION }}
+          V67_RUNTIME_PREFLIGHT_SHA: ${{ vars.GCP08_V67_RUNTIME_PREFLIGHT_SHA }}
         run: |
           set -euo pipefail
           umask 077
@@ -126,12 +137,27 @@ jobs:
           chmod 700 "$RUNNER_TEMP/gcp07d"
           echo "$TFVARS_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null
           TFVARS_JSON="$TFVARS_JSON" python3 - "$RUNNER_TEMP/gcp07d/terraform.tfvars.json" <<'PY'
-          import json,os,sys
+          import json,os,re,sys
           p=sys.argv[1]
           with open("release/manifest.json",encoding="utf-8") as f: manifest=json.load(f)
           protected=json.loads(os.environ["TFVARS_JSON"])
           if not isinstance(protected,dict): raise SystemExit("invalid protected configuration")
           if not isinstance(manifest.get("images"),dict): raise SystemExit("invalid release manifest")
+          if not re.fullmatch(r"[1-9][0-9]*",os.environ.get("V67_RUNTIME_PASSWORD_VERSION","")):
+              raise SystemExit("V67 runtime secret version is not pinned")
+          if not re.fullmatch(r"[0-9a-f]{64}",os.environ.get("V67_RUNTIME_PREFLIGHT_SHA","")) or set(os.environ["V67_RUNTIME_PREFLIGHT_SHA"]) == {"0"}:
+              raise SystemExit("reviewed V67 runtime preflight reference is missing")
+          if protected.get("enable_services") is not True:
+              raise SystemExit("protected service configuration is not enabled")
+          if protected.get("confirm_runtime_secret_versions") is not True or protected.get("confirm_runtime_database_bootstrap") is not True:
+              raise SystemExit("reviewed V67 runtime verification is missing")
+          protected["enable_database"] = False
+          protected["api_gcp06_candidate_run_id"] = ""
+          protected["api_v67_database_instance_name"] = "espacigo-testprod-db"
+          protected["api_v67_database_name"] = "espacigo_dms_stage_20261020"
+          protected["api_v67_database_password_version"] = os.environ["V67_RUNTIME_PASSWORD_VERSION"]
+          if os.environ.get("MODE") == "bootstrap":
+              protected["private_demo_origin_override"] = ""
           if "api" in manifest["images"]: protected["api_image"]=manifest["images"]["api"]
           if "web" in manifest["images"]: protected["frontend_image"]=manifest["images"]["web"]
           with open(p,"w",encoding="utf-8") as f: json.dump(protected,f,sort_keys=True)
@@ -150,7 +176,9 @@ jobs:
       - name: Initialize canonical Terraform root and produce private plan
         env:
           MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
+          POLICY_MODE: ${{ github.event_name == 'workflow_run' && 'update' || (inputs.operation == 'initial-restore' && 'bootstrap' || 'update') }}
           RELEASE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
+          V67_RUNTIME_PASSWORD_VERSION: ${{ vars.GCP08_V67_DATABASE_PASSWORD_VERSION }}
         run: |
           set -euo pipefail
           umask 077
@@ -164,7 +192,9 @@ jobs:
           terraform show -json "$RUNNER_TEMP/gcp07d/rollout.tfplan" > "$RUNNER_TEMP/gcp07d/plan.json" 2> "$RUNNER_TEMP/gcp07d/show.log" || { echo "Terraform plan inspection failed; private diagnostics retained only on runner"; exit 1; }
           python3 "$GITHUB_WORKSPACE/scripts/verify_gcp07_plan.py" "$RUNNER_TEMP/gcp07d/plan.json" \
             --images "$RUNNER_TEMP/gcp07d/images.json" --source-sha "$GCP07D_SOURCE_SHA" \
-            --release-run-id "$RELEASE_RUN_ID" --output "$RUNNER_TEMP/gcp07d/summary.json"
+            --release-run-id "$RELEASE_RUN_ID" --mode "$POLICY_MODE" \
+            --database-password-version "$V67_RUNTIME_PASSWORD_VERSION" \
+            --output "$RUNNER_TEMP/gcp07d/summary.json"
       - name: Verify approved preview summary before apply
         if: inputs.mode == 'apply'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -173,13 +203,28 @@ jobs:
           path: approved-preview
           run-id: ${{ inputs.preview_run_id }}
           github-token: ${{ github.token }}
+      - name: Require exact initial restore preview scope
+        if: inputs.mode == 'apply' && inputs.operation == 'initial-restore'
+        env:
+          EXPECTED_FINGERPRINT: ${{ inputs.approved_fingerprint }}
+        run: python3 scripts/verify_gcp08_preview_summary.py approved-preview/summary.json --fingerprint "$EXPECTED_FINGERPRINT"
       - name: Compare fingerprint and apply this job's exact private plan
         if: inputs.mode == 'apply'
         env:
           EXPECTED_FINGERPRINT: ${{ inputs.approved_fingerprint }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          POLICY_MODE: ${{ inputs.operation == 'initial-restore' && 'bootstrap' || 'update' }}
+          CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           set -euo pipefail
+          if [[ "$POLICY_MODE" == bootstrap && "$CONFIRMATION" != "APPLY GCP-08 INITIAL RESTORE" ]]; then
+            echo "Initial restore confirmation does not match the required phrase" >&2
+            exit 1
+          fi
+          if [[ "$POLICY_MODE" == update && "$CONFIRMATION" != "APPLY GCP-07D" ]]; then
+            echo "Image update confirmation does not match the required phrase" >&2
+            exit 1
+          fi
           python3 scripts/compare_gcp07d_preview.py "$RUNNER_TEMP/gcp07d/summary.json" \
             approved-preview/summary.json "$EXPECTED_FINGERPRINT" "$RELEASE_RUN_ID" "$GCP07D_SOURCE_SHA"
           cd infra/terraform/environments/testprod/gcp
