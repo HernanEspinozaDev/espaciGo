@@ -59,10 +59,11 @@ run "bootstrap_access_is_constrained_and_expires" {
       "run.services.create",
       "run.services.get",
       "run.services.getIamPolicy",
+      "run.services.list",
       "run.services.setIamPolicy",
       "run.services.update",
     ])
-    error_message = "Temporary Cloud Run bootstrap must contain only the six reviewed service permissions."
+    error_message = "Temporary Cloud Run bootstrap must contain only the seven reviewed service permissions."
   }
 
   assert {
