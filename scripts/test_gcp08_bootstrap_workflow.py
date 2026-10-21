@@ -84,23 +84,29 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
         self.assertEqual(targets, expected_targets)
         self.assertIn('"${plan_scope[@]}"', workflow)
 
-    def test_bootstrap_plan_failure_runs_state_and_refresh_diagnostics_before_fixed_api_probes(self):
+    def test_bootstrap_plan_failure_runs_state_permission_and_target_diagnostics(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
         plan = workflow.index('terraform plan -input=false -lock-timeout=5m')
         bootstrap_branch = workflow.index('if [[ "$POLICY_MODE" == bootstrap ]]', plan)
         refresh_diagnostic = workflow.index("gcp08_bootstrap_refresh_diagnostics.py")
         state_inventory = workflow.index("gcp08_bootstrap_state_inventory.py")
         fixed_probes = workflow.index("gcp08_bootstrap_cloud_run_probes.py")
+        target_diagnostics = workflow.index("gcp08_bootstrap_target_diagnostics.py")
         self.assertGreater(bootstrap_branch, plan)
         self.assertLess(state_inventory, refresh_diagnostic)
         self.assertLess(refresh_diagnostic, fixed_probes)
+        self.assertLess(fixed_probes, target_diagnostics)
         self.assertIn('"$RUNNER_TEMP/gcp07d/state-inventory"', workflow[state_inventory:refresh_diagnostic])
-        diagnostic_block = workflow[refresh_diagnostic:fixed_probes]
+        diagnostic_block = workflow[refresh_diagnostic:target_diagnostics]
         self.assertIn("--terraform-dir", diagnostic_block)
         self.assertIn('--var-file "$GCP07D_TFVARS"', diagnostic_block)
         self.assertIn('"$RUNNER_TEMP/gcp07d/refresh-diagnostics"', diagnostic_block)
         self.assertNotIn("TF_LOG", diagnostic_block)
         self.assertNotIn("terraform apply", diagnostic_block)
+        target_block = workflow[target_diagnostics:workflow.index('echo "Terraform plan failed', target_diagnostics)]
+        self.assertIn('"$RUNNER_TEMP/gcp07d/target-diagnostics"', target_block)
+        self.assertNotIn("TF_LOG", target_block)
+        self.assertNotIn("terraform apply", target_block)
 
     def test_normal_and_automatic_rollouts_keep_the_restricted_deployer(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")

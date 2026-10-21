@@ -400,6 +400,10 @@ jobs:
                 --private-dir "$RUNNER_TEMP/gcp07d/refresh-diagnostics" | tee -a "$GITHUB_STEP_SUMMARY"
               python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_cloud_run_probes.py" \
                 --private-dir "$RUNNER_TEMP/gcp07d" --var-file "$GCP07D_TFVARS" | tee -a "$GITHUB_STEP_SUMMARY"
+              python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_target_diagnostics.py" \
+                --terraform-dir "$GITHUB_WORKSPACE/infra/terraform/environments/testprod/gcp" \
+                --var-file "$GCP07D_TFVARS" \
+                --private-dir "$RUNNER_TEMP/gcp07d/target-diagnostics" | tee -a "$GITHUB_STEP_SUMMARY"
             fi
             echo "Terraform plan failed; raw diagnostics remain private on runner"; exit 1;
           }
