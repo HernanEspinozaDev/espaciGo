@@ -14,6 +14,7 @@ from unittest.mock import Mock
 from gcp08_bootstrap_cloud_run_probes import (
     PROBES, SAFE_CATEGORIES, _write_private_response, build_gcloud_command,
     build_rest_url, classify_rest_response, read_probe_configuration, run_probe, _sqladmin_rest_url,
+    safe_rest_fields,
 )
 
 
@@ -21,17 +22,35 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
+    def test_dependency_permission_details_are_allowlisted_without_resource_values(self):
+        marker = "private-resource-name"
+        for permission, domain in (
+            ("compute.networks.get", "compute.googleapis.com"),
+            ("compute.subnetworks.get", "compute.googleapis.com"),
+            ("serviceusage.services.get", "serviceusage.googleapis.com"),
+        ):
+            with self.subTest(permission=permission):
+                payload = {"error": {"code": 403, "details": [{
+                    "domain": domain,
+                    "metadata": {"permission": permission, "resource": marker},
+                }]}}
+                self.assertEqual(safe_rest_fields(403, payload), [
+                    "status=403", f"permission={permission}", f"service={domain}",
+                ])
+
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 16)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 16)
+        self.assertEqual(len(PROBES), 20)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 20)
         self.assertEqual({operation for _, operation, _ in PROBES}, {
             "describe", "get-iam-policy", "list", "iap-get-iam-policy",
             "sql-instance-get", "run-test-iam", "run-parent-test-iam", "sa-test-iam",
+            "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
         })
         self.assertEqual({service for _, operation, service in PROBES
                           if service is not None and operation not in {
                               "iap-get-iam-policy", "sql-instance-get", "run-test-iam",
                               "run-parent-test-iam", "sa-test-iam",
+                              "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
                           }}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
@@ -60,7 +79,10 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("list", command)
                 self.assertNotIn("set-iam-policy", command)
                 self.assertNotIn("--log-http", command)
-            else:
+            elif operation in {
+                "iap-get-iam-policy", "sql-instance-get", "run-test-iam",
+                "run-parent-test-iam", "sa-test-iam",
+            }:
                 self.assertIn(target, {
                     "cloud_run_service.private.iap_get_iam_policy",
                     "cloud_sql_instance.v67.get",
@@ -72,6 +94,14 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                     "runtime_service_account.public.test_act_as",
                     "runtime_service_account.private.test_act_as",
                 })
+            elif operation == "compute-network-get":
+                self.assertEqual(build_rest_url(target),
+                                 "https://compute.googleapis.com/compute/v1/projects/espacigo-testprod/global/networks/espacigo-testprod")
+            elif operation == "compute-subnetwork-get":
+                self.assertIn("/regions/southamerica-west1/subnetworks/espacigo-testprod-", build_rest_url(target))
+            elif operation == "serviceusage-service-get":
+                self.assertEqual(build_rest_url(target),
+                                 "https://serviceusage.googleapis.com/v1/projects/espacigo-testprod/services/run.googleapis.com")
 
     def test_cloudsql_probe_urls_use_only_validated_v67_identifiers(self):
         self.assertEqual(
@@ -443,7 +473,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
 
             def read(self, _limit):
                 return json.dumps({"permissions": [
-                    "run.services.create", "run.operations.get", marker,
+                    "run.services.create", "run.operations.get",
+                    "serviceusage.services.get", marker,
                 ]}).encode()
 
         class FakeOpener:
@@ -467,12 +498,13 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                          "https://cloudresourcemanager.googleapis.com/v3/projects/"
                          "espacigo-testprod:testIamPermissions")
         self.assertEqual(set(observed["body"]["permissions"]), {
-            "run.services.create", "run.operations.get",
+            "run.services.create", "run.operations.get", "serviceusage.services.get",
         })
         emitted = output.getvalue()
         self.assertIn("method=projects.testIamPermissions resource=project", emitted)
         self.assertIn("permission=run.services.create result=granted", emitted)
         self.assertIn("permission=run.operations.get result=granted", emitted)
+        self.assertIn("permission=serviceusage.services.get result=granted", emitted)
         self.assertNotIn(marker, emitted)
         self.assertNotIn("token-hidden", emitted)
 
@@ -493,7 +525,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 return 200
 
             def read(self, _limit):
-                return b'{"permissions":["iam.serviceAccounts.actAs"]}'
+                return b'{"permissions":["iam.serviceAccounts.actAs","iam.serviceAccounts.get"]}'
 
         class FakeOpener:
             def open(self, request, timeout):
@@ -512,8 +544,11 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertEqual(observed["url"], "https://iam.googleapis.com/v1/projects/espacigo-testprod/"
                          "serviceAccounts/espacigo-test-private-web%40espacigo-testprod.iam.gserviceaccount.com:testIamPermissions")
         self.assertEqual(observed["method"], "POST")
-        self.assertEqual(observed["body"], {"permissions": ["iam.serviceAccounts.actAs"]})
+        self.assertEqual(observed["body"], {
+            "permissions": ["iam.serviceAccounts.actAs", "iam.serviceAccounts.get"]
+        })
         self.assertIn("permission=iam.serviceAccounts.actAs result=granted", output.getvalue())
+        self.assertIn("permission=iam.serviceAccounts.get result=granted", output.getvalue())
 
     def test_missing_iap_cloud_run_service_is_reported_as_not_found(self):
         payload = {"error": {"code": 404, "status": "NOT_FOUND"}}

@@ -21,6 +21,8 @@ API_ROOT = "https://run.googleapis.com/v2"
 IAP_API_ROOT = "https://iap.googleapis.com/v1"
 SQLADMIN_API_ROOT = "https://sqladmin.googleapis.com/sql/v1beta4"
 IAM_API_ROOT = "https://iam.googleapis.com/v1"
+COMPUTE_API_ROOT = "https://compute.googleapis.com/compute/v1"
+SERVICE_USAGE_API_ROOT = "https://serviceusage.googleapis.com/v1"
 RESOURCE_MANAGER_API_ROOT = "https://cloudresourcemanager.googleapis.com/v3"
 DEFAULT_PRIVATE_SERVICE_NAME = "espacigo-test-private"
 RUNTIME_SERVICE_ACCOUNTS = {
@@ -33,9 +35,11 @@ TESTED_RUN_PERMISSIONS = tuple(sorted({
     "run.services.update",
 }))
 TESTED_RUN_PARENT_PERMISSIONS = tuple(sorted({
-    "run.operations.get", "run.services.create",
+    "run.operations.get", "run.services.create", "serviceusage.services.get",
 }))
-TESTED_SA_PERMISSIONS = ("iam.serviceAccounts.actAs",)
+TESTED_SA_PERMISSIONS = tuple(sorted({
+    "iam.serviceAccounts.actAs", "iam.serviceAccounts.get",
+}))
 MAX_RESPONSE_BYTES = 2_000_000
 PROBES = (
     ("cloud_run_service.api.describe", "describe", "espacigo-test-api"),
@@ -54,6 +58,10 @@ PROBES = (
     ("runtime_service_account.api.test_act_as", "sa-test-iam", "api"),
     ("runtime_service_account.public.test_act_as", "sa-test-iam", "public"),
     ("runtime_service_account.private.test_act_as", "sa-test-iam", "private"),
+    ("compute_network.testprod.get", "compute-network-get", "espacigo-testprod"),
+    ("compute_subnetwork.serverless.get", "compute-subnetwork-get", "espacigo-testprod-serverless"),
+    ("compute_subnetwork.api_serverless.get", "compute-subnetwork-get", "espacigo-testprod-api-serverless"),
+    ("serviceusage.run_api.get", "serviceusage-service-get", "run.googleapis.com"),
 )
 PROBE_BY_ENUM = {target: (operation, service) for target, operation, service in PROBES}
 NOT_FOUND = re.compile(r"\b404\b|\bNOT_FOUND\b|not found|does not exist", re.IGNORECASE)
@@ -72,8 +80,13 @@ SAFE_RUN_PERMISSIONS = {
 }
 SAFE_IAP_PERMISSIONS = {"iap.webServices.getIamPolicy"}
 SAFE_SQL_PERMISSIONS = {"cloudsql.instances.get"}
-SAFE_SA_PERMISSIONS = {"iam.serviceAccounts.actAs"}
-SAFE_PERMISSIONS = SAFE_RUN_PERMISSIONS | SAFE_IAP_PERMISSIONS | SAFE_SQL_PERMISSIONS | SAFE_SA_PERMISSIONS
+SAFE_SA_PERMISSIONS = {"iam.serviceAccounts.actAs", "iam.serviceAccounts.get"}
+SAFE_COMPUTE_PERMISSIONS = {"compute.networks.get", "compute.subnetworks.get"}
+SAFE_SERVICE_USAGE_PERMISSIONS = {"serviceusage.services.get"}
+SAFE_PERMISSIONS = (
+    SAFE_RUN_PERMISSIONS | SAFE_IAP_PERMISSIONS | SAFE_SQL_PERMISSIONS | SAFE_SA_PERMISSIONS
+    | SAFE_COMPUTE_PERMISSIONS | SAFE_SERVICE_USAGE_PERMISSIONS
+)
 
 
 def classify_probe(diagnostic):
@@ -130,6 +143,18 @@ def build_rest_url(target):
             raise ValueError("invalid runtime service-account probe")
         account = RUNTIME_SERVICE_ACCOUNTS[service]
         return f"{IAM_API_ROOT}/projects/{PROJECT}/serviceAccounts/{urllib.parse.quote(account, safe='')}:testIamPermissions"
+    if operation == "compute-network-get":
+        if service != "espacigo-testprod":
+            raise ValueError("invalid Compute Engine network probe")
+        return f"{COMPUTE_API_ROOT}/projects/{PROJECT}/global/networks/{service}"
+    if operation == "compute-subnetwork-get":
+        if service not in {"espacigo-testprod-serverless", "espacigo-testprod-api-serverless"}:
+            raise ValueError("invalid Compute Engine subnetwork probe")
+        return f"{COMPUTE_API_ROOT}/projects/{PROJECT}/regions/{REGION}/subnetworks/{service}"
+    if operation == "serviceusage-service-get":
+        if service != "run.googleapis.com":
+            raise ValueError("invalid Service Usage probe")
+        return f"{SERVICE_USAGE_API_ROOT}/projects/{PROJECT}/services/{service}"
     if operation != "describe":
         raise ValueError("IAM policy probes use the gcloud read command")
     resource = "/".join(urllib.parse.quote(part, safe="") for part in (
@@ -176,7 +201,7 @@ def classify_rest_response(http_status, payload):
 
 
 def safe_rest_fields(http_status, payload):
-    """Extract only approved HTTP status, Cloud Run permission, and API domain."""
+    """Extract only approved HTTP status, permission names, and API domains."""
     fields = []
     status = _structured_status(http_status, payload)
     if status is not None:
@@ -190,7 +215,10 @@ def safe_rest_fields(http_status, payload):
         if not isinstance(item, dict):
             continue
         domain = item.get("domain")
-        if domain in {"run.googleapis.com", "iap.googleapis.com", "sqladmin.googleapis.com"}:
+        if domain in {
+            "run.googleapis.com", "iap.googleapis.com", "sqladmin.googleapis.com",
+            "compute.googleapis.com", "serviceusage.googleapis.com",
+        }:
             service = domain
         metadata = item.get("metadata")
         candidate = metadata.get("permission") if isinstance(metadata, dict) else None
@@ -202,6 +230,10 @@ def safe_rest_fields(http_status, payload):
                 service = "sqladmin.googleapis.com"
             elif candidate in SAFE_SA_PERMISSIONS:
                 service = "iam.googleapis.com"
+            elif candidate in SAFE_COMPUTE_PERMISSIONS:
+                service = "compute.googleapis.com"
+            elif candidate in SAFE_SERVICE_USAGE_PERMISSIONS:
+                service = "serviceusage.googleapis.com"
             else:
                 service = "run.googleapis.com"
     if permission:
@@ -380,7 +412,12 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     return False
                 actual = payload.get("permissions") if isinstance(payload, dict) else None
                 actual = set(actual) if isinstance(actual, list) and all(isinstance(item, str) for item in actual) else set()
-                allowed = SAFE_SA_PERMISSIONS if operation == "sa-test-iam" else SAFE_RUN_PERMISSIONS
+                if operation == "sa-test-iam":
+                    allowed = SAFE_SA_PERMISSIONS
+                elif operation == "run-parent-test-iam":
+                    allowed = SAFE_RUN_PERMISSIONS | SAFE_SERVICE_USAGE_PERMISSIONS
+                else:
+                    allowed = SAFE_RUN_PERMISSIONS
                 granted = actual & allowed
                 if operation == "run-parent-test-iam":
                     method, resource_scope = "projects.testIamPermissions", "project"
