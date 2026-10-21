@@ -40,8 +40,8 @@ run "bootstrap_access_is_constrained_and_expires" {
   }
 
   assert {
-    condition     = google_iam_workload_identity_pool_provider.bootstrap[0].attribute_condition == "assertion.repository == 'HernanEspinozaDev/espaciGo' && assertion.repository_id == '1361448198' && assertion.repository_owner_id == '176093371' && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == 'HernanEspinozaDev/espaciGo/.github/workflows/application-rollout.yml@refs/heads/main' && assertion.event_name == 'workflow_dispatch' && assertion.environment == 'testprod'"
-    error_message = "Temporary WIF must accept only the exact manual main rollout under the protected testprod environment."
+    condition     = google_iam_workload_identity_pool_provider.bootstrap[0].attribute_condition == "assertion.repository == 'HernanEspinozaDev/espaciGo' && assertion.repository_id == '1361448198' && assertion.repository_owner_id == '176093371' && assertion.actor_id == '176093371' && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == 'HernanEspinozaDev/espaciGo/.github/workflows/application-rollout.yml@refs/heads/main' && assertion.event_name == 'workflow_dispatch' && assertion.environment == 'testprod'"
+    error_message = "Temporary WIF must accept only the verified actor and exact manual main rollout under the protected testprod environment."
   }
 
   assert {

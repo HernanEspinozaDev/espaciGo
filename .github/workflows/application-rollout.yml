@@ -92,7 +92,7 @@ jobs:
 
   rollout:
     needs: preflight
-    if: needs.preflight.outputs.ready == 'true' && needs.preflight.outputs.migration_free == 'true'
+    if: needs.preflight.outputs.ready == 'true' && needs.preflight.outputs.migration_free == 'true' && (github.event_name != 'workflow_dispatch' || inputs.operation != 'initial-restore' || github.actor_id == '176093371')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: testprod

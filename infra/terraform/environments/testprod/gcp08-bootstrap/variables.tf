@@ -52,6 +52,16 @@ variable "github_repository_owner_id" {
   }
 }
 
+variable "github_bootstrap_actor_id" {
+  type        = string
+  default     = "176093371"
+  description = "Immutable GitHub account ID permitted to initiate the one-time restore (HernanEspinozaDev)."
+  validation {
+    condition     = var.github_bootstrap_actor_id == "176093371"
+    error_message = "GCP-08 bootstrap trusts only the verified HernanEspinozaDev GitHub account ID."
+  }
+}
+
 variable "enable_bootstrap" {
   type        = bool
   default     = false

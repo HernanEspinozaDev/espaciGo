@@ -57,9 +57,10 @@ resource "google_iam_workload_identity_pool_provider" "bootstrap" {
     "attribute.workflow_ref"        = "assertion.workflow_ref"
     "attribute.environment"         = "assertion.environment"
     "attribute.event_name"          = "assertion.event_name"
+    "attribute.actor_id"            = "assertion.actor_id"
   }
 
-  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '${var.github_repository_owner_id}' && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == '${local.workflow_ref}' && assertion.event_name == 'workflow_dispatch' && assertion.environment == 'testprod'"
+  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '${var.github_repository_owner_id}' && assertion.actor_id == '${var.github_bootstrap_actor_id}' && assertion.ref == 'refs/heads/main' && assertion.workflow_ref == '${local.workflow_ref}' && assertion.event_name == 'workflow_dispatch' && assertion.environment == 'testprod'"
 
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
