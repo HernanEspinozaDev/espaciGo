@@ -36,6 +36,16 @@ variable "enable_database" {
   }
 }
 
+variable "enable_private_services_access" {
+  type        = bool
+  description = "Keep the existing Private Services Access range and Service Networking peering for externally managed Cloud SQL instances."
+  default     = false
+  validation {
+    condition     = !var.enable_private_services_access || var.enable_foundation
+    error_message = "Private Services Access requires the existing foundation network."
+  }
+}
+
 variable "enable_services" {
   type        = bool
   description = "Separate explicit apply gate for Cloud Run services; requires foundation and database."

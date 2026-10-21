@@ -180,7 +180,7 @@ resource "google_compute_subnetwork" "mailpit" {
 }
 
 resource "google_compute_global_address" "private_services" {
-  count         = var.enable_database ? 1 : 0
+  count         = (var.enable_database || var.enable_private_services_access) ? 1 : 0
   name          = "espacigo-testprod-private-services"
   purpose       = "VPC_PEERING"
   address_type  = "INTERNAL"
@@ -190,7 +190,7 @@ resource "google_compute_global_address" "private_services" {
 }
 
 resource "google_service_networking_connection" "private_services" {
-  count                   = var.enable_database ? 1 : 0
+  count                   = (var.enable_database || var.enable_private_services_access) ? 1 : 0
   network                 = google_compute_network.testprod[0].id
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_services[0].name]

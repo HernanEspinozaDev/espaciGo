@@ -655,6 +655,49 @@ run "private_web_iap_identity_is_separate_from_mailpit" {
   }
 }
 
+run "v67_services_retain_private_services_access_without_database_creation" {
+  command = plan
+
+  variables {
+    project_id                          = "espacigo-testprod"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_services                     = true
+    enable_private_services_access      = true
+    enable_database                     = false
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
+    api_v67_database_instance_name      = "espacigo-testprod-db"
+    api_v67_database_name               = "espacigo_dms_stage_20261020"
+    api_v67_database_password_version   = "1"
+    api_contract_encryption_key_version = "1"
+    api_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    bucket_suffix                       = "v67-runtime"
+    mailpit_private_address             = "10.81.1.2:1025"
+  }
+
+  override_data {
+    target = data.google_sql_database_instance.v67_target[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+    }
+  }
+
+  assert {
+    condition     = length(google_compute_global_address.private_services) == 1 && length(google_service_networking_connection.private_services) == 1
+    error_message = "V67 service bootstrapping must retain the existing Private Services Access range and peering without enabling Cloud SQL creation."
+  }
+  assert {
+    condition     = length(google_sql_database_instance.postgres) == 0 && length(google_sql_database.application) == 0
+    error_message = "The V67 bootstrap must not manage or recreate the legacy Cloud SQL instance or database."
+  }
+}
+
 run "mailpit_vm_uses_explicit_cos_image_pin" {
   command = plan
 

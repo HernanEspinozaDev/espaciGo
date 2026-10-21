@@ -332,7 +332,32 @@ class Gcp07dPolicyTests(unittest.TestCase):
                                      "after": None}})
         with self.assertRaises(PolicyError):
             validate({"applyable": True, "resource_changes": resources},
-                     {"api": api, "web": web}, "c" * 40, "123", "bootstrap", "1")
+                     {"api": api, "web": web}, "c" * 40, "123", "bootstrap", "7")
+
+    def test_initial_restore_accepts_unchanged_private_services_access_only(self):
+        api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
+        web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
+        resources = ([initial_resource(address, api if component == "api" else web)
+                      for address, (component, _) in ALLOWED.items()]
+                     + [bootstrap_iam_resource(address, expected) for address, expected in BOOTSTRAP_IAM.items()])
+        psa = [
+            {"address": "google_compute_global_address.private_services[0]",
+             "change": {"actions": ["no-op"], "before": {"name": "espacigo-testprod-private-services"},
+                        "after": {"name": "espacigo-testprod-private-services"}}},
+            {"address": "google_service_networking_connection.private_services[0]",
+             "change": {"actions": ["no-op"], "before": {"service": "servicenetworking.googleapis.com"},
+                        "after": {"service": "servicenetworking.googleapis.com"}}},
+        ]
+        result = validate({"applyable": True, "resource_changes": resources + psa},
+                          {"api": api, "web": web}, "c" * 40, "123", "bootstrap", "7")
+        self.assertEqual(len(result["changes"]), len(ALLOWED))
+        for item in psa:
+            changed = copy.deepcopy(resources + psa)
+            target = next(row for row in changed if row["address"] == item["address"])
+            target["change"]["actions"] = ["update"]
+            with self.assertRaises(PolicyError):
+                validate({"applyable": True, "resource_changes": changed},
+                         {"api": api, "web": web}, "c" * 40, "123", "bootstrap", "7")
 
     def test_initial_iam_rejects_conditions_and_unallowlisted_attributes(self):
         api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64

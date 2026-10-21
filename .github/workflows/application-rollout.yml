@@ -154,6 +154,7 @@ jobs:
                   raise SystemExit("initial restore requires the reviewed foundation configuration")
               if protected.get("enable_mailpit") is not True:
                   raise SystemExit("initial restore must retain the existing Mailpit foundation resources")
+              protected["enable_private_services_access"] = True
               if protected.get("confirm_project_inventory") is not True or protected.get("confirm_cost_policy_review") is not True:
                   raise SystemExit("reviewed project inventory and cost/policy confirmations are missing")
               if protected.get("iap_evaluator_members") != ["user:pasteleriahijitos@gmail.com"]:
