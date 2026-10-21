@@ -35,6 +35,10 @@ GCP_PERMISSION_NAME = (
 DENIED_PERMISSION = re.compile(
     rf"(?i:permission)\s+[\"']({GCP_PERMISSION_NAME})[\"']\s+(?i:denied)",
 )
+STRUCTURED_PERMISSION = re.compile(
+    rf"(?:[\"']permission[\"']|\bpermission\b)\s*[:=]\s*[\"']?"
+    rf"({GCP_PERMISSION_NAME})(?=[\"'\s,}}\]]|$)",
+)
 HTTP_STATUS = re.compile(
     r"(?:googleapi:\s*)?Error\s+(\d{3})\b|"
     r"HTTP\s+(\d{3})\b|status\s+code\s+(\d{3})\b", re.IGNORECASE,
@@ -62,6 +66,7 @@ PERMISSION_SERVICES = {
 }
 RESOURCE_TYPES = {
     ("run", "services"): "run.googleapis.com/Service",
+    ("run", "operations"): "run.googleapis.com/Operation",
     ("compute", "instances"): "compute.googleapis.com/Instance",
     ("compute", "networks"): "compute.googleapis.com/Network",
     ("compute", "subnetworks"): "compute.googleapis.com/Subnetwork",
@@ -77,6 +82,54 @@ RESOURCE_TYPES = {
     ("serviceusage", "services"): "serviceusage.googleapis.com/Service",
 }
 DOMAIN_SERVICES = {service: service for service in PERMISSION_SERVICES.values()}
+TERRAFORM_ADDRESSES = {
+    "google_cloud_run_v2_service.api[0]": "cloud_run_v2_service.api",
+    'google_cloud_run_v2_service.web["public"]': "cloud_run_v2_service.web.public",
+    'google_cloud_run_v2_service.web["private"]': "cloud_run_v2_service.web.private",
+    'google_cloud_run_v2_service_iam_member.api_invoker["public"]': "cloud_run_iam.api_invoker.public",
+    'google_cloud_run_v2_service_iam_member.api_invoker["private"]': "cloud_run_iam.api_invoker.private",
+    'google_cloud_run_v2_service_iam_member.deployer_service_updater["api"]': "cloud_run_iam.deployer_updater.api",
+    'google_cloud_run_v2_service_iam_member.deployer_service_updater["public"]': "cloud_run_iam.deployer_updater.public",
+    'google_cloud_run_v2_service_iam_member.deployer_service_updater["private"]': "cloud_run_iam.deployer_updater.private",
+    "google_cloud_run_v2_service_iam_member.public_web_invoker[0]": "cloud_run_iam.public_web_invoker",
+    "google_cloud_run_v2_service_iam_member.private_iap_invoker[0]": "cloud_run_iam.private_iap_invoker",
+    "google_secret_manager_secret_iam_member.v67_api_secret_access[0]": "secret_manager_iam.v67_api_secret_access",
+}
+TERRAFORM_ADDRESS_PATTERNS = tuple(
+    (address, re.compile(rf"(?m)^\s*with\s+{re.escape(address)}\s*,?\s*$"))
+    for address in TERRAFORM_ADDRESSES
+) + ((
+    "google_iap_web_cloud_run_service_iam_member.private_evaluators[<key>]",
+    re.compile(
+        r'(?m)^\s*with\s+google_iap_web_cloud_run_service_iam_member'
+        r'\.private_evaluators\["[^"\r\n]{1,254}"\]\s*,?\s*$'
+    ),
+),)
+TERRAFORM_ADDRESS_ENUMS = {
+    **TERRAFORM_ADDRESSES,
+    "google_iap_web_cloud_run_service_iam_member.private_evaluators[<key>]": "iap_iam.private_evaluators",
+}
+PERMISSION_OPERATIONS = {
+    "get": "get", "getIamPolicy": "getIamPolicy", "setIamPolicy": "setIamPolicy",
+    "create": "create", "update": "update",
+}
+OPERATION_PATTERNS = (
+    ("getIamPolicy", re.compile(r"\bGetIamPolicy\b")),
+    ("setIamPolicy", re.compile(r"\bSetIamPolicy\b")),
+    ("create", re.compile(r"\b(?:Error\s+when\s+)?creating\b", re.IGNORECASE)),
+    ("update", re.compile(r"\b(?:Error\s+when\s+)?updating\b", re.IGNORECASE)),
+    ("read", re.compile(r"\b(?:Error\s+when\s+)?reading\b", re.IGNORECASE)),
+    ("get", re.compile(r"\bRequest\s+Method\s*:\s*GET\b", re.IGNORECASE)),
+)
+STRUCTURED_OPERATION = re.compile(
+    r"(?:[\"']operation[\"']|\boperation\b)\s*[:=]\s*[\"']?"
+    r"(getIamPolicy|setIamPolicy|get|read|create|update)"
+    r"(?=[\"'\s,}\]]|$)", re.IGNORECASE,
+)
+CANONICAL_OPERATIONS = {
+    "getiampolicy": "getIamPolicy", "setiampolicy": "setIamPolicy",
+    "get": "get", "read": "read", "create": "create", "update": "update",
+}
 
 
 def classify(stage, diagnostic):
@@ -91,8 +144,33 @@ def classify(stage, diagnostic):
 
 
 def denied_permission(diagnostic):
-    match = DENIED_PERMISSION.search(diagnostic)
-    return match.group(1) if match else None
+    candidates = {match.group(1) for match in DENIED_PERMISSION.finditer(diagnostic)}
+    candidates.update(match.group(1) for match in STRUCTURED_PERMISSION.finditer(diagnostic))
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def terraform_address(diagnostic):
+    candidates = {
+        TERRAFORM_ADDRESS_ENUMS[address]
+        for address, pattern in TERRAFORM_ADDRESS_PATTERNS
+        if pattern.search(diagnostic)
+    }
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def terraform_operation(diagnostic, permission=None):
+    if permission:
+        method = permission.rsplit(".", 1)[-1]
+        if method in PERMISSION_OPERATIONS:
+            return PERMISSION_OPERATIONS[method]
+    structured = {
+        CANONICAL_OPERATIONS[match.group(1).lower()]
+        for match in STRUCTURED_OPERATION.finditer(diagnostic)
+    }
+    if len(structured) == 1:
+        return next(iter(structured))
+    candidates = {operation for operation, pattern in OPERATION_PATTERNS if pattern.search(diagnostic)}
+    return next(iter(candidates)) if len(candidates) == 1 else None
 
 
 def safe_details(diagnostic):
@@ -126,6 +204,12 @@ def safe_details(diagnostic):
         ), None)
         if service:
             details.append(f"service={service}")
+    address = terraform_address(diagnostic)
+    operation = terraform_operation(diagnostic, permission)
+    if address:
+        details.append(f"address={address}")
+    if operation:
+        details.append(f"operation={operation}")
     return details
 
 
