@@ -13,7 +13,7 @@ from unittest.mock import Mock
 
 from gcp08_bootstrap_cloud_run_probes import (
     PROBES, SAFE_CATEGORIES, _write_private_response, build_gcloud_command,
-    build_rest_url, classify_rest_response, run_probe,
+    build_rest_url, classify_rest_response, read_probe_configuration, run_probe, _sqladmin_rest_url,
 )
 
 
@@ -22,11 +22,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 8)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 8)
-        self.assertEqual({operation for _, operation, _ in PROBES}, {"describe", "get-iam-policy", "list", "iap-get-iam-policy"})
+        self.assertEqual(len(PROBES), 10)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 10)
+        self.assertEqual({operation for _, operation, _ in PROBES}, {
+            "describe", "get-iam-policy", "list", "iap-get-iam-policy",
+            "sql-instance-get", "sql-database-get",
+        })
         self.assertEqual({service for _, operation, service in PROBES
-                          if service is not None and operation != "iap-get-iam-policy"}, {
+                          if service is not None and operation not in {
+                              "iap-get-iam-policy", "sql-instance-get", "sql-database-get",
+                          }}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
         for target, operation, service in PROBES:
@@ -55,8 +60,42 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("set-iam-policy", command)
                 self.assertNotIn("--log-http", command)
             else:
-                self.assertEqual(target, "cloud_run_service.private.iap_get_iam_policy")
-                self.assertEqual(service, "private")
+                self.assertIn(target, {
+                    "cloud_run_service.private.iap_get_iam_policy",
+                    "cloud_sql_instance.v67.get", "cloud_sql_database.v67.get",
+                })
+
+    def test_cloudsql_probe_urls_use_only_validated_v67_identifiers(self):
+        self.assertEqual(
+            _sqladmin_rest_url("sql-instance-get", "espacigo-testprod-db"),
+            "https://sqladmin.googleapis.com/sql/v1beta4/projects/espacigo-testprod/instances/espacigo-testprod-db",
+        )
+        self.assertEqual(
+            _sqladmin_rest_url("sql-database-get", "espacigo-testprod-db", "espacigo_dms_stage_20261020"),
+            "https://sqladmin.googleapis.com/sql/v1beta4/projects/espacigo-testprod/instances/"
+            "espacigo-testprod-db/databases/espacigo_dms_stage_20261020",
+        )
+        for invalid in ("../instance", "instance/name", "private project"):
+            with self.assertRaises(ValueError):
+                _sqladmin_rest_url("sql-instance-get", invalid)
+        with self.assertRaises(ValueError):
+            _sqladmin_rest_url("sql-database-get", "espacigo-testprod-db", "../database")
+
+    def test_probe_configuration_uses_pinned_iap_service_default_and_reads_v67_identifiers(self):
+        with tempfile.TemporaryDirectory() as root:
+            vars_path = Path(root) / "vars.json"
+            vars_path.write_text(json.dumps({
+                "project_number": 447373903153,
+                "api_v67_database_instance_name": "espacigo-testprod-db",
+                "api_v67_database_name": "espacigo_dms_stage_20261020",
+            }))
+            config = read_probe_configuration(vars_path)
+        self.assertEqual(config, {
+            "project_number": "447373903153",
+            "private_service_name": "espacigo-test-private",
+            "sql_instance_name": "espacigo-testprod-db",
+            "sql_database_name": "espacigo_dms_stage_20261020",
+        })
 
     def test_services_list_rest_probe_emits_only_permission_metadata(self):
         token = "private-short-lived-token"
@@ -307,6 +346,76 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             self.assertEqual(list(Path(root).iterdir()), [])
         runner.assert_not_called()
         self.assertIn("category=other", output.getvalue())
+
+    def test_cloudsql_database_get_reports_exact_permission_without_resource_values(self):
+        marker = "private-project-instance-database-and-message"
+        payload = {"error": {"code": 403, "status": "PERMISSION_DENIED", "details": [{
+            "reason": "IAM_PERMISSION_DENIED", "domain": "sqladmin.googleapis.com",
+            "metadata": {"permission": "cloudsql.databases.get", "resource": marker},
+        }]}}
+        observed = {}
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                return urllib.error.HTTPError(
+                    request.full_url, 403, "Forbidden", {},
+                    io.BytesIO(json.dumps(payload).encode()),
+                )
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertFalse(run_probe(
+                    "cloud_sql_database.v67.get", root, runner=token_runner,
+                    opener_factory=lambda *_: FakeOpener(),
+                    sql_instance_name="espacigo-testprod-db",
+                    sql_database_name="espacigo_dms_stage_20261020",
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+        self.assertEqual(observed["method"], "GET")
+        self.assertEqual(observed["url"], "https://sqladmin.googleapis.com/sql/v1beta4/projects/"
+                         "espacigo-testprod/instances/espacigo-testprod-db/databases/"
+                         "espacigo_dms_stage_20261020")
+        emitted = output.getvalue().strip()
+        self.assertEqual(emitted, "GCP08_CLOUD_RUN_PROBE stage=bootstrap "
+                         "target=cloud_sql_database.v67.get category=permission_denied "
+                         "status=403 permission=cloudsql.databases.get service=sqladmin.googleapis.com")
+        self.assertNotIn(marker, emitted)
+        self.assertNotIn("token-hidden", emitted)
+
+    def test_cloudsql_instance_probe_reports_only_allowlisted_permission_and_service(self):
+        payload = {"error": {"code": 403, "details": [{
+            "reason": "IAM_PERMISSION_DENIED", "domain": "sqladmin.googleapis.com",
+            "metadata": {"permission": "cloudsql.instances.get", "resource": "private-resource"},
+        }]}}
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                return urllib.error.HTTPError(
+                    request.full_url, 403, "Forbidden", {},
+                    io.BytesIO(json.dumps(payload).encode()),
+                )
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertFalse(run_probe(
+                    "cloud_sql_instance.v67.get", root, runner=token_runner,
+                    opener_factory=lambda *_: FakeOpener(),
+                    sql_instance_name="espacigo-testprod-db",
+                ))
+        self.assertIn("permission=cloudsql.instances.get", output.getvalue())
+        self.assertIn("service=sqladmin.googleapis.com", output.getvalue())
+        self.assertNotIn("private-resource", output.getvalue())
+        self.assertNotIn("token-hidden", output.getvalue())
 
     def test_errorinfo_permission_uses_exact_cloud_run_allowlist(self):
         def fields(permission):
