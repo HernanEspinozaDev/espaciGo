@@ -98,8 +98,8 @@ run "bootstrap_access_is_constrained_and_expires" {
   }
 
   assert {
-    condition     = toset(google_project_iam_custom_role.dependency_metadata_reader[0].permissions) == toset(["compute.networks.get", "resourcemanager.projects.get", "serviceusage.services.get"]) && google_project_iam_member.dependency_metadata_reader[0].member == local.workload_member && google_project_iam_member.dependency_metadata_reader[0].condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"
-    error_message = "Project-scoped dependency metadata access must contain only the observed project/network/API read permissions and expire with the bootstrap; project IAM policy read stays excluded."
+    condition     = toset(google_project_iam_custom_role.dependency_metadata_reader[0].permissions) == toset(["compute.networks.get", "resourcemanager.projects.get", "serviceusage.services.get", "serviceusage.services.list"]) && google_project_iam_member.dependency_metadata_reader[0].member == local.workload_member && google_project_iam_member.dependency_metadata_reader[0].condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"
+    error_message = "Project-scoped dependency metadata access must contain only the observed project/network/API reads and expire with the bootstrap; project IAM policy read stays excluded."
   }
 
   assert {
