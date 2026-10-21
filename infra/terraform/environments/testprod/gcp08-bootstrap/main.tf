@@ -87,13 +87,14 @@ resource "google_project_iam_custom_role" "cloud_run_bootstrap" {
   project     = var.project_id
   role_id     = "espacigoGcp08CloudRunBootstrap"
   title       = "EspaciGo GCP-08 temporary Cloud Run bootstrap"
-  description = "Temporary create/read/update/IAM-policy access for the protected initial restore; excludes delete, Jobs, project IAM and other services."
+  description = "Temporary create/list/read/update/IAM-policy access for the protected initial restore; excludes delete, Jobs, project IAM and other services."
   stage       = "GA"
   permissions = [
     "run.operations.get",
     "run.services.create",
     "run.services.get",
     "run.services.getIamPolicy",
+    "run.services.list",
     "run.services.setIamPolicy",
     "run.services.update",
   ]
