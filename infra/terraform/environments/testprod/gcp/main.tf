@@ -224,7 +224,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.workflow_ref"        = "assertion.workflow_ref"
     "attribute.environment"         = "assertion.environment"
   }
-  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '${var.github_repository_owner_id}' && assertion.ref == 'refs/heads/main' && (assertion.workflow_ref == '${var.github_repository}/.github/workflows/application-release.yml@refs/heads/main' || assertion.workflow_ref == '${var.github_repository}/.github/workflows/application-rollout.yml@refs/heads/main') && assertion.environment == 'testprod'"
+  attribute_condition = "assertion.repository == '${var.github_repository}' && assertion.repository_id == '${var.github_repository_id}' && assertion.repository_owner_id == '${var.github_repository_owner_id}' && assertion.ref == 'refs/heads/main' && (assertion.workflow_ref == '${var.github_repository}/.github/workflows/application-release.yml@refs/heads/main' || assertion.workflow_ref == '${var.github_repository}/.github/workflows/application-rollout.yml@refs/heads/main' || assertion.workflow_ref == '${var.github_repository}/.github/workflows/gcp08-cloud-run-restore.yml@refs/heads/main') && assertion.environment == 'testprod'"
   oidc {
     issuer_uri = "https://token.actions.githubusercontent.com"
   }

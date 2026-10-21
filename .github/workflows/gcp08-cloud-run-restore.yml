@@ -1,0 +1,235 @@
+name: GCP-08 restore Cloud Run services
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Preview the exact restore plan or re-plan and apply an approved preview
+        required: true
+        type: choice
+        options: [preview, apply]
+      release_run_id:
+        description: Successful main image-publication run with an immutable digest manifest
+        required: true
+        type: string
+      preview_run_id:
+        description: Required for apply; workflow run that produced the reviewed GCP-08 summary
+        required: false
+        type: string
+      approved_fingerprint:
+        description: Required for apply; exact fingerprint from the reviewed preview summary
+        required: false
+        type: string
+      confirmation:
+        description: Type APPLY GCP-08 CLOUD RUN RESTORE to authorize the apply attempt
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testprod-cloud-run-restore
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      ready: ${{ steps.gate.outputs.ready }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: gate
+        name: Check closed apply gates and verified candidate evidence reference
+        env:
+          MODE: ${{ inputs.mode }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
+          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
+          PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
+          FINGERPRINT: ${{ inputs.approved_fingerprint }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          APPLY_ENABLED: ${{ vars.GCP08_RESTORE_APPLY_ENABLED }}
+          CREATE_PERMISSION_REVIEWED: ${{ vars.GCP08_RUN_CREATE_PERMISSION_REVIEWED }}
+          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
+          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, sys
+          ready = (os.environ.get("MODE") in {"preview", "apply"}
+                   and os.environ.get("RELEASE_RUN_ID", "").isdigit()
+                   and re.fullmatch(r"[0-9a-f]{40}", os.environ.get("SCHEMA_BASELINE_SHA", ""))
+                   and re.fullmatch(r"[0-9a-f]{64}", os.environ.get("CANDIDATE_PREFLIGHT_SHA", "")))
+          if os.environ.get("MODE") == "apply":
+              ready = bool(ready and os.environ.get("APPLY_ENABLED") == "true"
+                           and os.environ.get("CREATE_PERMISSION_REVIEWED") == "true"
+                           and os.environ.get("CONFIRMATION") == "APPLY GCP-08 CLOUD RUN RESTORE"
+                           and os.environ.get("PREVIEW_RUN_ID", "").isdigit()
+                           and re.fullmatch(r"[0-9a-f]{64}", os.environ.get("FINGERPRINT", "")))
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
+              stream.write(f"ready={'true' if ready else 'false'}\n")
+          if not ready:
+              print("restore gate is closed: baseline, candidate evidence, or apply authorization is missing")
+              sys.exit(1)
+          print("restore invocation gate passed")
+          PY
+      - name: Download selected release manifest
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gcp07d-release-${{ inputs.release_run_id }}
+          path: release
+          run-id: ${{ inputs.release_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify successful main release and exact image digests
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
+          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
+        run: python3 scripts/verify_gcp08_release_manifest.py release/manifest.json
+      - name: Require release to be based on the reviewed schema baseline
+        env:
+          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
+        run: python3 scripts/verify_gcp07_manifest_scope.py release/manifest.json --allow-publish-only
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gcp08-release-${{ github.run_id }}
+          path: release/manifest.json
+          if-no-files-found: error
+          retention-days: 14
+
+  restore:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: testprod
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gcp08-release-${{ github.run_id }}
+          path: release
+      - name: Re-verify source release in the privileged job
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
+          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
+        run: python3 scripts/verify_gcp08_release_manifest.py release/manifest.json
+      - name: Prepare private candidate variables and exact target addresses
+        env:
+          TFVARS_JSON: ${{ secrets.GCP07D_TFVARS_JSON }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/gcp08"
+          chmod 700 "$RUNNER_TEMP/gcp08"
+          python3 - <<'PY'
+          import json, os
+          with open("release/manifest.json", encoding="utf-8") as stream:
+              manifest = json.load(stream)
+          with open(os.path.join(os.environ["RUNNER_TEMP"], "gcp08-images.json"), "w", encoding="utf-8") as stream:
+              json.dump(manifest["images"], stream, sort_keys=True, separators=(",", ":"))
+          os.chmod(os.path.join(os.environ["RUNNER_TEMP"], "gcp08-images.json"), 0o600)
+          PY
+          python3 scripts/verify_gcp08_restore_inputs.py
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-testprod-github/providers/espacigo-main
+          service_account: espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com
+          token_format: access_token
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+      - name: Initialize and create a targeted private Terraform plan
+        env:
+          MODE: ${{ inputs.mode }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$RUNNER_TEMP/gcp08"
+          cd infra/terraform/environments/testprod/gcp
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=espacigo-testprod-tfstate-447373903153-gcp" \
+            -backend-config="prefix=espacigo/testprod/gcp" \
+            > "$RUNNER_TEMP/gcp08/init.log" 2>&1 || { echo "Terraform initialization failed; private diagnostics retained only on runner"; exit 1; }
+          terraform workspace select default
+          mapfile -t targets < "$GCP08_TARGETS"
+          args=()
+          for target in "${targets[@]}"; do args+=("-target=$target"); done
+          terraform plan -input=false -lock-timeout=5m -var-file="$GCP08_TFVARS" \
+            -out="$RUNNER_TEMP/gcp08/restore.tfplan" -no-color "${args[@]}" \
+            > "$RUNNER_TEMP/gcp08/plan.log" 2>&1 || { echo "Terraform plan failed or was rejected; private diagnostics retained only on runner"; exit 1; }
+          terraform show -json "$RUNNER_TEMP/gcp08/restore.tfplan" \
+            > "$RUNNER_TEMP/gcp08/plan.json" 2> "$RUNNER_TEMP/gcp08/show.log" || { echo "Terraform plan inspection failed; private diagnostics retained only on runner"; exit 1; }
+          python3 "$GITHUB_WORKSPACE/scripts/verify_gcp08_restore_plan.py" "$RUNNER_TEMP/gcp08/plan.json" \
+            --images "$RUNNER_TEMP/gcp08-images.json" --targets "$GCP08_TARGETS" \
+            --source-sha "$GCP08_SOURCE_SHA" --release-run-id "$RELEASE_RUN_ID" \
+            --schema-baseline-sha "$SCHEMA_BASELINE_SHA" --candidate-preflight-sha "$CANDIDATE_PREFLIGHT_SHA" \
+            --output "$RUNNER_TEMP/gcp08/summary.json"
+      - name: Compare the re-planned summary with the approved preview
+        if: inputs.mode == 'apply'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
+        run: python3 scripts/verify_gcp08_preview_run.py
+      - name: Download the verified preview summary
+        if: inputs.mode == 'apply'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gcp08-preview-${{ inputs.preview_run_id }}
+          path: approved-preview
+          run-id: ${{ inputs.preview_run_id }}
+          github-token: ${{ github.token }}
+      - name: Apply only the freshly generated plan after fingerprint match
+        if: inputs.mode == 'apply'
+        env:
+          EXPECTED_FINGERPRINT: ${{ inputs.approved_fingerprint }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          python3 scripts/compare_gcp07d_preview.py "$RUNNER_TEMP/gcp08/summary.json" \
+            approved-preview/summary.json "$EXPECTED_FINGERPRINT" "$RELEASE_RUN_ID" "$GCP08_SOURCE_SHA"
+          cd infra/terraform/environments/testprod/gcp
+          terraform apply -input=false -auto-approve "$RUNNER_TEMP/gcp08/restore.tfplan" \
+            > "$RUNNER_TEMP/gcp08/apply.log" 2>&1 || { echo "Terraform apply failed; private diagnostics retained only on runner"; exit 1; }
+      - name: Publish sanitized preview summary
+        if: inputs.mode == 'preview'
+        run: |
+          mkdir -p gcp08-preview
+          cp "$RUNNER_TEMP/gcp08/summary.json" gcp08-preview/summary.json
+          python3 -c 'import json; x=json.load(open("gcp08-preview/summary.json")); print("GCP-08 restore fingerprint: " + x["fingerprint"])' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: inputs.mode == 'preview'
+        with:
+          name: gcp08-preview-${{ github.run_id }}
+          path: gcp08-preview/summary.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Record successful restore
+        if: inputs.mode == 'apply'
+        run: echo "GCP-08 Terraform apply completed using the approved, re-planned fingerprint." >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove private Terraform files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/gcp08" "$RUNNER_TEMP/gcp08-images.json" "$RUNNER_TEMP/gcp08-terraform.tfvars.json" "$RUNNER_TEMP/gcp08-targets.txt" release approved-preview gcp08-preview

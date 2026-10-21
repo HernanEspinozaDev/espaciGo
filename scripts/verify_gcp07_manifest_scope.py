@@ -9,14 +9,14 @@ import sys
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
-def rollout_allowed(manifest, baseline_sha, baseline_is_ancestor, pending_migrations):
+def rollout_allowed(manifest, baseline_sha, baseline_is_ancestor, pending_migrations, allow_publish_only=False):
     if not isinstance(manifest, dict):
         return False
     source_sha = manifest.get("source_sha")
     return (manifest.get("schema") == 1
             and isinstance(manifest.get("contains_migrations"), bool)
             and manifest["contains_migrations"] is False
-            and manifest.get("publish_only") is False
+            and (manifest.get("publish_only") is False or (allow_publish_only and manifest.get("publish_only") is True))
             and isinstance(source_sha, str) and SHA.fullmatch(source_sha) is not None
             and isinstance(baseline_sha, str) and SHA.fullmatch(baseline_sha) is not None
             and baseline_is_ancestor and not pending_migrations)
@@ -48,7 +48,8 @@ def main(path):
         baseline = os.environ.get("SCHEMA_BASELINE_SHA", "")
         source_sha = manifest.get("source_sha") if isinstance(manifest, dict) else ""
         pending = pending_migrations(baseline, source_sha)
-        allowed = rollout_allowed(manifest, baseline, pending is not None, pending or [])
+        allow_publish_only = "--allow-publish-only" in sys.argv[2:]
+        allowed = rollout_allowed(manifest, baseline, pending is not None, pending or [], allow_publish_only)
     except (OSError, ValueError, TypeError):
         allowed = False
     output = os.environ.get("GITHUB_OUTPUT")
