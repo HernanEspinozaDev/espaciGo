@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+from classify_gcp08_terraform_failure import safe_details
 from gcp08_bootstrap_cloud_run_probes import (
     PROBES, SAFE_CATEGORIES, build_command, classify_probe, run_probe,
 )
@@ -112,6 +113,11 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_service.public.describe "
             "category=permission_denied status=403 permission=run.services.get service=run.googleapis.com",
         )
+
+    def test_numeric_status_field_is_recognized_without_echoing_status_text(self):
+        diagnostic = '{"error":{"status":404,"message":"private marker"}}'
+        self.assertEqual(classify_probe(diagnostic), "not_found")
+        self.assertEqual(safe_details(diagnostic)[:2], ["status=404", "reason=not_found"])
 
     def test_auth_error_and_unknown_errors_use_fixed_categories_only(self):
         self.assertEqual(classify_probe("problem refreshing auth tokens: invalid_grant"), "auth_error")
