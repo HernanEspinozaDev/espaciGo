@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run fixed read-only Cloud Run probes and emit only allowlisted diagnostics."""
+"""Run fixed read-only GCP probes and emit only allowlisted diagnostics."""
 import argparse
 import json
 import os
@@ -19,6 +19,8 @@ PROJECT = "espacigo-testprod"
 REGION = "southamerica-west1"
 API_ROOT = "https://run.googleapis.com/v2"
 IAP_API_ROOT = "https://iap.googleapis.com/v1"
+SQLADMIN_API_ROOT = "https://sqladmin.googleapis.com/sql/v1beta4"
+DEFAULT_PRIVATE_SERVICE_NAME = "espacigo-test-private"
 MAX_RESPONSE_BYTES = 2_000_000
 PROBES = (
     ("cloud_run_service.api.describe", "describe", "espacigo-test-api"),
@@ -29,6 +31,8 @@ PROBES = (
     ("cloud_run_service.public.get_iam_policy", "get-iam-policy", "espacigo-test-public"),
     ("cloud_run_service.private.get_iam_policy", "get-iam-policy", "espacigo-test-private"),
     ("cloud_run_service.private.iap_get_iam_policy", "iap-get-iam-policy", "private"),
+    ("cloud_sql_instance.v67.get", "sql-instance-get", "v67"),
+    ("cloud_sql_database.v67.get", "sql-database-get", "v67"),
 )
 PROBE_BY_ENUM = {target: (operation, service) for target, operation, service in PROBES}
 NOT_FOUND = re.compile(r"\b404\b|\bNOT_FOUND\b|not found|does not exist", re.IGNORECASE)
@@ -46,7 +50,8 @@ SAFE_RUN_PERMISSIONS = {
     "run.operations.get",
 }
 SAFE_IAP_PERMISSIONS = {"iap.webServices.getIamPolicy"}
-SAFE_PERMISSIONS = SAFE_RUN_PERMISSIONS | SAFE_IAP_PERMISSIONS
+SAFE_SQL_PERMISSIONS = {"cloudsql.instances.get", "cloudsql.databases.get"}
+SAFE_PERMISSIONS = SAFE_RUN_PERMISSIONS | SAFE_IAP_PERMISSIONS | SAFE_SQL_PERMISSIONS
 
 
 def classify_probe(diagnostic):
@@ -86,6 +91,8 @@ def build_rest_url(target):
         return f"{API_ROOT}/{resource}"
     if operation == "iap-get-iam-policy":
         raise ValueError("IAP policy probe requires validated private configuration")
+    if operation in {"sql-instance-get", "sql-database-get"}:
+        raise ValueError("Cloud SQL probe requires validated V67 configuration")
     if operation != "describe":
         raise ValueError("IAM policy probes use the gcloud read command")
     resource = "/".join(urllib.parse.quote(part, safe="") for part in (
@@ -146,13 +153,18 @@ def safe_rest_fields(http_status, payload):
         if not isinstance(item, dict):
             continue
         domain = item.get("domain")
-        if domain in {"run.googleapis.com", "iap.googleapis.com"}:
+        if domain in {"run.googleapis.com", "iap.googleapis.com", "sqladmin.googleapis.com"}:
             service = domain
         metadata = item.get("metadata")
         candidate = metadata.get("permission") if isinstance(metadata, dict) else None
         if isinstance(candidate, str) and candidate in SAFE_PERMISSIONS:
             permission = candidate
-            service = "iap.googleapis.com" if candidate in SAFE_IAP_PERMISSIONS else "run.googleapis.com"
+            if candidate in SAFE_IAP_PERMISSIONS:
+                service = "iap.googleapis.com"
+            elif candidate in SAFE_SQL_PERMISSIONS:
+                service = "sqladmin.googleapis.com"
+            else:
+                service = "run.googleapis.com"
     if permission:
         fields.append(f"permission={permission}")
     if service:
@@ -231,8 +243,43 @@ def _iap_rest_url(project_number, private_service_name):
     return f"{IAP_API_ROOT}/{resource}"
 
 
+def _sqladmin_rest_url(operation, instance_name, database_name=None):
+    if operation not in {"sql-instance-get", "sql-database-get"}:
+        raise ValueError("invalid Cloud SQL probe")
+    if not isinstance(instance_name, str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,61}[a-z0-9]", instance_name):
+        raise ValueError("invalid Cloud SQL instance name")
+    parts = ["projects", PROJECT, "instances", instance_name]
+    if operation == "sql-database-get":
+        if not isinstance(database_name, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,62}", database_name):
+            raise ValueError("invalid Cloud SQL database name")
+        parts.extend(("databases", database_name))
+    return f"{SQLADMIN_API_ROOT}/" + "/".join(urllib.parse.quote(part, safe="") for part in parts)
+
+
+def read_probe_configuration(var_file):
+    """Read only the validated identifiers needed to construct fixed GET probes."""
+    try:
+        config = json.loads(Path(var_file).read_text(encoding="utf-8"))
+        if not isinstance(config, dict):
+            config = {}
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        config = {}
+    project_number = config.get("project_number")
+    if isinstance(project_number, int) and not isinstance(project_number, bool):
+        project_number = str(project_number)
+    return {
+        "project_number": project_number,
+        # The Terraform variable is pinned to this default by validation; it is
+        # commonly omitted from tfvars because it is not an override.
+        "private_service_name": config.get("private_service_name", DEFAULT_PRIVATE_SERVICE_NAME),
+        "sql_instance_name": config.get("api_v67_database_instance_name"),
+        "sql_database_name": config.get("api_v67_database_name"),
+    }
+
+
 def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
-                    project_number=None, private_service_name=None):
+                    project_number=None, private_service_name=None,
+                    sql_instance_name=None, sql_database_name=None):
     operation, _ = PROBE_BY_ENUM[target]
     if operation == "iap-get-iam-policy":
         if project_number is None or private_service_name is None:
@@ -244,6 +291,13 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
             _emit(target, "other")
             return False
         method, body = "POST", b"{}"
+    elif operation in {"sql-instance-get", "sql-database-get"}:
+        try:
+            url = _sqladmin_rest_url(operation, sql_instance_name, sql_database_name)
+        except ValueError:
+            _emit(target, "other")
+            return False
+        method, body = "GET", None
     else:
         url = build_rest_url(target)
         method, body = "GET", None
@@ -325,14 +379,16 @@ def _run_gcloud_probe(target, private_root, runner, timeout):
 
 def run_probe(target, private_root, runner=subprocess.run,
               opener_factory=urllib.request.build_opener, timeout=120,
-              project_number=None, private_service_name=None):
+              project_number=None, private_service_name=None,
+              sql_instance_name=None, sql_database_name=None):
     """Run one fixed read-only probe; tokens and response bodies never reach stdout."""
     if target not in PROBE_BY_ENUM:
         raise ValueError("invalid target")
     operation, _ = PROBE_BY_ENUM[target]
-    if operation in {"describe", "list", "iap-get-iam-policy"}:
+    if operation in {"describe", "list", "iap-get-iam-policy", "sql-instance-get", "sql-database-get"}:
         return _run_rest_probe(target, private_root, runner, opener_factory, timeout,
-                               project_number, private_service_name)
+                               project_number, private_service_name,
+                               sql_instance_name, sql_database_name)
     return _run_gcloud_probe(target, private_root, runner, timeout)
 
 
@@ -344,18 +400,9 @@ def main():
     private_root = Path(args.private_dir)
     private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(private_root, 0o700)
-    try:
-        config = json.loads(Path(args.var_file).read_text(encoding="utf-8"))
-        project_number = config["project_number"]
-        private_service_name = config["private_service_name"]
-        if not isinstance(project_number, str) or not isinstance(private_service_name, str):
-            raise ValueError("invalid probe configuration")
-    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, ValueError):
-        _emit("cloud_run_service.private.iap_get_iam_policy", "other")
-        return 0
+    config = read_probe_configuration(args.var_file)
     for target, _, _ in PROBES:
-        run_probe(target, private_root, project_number=project_number,
-                  private_service_name=private_service_name)
+        run_probe(target, private_root, **config)
     return 0
 
 
