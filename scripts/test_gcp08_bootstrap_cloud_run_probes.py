@@ -134,6 +134,41 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertNotIn(marker, output.getvalue())
         self.assertNotIn("token-hidden", output.getvalue())
 
+    def test_errorinfo_permission_uses_exact_cloud_run_allowlist(self):
+        def fields(permission):
+            payload = {"error": {"code": 403, "details": [{
+                "reason": "IAM_PERMISSION_DENIED",
+                "domain": "run.googleapis.com",
+                "metadata": {"permission": permission, "resource": "private-resource"},
+            }]}}
+            with tempfile.TemporaryDirectory() as root:
+                output = io.StringIO()
+                body = json.dumps(payload).encode()
+
+                def token_runner(_command, **_kwargs):
+                    return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+                class FakeOpener:
+                    def open(self, request, timeout):
+                        return urllib.error.HTTPError(
+                            request.full_url, 403, "Forbidden", {}, io.BytesIO(body),
+                        )
+
+                with redirect_stdout(output):
+                    self.assertFalse(run_probe(
+                        "cloud_run_service.api.describe", root, runner=token_runner,
+                        opener_factory=lambda *_handlers: FakeOpener(),
+                    ))
+            return output.getvalue().strip()
+
+        allowed = fields("run.services.setIamPolicy")
+        self.assertIn("permission=run.services.setIamPolicy", allowed)
+        self.assertNotIn("private-resource", allowed)
+        unknown = fields("run.services.delete")
+        self.assertIn("category=permission_denied status=403", unknown)
+        self.assertNotIn("permission=", unknown)
+        self.assertNotIn("run.services.delete", unknown)
+
     def test_success_response_body_is_private_and_never_echoed(self):
         marker = "private-service-config-body"
         payload = {"name": marker, "uri": "https://private.example"}

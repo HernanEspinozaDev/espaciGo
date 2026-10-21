@@ -37,7 +37,11 @@ AUTH_ERROR = re.compile(
 )
 SAFE_CATEGORIES = {"success", "not_found", "permission_denied", "auth_error", "other"}
 SAFE_DETAIL_KEYS = {"status", "permission", "service"}
-SAFE_RUN_PERMISSIONS = {"run.services.get"}
+SAFE_RUN_PERMISSIONS = {
+    "run.services.get", "run.services.getIamPolicy", "run.services.setIamPolicy",
+    "run.services.create", "run.services.update", "run.services.list",
+    "run.operations.get",
+}
 
 
 def classify_probe(diagnostic):
