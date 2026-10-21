@@ -19,13 +19,24 @@ RESOURCE_TYPES = (
 TYPE_PATTERN = re.compile(
     r"(?:^|\.)(" + "|".join(re.escape(resource_type) for _, resource_type in RESOURCE_TYPES) + r")(?=\.)"
 )
+STATE_ADDRESS_ALIASES = {
+    'google_sql_database_instance.postgres[0]': "legacy_postgres_managed",
+    'data.google_sql_database_instance.v67_target[0]': "v67_instance_data",
+    'data.google_sql_database_instance.gcp06_candidate[0]': "candidate_instance_data",
+    'data.google_sql_database.v67_target[0]': "v67_database_data",
+    'google_sql_database.application[0]': "legacy_database_managed",
+}
 
 
 def summarize_state_addresses(addresses):
     counts = {label: 0 for label, _ in RESOURCE_TYPES}
+    counts.update({label: 0 for label in STATE_ADDRESS_ALIASES.values()})
     for address in addresses:
         if not isinstance(address, str):
             continue
+        alias = STATE_ADDRESS_ALIASES.get(address)
+        if alias:
+            counts[alias] += 1
         match = TYPE_PATTERN.search(address)
         if match:
             resource_type = match.group(1)
@@ -66,8 +77,12 @@ def diagnose(terraform_dir, private_dir, runner=subprocess.run, timeout=120):
         print("GCP08_STATE_INVENTORY stage=bootstrap category=unavailable", flush=True)
         return False
     counts = summarize_state_addresses(_read_private_log(log_path).splitlines())
-    fields = " ".join(f"{label}={counts[label]}" for label, _ in RESOURCE_TYPES)
-    print(f"GCP08_STATE_INVENTORY stage=bootstrap category=success {fields}", flush=True)
+    fields = " ".join(f"{label}={value}" for label, value in counts.items())
+    print(
+        f"GCP08_STATE_INVENTORY stage=bootstrap category=success "
+        f"backend=gcs workspace=default policy_mode=bootstrap {fields}",
+        flush=True,
+    )
     return True
 
 
