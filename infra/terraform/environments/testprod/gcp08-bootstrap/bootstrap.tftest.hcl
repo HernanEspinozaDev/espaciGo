@@ -12,6 +12,11 @@ run "disabled_by_default" {
     condition     = length(google_iam_workload_identity_pool.bootstrap) == 0 && length(google_iam_workload_identity_pool_provider.bootstrap) == 0
     error_message = "Disabled bootstrap must create no WIF pool or provider."
   }
+
+  assert {
+    condition     = length(local.bootstrap_pool_display_name) <= local.wif_display_name_max_chars && length(local.bootstrap_provider_display_name) <= local.wif_display_name_max_chars
+    error_message = "Pool and provider display names must respect the Google API's 32-character limit."
+  }
 }
 
 run "bootstrap_access_is_constrained_and_expires" {
@@ -20,6 +25,11 @@ run "bootstrap_access_is_constrained_and_expires" {
   variables {
     enable_bootstrap     = true
     bootstrap_expires_at = timeadd(timestamp(), "1h")
+  }
+
+  assert {
+    condition     = google_iam_workload_identity_pool.bootstrap[0].display_name == local.bootstrap_pool_display_name && length(google_iam_workload_identity_pool.bootstrap[0].display_name) <= 32 && google_iam_workload_identity_pool_provider.bootstrap[0].display_name == local.bootstrap_provider_display_name && length(google_iam_workload_identity_pool_provider.bootstrap[0].display_name) <= 32
+    error_message = "Rendered WIF pool and provider display names must each stay within the API's 32-character limit."
   }
 
   assert {

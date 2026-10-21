@@ -1,8 +1,11 @@
 locals {
-  workflow_ref       = "${var.github_repository}/.github/workflows/application-rollout.yml@refs/heads/main"
-  workload_pool_name = try(google_iam_workload_identity_pool.bootstrap[0].name, "")
-  workload_member    = "principalSet://iam.googleapis.com/${local.workload_pool_name}/attribute.workflow_ref/${local.workflow_ref}"
-  bootstrap_expiry   = "request.time < timestamp('${var.bootstrap_expires_at}')"
+  workflow_ref                    = "${var.github_repository}/.github/workflows/application-rollout.yml@refs/heads/main"
+  workload_pool_name              = try(google_iam_workload_identity_pool.bootstrap[0].name, "")
+  workload_member                 = "principalSet://iam.googleapis.com/${local.workload_pool_name}/attribute.workflow_ref/${local.workflow_ref}"
+  bootstrap_expiry                = "request.time < timestamp('${var.bootstrap_expires_at}')"
+  wif_display_name_max_chars      = 32
+  bootstrap_pool_display_name     = "EspaciGo GCP08 bootstrap"
+  bootstrap_provider_display_name = "EspaciGo GCP08 restore"
   bootstrap_cloud_run_iam_roles = [
     "roles/run.invoker",
     "projects/${var.project_id}/roles/espacigoCloudRunServiceUpdater",
@@ -29,6 +32,14 @@ resource "terraform_data" "bootstrap_expiry_guard" {
       )
       error_message = "Bootstrap IAM expiration must be in the future and within 24 hours at apply time. Re-plan with a new expiration."
     }
+
+    precondition {
+      condition = (
+        length(local.bootstrap_pool_display_name) <= local.wif_display_name_max_chars &&
+        length(local.bootstrap_provider_display_name) <= local.wif_display_name_max_chars
+      )
+      error_message = "Google Workload Identity pool and provider display names must each be 32 characters or fewer."
+    }
   }
 }
 
@@ -36,7 +47,7 @@ resource "google_iam_workload_identity_pool" "bootstrap" {
   count                     = var.enable_bootstrap ? 1 : 0
   project                   = var.project_id
   workload_identity_pool_id = "espacigo-gcp08-bootstrap"
-  display_name              = "EspaciGo GCP-08 one-time Cloud Run restore"
+  display_name              = local.bootstrap_pool_display_name
   description               = "Short-lived direct federation for the protected GCP-08 initial restore workflow."
   disabled                  = false
 
@@ -48,7 +59,7 @@ resource "google_iam_workload_identity_pool_provider" "bootstrap" {
   project                            = var.project_id
   workload_identity_pool_id          = google_iam_workload_identity_pool.bootstrap[0].workload_identity_pool_id
   workload_identity_pool_provider_id = "espacigo-initial-restore"
-  display_name                       = "Protected GCP-08 initial restore workflow"
+  display_name                       = local.bootstrap_provider_display_name
 
   attribute_mapping = {
     "google.subject"                = "assertion.sub"
