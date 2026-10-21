@@ -201,15 +201,30 @@ jobs:
           terraform init -input=false -lockfile=readonly \
             -backend-config="bucket=espacigo-testprod-tfstate-447373903153-gcp" \
             -backend-config="prefix=espacigo/testprod/gcp" \
-            > "$RUNNER_TEMP/gcp07d/init.log" 2>&1 || { echo "Terraform initialization failed; private diagnostics retained only on runner"; exit 1; }
-          terraform workspace select default
-          terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || { echo "Terraform plan failed or was rejected; private diagnostics retained only on runner"; exit 1; }
-          terraform show -json "$RUNNER_TEMP/gcp07d/rollout.tfplan" > "$RUNNER_TEMP/gcp07d/plan.json" 2> "$RUNNER_TEMP/gcp07d/show.log" || { echo "Terraform plan inspection failed; private diagnostics retained only on runner"; exit 1; }
+            > "$RUNNER_TEMP/gcp07d/init.log" 2>&1 || {
+              python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage init "$RUNNER_TEMP/gcp07d/init.log" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "Terraform initialization failed; raw diagnostics remain private on runner"; exit 1;
+            }
+          terraform workspace select default > "$RUNNER_TEMP/gcp07d/workspace.log" 2>&1 || {
+            python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage workspace "$RUNNER_TEMP/gcp07d/workspace.log" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "Terraform workspace selection failed; raw diagnostics remain private on runner"; exit 1;
+          }
+          terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || {
+            python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage plan "$RUNNER_TEMP/gcp07d/plan.log" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "Terraform plan failed; raw diagnostics remain private on runner"; exit 1;
+          }
+          terraform show -json "$RUNNER_TEMP/gcp07d/rollout.tfplan" > "$RUNNER_TEMP/gcp07d/plan.json" 2> "$RUNNER_TEMP/gcp07d/show.log" || {
+            python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage inspect "$RUNNER_TEMP/gcp07d/show.log" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "Terraform plan inspection failed; raw diagnostics remain private on runner"; exit 1;
+          }
           python3 "$GITHUB_WORKSPACE/scripts/verify_gcp07_plan.py" "$RUNNER_TEMP/gcp07d/plan.json" \
             --images "$RUNNER_TEMP/gcp07d/images.json" --source-sha "$GCP07D_SOURCE_SHA" \
             --release-run-id "$RELEASE_RUN_ID" --mode "$POLICY_MODE" \
             --database-password-version "$V67_RUNTIME_PASSWORD_VERSION" \
-            --output "$RUNNER_TEMP/gcp07d/summary.json"
+            --output "$RUNNER_TEMP/gcp07d/summary.json" > "$RUNNER_TEMP/gcp07d/policy.log" 2>&1 || {
+              python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage policy "$RUNNER_TEMP/gcp07d/policy.log" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "Terraform plan rejected by allowlist guard; raw diagnostics remain private on runner"; exit 1;
+            }
       - name: Verify approved preview summary before apply
         if: inputs.mode == 'apply'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
