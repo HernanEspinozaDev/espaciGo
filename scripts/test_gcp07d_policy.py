@@ -2,7 +2,13 @@ import copy
 import unittest
 from unittest.mock import patch
 
-from verify_gcp07_environment import event_gate_ready, is_ready, published_release_exists
+from verify_gcp07_environment import (
+    event_gate_ready,
+    is_ready,
+    published_release_exists,
+    successful_preview_exists,
+    v67_runtime_ready,
+)
 from verify_gcp07_plan import ALLOWED, IMAGE_PATH, PolicyError, validate
 from classify_gcp07_release_changes import classify, migrations_pending
 from verify_gcp07_manifest_scope import baseline_has_v67_migration, rollout_allowed
@@ -20,6 +26,38 @@ def resource(address, image):
     after = copy.deepcopy(base)
     after["template"][0]["containers"][0]["image"] = image
     return {"address": address, "change": {"actions": ["update"], "before": base, "after": after}}
+
+
+def initial_resource(address, image):
+    name = {
+        "google_cloud_run_v2_service.api[0]": "espacigo-test-api",
+        'google_cloud_run_v2_service.web["public"]': "espacigo-test-public",
+        'google_cloud_run_v2_service.web["private"]': "espacigo-test-private",
+    }[address]
+    after = {
+        "name": name,
+        "project": "espacigo-testprod",
+        "location": "southamerica-west1",
+        "ingress": "INGRESS_TRAFFIC_ALL",
+        "deletion_protection": True,
+        "template": [{"containers": [{"image": image, "env": []}], "volumes": []}],
+    }
+    if address == 'google_cloud_run_v2_service.web["public"]':
+        after["iap_enabled"] = False
+    if address == 'google_cloud_run_v2_service.web["private"]':
+        after["iap_enabled"] = True
+    if address == "google_cloud_run_v2_service.api[0]":
+        after["template"][0]["containers"][0]["env"] = [
+            {"name": "CLOUD_SQL_INSTANCE_CONNECTION_NAME", "value": "espacigo-testprod:southamerica-west1:espacigo-testprod-db"},
+            {"name": "DATABASE_NAME", "value": "espacigo_dms_stage_20261020"},
+            {"name": "DATABASE_USER", "value": "espacigo_api_login"},
+            {"name": "DATABASE_SET_ROLE", "value": "espacigo_runtime"},
+        ]
+        after["template"][0]["volumes"] = [{"name": "database-secret", "secret": [{
+            "secret": "espacigo-test-database-password-v67",
+            "items": [{"path": "password", "version": "7"}],
+        }]}]
+    return {"address": address, "change": {"actions": ["create"], "before": None, "after": after}}
 
 
 class Gcp07dPolicyTests(unittest.TestCase):
@@ -42,6 +80,17 @@ class Gcp07dPolicyTests(unittest.TestCase):
         with patch("verify_gcp07_environment.request_json", side_effect=[run, jobs, artifact]):
             self.assertFalse(published_release_exists("HernanEspinozaDev/espaciGo", "42", "token"))
 
+    def test_manual_apply_requires_a_successful_main_preview_artifact(self):
+        run = {"status": "completed", "conclusion": "success", "event": "workflow_dispatch",
+               "head_branch": "main", "path": ".github/workflows/application-rollout.yml",
+               "head_repository": {"full_name": "HernanEspinozaDev/espaciGo"}}
+        artifact = {"artifacts": [{"name": "gcp07d-preview-42", "expired": False}]}
+        with patch("verify_gcp07_environment.request_json", side_effect=[run, artifact]):
+            self.assertTrue(successful_preview_exists("HernanEspinozaDev/espaciGo", "42", "token"))
+        artifact["artifacts"][0]["expired"] = True
+        with patch("verify_gcp07_environment.request_json", side_effect=[run, artifact]):
+            self.assertFalse(successful_preview_exists("HernanEspinozaDev/espaciGo", "42", "token"))
+
     def test_release_push_checks_environment_without_rollout_flags(self):
         self.assertTrue(event_gate_ready("push", "", False, False))
         self.assertTrue(event_gate_ready("workflow_dispatch", "manual-publish", True, False))
@@ -50,6 +99,16 @@ class Gcp07dPolicyTests(unittest.TestCase):
         self.assertTrue(event_gate_ready("workflow_dispatch", "preview", True, False))
         self.assertFalse(event_gate_ready("workflow_dispatch", "apply", True, True,
                                           "", "42", "f" * 64))
+        self.assertTrue(event_gate_ready("workflow_dispatch", "bootstrap-preview", True, False))
+        self.assertTrue(event_gate_ready("workflow_dispatch", "bootstrap-apply", True, True,
+                                         "APPLY GCP-08 INITIAL RESTORE", "42", "f" * 64))
+        self.assertFalse(event_gate_ready("workflow_dispatch", "bootstrap-apply", True, False,
+                                          "APPLY GCP-08 INITIAL RESTORE", "42", "f" * 64))
+        self.assertFalse(event_gate_ready("workflow_dispatch", "bootstrap-apply", True, True,
+                                          "APPLY GCP-07D", "42", "f" * 64))
+        self.assertTrue(v67_runtime_ready("7", "a" * 64))
+        self.assertFalse(v67_runtime_ready("latest", "a" * 64))
+        self.assertFalse(v67_runtime_ready("7", "0" * 64))
 
     def test_migration_only_and_mixed_changes_are_marked_and_blocked(self):
         migration_only = classify(["db/migrations/V65__example.sql"])
@@ -97,6 +156,37 @@ class Gcp07dPolicyTests(unittest.TestCase):
         address = next(key for key, value in ALLOWED.items() if value[0] == "api")
         result = validate({"applyable": True, "resource_changes": [resource(address, image)]}, {"api": image}, "b" * 40, "123")
         self.assertEqual(len(result["fingerprint"]), 64)
+
+    def test_initial_restore_allows_only_the_exact_three_service_creates(self):
+        api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
+        web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
+        plan = {"applyable": True, "resource_changes": [
+            initial_resource(address, api if component == "api" else web)
+            for address, (component, _) in ALLOWED.items()
+        ]}
+        result = validate(plan, {"api": api, "web": web}, "c" * 40, "123", "bootstrap", "7")
+        self.assertEqual({row["action"] for row in result["changes"]}, {"create"})
+        self.assertEqual({row["address"] for row in result["changes"]}, set(ALLOWED))
+        self.assertEqual(len(result["fingerprint"]), 64)
+        with self.assertRaises(PolicyError):
+            validate(plan, {"api": api, "web": web}, "c" * 40, "123", "update", "7")
+
+    def test_initial_restore_rejects_v67_target_drift_partial_create_and_extra_resources(self):
+        api = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
+        web = IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64
+        resources = [initial_resource(address, api if component == "api" else web)
+                     for address, (component, _) in ALLOWED.items()]
+        expected = {"api": api, "web": web}
+        plan = {"applyable": True, "resource_changes": copy.deepcopy(resources)}
+        plan["resource_changes"][0]["change"]["after"]["template"][0]["containers"][0]["env"][0]["value"] = "old-db"
+        with self.assertRaises(PolicyError):
+            validate(plan, expected, "c" * 40, "123", "bootstrap", "7")
+        with self.assertRaises(PolicyError):
+            validate({"applyable": True, "resource_changes": resources[:2]}, expected, "c" * 40, "123", "bootstrap", "7")
+        extra = copy.deepcopy(resources)
+        extra.append({"address": "google_project_iam_member.extra", "change": {"actions": ["create"]}})
+        with self.assertRaises(PolicyError):
+            validate({"applyable": True, "resource_changes": extra}, expected, "c" * 40, "123", "bootstrap", "7")
 
     def test_accepts_empty_plan_as_noop(self):
         result = validate({"applyable": True, "resource_changes": []}, {}, "b" * 40, "123")

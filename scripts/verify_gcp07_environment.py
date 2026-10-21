@@ -50,6 +50,18 @@ def published_release_exists(repo, run_id, token):
     return any(a.get("name") == f"gcp07d-release-{run_id}" and not a.get("expired") for a in artifacts)
 
 
+def successful_preview_exists(repo, run_id, token):
+    base = f"{API}/repos/{repo}/actions/runs/{run_id}"
+    run = request_json(base, token)
+    if (run.get("status") != "completed" or run.get("conclusion") != "success"
+            or run.get("event") != "workflow_dispatch" or run.get("head_branch") != "main"
+            or run.get("path") != ".github/workflows/application-rollout.yml"
+            or (run.get("head_repository") or {}).get("full_name") != repo):
+        return False
+    artifacts = request_json(base + "/artifacts?per_page=100", token).get("artifacts", [])
+    return any(a.get("name") == f"gcp07d-preview-{run_id}" and not a.get("expired") for a in artifacts)
+
+
 def event_gate_ready(event, mode, publish_enabled, rollout_enabled,
                      confirmation="", preview_run_id="", fingerprint=""):
     # application-release.yml uses this helper on push only to validate the
@@ -68,7 +80,19 @@ def event_gate_ready(event, mode, publish_enabled, rollout_enabled,
         return (rollout_enabled and confirmation == "APPLY GCP-07D"
                 and preview_run_id.isdigit()
                 and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None)
+    if event == "workflow_dispatch" and mode == "bootstrap-preview":
+        return publish_enabled
+    if event == "workflow_dispatch" and mode == "bootstrap-apply":
+        return (rollout_enabled and confirmation == "APPLY GCP-08 INITIAL RESTORE"
+                and preview_run_id.isdigit()
+                and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None)
     return False
+
+
+def v67_runtime_ready(password_version, preflight_sha):
+    return (re.fullmatch(r"[1-9][0-9]*", password_version or "") is not None
+            and re.fullmatch(r"[0-9a-f]{64}", preflight_sha or "") is not None
+            and set(preflight_sha) != {"0"})
 
 
 def main():
@@ -84,6 +108,10 @@ def main():
         event, mode, publish_enabled, rollout_enabled,
         os.environ.get("CONFIRMATION", ""), os.environ.get("PREVIEW_RUN_ID", ""),
         os.environ.get("FINGERPRINT", ""))
+    if eligible and mode in {"auto", "preview", "apply", "bootstrap-preview", "bootstrap-apply"}:
+        eligible = v67_runtime_ready(
+            os.environ.get("V67_RUNTIME_PASSWORD_VERSION", ""),
+            os.environ.get("V67_RUNTIME_PREFLIGHT_SHA", ""))
     if token and repo and output and eligible:
         base = f"{API}/repos/{repo}/environments/testprod"
         try:
@@ -93,9 +121,17 @@ def main():
             if ready and event == "workflow_run":
                 run_id = os.environ.get("UPSTREAM_RUN_ID", "")
                 ready = run_id.isdigit() and published_release_exists(repo, run_id, token)
-            elif ready and event == "workflow_dispatch" and mode in {"preview", "apply"}:
+            elif ready and event == "workflow_dispatch" and mode in {"preview", "apply", "bootstrap-preview"}:
                 run_id = os.environ.get("RELEASE_RUN_ID", "")
                 ready = run_id.isdigit() and published_release_exists(repo, run_id, token)
+                if ready and mode == "apply":
+                    preview_run_id = os.environ.get("PREVIEW_RUN_ID", "")
+                    ready = preview_run_id.isdigit() and successful_preview_exists(repo, preview_run_id, token)
+            elif ready and event == "workflow_dispatch" and mode == "bootstrap-apply":
+                run_id = os.environ.get("RELEASE_RUN_ID", "")
+                preview_run_id = os.environ.get("PREVIEW_RUN_ID", "")
+                ready = (run_id.isdigit() and published_release_exists(repo, run_id, token)
+                         and preview_run_id.isdigit() and successful_preview_exists(repo, preview_run_id, token))
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError):
             ready = False
     if output:

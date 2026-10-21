@@ -43,10 +43,56 @@ def mask_unknown(value, unknown):
     return value
 
 
-def validate(plan, expected, source_sha, release_run_id):
+def initial_service_matches(address, resource, database_password_version):
+    after = resource.get("after")
+    if not isinstance(after, dict):
+        return False
+    service_names = {
+        "google_cloud_run_v2_service.api[0]": "espacigo-test-api",
+        'google_cloud_run_v2_service.web["public"]': "espacigo-test-public",
+        'google_cloud_run_v2_service.web["private"]': "espacigo-test-private",
+    }
+    if (after.get("name") != service_names.get(address)
+            or after.get("project") != "espacigo-testprod"
+            or after.get("location") != "southamerica-west1"
+            or after.get("ingress") != "INGRESS_TRAFFIC_ALL"
+            or after.get("deletion_protection") is not True):
+        return False
+    if address == 'google_cloud_run_v2_service.web["public"]' and after.get("iap_enabled") is not False:
+        return False
+    if address == 'google_cloud_run_v2_service.web["private"]' and after.get("iap_enabled") is not True:
+        return False
+    if address == "google_cloud_run_v2_service.api[0]":
+        try:
+            containers = after["template"][0]["containers"]
+            env = {item["name"]: item.get("value") for item in containers[0]["env"]}
+            volumes = after["template"][0]["volumes"]
+            db_volume = next(volume for volume in volumes if volume.get("name") == "database-secret")
+            secret = db_volume["secret"][0]
+            secret_items = secret["items"]
+            has_pinned_password = any(
+                item.get("path") == "password" and item.get("version") == database_password_version
+                for item in secret_items
+            )
+        except (KeyError, IndexError, StopIteration, TypeError):
+            return False
+        if (env.get("CLOUD_SQL_INSTANCE_CONNECTION_NAME")
+                != "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
+                or env.get("DATABASE_NAME") != "espacigo_dms_stage_20261020"
+                or env.get("DATABASE_USER") != "espacigo_api_login"
+                or env.get("DATABASE_SET_ROLE") != "espacigo_runtime"
+                or not has_pinned_password
+                or "@sha256:" not in image_of(after, "after")):
+            return False
+    return True
+
+
+def validate(plan, expected, source_sha, release_run_id, mode="update", database_password_version=""):
     resources = plan.get("resource_changes")
     if (not isinstance(resources, list) or plan.get("applyable") is not True
             or plan.get("errored") is True or plan.get("complete") is False):
+        raise PolicyError()
+    if mode not in {"update", "bootstrap"}:
         raise PolicyError()
     summary = []
     seen = set()
@@ -57,27 +103,39 @@ def validate(plan, expected, source_sha, release_run_id):
         if item.get("mode") == "data" and actions == ["read"]:
             continue
         address = item.get("address")
-        if address not in ALLOWED or address in seen or actions != ["update"]:
+        if address not in ALLOWED or address in seen:
             raise PolicyError()
         component, repository = ALLOWED[address]
         image = image_of(item["change"]["after"], "after")
-        old_image = image_of(item["change"]["before"], "before")
-        if old_image == image or not digest_ok(image, repository):
+        if not digest_ok(image, repository):
             raise PolicyError()
         if expected.get(component) != image:
             raise PolicyError()
-        before = item["change"]["before"]
-        after = item["change"]["after"]
-        after = mask_unknown(after, item["change"].get("after_unknown", {}))
-        before = json.loads(json.dumps(before))
-        after = json.loads(json.dumps(after))
-        before["template"][0]["containers"][0]["image"] = "<IMAGE>"
-        after["template"][0]["containers"][0]["image"] = "<IMAGE>"
-        if before != after:
-            raise PolicyError()
+        if mode == "bootstrap":
+            if actions != ["create"] or not initial_service_matches(
+                    address, item["change"], database_password_version):
+                raise PolicyError()
+        else:
+            if actions != ["update"]:
+                raise PolicyError()
+            old_image = image_of(item["change"]["before"], "before")
+            if old_image == image:
+                raise PolicyError()
+            before = item["change"]["before"]
+            after = item["change"]["after"]
+            after = mask_unknown(after, item["change"].get("after_unknown", {}))
+            before = json.loads(json.dumps(before))
+            after = json.loads(json.dumps(after))
+            before["template"][0]["containers"][0]["image"] = "<IMAGE>"
+            after["template"][0]["containers"][0]["image"] = "<IMAGE>"
+            if before != after:
+                raise PolicyError()
         seen.add(address)
-        summary.append({"address": address, "action": "update", "image": image})
+        summary.append({"address": address, "action": actions[0], "image": image})
+    if mode == "bootstrap" and seen != set(ALLOWED):
+        raise PolicyError()
     normalized = {
+        "mode": mode,
         "source_sha": source_sha,
         "release_run_id": str(release_run_id),
         "changes": sorted(summary, key=lambda row: row["address"]),
@@ -92,6 +150,8 @@ def main():
     parser.add_argument("--images", required=True, help="JSON map of selected component to immutable image ref")
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--release-run-id", required=True)
+    parser.add_argument("--mode", choices=("update", "bootstrap"), default="update")
+    parser.add_argument("--database-password-version", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     try:
@@ -99,7 +159,8 @@ def main():
             plan = json.load(stream)
         with open(args.images, encoding="utf-8") as stream:
             expected = json.load(stream)
-        result = validate(plan, expected, args.source_sha, args.release_run_id)
+        result = validate(plan, expected, args.source_sha, args.release_run_id,
+                          args.mode, args.database_password_version)
         with open(args.output, "w", encoding="utf-8") as stream:
             json.dump(result, stream, sort_keys=True, separators=(",", ":"))
             stream.write("\n")

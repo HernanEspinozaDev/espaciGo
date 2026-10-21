@@ -21,6 +21,18 @@ mock_provider "google" {
     }
   }
 
+  mock_data "google_sql_database" {
+    defaults = {
+      name = "espacigo_dms_stage_20261020"
+    }
+  }
+
+  mock_data "google_secret_manager_secret" {
+    defaults = {
+      secret_id = "espacigo-test-database-password-v67"
+    }
+  }
+
   mock_resource "google_compute_security_policy" {
     defaults = {
       id = "projects/offline-test-project/global/securityPolicies/public"
@@ -484,6 +496,50 @@ run "services_without_edge_expose_runapp_with_private_gates" {
   assert {
     condition     = one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "PRIVATE_DEMO_ORIGIN"]) == var.private_demo_origin_override
     error_message = "The second no-DNS rollout step must route private links to the private IAP-protected run.app origin."
+  }
+}
+
+run "v67_runtime_targets_existing_database_and_pinned_secret" {
+  command = plan
+
+  variables {
+    project_id                          = "espacigo-testprod"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    enable_edge                         = false
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    bucket_suffix                       = "v67-runtime"
+    api_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
+    confirm_pga_iap_key_preflight       = true
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
+    api_v67_database_instance_name      = "espacigo-testprod-db"
+    api_v67_database_name               = "espacigo_dms_stage_20261020"
+    api_v67_database_password_version   = "7"
+  }
+
+  override_data {
+    target = data.google_sql_database_instance.v67_target[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.13"
+    }
+  }
+
+  assert {
+    condition = (
+      local.api_sql_connection_name == "espacigo-testprod:southamerica-west1:espacigo-testprod-db" &&
+      local.api_database_name == "espacigo_dms_stage_20261020" &&
+      local.api_database_password_version == "7" &&
+      local.api_database_secret_id == "espacigo-test-database-password-v67"
+    )
+    error_message = "V67 runtime must use the exact external database and explicitly pinned existing secret metadata."
   }
 }
 
