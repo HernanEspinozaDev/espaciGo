@@ -27,14 +27,11 @@ provider "google-beta" {
 
 locals {
   api_gcp06_candidate_enabled = var.api_gcp06_candidate_run_id != ""
+  api_v67_target_enabled      = var.api_v67_database_instance_name != ""
   gcp06_candidate_run_id      = local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_run_id : (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job ? "20261020-gcp06a" : "")
-  api_database_secret_key     = local.api_gcp06_candidate_enabled ? "database-password-gcp06" : "database-password"
+  api_database_secret_key     = local.api_v67_target_enabled ? "database-password-v67" : (local.api_gcp06_candidate_enabled ? "database-password-gcp06" : "database-password")
   api_secret_access_keys = setunion(
-    toset([
-      local.api_database_secret_key,
-      "contract-encryption-key",
-      "payment-webhook-secret",
-    ]),
+    local.api_v67_target_enabled ? toset(["contract-encryption-key", "payment-webhook-secret"]) : toset([local.api_database_secret_key, "contract-encryption-key", "payment-webhook-secret"]),
     # Keep the stable DB credential available to the retained rollback revision.
     local.api_gcp06_candidate_enabled ? toset(["database-password"]) : toset([]),
   )
@@ -49,9 +46,10 @@ locals {
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job) ? toset(["gcp06-sql-inspector-credential"]) : toset([]),
   ) : toset([])
   migrator_database_secret_id   = var.enable_database ? "database-migrator-password" : local.api_database_secret_key
-  api_sql_connection_name       = try(local.api_gcp06_candidate_enabled ? data.google_sql_database_instance.gcp06_candidate[0].connection_name : google_sql_database_instance.postgres[0].connection_name, "")
-  api_database_name             = try(local.api_gcp06_candidate_enabled ? local.gcp06_candidate_database_name : google_sql_database.application[0].name, "")
-  api_database_password_version = local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_password_version : "latest"
+  api_sql_connection_name       = try(local.api_v67_target_enabled ? data.google_sql_database_instance.v67_target[0].connection_name : (local.api_gcp06_candidate_enabled ? data.google_sql_database_instance.gcp06_candidate[0].connection_name : google_sql_database_instance.postgres[0].connection_name), "")
+  api_database_name             = local.api_v67_target_enabled ? var.api_v67_database_name : (local.api_gcp06_candidate_enabled ? local.gcp06_candidate_database_name : try(google_sql_database.application[0].name, ""))
+  api_database_password_version = local.api_v67_target_enabled ? var.api_v67_database_password_version : (local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_password_version : "latest")
+  api_database_secret_id        = local.api_v67_target_enabled ? data.google_secret_manager_secret.v67_database_password[0].secret_id : google_secret_manager_secret.runtime[local.api_database_secret_key].secret_id
   gcp06_candidate_instance_name = "espacigo-gcp06-${local.gcp06_candidate_run_id}-pg"
   gcp06_candidate_database_name = "espacigo_gcp06_candidate_${local.gcp06_candidate_run_id}"
   project_enabled_apis = toset([
@@ -93,6 +91,25 @@ data "google_sql_database_instance" "gcp06_candidate" {
   count   = local.api_gcp06_candidate_enabled || (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job) ? 1 : 0
   project = var.project_id
   name    = local.gcp06_candidate_instance_name
+}
+
+data "google_sql_database_instance" "v67_target" {
+  count   = local.api_v67_target_enabled ? 1 : 0
+  project = var.project_id
+  name    = var.api_v67_database_instance_name
+}
+
+data "google_sql_database" "v67_target" {
+  count    = local.api_v67_target_enabled ? 1 : 0
+  project  = var.project_id
+  instance = var.api_v67_database_instance_name
+  name     = var.api_v67_database_name
+}
+
+data "google_secret_manager_secret" "v67_database_password" {
+  count     = local.api_v67_target_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = "espacigo-test-database-password-v67"
 }
 
 resource "google_project_service" "required" {
@@ -526,8 +543,16 @@ resource "google_secret_manager_secret_iam_member" "api_secret_access" {
   depends_on = [google_project_service.required]
 }
 
+resource "google_secret_manager_secret_iam_member" "api_v67_secret_access" {
+  count     = var.enable_foundation && local.api_v67_target_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = data.google_secret_manager_secret.v67_database_password[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime["api"].email}"
+}
+
 resource "google_secret_manager_secret_iam_member" "migrator_db_access" {
-  count     = var.enable_foundation ? 1 : 0
+  count     = var.enable_foundation && !local.api_v67_target_enabled ? 1 : 0
   project   = var.project_id
   secret_id = google_secret_manager_secret.runtime[local.migrator_database_secret_id].secret_id
   role      = "roles/secretmanager.secretAccessor"
@@ -674,7 +699,7 @@ resource "google_cloud_run_v2_service" "api" {
     volumes {
       name = "database-secret"
       secret {
-        secret = google_secret_manager_secret.runtime[local.api_database_secret_key].secret_id
+        secret = local.api_database_secret_id
         items {
           version = local.api_database_password_version
           path    = "password"
@@ -817,6 +842,7 @@ resource "google_cloud_run_v2_service" "api" {
   lifecycle {
     precondition {
       condition = !var.enable_services || (
+        (local.api_v67_target_enabled ? local.api_database_secret_id == "espacigo-test-database-password-v67" : true) &&
         google_secret_manager_secret.runtime["contract-encryption-key"].secret_id == "espacigo-test-contract-encryption-key" &&
         can(regex("^[1-9][0-9]*$", var.api_contract_encryption_key_version)) &&
         ((var.api_private_object_prefix == "" && var.api_privacy_replay_prefix == "") ||
@@ -832,12 +858,30 @@ resource "google_cloud_run_v2_service" "api" {
       )
       error_message = "The API candidate target must be the exact run-scoped private PostgreSQL 18 GCP-06 instance in the testprod Santiago project."
     }
+    precondition {
+      condition = !local.api_v67_target_enabled || (
+        var.api_gcp06_candidate_run_id == "" &&
+        data.google_sql_database_instance.v67_target[0].database_version == "POSTGRES_18" &&
+        data.google_sql_database_instance.v67_target[0].connection_name == "espacigo-testprod:southamerica-west1:espacigo-testprod-db" &&
+        data.google_sql_database_instance.v67_target[0].private_ip_address != "" &&
+        data.google_sql_database.v67_target[0].name == "espacigo_dms_stage_20261020"
+      )
+      error_message = "V67 runtime must target only the private PostgreSQL 18 testprod instance and verified DMS stage database."
+    }
+    precondition {
+      condition = !local.api_v67_target_enabled || (
+        data.google_secret_manager_secret.v67_database_password[0].secret_id == "espacigo-test-database-password-v67" &&
+        can(regex("^[1-9][0-9]*$", var.api_v67_database_password_version))
+      )
+      error_message = "V67 runtime requires the exact pre-created login secret and a numeric version verified ENABLED outside Terraform without reading its payload."
+    }
   }
 
   depends_on = [
     google_project_service.required,
     google_storage_bucket_iam_member.api_files,
     google_secret_manager_secret_iam_member.api_secret_access,
+    google_secret_manager_secret_iam_member.api_v67_secret_access,
     google_project_iam_member.cloudsql_clients,
   ]
 }

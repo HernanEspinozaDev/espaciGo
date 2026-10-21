@@ -26,6 +26,9 @@ class PolicyError(Exception):
     pass
 
 
+MAY_BE_NEW = {"google_secret_manager_secret_iam_member.api_v67_secret_access[0]"}
+
+
 def digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -40,6 +43,7 @@ def expected_targets(inputs):
         'google_cloud_run_v2_service_iam_member.deployer_service_updater["api"]',
         'google_cloud_run_v2_service_iam_member.deployer_service_updater["public"]',
         'google_cloud_run_v2_service_iam_member.deployer_service_updater["private"]',
+        "google_secret_manager_secret_iam_member.api_v67_secret_access[0]",
     }
     addresses.update(f"{IAP_MEMBER_PREFIX}{json.dumps(member)}]"
                      for member in set(inputs["iap_evaluator_members"]))
@@ -141,9 +145,8 @@ def validate_service(address, item, inputs, images):
         raise PolicyError()
 
     if component == "api":
-        run_id = "20261020-gcp06a"
-        connection = f"espacigo-testprod:southamerica-west1:espacigo-gcp06-{run_id}-pg"
-        database = f"espacigo_gcp06_candidate_{run_id}"
+        connection = "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
+        database = "espacigo_dms_stage_20261020"
         private_origin = inputs.get("private_demo_origin_override") or f"https://{inputs['private_hostname']}"
         fixed_env = {
             "APP_PROFILE": "cloud-test",
@@ -168,8 +171,8 @@ def validate_service(address, item, inputs, images):
             raise PolicyError()
         secret = db_volume.get("secret", [{}])[0]
         item_secret = secret.get("items", [{}])[0]
-        if (secret.get("secret") != "espacigo-test-database-password-gcp06"
-                or item_secret.get("version") != str(inputs["api_gcp06_candidate_password_version"])
+        if (secret.get("secret") != "espacigo-test-database-password-v67"
+                or item_secret.get("version") != str(inputs["api_v67_database_password_version"])
                 or item_secret.get("path") != "password"):
             raise PolicyError()
         contract_volume = next((v for v in template.get("volumes", []) if v.get("name") == "contract-secret"), None)
@@ -193,8 +196,8 @@ def validate_service(address, item, inputs, images):
             "service": info["name"], "ingress": "INGRESS_TRAFFIC_ALL", "iap_enabled": False,
             "database_instance": connection, "database": database, "database_user": "espacigo_api_login",
             "database_set_role": "espacigo_runtime",
-            "database_secret": "espacigo-test-database-password-gcp06",
-            "database_secret_version": str(inputs["api_gcp06_candidate_password_version"]),
+            "database_secret": "espacigo-test-database-password-v67",
+            "database_secret_version": str(inputs["api_v67_database_password_version"]),
             "contract_secret": "espacigo-test-contract-encryption-key",
             "contract_secret_version": str(inputs["api_contract_encryption_key_version"]),
             "authenticated_callers": ["public-web runtime service account", "private-web runtime service account"],
@@ -270,6 +273,18 @@ def iap_member_from_address(address):
 
 
 def validate_binding(address, after, inputs, action="create"):
+    if address == "google_secret_manager_secret_iam_member.api_v67_secret_access[0]":
+        member = "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com"
+        if (after.get("project") != "espacigo-testprod"
+                or after.get("secret_id") != "espacigo-test-database-password-v67"
+                or after.get("role") != "roles/secretmanager.secretAccessor"
+                or after.get("member") != member):
+            raise PolicyError()
+        return {
+            "address": address, "action": action, "resource": "espacigo-test-database-password-v67",
+            "role": "roles/secretmanager.secretAccessor", "member": member,
+            "config_sha256": config_fingerprint(after, {}),
+        }
     role = "roles/run.invoker"
     if address.startswith("google_cloud_run_v2_service_iam_member.api_invoker["):
         key = json.loads(address.split("[", 1)[1][:-1])
@@ -334,13 +349,14 @@ def load_images(path):
     return images
 
 
-def validate(plan, images, inputs, source_sha, release_run_id, schema_baseline_sha, candidate_preflight_sha,
+def validate(plan, images, inputs, source_sha, release_run_id, schema_baseline_sha, v67_runtime_preflight_sha,
              target_addresses, state_addresses, terraform_config_sha256):
     resources = plan.get("resource_changes")
     if (not isinstance(resources, list) or plan.get("applyable") is not True or plan.get("errored") is True):
         raise PolicyError()
     expected = expected_targets(inputs)
-    if target_addresses != expected or not target_addresses.issubset(state_addresses):
+    if (target_addresses != expected or not (target_addresses - MAY_BE_NEW).issubset(state_addresses)
+            or (target_addresses - state_addresses) - MAY_BE_NEW):
         raise PolicyError()
     changes = []
     bindings = []
@@ -352,7 +368,11 @@ def validate(plan, images, inputs, source_sha, release_run_id, schema_baseline_s
         action = item.get("change", {}).get("actions")
         after = item.get("change", {}).get("after")
         if item.get("mode") == "data" and action == ["read"]:
-            if address != "data.google_sql_database_instance.gcp06_candidate[0]":
+            if address not in {
+                "data.google_sql_database_instance.v67_target[0]",
+                "data.google_sql_database.v67_target[0]",
+                "data.google_secret_manager_secret.v67_database_password[0]",
+            }:
                 raise PolicyError()
             continue
         if action == ["no-op"]:
@@ -380,12 +400,15 @@ def validate(plan, images, inputs, source_sha, release_run_id, schema_baseline_s
         raise PolicyError()
     iap_member_rows = sorted(row["member_sha256"] for row in bindings if "member_sha256" in row)
     runtime = {
-        "database_instance": "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg",
-        "database_name": "espacigo_gcp06_candidate_20261020-gcp06a",
+        "database_instance": "espacigo-testprod:southamerica-west1:espacigo-testprod-db",
+        "database_name": "espacigo_dms_stage_20261020",
+        "database_engine": "POSTGRES_18",
+        "database_expected_locale": "es_ES.utf8",
+        "database_expected_schema": "V67",
         "database_user": "espacigo_api_login",
         "database_set_role": "espacigo_runtime",
-        "database_secret_id": "espacigo-test-database-password-gcp06",
-        "database_secret_version": str(inputs["api_gcp06_candidate_password_version"]),
+        "database_secret_id": "espacigo-test-database-password-v67",
+        "database_secret_version": str(inputs["api_v67_database_password_version"]),
         "contract_secret_id": "espacigo-test-contract-encryption-key",
         "contract_secret_version": str(inputs["api_contract_encryption_key_version"]),
         "api_internal_base": "Cloud Run URI for espacigo-test-api + /api/v1",
@@ -403,7 +426,7 @@ def validate(plan, images, inputs, source_sha, release_run_id, schema_baseline_s
         "source_sha": source_sha,
         "release_run_id": str(release_run_id),
         "schema_baseline_sha": schema_baseline_sha,
-        "candidate_preflight_sha": candidate_preflight_sha,
+        "v67_runtime_preflight_sha": v67_runtime_preflight_sha,
         "target_count": len(target_addresses),
         "target_scope_sha256": digest("\n".join(sorted(target_addresses))),
         "terraform_config_sha256": terraform_config_sha256,
@@ -427,7 +450,7 @@ def main():
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--release-run-id", required=True)
     parser.add_argument("--schema-baseline-sha", required=True)
-    parser.add_argument("--candidate-preflight-sha", required=True)
+    parser.add_argument("--v67-runtime-preflight-sha", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     try:
@@ -441,13 +464,13 @@ def main():
             state_addresses = {line.strip() for line in stream if line.strip()}
         if not re.fullmatch(r"[0-9a-f]{40}", args.schema_baseline_sha):
             raise PolicyError()
-        if not re.fullmatch(r"[0-9a-f]{64}", args.candidate_preflight_sha):
+        if not re.fullmatch(r"[0-9a-f]{64}", args.v67_runtime_preflight_sha):
             raise PolicyError()
         verify_api_url_expressions(args.terraform_config)
         with open(args.terraform_config, "rb") as stream:
             terraform_config_sha256 = hashlib.sha256(stream.read()).hexdigest()
         result = validate(plan, load_images(args.images), inputs, args.source_sha, args.release_run_id,
-                          args.schema_baseline_sha, args.candidate_preflight_sha, targets, state_addresses,
+                          args.schema_baseline_sha, args.v67_runtime_preflight_sha, targets, state_addresses,
                           terraform_config_sha256)
         with open(args.output, "w", encoding="utf-8") as stream:
             json.dump(result, stream, sort_keys=True, separators=(",", ":"))

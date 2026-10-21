@@ -21,6 +21,18 @@ mock_provider "google" {
     }
   }
 
+  mock_data "google_sql_database" {
+    defaults = {
+      name = "espacigo_dms_stage_20261020"
+    }
+  }
+
+  mock_data "google_secret_manager_secret" {
+    defaults = {
+      secret_id = "espacigo-test-database-password-v67"
+    }
+  }
+
   mock_resource "google_compute_security_policy" {
     defaults = {
       id = "projects/offline-test-project/global/securityPolicies/public"
@@ -380,6 +392,51 @@ run "candidate_mode_rejects_a_different_run_id" {
   }
 
   expect_failures = [var.api_gcp06_candidate_run_id]
+}
+
+run "v67_mode_targets_only_the_verified_external_database_and_secret" {
+  command = plan
+
+  variables {
+    project_id                          = "espacigo-testprod"
+    project_number                      = "447373903153"
+    enable_foundation                   = true
+    enable_services                     = true
+    api_contract_encryption_key_version = "1"
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    acknowledge_gcp04_runtime_gates     = true
+    bucket_suffix                       = "offline-v67"
+    api_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    frontend_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    mailpit_private_address             = "10.80.0.10:1025"
+    confirm_runtime_secret_versions     = true
+    confirm_runtime_database_bootstrap  = true
+    api_v67_database_instance_name      = "espacigo-testprod-db"
+    api_v67_database_name               = "espacigo_dms_stage_20261020"
+    api_v67_database_password_version   = "4"
+  }
+
+  override_data {
+    target = data.google_sql_database_instance.v67_target[0]
+    values = {
+      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
+      database_version   = "POSTGRES_18"
+      private_ip_address = "10.189.0.14"
+      region             = "southamerica-west1"
+    }
+  }
+
+  assert {
+    condition = (
+      local.api_sql_connection_name == "espacigo-testprod:southamerica-west1:espacigo-testprod-db" &&
+      local.api_database_name == "espacigo_dms_stage_20261020" &&
+      local.api_database_secret_id == "espacigo-test-database-password-v67" &&
+      local.api_database_password_version == "4" &&
+      google_secret_manager_secret_iam_member.api_v67_secret_access[0].role == "roles/secretmanager.secretAccessor"
+    )
+    error_message = "V67 mode must connect the API only to the exact external PG18 database and secret version, granting only API secret access."
+  }
 }
 
 run "candidate_jobs_are_one_shot_private_and_separately_secret_scoped" {

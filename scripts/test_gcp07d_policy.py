@@ -5,7 +5,7 @@ from unittest.mock import patch
 from verify_gcp07_environment import event_gate_ready, is_ready, published_release_exists
 from verify_gcp07_plan import ALLOWED, IMAGE_PATH, PolicyError, validate
 from classify_gcp07_release_changes import classify, migrations_pending
-from verify_gcp07_manifest_scope import rollout_allowed
+from verify_gcp07_manifest_scope import baseline_has_v67, rollout_allowed
 
 
 def environment():
@@ -47,9 +47,17 @@ class Gcp07dPolicyTests(unittest.TestCase):
         self.assertTrue(event_gate_ready("workflow_dispatch", "manual-publish", True, False))
         self.assertFalse(event_gate_ready("workflow_dispatch", "manual-publish", False, False))
         self.assertFalse(event_gate_ready("workflow_run", "auto", True, False))
-        self.assertTrue(event_gate_ready("workflow_dispatch", "preview", True, False))
+        self.assertFalse(event_gate_ready("workflow_run", "auto", True, True))
+        self.assertTrue(event_gate_ready("workflow_run", "auto", True, True,
+                                         runtime_preflight_sha="f" * 64, runtime_secret_version="7"))
+        self.assertFalse(event_gate_ready("workflow_dispatch", "preview", True, False))
+        self.assertTrue(event_gate_ready("workflow_dispatch", "preview", True, False,
+                                         runtime_preflight_sha="f" * 64, runtime_secret_version="7"))
         self.assertFalse(event_gate_ready("workflow_dispatch", "apply", True, True,
                                           "", "42", "f" * 64))
+        self.assertTrue(event_gate_ready("workflow_dispatch", "apply", True, True,
+                                         "APPLY GCP-07D", "42", "f" * 64,
+                                         "e" * 64, "7"))
 
     def test_migration_only_and_mixed_changes_are_marked_and_blocked(self):
         migration_only = classify(["db/migrations/V65__example.sql"])
@@ -82,6 +90,17 @@ class Gcp07dPolicyTests(unittest.TestCase):
                 self.assertTrue(migrations_pending("a" * 40, "b" * 40))
             with patch("classify_gcp07_release_changes.subprocess.check_output", return_value=""):
                 self.assertFalse(migrations_pending("a" * 40, "b" * 40))
+
+    def test_rollout_baseline_must_include_v67(self):
+        result = type("Result", (), {"returncode": 0, "stdout": "db/migrations/V000066__old.sql\n"})()
+        with patch("verify_gcp07_manifest_scope.subprocess.run", return_value=result):
+            self.assertFalse(baseline_has_v67("a" * 40))
+        result.stdout = "db/migrations/V000067__v67.sql\ndb/migrations/V000066__old.sql\n"
+        with patch("verify_gcp07_manifest_scope.subprocess.run", return_value=result):
+            self.assertTrue(baseline_has_v67("a" * 40))
+        result.stdout += "db/migrations/V000068__future.sql\n"
+        with patch("verify_gcp07_manifest_scope.subprocess.run", return_value=result):
+            self.assertFalse(baseline_has_v67("a" * 40))
 
     def test_accepts_single_allowlisted_digest_update(self):
         image = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64

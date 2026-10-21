@@ -27,9 +27,12 @@ def main():
                 or data.get("enable_database") is not False or data.get("enable_edge") is not False
                 or data.get("enable_mailpit") is not False
                 or data.get("enable_gcp06_jobs_reviewed") is not False
-                or data.get("api_gcp06_candidate_run_id") != "20261020-gcp06a"
+                or data.get("api_gcp06_candidate_run_id") != ""
+                or data.get("api_v67_database_instance_name") != "espacigo-testprod-db"
+                or data.get("api_v67_database_name") != "espacigo_dms_stage_20261020"
                 or not isinstance(data.get("mailpit_private_address"), str) or not data["mailpit_private_address"]
-                or not re.fullmatch(r"[1-9][0-9]*", str(data.get("api_gcp06_candidate_password_version", "")))
+                or not re.fullmatch(r"[1-9][0-9]*", os.environ.get("V67_RUNTIME_PASSWORD_VERSION", ""))
+                or str(data.get("api_v67_database_password_version", "")) != os.environ.get("V67_RUNTIME_PASSWORD_VERSION")
                 or not re.fullmatch(r"[1-9][0-9]*", str(data.get("api_contract_encryption_key_version", "")))
                 or data.get("confirm_runtime_secret_versions") is not True
                 or data.get("confirm_runtime_database_bootstrap") is not True):
@@ -66,6 +69,7 @@ def main():
             'google_cloud_run_v2_service_iam_member.deployer_service_updater["api"]',
             'google_cloud_run_v2_service_iam_member.deployer_service_updater["public"]',
             'google_cloud_run_v2_service_iam_member.deployer_service_updater["private"]',
+            'google_secret_manager_secret_iam_member.api_v67_secret_access[0]',
         ]
         addresses.extend(f'google_iap_web_cloud_run_service_iam_member.private_evaluators[{json.dumps(m)}]'
                          for m in sorted(set(evaluators)))
@@ -76,9 +80,9 @@ def main():
         with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
             stream.write(f"GCP08_TFVARS={output}\nGCP08_TARGETS={target_path}\n")
     except Exception:
-        print("private restore inputs do not satisfy the exact candidate and runtime preconditions", file=sys.stderr)
+        print("private restore inputs do not satisfy the exact V67 destination and runtime preconditions", file=sys.stderr)
         return 1
-    print("candidate, runtime-secret versions, access list, and digest inputs passed structural checks")
+    print("V67 destination, runtime-secret versions, access list, and digest inputs passed structural checks")
     return 0
 
 

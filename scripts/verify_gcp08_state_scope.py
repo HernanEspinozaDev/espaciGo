@@ -4,12 +4,14 @@ import hashlib
 import os
 import sys
 
+MAY_BE_NEW = {"google_secret_manager_secret_iam_member.api_v67_secret_access[0]"}
+
 
 def main(targets_path, state_path):
     try:
         targets = {line.strip() for line in open(targets_path, encoding="utf-8") if line.strip()}
         state = {line.strip() for line in open(state_path, encoding="utf-8") if line.strip()}
-        if not targets or not targets.issubset(state):
+        if not targets or not (targets - MAY_BE_NEW).issubset(state) or (targets - state) - MAY_BE_NEW:
             raise ValueError()
         digest = hashlib.sha256("\n".join(sorted(targets)).encode()).hexdigest()
         output = os.environ.get("GITHUB_OUTPUT")

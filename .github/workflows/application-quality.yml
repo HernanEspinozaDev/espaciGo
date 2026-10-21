@@ -38,10 +38,19 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: false
+      - name: Lint GitHub Actions workflow syntax and expressions
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
       - name: Test BuildKit attestation verifier
         run: python3 -m unittest discover -s scripts -p 'test_verify_gcp07_attestations.py'
       - name: Test GCP-07D environment and Terraform plan policy
         run: python3 -m unittest discover -s scripts -p 'test_gcp07d_policy.py'
+      - name: Test GCP-08 V67 restore destination and Secret Manager binding policy
+        run: python3 -m unittest discover -s scripts -p 'test_gcp08_restore_policy.py'
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
         with:
           terraform_version: 1.16.6

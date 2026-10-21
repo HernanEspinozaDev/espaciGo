@@ -41,8 +41,8 @@ variable "enable_services" {
   description = "Separate explicit apply gate for Cloud Run services; requires foundation and database."
   default     = false
   validation {
-    condition     = !var.enable_services || (var.enable_foundation && (var.enable_database || var.api_gcp06_candidate_run_id != "") && (var.mailpit_private_address != "" || var.enable_mailpit) && var.confirm_runtime_secret_versions && var.confirm_runtime_database_bootstrap)
-    error_message = "Cloud Run services require foundation, either the managed database or the exact GCP-06 candidate, a private Mailpit endpoint or gated VM, loaded runtime secret versions, and completed SQL runtime-user bootstrap."
+    condition     = !var.enable_services || (var.enable_foundation && (var.enable_database || var.api_gcp06_candidate_run_id != "" || var.api_v67_database_instance_name != "") && (var.mailpit_private_address != "" || var.enable_mailpit) && var.confirm_runtime_secret_versions && var.confirm_runtime_database_bootstrap)
+    error_message = "Cloud Run services require foundation, a verified managed or pinned external database, a private Mailpit endpoint or gated VM, loaded runtime secret versions, and completed SQL runtime-user bootstrap."
   }
 }
 
@@ -204,6 +204,36 @@ variable "api_gcp06_candidate_password_version" {
   validation {
     condition     = var.api_gcp06_candidate_run_id == "" || can(regex("^[1-9][0-9]*$", var.api_gcp06_candidate_password_version))
     error_message = "Candidate mode requires an explicit positive Secret Manager version number."
+  }
+}
+
+variable "api_v67_database_instance_name" {
+  type        = string
+  default     = ""
+  description = "Exact external PostgreSQL 18 Cloud SQL instance used by the reviewed V67 testprod baseline. Empty preserves the existing target selection."
+  validation {
+    condition     = var.api_v67_database_instance_name == "" || (var.api_v67_database_instance_name == "espacigo-testprod-db" && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && var.api_gcp06_candidate_run_id == "")
+    error_message = "V67 runtime mode is limited to espacigo-testprod-db in the testprod Santiago project and cannot be combined with GCP-06 candidate mode."
+  }
+}
+
+variable "api_v67_database_name" {
+  type        = string
+  default     = ""
+  description = "Exact existing V67 database on the external testprod instance."
+  validation {
+    condition     = var.api_v67_database_instance_name == "" ? var.api_v67_database_name == "" : var.api_v67_database_name == "espacigo_dms_stage_20261020"
+    error_message = "When V67 runtime mode is enabled, the database must be espacigo_dms_stage_20261020."
+  }
+}
+
+variable "api_v67_database_password_version" {
+  type        = string
+  default     = ""
+  description = "Numeric enabled version of the externally populated V67 API login secret; Terraform never reads its payload."
+  validation {
+    condition     = var.api_v67_database_instance_name == "" ? var.api_v67_database_password_version == "" : can(regex("^[1-9][0-9]*$", var.api_v67_database_password_version))
+    error_message = "V67 runtime mode requires an explicit positive Secret Manager version number."
   }
 }
 

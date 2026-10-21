@@ -47,19 +47,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - id: gate
-        name: Check closed apply gates and verified candidate evidence reference
+        name: Check closed apply gates and reviewed V67 runtime evidence reference
         env:
           MODE: ${{ inputs.mode }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
           SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
-          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
+          V67_RUNTIME_PREFLIGHT_SHA: ${{ vars.GCP08_V67_RUNTIME_PREFLIGHT_SHA }}
+          V67_RUNTIME_PASSWORD_VERSION: ${{ vars.GCP08_V67_DATABASE_PASSWORD_VERSION }}
           PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
           FINGERPRINT: ${{ inputs.approved_fingerprint }}
           CONFIRMATION: ${{ inputs.confirmation }}
           APPLY_ENABLED: ${{ vars.GCP08_RESTORE_APPLY_ENABLED }}
           CREATE_PERMISSION_REVIEWED: ${{ vars.GCP08_RUN_CREATE_PERMISSION_REVIEWED }}
-          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
-          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -67,7 +66,8 @@ jobs:
           ready = (os.environ.get("MODE") in {"preview", "apply"}
                    and os.environ.get("RELEASE_RUN_ID", "").isdigit()
                    and re.fullmatch(r"[0-9a-f]{40}", os.environ.get("SCHEMA_BASELINE_SHA", ""))
-                   and re.fullmatch(r"[0-9a-f]{64}", os.environ.get("CANDIDATE_PREFLIGHT_SHA", "")))
+                   and re.fullmatch(r"[0-9a-f]{64}", os.environ.get("V67_RUNTIME_PREFLIGHT_SHA", ""))
+                   and re.fullmatch(r"[1-9][0-9]*", os.environ.get("V67_RUNTIME_PASSWORD_VERSION", "")))
           if os.environ.get("MODE") == "apply":
               ready = bool(ready and os.environ.get("APPLY_ENABLED") == "true"
                            and os.environ.get("CREATE_PERMISSION_REVIEWED") == "true"
@@ -77,7 +77,7 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as stream:
               stream.write(f"ready={'true' if ready else 'false'}\n")
           if not ready:
-              print("restore gate is closed: baseline, candidate evidence, or apply authorization is missing")
+              print("restore gate is closed: approved baseline, V67 runtime evidence, or apply authorization is missing")
               sys.exit(1)
           print("restore invocation gate passed")
           PY
@@ -94,7 +94,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
           SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
-          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
+          V67_RUNTIME_PREFLIGHT_SHA: ${{ vars.GCP08_V67_RUNTIME_PREFLIGHT_SHA }}
         run: python3 scripts/verify_gcp08_release_manifest.py release/manifest.json
       - name: Require release to be based on the reviewed schema baseline
         env:
@@ -132,11 +132,12 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
           SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
-          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
+          V67_RUNTIME_PREFLIGHT_SHA: ${{ vars.GCP08_V67_RUNTIME_PREFLIGHT_SHA }}
         run: python3 scripts/verify_gcp08_release_manifest.py release/manifest.json
-      - name: Prepare private candidate variables and exact target addresses
+      - name: Prepare private V67 runtime variables and exact restore targets
         env:
           TFVARS_JSON: ${{ secrets.GCP07D_TFVARS_JSON }}
+          V67_RUNTIME_PASSWORD_VERSION: ${{ vars.GCP08_V67_DATABASE_PASSWORD_VERSION }}
         run: |
           set -euo pipefail
           umask 077
@@ -165,7 +166,7 @@ jobs:
           MODE: ${{ inputs.mode }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
           SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
-          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
+          V67_RUNTIME_PREFLIGHT_SHA: ${{ vars.GCP08_V67_RUNTIME_PREFLIGHT_SHA }}
         run: |
           set -euo pipefail
           umask 077
@@ -192,7 +193,7 @@ jobs:
             --inputs "$GCP08_TFVARS" --state-list "$RUNNER_TEMP/gcp08/state-list.txt" \
             --terraform-config "$GITHUB_WORKSPACE/infra/terraform/environments/testprod/gcp/main.tf" \
             --source-sha "$GCP08_SOURCE_SHA" --release-run-id "$RELEASE_RUN_ID" \
-            --schema-baseline-sha "$SCHEMA_BASELINE_SHA" --candidate-preflight-sha "$CANDIDATE_PREFLIGHT_SHA" \
+            --schema-baseline-sha "$SCHEMA_BASELINE_SHA" --v67-runtime-preflight-sha "$V67_RUNTIME_PREFLIGHT_SHA" \
             --output "$RUNNER_TEMP/gcp08/summary.json"
       - name: Compare the re-planned summary with the approved preview
         if: inputs.mode == 'apply'

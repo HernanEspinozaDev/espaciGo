@@ -60,6 +60,8 @@ jobs:
           MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
           PUBLISH_ENABLED: ${{ vars.GCP07C_PUBLISH_ENABLED }}
           ROLLOUT_ENABLED: ${{ vars.GCP07D_ROLLOUT_ENABLED }}
+          V67_RUNTIME_PASSWORD_VERSION: ${{ vars.GCP08_V67_DATABASE_PASSWORD_VERSION }}
+          V67_RUNTIME_PREFLIGHT_SHA: ${{ vars.GCP08_V67_RUNTIME_PREFLIGHT_SHA }}
           CONFIRMATION: ${{ inputs.confirmation }}
           PREVIEW_RUN_ID: ${{ inputs.preview_run_id }}
           FINGERPRINT: ${{ inputs.approved_fingerprint }}
@@ -116,6 +118,8 @@ jobs:
       - name: Configure private Terraform inputs and image references
         env:
           TFVARS_JSON: ${{ secrets.GCP07D_TFVARS_JSON }}
+          V67_RUNTIME_PASSWORD_VERSION: ${{ vars.GCP08_V67_DATABASE_PASSWORD_VERSION }}
+          V67_RUNTIME_PREFLIGHT_SHA: ${{ vars.GCP08_V67_RUNTIME_PREFLIGHT_SHA }}
           MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
           RELEASE_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.release_run_id }}
         run: |
@@ -126,12 +130,24 @@ jobs:
           chmod 700 "$RUNNER_TEMP/gcp07d"
           echo "$TFVARS_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' >/dev/null
           TFVARS_JSON="$TFVARS_JSON" python3 - "$RUNNER_TEMP/gcp07d/terraform.tfvars.json" <<'PY'
-          import json,os,sys
+          import json,os,re,sys
           p=sys.argv[1]
           with open("release/manifest.json",encoding="utf-8") as f: manifest=json.load(f)
           protected=json.loads(os.environ["TFVARS_JSON"])
           if not isinstance(protected,dict): raise SystemExit("invalid protected configuration")
           if not isinstance(manifest.get("images"),dict): raise SystemExit("invalid release manifest")
+          if not re.fullmatch(r"[1-9][0-9]*",os.environ.get("V67_RUNTIME_PASSWORD_VERSION","")):
+              raise SystemExit("V67 runtime secret version is not pinned")
+          if not re.fullmatch(r"[0-9a-f]{64}",os.environ.get("V67_RUNTIME_PREFLIGHT_SHA","")):
+              raise SystemExit("reviewed V67 runtime preflight reference is missing")
+          if protected.get("confirm_runtime_secret_versions") is not True:
+              raise SystemExit("runtime secret version confirmation is missing")
+          if protected.get("confirm_runtime_database_bootstrap") is not True:
+              raise SystemExit("runtime bootstrap confirmation is missing")
+          protected["api_gcp06_candidate_run_id"]=""
+          protected["api_v67_database_instance_name"]="espacigo-testprod-db"
+          protected["api_v67_database_name"]="espacigo_dms_stage_20261020"
+          protected["api_v67_database_password_version"]=os.environ["V67_RUNTIME_PASSWORD_VERSION"]
           if "api" in manifest["images"]: protected["api_image"]=manifest["images"]["api"]
           if "web" in manifest["images"]: protected["frontend_image"]=manifest["images"]["web"]
           with open(p,"w",encoding="utf-8") as f: json.dump(protected,f,sort_keys=True)

@@ -27,7 +27,7 @@ def main(path):
         run_id = os.environ["RELEASE_RUN_ID"]
         token = os.environ["GH_TOKEN"]
         baseline = os.environ.get("SCHEMA_BASELINE_SHA", "")
-        candidate_evidence = os.environ.get("CANDIDATE_PREFLIGHT_SHA", "")
+        runtime_evidence = os.environ.get("V67_RUNTIME_PREFLIGHT_SHA", "")
         run = request_json(f"{API}/repos/{repo}/actions/runs/{run_id}", token)
         jobs = request_json(f"{API}/repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", token).get("jobs", [])
         artifacts = request_json(f"{API}/repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100", token).get("artifacts", [])
@@ -48,7 +48,7 @@ def main(path):
                 or manifest.get("contains_migrations") is not False
                 or manifest.get("publish_only") is not (event == "workflow_dispatch")
                 or not re.fullmatch(r"[0-9a-f]{40}", baseline)
-                or not re.fullmatch(r"[0-9a-f]{64}", candidate_evidence)
+                or not re.fullmatch(r"[0-9a-f]{64}", runtime_evidence)
                 or not isinstance(images, dict) or set(images) != {"api", "web"}):
             raise ValueError()
         if not any(job.get("name") == "publish digest-pinned images and attestations"

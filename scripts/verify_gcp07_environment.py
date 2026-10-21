@@ -51,7 +51,8 @@ def published_release_exists(repo, run_id, token):
 
 
 def event_gate_ready(event, mode, publish_enabled, rollout_enabled,
-                     confirmation="", preview_run_id="", fingerprint=""):
+                     confirmation="", preview_run_id="", fingerprint="",
+                     runtime_preflight_sha="", runtime_secret_version=""):
     # application-release.yml uses this helper on push only to validate the
     # pre-existing Environment. Its own job condition gates publication.
     if event == "push":
@@ -59,15 +60,20 @@ def event_gate_ready(event, mode, publish_enabled, rollout_enabled,
     if not publish_enabled:
         return False
     if event == "workflow_run":
-        return mode == "auto" and rollout_enabled
+        return (mode == "auto" and rollout_enabled
+                and re.fullmatch(r"[0-9a-f]{64}", runtime_preflight_sha) is not None
+                and re.fullmatch(r"[1-9][0-9]*", runtime_secret_version) is not None)
     if event == "workflow_dispatch" and mode == "manual-publish":
         return publish_enabled
     if event == "workflow_dispatch" and mode == "preview":
-        return True
+        return (re.fullmatch(r"[0-9a-f]{64}", runtime_preflight_sha) is not None
+                and re.fullmatch(r"[1-9][0-9]*", runtime_secret_version) is not None)
     if event == "workflow_dispatch" and mode == "apply":
         return (rollout_enabled and confirmation == "APPLY GCP-07D"
                 and preview_run_id.isdigit()
-                and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None)
+                and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None
+                and re.fullmatch(r"[0-9a-f]{64}", runtime_preflight_sha) is not None
+                and re.fullmatch(r"[1-9][0-9]*", runtime_secret_version) is not None)
     return False
 
 
@@ -83,7 +89,8 @@ def main():
     eligible = event_gate_ready(
         event, mode, publish_enabled, rollout_enabled,
         os.environ.get("CONFIRMATION", ""), os.environ.get("PREVIEW_RUN_ID", ""),
-        os.environ.get("FINGERPRINT", ""))
+        os.environ.get("FINGERPRINT", ""), os.environ.get("V67_RUNTIME_PREFLIGHT_SHA", ""),
+        os.environ.get("V67_RUNTIME_PASSWORD_VERSION", ""))
     if token and repo and output and eligible:
         base = f"{API}/repos/{repo}/environments/testprod"
         try:
