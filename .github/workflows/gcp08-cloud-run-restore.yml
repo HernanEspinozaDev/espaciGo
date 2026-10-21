@@ -164,6 +164,8 @@ jobs:
         env:
           MODE: ${{ inputs.mode }}
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
+          CANDIDATE_PREFLIGHT_SHA: ${{ vars.GCP08_CANDIDATE_PREFLIGHT_SHA }}
         run: |
           set -euo pipefail
           umask 077
@@ -175,6 +177,9 @@ jobs:
             > "$RUNNER_TEMP/gcp08/init.log" 2>&1 || { echo "Terraform initialization failed; private diagnostics retained only on runner"; exit 1; }
           terraform workspace select default
           mapfile -t targets < "$GCP08_TARGETS"
+          terraform state list > "$RUNNER_TEMP/gcp08/state-list.txt" 2> "$RUNNER_TEMP/gcp08/state-list.log" || { echo "Canonical Terraform state could not be listed; private diagnostics retained only on runner"; exit 1; }
+          python3 "$GITHUB_WORKSPACE/scripts/verify_gcp08_state_scope.py" \
+            "$GCP08_TARGETS" "$RUNNER_TEMP/gcp08/state-list.txt"
           args=()
           for target in "${targets[@]}"; do args+=("-target=$target"); done
           terraform plan -input=false -lock-timeout=5m -var-file="$GCP08_TFVARS" \
@@ -184,6 +189,8 @@ jobs:
             > "$RUNNER_TEMP/gcp08/plan.json" 2> "$RUNNER_TEMP/gcp08/show.log" || { echo "Terraform plan inspection failed; private diagnostics retained only on runner"; exit 1; }
           python3 "$GITHUB_WORKSPACE/scripts/verify_gcp08_restore_plan.py" "$RUNNER_TEMP/gcp08/plan.json" \
             --images "$RUNNER_TEMP/gcp08-images.json" --targets "$GCP08_TARGETS" \
+            --inputs "$GCP08_TFVARS" --state-list "$RUNNER_TEMP/gcp08/state-list.txt" \
+            --terraform-config "$GITHUB_WORKSPACE/infra/terraform/environments/testprod/gcp/main.tf" \
             --source-sha "$GCP08_SOURCE_SHA" --release-run-id "$RELEASE_RUN_ID" \
             --schema-baseline-sha "$SCHEMA_BASELINE_SHA" --candidate-preflight-sha "$CANDIDATE_PREFLIGHT_SHA" \
             --output "$RUNNER_TEMP/gcp08/summary.json"

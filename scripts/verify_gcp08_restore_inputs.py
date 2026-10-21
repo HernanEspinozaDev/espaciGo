@@ -15,6 +15,14 @@ def main():
         if not isinstance(data, dict):
             raise ValueError()
         if (data.get("project_id") != "espacigo-testprod" or data.get("region") != "southamerica-west1"
+                or data.get("project_number") != "447373903153"
+                or data.get("api_service_name") != "espacigo-test-api"
+                or data.get("public_service_name") != "espacigo-test-public"
+                or data.get("private_service_name") != "espacigo-test-private"
+                or not isinstance(data.get("public_hostname"), str)
+                or not re.fullmatch(r"[a-z0-9.-]+", data["public_hostname"])
+                or not isinstance(data.get("private_hostname"), str)
+                or not re.fullmatch(r"[a-z0-9.-]+", data["private_hostname"])
                 or data.get("enable_foundation") is not True or data.get("enable_services") is not True
                 or data.get("enable_database") is not False or data.get("enable_edge") is not False
                 or data.get("enable_mailpit") is not False
