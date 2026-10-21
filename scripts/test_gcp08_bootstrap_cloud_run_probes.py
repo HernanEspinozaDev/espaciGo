@@ -38,6 +38,59 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                     "status=403", f"permission={permission}", f"service={domain}",
                 ])
 
+    def test_new_dependency_reads_dispatch_through_fixed_rest_gets(self):
+        expected = {
+            "compute_network.testprod.get": (
+                "https://compute.googleapis.com/compute/v1/projects/espacigo-testprod/global/networks/espacigo-testprod"
+            ),
+            "compute_subnetwork.serverless.get": (
+                "https://compute.googleapis.com/compute/v1/projects/espacigo-testprod/regions/southamerica-west1/subnetworks/espacigo-testprod-serverless"
+            ),
+            "compute_subnetwork.api_serverless.get": (
+                "https://compute.googleapis.com/compute/v1/projects/espacigo-testprod/regions/southamerica-west1/subnetworks/espacigo-testprod-api-serverless"
+            ),
+            "serviceusage.run_api.get": (
+                "https://serviceusage.googleapis.com/v1/projects/espacigo-testprod/services/run.googleapis.com"
+            ),
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+        for target, url in expected.items():
+            with self.subTest(target=target):
+                observed = {}
+
+                def token_runner(command, **_kwargs):
+                    observed["token_command"] = command
+                    return SimpleNamespace(returncode=0, stdout="private-token", stderr="")
+
+                class FakeOpener:
+                    def open(self, request, timeout):
+                        observed["url"] = request.full_url
+                        observed["method"] = request.get_method()
+                        return FakeResponse()
+
+                with tempfile.TemporaryDirectory() as root:
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        self.assertTrue(run_probe(
+                            target, root, runner=token_runner,
+                            opener_factory=lambda *_: FakeOpener(),
+                        ))
+                self.assertEqual(observed["token_command"], ["gcloud", "auth", "print-access-token"])
+                self.assertEqual(observed["url"], url)
+                self.assertEqual(observed["method"], "GET")
+                self.assertNotIn("private-token", output.getvalue())
+                self.assertIn(f"target={target} category=success", output.getvalue())
+
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
         self.assertEqual(len(PROBES), 20)
         self.assertEqual(len({target for target, _, _ in PROBES}), 20)

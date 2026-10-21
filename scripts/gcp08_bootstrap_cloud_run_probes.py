@@ -497,6 +497,7 @@ def run_probe(target, private_root, runner=subprocess.run,
     if operation in {
         "describe", "list", "iap-get-iam-policy", "sql-instance-get",
         "run-test-iam", "run-parent-test-iam", "sa-test-iam",
+        "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
     }:
         return _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                                project_number, private_service_name,
