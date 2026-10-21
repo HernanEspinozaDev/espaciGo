@@ -239,6 +239,11 @@ jobs:
           fi
           terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" "${plan_scope[@]}" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || {
             python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage plan "$RUNNER_TEMP/gcp07d/plan.log" | tee -a "$GITHUB_STEP_SUMMARY"
+            if [[ "$POLICY_MODE" == bootstrap ]]; then
+              python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_plan_diagnostics.py" \
+                --var-file "$GCP07D_TFVARS" --private-dir "$RUNNER_TEMP/gcp07d" \
+                --working-directory "$PWD" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
             echo "Terraform plan failed; raw diagnostics remain private on runner"; exit 1;
           }
           terraform show -json "$RUNNER_TEMP/gcp07d/rollout.tfplan" > "$RUNNER_TEMP/gcp07d/plan.json" 2> "$RUNNER_TEMP/gcp07d/show.log" || {
