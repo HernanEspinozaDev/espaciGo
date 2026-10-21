@@ -23,8 +23,10 @@ SQLADMIN_API_ROOT = "https://sqladmin.googleapis.com/sql/v1beta4"
 IAM_API_ROOT = "https://iam.googleapis.com/v1"
 COMPUTE_API_ROOT = "https://compute.googleapis.com/compute/v1"
 SERVICE_USAGE_API_ROOT = "https://serviceusage.googleapis.com/v1"
+SECRET_MANAGER_API_ROOT = "https://secretmanager.googleapis.com/v1"
 RESOURCE_MANAGER_API_ROOT = "https://cloudresourcemanager.googleapis.com/v3"
 DEFAULT_PRIVATE_SERVICE_NAME = "espacigo-test-private"
+V67_DATABASE_SECRET = "espacigo-test-database-password-v67"
 RUNTIME_SERVICE_ACCOUNTS = {
     "api": "espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
     "public": "espacigo-test-public-web@espacigo-testprod.iam.gserviceaccount.com",
@@ -39,6 +41,10 @@ TESTED_RUN_PARENT_PERMISSIONS = tuple(sorted({
 }))
 TESTED_SA_PERMISSIONS = tuple(sorted({
     "iam.serviceAccounts.actAs", "iam.serviceAccounts.get",
+}))
+TESTED_SECRET_PERMISSIONS = tuple(sorted({
+    "secretmanager.secrets.get", "secretmanager.secrets.getIamPolicy",
+    "secretmanager.secrets.setIamPolicy",
 }))
 MAX_RESPONSE_BYTES = 2_000_000
 PROBES = (
@@ -62,6 +68,9 @@ PROBES = (
     ("compute_subnetwork.serverless.get", "compute-subnetwork-get", "espacigo-testprod-serverless"),
     ("compute_subnetwork.api_serverless.get", "compute-subnetwork-get", "espacigo-testprod-api-serverless"),
     ("serviceusage.run_api.get", "serviceusage-service-get", "run.googleapis.com"),
+    ("secret.v67.metadata.get", "secretmanager-secret-get", V67_DATABASE_SECRET),
+    ("secret.v67.iam_policy.get", "secretmanager-secret-get-iam-policy", V67_DATABASE_SECRET),
+    ("secret.v67.test_iam_permissions", "secretmanager-secret-test-iam", V67_DATABASE_SECRET),
 )
 PROBE_BY_ENUM = {target: (operation, service) for target, operation, service in PROBES}
 NOT_FOUND = re.compile(r"\b404\b|\bNOT_FOUND\b|not found|does not exist", re.IGNORECASE)
@@ -83,9 +92,13 @@ SAFE_SQL_PERMISSIONS = {"cloudsql.instances.get"}
 SAFE_SA_PERMISSIONS = {"iam.serviceAccounts.actAs", "iam.serviceAccounts.get"}
 SAFE_COMPUTE_PERMISSIONS = {"compute.networks.get", "compute.subnetworks.get"}
 SAFE_SERVICE_USAGE_PERMISSIONS = {"serviceusage.services.get"}
+SAFE_SECRET_MANAGER_PERMISSIONS = {
+    "secretmanager.secrets.get", "secretmanager.secrets.getIamPolicy",
+    "secretmanager.secrets.setIamPolicy",
+}
 SAFE_PERMISSIONS = (
     SAFE_RUN_PERMISSIONS | SAFE_IAP_PERMISSIONS | SAFE_SQL_PERMISSIONS | SAFE_SA_PERMISSIONS
-    | SAFE_COMPUTE_PERMISSIONS | SAFE_SERVICE_USAGE_PERMISSIONS
+    | SAFE_COMPUTE_PERMISSIONS | SAFE_SERVICE_USAGE_PERMISSIONS | SAFE_SECRET_MANAGER_PERMISSIONS
 )
 
 
@@ -155,6 +168,18 @@ def build_rest_url(target):
         if service != "run.googleapis.com":
             raise ValueError("invalid Service Usage probe")
         return f"{SERVICE_USAGE_API_ROOT}/projects/{PROJECT}/services/{service}"
+    if operation in {
+        "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
+        "secretmanager-secret-test-iam",
+    }:
+        if service != V67_DATABASE_SECRET:
+            raise ValueError("invalid V67 Secret Manager probe")
+        resource = f"{SECRET_MANAGER_API_ROOT}/projects/{PROJECT}/secrets/{service}"
+        if operation == "secretmanager-secret-get":
+            return resource
+        if operation == "secretmanager-secret-get-iam-policy":
+            return f"{resource}:getIamPolicy?options.requestedPolicyVersion=3"
+        return f"{resource}:testIamPermissions"
     if operation != "describe":
         raise ValueError("IAM policy probes use the gcloud read command")
     resource = "/".join(urllib.parse.quote(part, safe="") for part in (
@@ -217,7 +242,7 @@ def safe_rest_fields(http_status, payload):
         domain = item.get("domain")
         if domain in {
             "run.googleapis.com", "iap.googleapis.com", "sqladmin.googleapis.com",
-            "compute.googleapis.com", "serviceusage.googleapis.com",
+            "compute.googleapis.com", "serviceusage.googleapis.com", "secretmanager.googleapis.com",
         }:
             service = domain
         metadata = item.get("metadata")
@@ -234,6 +259,8 @@ def safe_rest_fields(http_status, payload):
                 service = "compute.googleapis.com"
             elif candidate in SAFE_SERVICE_USAGE_PERMISSIONS:
                 service = "serviceusage.googleapis.com"
+            elif candidate in SAFE_SECRET_MANAGER_PERMISSIONS:
+                service = "secretmanager.googleapis.com"
             else:
                 service = "run.googleapis.com"
     if permission:
@@ -364,14 +391,18 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
             _emit(target, "other")
             return False
         method, body = "GET", None
-    elif operation in {"run-test-iam", "run-parent-test-iam", "sa-test-iam"}:
+    elif operation in {
+        "run-test-iam", "run-parent-test-iam", "sa-test-iam", "secretmanager-secret-test-iam",
+    }:
         url = build_rest_url(target)
         if operation == "run-test-iam":
             requested_permissions = TESTED_RUN_PERMISSIONS
         elif operation == "run-parent-test-iam":
             requested_permissions = TESTED_RUN_PARENT_PERMISSIONS
-        else:
+        elif operation == "sa-test-iam":
             requested_permissions = TESTED_SA_PERMISSIONS
+        else:
+            requested_permissions = TESTED_SECRET_PERMISSIONS
         method = "POST"
         body = json.dumps({"permissions": list(requested_permissions)}, separators=(",", ":")).encode()
     else:
@@ -399,10 +430,14 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
 
         http_status, response_body = _fetch_rest_response(
             url, token, opener_factory, timeout, method=method, body=body,
-            read_success_body=operation in {"run-test-iam", "run-parent-test-iam", "sa-test-iam"},
+            read_success_body=operation in {
+                "run-test-iam", "run-parent-test-iam", "sa-test-iam", "secretmanager-secret-test-iam",
+            },
         )
         if isinstance(http_status, int) and 200 <= http_status < 300:
-            if operation in {"run-test-iam", "run-parent-test-iam", "sa-test-iam"}:
+            if operation in {
+                "run-test-iam", "run-parent-test-iam", "sa-test-iam", "secretmanager-secret-test-iam",
+            }:
                 response_path = private_dir / "response.json"
                 try:
                     _write_private_response(response_path, response_body)
@@ -414,6 +449,8 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                 actual = set(actual) if isinstance(actual, list) and all(isinstance(item, str) for item in actual) else set()
                 if operation == "sa-test-iam":
                     allowed = SAFE_SA_PERMISSIONS
+                elif operation == "secretmanager-secret-test-iam":
+                    allowed = SAFE_SECRET_MANAGER_PERMISSIONS
                 elif operation == "run-parent-test-iam":
                     allowed = SAFE_RUN_PERMISSIONS | SAFE_SERVICE_USAGE_PERMISSIONS
                 else:
@@ -423,8 +460,10 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     method, resource_scope = "projects.testIamPermissions", "project"
                 elif operation == "run-test-iam":
                     method, resource_scope = "services.testIamPermissions", "cloud_run_service"
-                else:
+                elif operation == "sa-test-iam":
                     method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
+                else:
+                    method, resource_scope = "secrets.testIamPermissions", "secret"
                 print(
                     f"GCP08_PERMISSION_TEST stage=bootstrap target={target} "
                     f"method={method} resource={resource_scope} category=success",
@@ -498,6 +537,8 @@ def run_probe(target, private_root, runner=subprocess.run,
         "describe", "list", "iap-get-iam-policy", "sql-instance-get",
         "run-test-iam", "run-parent-test-iam", "sa-test-iam",
         "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
+        "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
+        "secretmanager-secret-test-iam",
     }:
         return _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                                project_number, private_service_name,
