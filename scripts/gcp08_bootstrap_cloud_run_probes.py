@@ -23,13 +23,27 @@ PROBES = (
 )
 PROBE_BY_ENUM = {target: (operation, service) for target, operation, service in PROBES}
 NOT_FOUND = re.compile(r"\b404\b|\bNOT_FOUND\b|not found|does not exist", re.IGNORECASE)
+AUTH_ERROR = re.compile(
+    r"\b401\b|\bUNAUTHENTICATED\b|invalid_grant|invalid credentials|"
+    r"could not find default credentials|unable to refresh|problem refreshing.*(?:auth|token)|"
+    r"error retrieving credentials|failed to refresh|credential refresh|"
+    r"expired (?:access )?token|oauth", re.IGNORECASE,
+)
+SAFE_CATEGORIES = {"success", "not_found", "permission_denied", "auth_error", "other"}
+SAFE_DETAIL_KEYS = {"status", "permission", "service"}
 
 
 def classify_probe(diagnostic):
     category = classify("plan", diagnostic)
-    if category == "unclassified" and NOT_FOUND.search(diagnostic):
+    if category == "iam":
+        return "permission_denied"
+    details = safe_details(diagnostic)
+    status = next((int(item.split("=", 1)[1]) for item in details if item.startswith("status=")), None)
+    if status == 404 or NOT_FOUND.search(diagnostic):
         return "not_found"
-    return category
+    if status == 401 or AUTH_ERROR.search(diagnostic):
+        return "auth_error"
+    return "other"
 
 
 def build_command(target):
@@ -43,10 +57,22 @@ def build_command(target):
 
 
 def _emit(target, category, diagnostic=""):
+    if category not in SAFE_CATEGORIES:
+        category = "other"
     fields = [f"target={target}", f"category={category}"]
-    if category in {"iam", "not_found"}:
-        fields.extend(safe_details(diagnostic))
+    if category != "success":
+        fields.extend(
+            item for item in safe_details(diagnostic)
+            if item.split("=", 1)[0] in SAFE_DETAIL_KEYS
+        )
     print("GCP08_CLOUD_RUN_PROBE stage=bootstrap " + " ".join(fields), flush=True)
+
+
+def _read_diagnostic(log_path):
+    try:
+        return log_path.read_text(encoding="utf-8", errors="replace")[:2_000_000]
+    except OSError:
+        return ""
 
 
 def run_probe(target, private_root, runner=subprocess.run, timeout=120):
@@ -66,16 +92,16 @@ def run_probe(target, private_root, runner=subprocess.run, timeout=120):
             with os.fdopen(descriptor, "w", encoding="utf-8") as log:
                 result = runner(command, stdout=log, stderr=subprocess.STDOUT, env=env,
                                 timeout=timeout, check=False)
-            if result.returncode == 0:
-                _emit(target, "success")
-                return True
-            diagnostic = log_path.read_text(encoding="utf-8", errors="replace")[:2_000_000]
-            category = classify_probe(diagnostic)
-            _emit(target, category, diagnostic)
-            return False
         except (OSError, subprocess.TimeoutExpired):
-            _emit(target, "unclassified")
+            diagnostic = _read_diagnostic(log_path)
+            _emit(target, classify_probe(diagnostic), diagnostic)
             return False
+        if result.returncode == 0:
+            _emit(target, "success")
+            return True
+        diagnostic = _read_diagnostic(log_path)
+        _emit(target, classify_probe(diagnostic), diagnostic)
+        return False
 
 
 def main():
