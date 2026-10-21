@@ -24,6 +24,11 @@ run "disabled_by_default" {
   }
 
   assert {
+    condition     = length(google_project_iam_custom_role.deployer_service_account_reader) == 0 && length(google_service_account_iam_member.deployer_service_account_reader) == 0
+    error_message = "Disabled bootstrap must create no temporary deployer service-account read role or binding."
+  }
+
+  assert {
     condition     = length(local.bootstrap_pool_display_name) <= local.wif_display_name_max_chars && length(local.bootstrap_provider_display_name) <= local.wif_display_name_max_chars
     error_message = "Pool and provider display names must respect the Google API's 32-character limit."
   }
@@ -45,6 +50,22 @@ run "bootstrap_access_is_constrained_and_expires" {
     override_during = plan
     values = {
       name = "projects/espacigo-testprod/roles/espacigoGcp08IamRoleReader"
+    }
+  }
+
+  override_resource {
+    target          = google_project_iam_custom_role.deployer_service_account_reader[0]
+    override_during = plan
+    values = {
+      name = "projects/espacigo-testprod/roles/espacigoGcp08DeployerServiceAccountReader"
+    }
+  }
+
+  override_resource {
+    target          = google_project_iam_custom_role.runtime_service_account_user[0]
+    override_during = plan
+    values = {
+      name = "projects/espacigo-testprod/roles/espacigoGcp08RuntimeServiceAccountUser"
     }
   }
 
@@ -92,8 +113,13 @@ run "bootstrap_access_is_constrained_and_expires" {
   }
 
   assert {
-    condition     = toset(google_project_iam_custom_role.runtime_service_account_user[0].permissions) == toset(["iam.serviceAccounts.actAs", "iam.serviceAccounts.get"])
-    error_message = "Temporary service-account attachment and metadata access must contain only actAs and get."
+    condition     = toset(google_project_iam_custom_role.runtime_service_account_user[0].permissions) == toset(["iam.serviceAccounts.actAs", "iam.serviceAccounts.get", "iam.serviceAccounts.getIamPolicy"])
+    error_message = "The three runtime service accounts may receive only actAs, metadata get, and IAM-policy get."
+  }
+
+  assert {
+    condition     = toset(google_project_iam_custom_role.deployer_service_account_reader[0].permissions) == toset(["iam.serviceAccounts.get", "iam.serviceAccounts.getIamPolicy"])
+    error_message = "The deployer service account read role must contain exactly get and getIamPolicy, with no write permission."
   }
 
   assert {
@@ -127,8 +153,13 @@ run "bootstrap_access_is_constrained_and_expires" {
   }
 
   assert {
-    condition     = toset(keys(google_service_account_iam_member.runtime_service_account_user)) == toset(local.runtime_service_account_names) && alltrue([for grant in values(google_service_account_iam_member.runtime_service_account_user) : grant.condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"])
-    error_message = "actAs must be granted directly on only the three runtime service accounts and expire with the bootstrap."
+    condition     = toset(keys(google_service_account_iam_member.runtime_service_account_user)) == toset(local.runtime_service_account_names) && alltrue([for account_name, grant in google_service_account_iam_member.runtime_service_account_user : grant.service_account_id == account_name && grant.role == google_project_iam_custom_role.runtime_service_account_user[0].name && grant.member == local.workload_member && grant.condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"])
+    error_message = "The runtime role must be directly bound only to the three runtime accounts and use the unchanged bootstrap expiry."
+  }
+
+  assert {
+    condition     = google_service_account_iam_member.deployer_service_account_reader[0].service_account_id == local.deployer_service_account_name && google_service_account_iam_member.deployer_service_account_reader[0].role == google_project_iam_custom_role.deployer_service_account_reader[0].name && google_service_account_iam_member.deployer_service_account_reader[0].member == local.workload_member && google_service_account_iam_member.deployer_service_account_reader[0].condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"
+    error_message = "The read-only deployer role must bind directly to only the deployer account and share the existing bootstrap expiry."
   }
 
   assert {

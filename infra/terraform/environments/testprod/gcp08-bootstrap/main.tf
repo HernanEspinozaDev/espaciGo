@@ -10,8 +10,9 @@ locals {
     "roles/run.invoker",
     "projects/${var.project_id}/roles/espacigoCloudRunServiceUpdater",
   ]
-  bootstrap_v67_instance_name = "projects/${var.project_id}/instances/espacigo-testprod-db"
-  bootstrap_v67_secret_name   = "projects/${var.project_number}/secrets/espacigo-test-database-password-v67"
+  bootstrap_v67_instance_name   = "projects/${var.project_id}/instances/espacigo-testprod-db"
+  bootstrap_v67_secret_name     = "projects/${var.project_number}/secrets/espacigo-test-database-password-v67"
+  deployer_service_account_name = "projects/${var.project_id}/serviceAccounts/espacigo-test-deployer@${var.project_id}.iam.gserviceaccount.com"
   runtime_service_account_names = [
     "projects/${var.project_id}/serviceAccounts/espacigo-test-api@${var.project_id}.iam.gserviceaccount.com",
     "projects/${var.project_id}/serviceAccounts/espacigo-test-public-web@${var.project_id}.iam.gserviceaccount.com",
@@ -295,9 +296,13 @@ resource "google_project_iam_custom_role" "runtime_service_account_user" {
   project     = var.project_id
   role_id     = "espacigoGcp08RuntimeServiceAccountUser"
   title       = "EspaciGo GCP-08 temporary runtime service account attachment"
-  description = "Temporary actAs and metadata read for only the API and two web runtime service accounts."
+  description = "Temporary actAs and read-only metadata/IAM-policy access for only the three runtime service accounts."
   stage       = "GA"
-  permissions = ["iam.serviceAccounts.actAs", "iam.serviceAccounts.get"]
+  permissions = [
+    "iam.serviceAccounts.actAs",
+    "iam.serviceAccounts.get",
+    "iam.serviceAccounts.getIamPolicy",
+  ]
 
   depends_on = [terraform_data.bootstrap_expiry_guard]
 }
@@ -311,6 +316,33 @@ resource "google_service_account_iam_member" "runtime_service_account_user" {
   condition {
     title       = "gcp08-runtime-service-account-expiry"
     description = "Expires automatically within 24 hours and is limited to the three Cloud Run runtime identities."
+    expression  = local.bootstrap_expiry
+  }
+
+  depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_custom_role" "deployer_service_account_reader" {
+  count       = var.enable_bootstrap ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoGcp08DeployerServiceAccountReader"
+  title       = "EspaciGo GCP-08 temporary deployer service account read"
+  description = "Temporary read-only metadata and IAM-policy access for only the deployer service account."
+  stage       = "GA"
+  permissions = ["iam.serviceAccounts.get", "iam.serviceAccounts.getIamPolicy"]
+
+  depends_on = [terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_service_account_iam_member" "deployer_service_account_reader" {
+  count              = var.enable_bootstrap ? 1 : 0
+  service_account_id = local.deployer_service_account_name
+  role               = google_project_iam_custom_role.deployer_service_account_reader[0].name
+  member             = local.workload_member
+
+  condition {
+    title       = "gcp08-deployer-service-account-read-expiry"
+    description = "Expires automatically with the bootstrap and is bound directly to only the deployer service account."
     expression  = local.bootstrap_expiry
   }
 
