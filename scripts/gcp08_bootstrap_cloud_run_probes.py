@@ -18,6 +18,7 @@ from classify_gcp08_terraform_failure import SAFE_HTTP_STATUSES, classify, safe_
 PROJECT = "espacigo-testprod"
 REGION = "southamerica-west1"
 API_ROOT = "https://run.googleapis.com/v2"
+IAP_API_ROOT = "https://iap.googleapis.com/v1"
 MAX_RESPONSE_BYTES = 2_000_000
 PROBES = (
     ("cloud_run_service.api.describe", "describe", "espacigo-test-api"),
@@ -27,6 +28,7 @@ PROBES = (
     ("cloud_run_service.api.get_iam_policy", "get-iam-policy", "espacigo-test-api"),
     ("cloud_run_service.public.get_iam_policy", "get-iam-policy", "espacigo-test-public"),
     ("cloud_run_service.private.get_iam_policy", "get-iam-policy", "espacigo-test-private"),
+    ("cloud_run_service.private.iap_get_iam_policy", "iap-get-iam-policy", "private"),
 )
 PROBE_BY_ENUM = {target: (operation, service) for target, operation, service in PROBES}
 NOT_FOUND = re.compile(r"\b404\b|\bNOT_FOUND\b|not found|does not exist", re.IGNORECASE)
@@ -43,6 +45,8 @@ SAFE_RUN_PERMISSIONS = {
     "run.services.create", "run.services.update", "run.services.list",
     "run.operations.get",
 }
+SAFE_IAP_PERMISSIONS = {"iap.webServices.getIamPolicy"}
+SAFE_PERMISSIONS = SAFE_RUN_PERMISSIONS | SAFE_IAP_PERMISSIONS
 
 
 def classify_probe(diagnostic):
@@ -80,6 +84,8 @@ def build_rest_url(target):
             "projects", PROJECT, "locations", REGION, "services",
         ))
         return f"{API_ROOT}/{resource}"
+    if operation == "iap-get-iam-policy":
+        raise ValueError("IAP policy probe requires validated private configuration")
     if operation != "describe":
         raise ValueError("IAM policy probes use the gcloud read command")
     resource = "/".join(urllib.parse.quote(part, safe="") for part in (
@@ -140,13 +146,13 @@ def safe_rest_fields(http_status, payload):
         if not isinstance(item, dict):
             continue
         domain = item.get("domain")
-        if domain == "run.googleapis.com":
+        if domain in {"run.googleapis.com", "iap.googleapis.com"}:
             service = domain
         metadata = item.get("metadata")
         candidate = metadata.get("permission") if isinstance(metadata, dict) else None
-        if isinstance(candidate, str) and candidate in SAFE_RUN_PERMISSIONS:
+        if isinstance(candidate, str) and candidate in SAFE_PERMISSIONS:
             permission = candidate
-            service = "run.googleapis.com"
+            service = "iap.googleapis.com" if candidate in SAFE_IAP_PERMISSIONS else "run.googleapis.com"
     if permission:
         fields.append(f"permission={permission}")
     if service:
@@ -192,10 +198,13 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _fetch_rest_response(url, token, opener_factory=urllib.request.build_opener, timeout=120):
+def _fetch_rest_response(url, token, opener_factory=urllib.request.build_opener, timeout=120,
+                         method="GET", body=None):
     request = urllib.request.Request(
-        url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
-        method="GET",
+        url, data=body,
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json",
+                 **({"Content-Type": "application/json"} if body is not None else {})},
+        method=method,
     )
     opener = opener_factory(_NoRedirect)
     try:
@@ -213,8 +222,31 @@ def _fetch_rest_response(url, token, opener_factory=urllib.request.build_opener,
         return None, b""
 
 
-def _run_rest_probe(target, private_root, runner, opener_factory, timeout):
-    url = build_rest_url(target)
+def _iap_rest_url(project_number, private_service_name):
+    if not re.fullmatch(r"[1-9][0-9]{5,19}", project_number):
+        raise ValueError("invalid IAP project number")
+    if not re.fullmatch(r"[a-z][a-z0-9-]{0,62}[a-z0-9]", private_service_name):
+        raise ValueError("invalid IAP service name")
+    resource = f"projects/{project_number}/iap_web/cloud_run-{REGION}/services/{private_service_name}:getIamPolicy"
+    return f"{IAP_API_ROOT}/{resource}"
+
+
+def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
+                    project_number=None, private_service_name=None):
+    operation, _ = PROBE_BY_ENUM[target]
+    if operation == "iap-get-iam-policy":
+        if project_number is None or private_service_name is None:
+            _emit(target, "other")
+            return False
+        try:
+            url = _iap_rest_url(project_number, private_service_name)
+        except ValueError:
+            _emit(target, "other")
+            return False
+        method, body = "POST", b"{}"
+    else:
+        url = build_rest_url(target)
+        method, body = "GET", None
     with tempfile.TemporaryDirectory(prefix="probe-", dir=private_root) as temporary:
         private_dir = Path(temporary)
         os.chmod(private_dir, 0o700)
@@ -235,7 +267,9 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout):
             _emit(target, "auth_error")
             return False
 
-        http_status, response_body = _fetch_rest_response(url, token, opener_factory, timeout)
+        http_status, response_body = _fetch_rest_response(
+            url, token, opener_factory, timeout, method=method, body=body,
+        )
         if isinstance(http_status, int) and 200 <= http_status < 300:
             _emit(target, "success")
             return True
@@ -290,25 +324,38 @@ def _run_gcloud_probe(target, private_root, runner, timeout):
 
 
 def run_probe(target, private_root, runner=subprocess.run,
-              opener_factory=urllib.request.build_opener, timeout=120):
+              opener_factory=urllib.request.build_opener, timeout=120,
+              project_number=None, private_service_name=None):
     """Run one fixed read-only probe; tokens and response bodies never reach stdout."""
     if target not in PROBE_BY_ENUM:
         raise ValueError("invalid target")
     operation, _ = PROBE_BY_ENUM[target]
-    if operation in {"describe", "list"}:
-        return _run_rest_probe(target, private_root, runner, opener_factory, timeout)
+    if operation in {"describe", "list", "iap-get-iam-policy"}:
+        return _run_rest_probe(target, private_root, runner, opener_factory, timeout,
+                               project_number, private_service_name)
     return _run_gcloud_probe(target, private_root, runner, timeout)
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--private-dir", required=True)
+    parser.add_argument("--var-file", required=True)
     args = parser.parse_args()
     private_root = Path(args.private_dir)
     private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(private_root, 0o700)
+    try:
+        config = json.loads(Path(args.var_file).read_text(encoding="utf-8"))
+        project_number = config["project_number"]
+        private_service_name = config["private_service_name"]
+        if not isinstance(project_number, str) or not isinstance(private_service_name, str):
+            raise ValueError("invalid probe configuration")
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, ValueError):
+        _emit("cloud_run_service.private.iap_get_iam_policy", "other")
+        return 0
     for target, _, _ in PROBES:
-        run_probe(target, private_root)
+        run_probe(target, private_root, project_number=project_number,
+                  private_service_name=private_service_name)
     return 0
 
 

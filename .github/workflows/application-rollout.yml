@@ -246,12 +246,12 @@ jobs:
           terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" "${plan_scope[@]}" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || {
             python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage plan "$RUNNER_TEMP/gcp07d/plan.log" | tee -a "$GITHUB_STEP_SUMMARY"
             if [[ "$POLICY_MODE" == bootstrap ]]; then
-              python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_target_diagnostics.py" \
+              python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_refresh_diagnostics.py" \
                 --terraform-dir "$GITHUB_WORKSPACE/infra/terraform/environments/testprod/gcp" \
                 --var-file "$GCP07D_TFVARS" \
-                --private-dir "$RUNNER_TEMP/gcp07d/target-diagnostics" | tee -a "$GITHUB_STEP_SUMMARY"
+                --private-dir "$RUNNER_TEMP/gcp07d/refresh-diagnostics" | tee -a "$GITHUB_STEP_SUMMARY"
               python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_cloud_run_probes.py" \
-                --private-dir "$RUNNER_TEMP/gcp07d" | tee -a "$GITHUB_STEP_SUMMARY"
+                --private-dir "$RUNNER_TEMP/gcp07d" --var-file "$GCP07D_TFVARS" | tee -a "$GITHUB_STEP_SUMMARY"
             fi
             echo "Terraform plan failed; raw diagnostics remain private on runner"; exit 1;
           }
