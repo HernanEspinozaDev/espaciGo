@@ -22,10 +22,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 6)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 6)
-        self.assertEqual({operation for _, operation, _ in PROBES}, {"describe", "get-iam-policy"})
-        self.assertEqual({service for _, _, service in PROBES}, {
+        self.assertEqual(len(PROBES), 7)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 7)
+        self.assertEqual({operation for _, operation, _ in PROBES}, {"describe", "get-iam-policy", "list"})
+        self.assertEqual({service for _, _, service in PROBES if service is not None}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
         for target, operation, service in PROBES:
@@ -35,6 +35,14 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                     f"https://run.googleapis.com/v2/projects/espacigo-testprod/locations/"
                     f"southamerica-west1/services/{service}",
                 )
+            elif operation == "list":
+                self.assertEqual(
+                    build_rest_url(target),
+                    "https://run.googleapis.com/v2/projects/espacigo-testprod/locations/"
+                    "southamerica-west1/services",
+                )
+                with self.assertRaises(ValueError):
+                    build_gcloud_command(target)
             else:
                 command = build_gcloud_command(target)
                 self.assertEqual(command[:4], ["gcloud", "run", "services", "get-iam-policy"])
@@ -45,6 +53,109 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("list", command)
                 self.assertNotIn("set-iam-policy", command)
                 self.assertNotIn("--log-http", command)
+
+    def test_services_list_rest_probe_emits_only_permission_metadata(self):
+        token = "private-short-lived-token"
+        marker = "private-service-name-and-response-body"
+        payload = {
+            "error": {
+                "code": 403,
+                "status": "PERMISSION_DENIED",
+                "details": [{
+                    "reason": "IAM_PERMISSION_DENIED",
+                    "domain": "run.googleapis.com",
+                    "metadata": {
+                        "permission": "run.services.list",
+                        "resource": f"projects/private-project/services/{marker}",
+                    },
+                }],
+            },
+        }
+        observed = {}
+
+        def token_runner(command, **_kwargs):
+            observed["token_command"] = command
+            return SimpleNamespace(returncode=0, stdout=token, stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["authorization"] = request.get_header("Authorization")
+                return urllib.error.HTTPError(
+                    request.full_url, 403, "Forbidden", {},
+                    io.BytesIO(json.dumps(payload).encode()),
+                )
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertFalse(run_probe(
+                    "cloud_run_services.list", root, runner=token_runner,
+                    opener_factory=lambda *_handlers: FakeOpener(),
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+        self.assertEqual(observed["url"],
+                         "https://run.googleapis.com/v2/projects/espacigo-testprod/locations/"
+                         "southamerica-west1/services")
+        self.assertEqual(observed["method"], "GET")
+        self.assertEqual(observed["authorization"], f"Bearer {token}")
+        self.assertEqual(observed["token_command"], ["gcloud", "auth", "print-access-token"])
+        emitted = output.getvalue().strip()
+        self.assertEqual(
+            emitted,
+            "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_services.list "
+            "category=permission_denied status=403 permission=run.services.list "
+            "service=run.googleapis.com",
+        )
+        self.assertNotIn(token, emitted)
+        self.assertNotIn(marker, emitted)
+        self.assertNotIn("private-project", emitted)
+
+    def test_services_list_success_does_not_read_or_emit_service_names(self):
+        marker = "private-service-name-list"
+        response = None
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                self.read_called = True
+                return json.dumps({"services": [{"name": marker}]}).encode()
+
+        class FakeOpener:
+            def open(self, _request, timeout):
+                nonlocal response
+                response = FakeResponse()
+                response.read_called = False
+                return response
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertTrue(run_probe(
+                    "cloud_run_services.list", root, runner=token_runner,
+                    opener_factory=lambda *_handlers: FakeOpener(),
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+        self.assertFalse(response.read_called)
+        self.assertNotIn(marker, output.getvalue())
+        self.assertEqual(
+            output.getvalue().strip(),
+            "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_services.list category=success",
+        )
 
     def test_rest_403_errorinfo_emits_only_allowlisted_status_permission_and_service(self):
         token = "private-short-lived-token-value"
