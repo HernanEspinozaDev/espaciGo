@@ -111,8 +111,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: testprod
-    env:
-      TF_DATA_DIR: ${{ runner.temp }}/gcp08-state-reconcile/terraform-data
     permissions:
       contents: read
       id-token: write
@@ -167,6 +165,7 @@ jobs:
       - name: Initialize canonical state backend and select default workspace
         env:
           GCP08_PRIVATE_DIR: ${{ runner.temp }}/gcp08-state-reconcile
+          TF_DATA_DIR: ${{ runner.temp }}/gcp08-state-reconcile/terraform-data
         run: |
           set -euo pipefail
           umask 077
@@ -193,6 +192,7 @@ jobs:
           GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           GCP08_CLEANUP_ENVIRONMENT: testprod
+          TF_DATA_DIR: ${{ runner.temp }}/gcp08-state-reconcile/terraform-data
         run: |
           set -euo pipefail
           python3 scripts/gcp08_legacy_state_reconcile.py inspect \
@@ -215,6 +215,7 @@ jobs:
           EXPECTED_STATE_SERIAL: ${{ inputs.expected_state_serial }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          TF_DATA_DIR: ${{ runner.temp }}/gcp08-state-reconcile/terraform-data
         run: |
           set -euo pipefail
           [[ "$EXPECTED_STATE_SERIAL" =~ ^[0-9]+$ ]] || { echo "GCP08_STATE_RECONCILE category=blocked reason=state_serial_required"; exit 1; }

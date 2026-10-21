@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 from gcp08_legacy_state_reconcile import (
     BUCKET, CONFIRM_REMOVE, STATE_OBJECT, TARGETS, _create_and_verify_backup,
+    _object_metadata,
     _remove, analyze_state, state_fingerprint_without_targets, verify_identity,
     EXPECTED_ACTOR_ID, EXPECTED_OWNER_ID, EXPECTED_REF, EXPECTED_REPOSITORY,
     EXPECTED_REPOSITORY_ID, EXPECTED_WORKFLOW_REF,
@@ -105,8 +106,8 @@ class Gcp08LegacyStateReconcileTests(unittest.TestCase):
         source_name = STATE_OBJECT
         backup_name = "espacigo/testprod/gcp/manual-state-backups/gcp08-legacy-sql/123-1/default.tfstate"
         metadata = [
-            {"name": source_name, "generation": "9001", "size": "100", "crc32c": "abc", "md5Hash": "def"},
-            {"name": backup_name, "generation": "9002", "size": "100", "crc32c": "abc", "md5Hash": "def"},
+            {"name": source_name, "generation": "9001", "size": "100", "crc32c_hash": "abc", "md5_hash": "def"},
+            {"name": backup_name, "generation": "9002", "size": "100", "crc32c_hash": "abc", "md5_hash": "def"},
         ]
         commands = []
 
@@ -132,14 +133,37 @@ class Gcp08LegacyStateReconcileTests(unittest.TestCase):
         self.assertIn("--if-generation-match=0", copy)
         self.assertFalse(any("terraform" in " ".join(command) for command in commands))
 
+    def test_metadata_normalizes_actual_gcloud_snake_case_checksum_fields(self):
+        metadata = {
+            "name": STATE_OBJECT,
+            "generation": 9001,
+            "size": 100,
+            "crc32c_hash": "crc-value",
+            "md5_hash": "md5-value",
+        }
+
+        def runner(command, **kwargs):
+            kwargs["stdout"].write(json.dumps(metadata).encode())
+            return SimpleNamespace(returncode=0)
+
+        with tempfile.TemporaryDirectory() as root:
+            result = _object_metadata(f"gs://{BUCKET}/{STATE_OBJECT}", root, "metadata.json", runner, 10)
+        self.assertEqual(result, {
+            "name": STATE_OBJECT,
+            "generation": "9001",
+            "size": "100",
+            "crc32c": "crc-value",
+            "md5Hash": "md5-value",
+        })
+
     def test_remove_executes_only_the_two_targets_with_lock_and_preserves_other_state(self):
         before = make_state(include_extra_instance=True)
         after = make_state(serial=13, include_targets=False, include_extra_instance=True)
         source_name = STATE_OBJECT
         backup_name = "espacigo/testprod/gcp/manual-state-backups/gcp08-legacy-sql/123-1/default.tfstate"
         object_metadata = [
-            {"name": source_name, "generation": "9001", "size": "100", "crc32c": "abc", "md5Hash": "def"},
-            {"name": backup_name, "generation": "9002", "size": "100", "crc32c": "abc", "md5Hash": "def"},
+            {"name": source_name, "generation": "9001", "size": "100", "crc32c_hash": "abc", "md5_hash": "def"},
+            {"name": backup_name, "generation": "9002", "size": "100", "crc32c_hash": "abc", "md5_hash": "def"},
         ]
         states = [before, before, after]
         commands = []
