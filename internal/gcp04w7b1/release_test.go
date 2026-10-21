@@ -486,14 +486,16 @@ func TestSecretOnlyCleanupRefusesUncertainInsertEvenIfUserCurrentlyAbsent(t *tes
 	}
 }
 
-func TestCreateStopsBeforeNextMutationWhenReleaseExpiresDuringFirstMutation(t *testing.T) {
+func TestCreateStopsBeforeNextMutationWhenReleaseExpiresBeforeOrDuringFirstMutation(t *testing.T) {
 	now := time.Now()
 	r := approved("b1_create")
 	r.ExpiresAt = now.Add(25 * time.Millisecond)
 	r.MaxDurationSeconds = 30
 	f := &testAPI{inv: fixtureInventory(), slowCreateSecret: 40 * time.Millisecond, ignoreCreateSecretDeadline: true}
 	_, err := CreateB1(context.Background(), f.inv, r, f, f, &testJournal{}, t.TempDir(), now, strings.NewReader(strings.Repeat("z", 32)))
-	if !errors.Is(err, ErrUncertain) || count(f.calls, "add-version:"+secretParent()) != 0 || count(f.calls, "insert-user") != 0 {
+	firstMutationStarted := count(f.calls, "create-secret") == 1
+	validFailure := errors.Is(err, ErrUncertain) || (!firstMutationStarted && errors.Is(err, context.DeadlineExceeded))
+	if !validFailure || count(f.calls, "add-version:"+secretParent()) != 0 || count(f.calls, "insert-user") != 0 {
 		t.Fatalf("expired stage advanced to another mutation: err=%v calls=%v", err, f.calls)
 	}
 }

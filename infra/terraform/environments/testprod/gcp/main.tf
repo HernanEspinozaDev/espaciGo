@@ -29,19 +29,22 @@ locals {
   api_v67_target_enabled      = var.api_v67_database_instance_name != ""
   api_gcp06_candidate_enabled = var.api_gcp06_candidate_run_id != ""
   gcp06_candidate_run_id      = local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_run_id : (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job ? "20261020-gcp06a" : "")
-  api_database_secret_key     = local.api_gcp06_candidate_enabled ? "database-password-gcp06" : "database-password"
+  # V67 uses an externally provisioned password secret and must never recreate
+  # the retired generic database-password secret. Candidate mode retains its
+  # scoped secret and the prior generic secret only for the rollback revision.
+  api_database_secret_key = local.api_v67_target_enabled ? null : (local.api_gcp06_candidate_enabled ? "database-password-gcp06" : "database-password")
   api_secret_access_keys = setunion(
     toset([
-      local.api_database_secret_key,
       "contract-encryption-key",
       "payment-webhook-secret",
     ]),
+    local.api_v67_target_enabled ? toset([]) : toset([local.api_database_secret_key]),
     # Keep the stable DB credential available to the retained rollback revision.
     local.api_gcp06_candidate_enabled ? toset(["database-password"]) : toset([]),
   )
   runtime_secret_ids = var.enable_foundation ? setunion(
     local.api_secret_access_keys,
-    # Preserve the legacy API database secret resource while preparing candidate mode.
+    # Preserve the legacy API credential only for the GCP-06 candidate rollback.
     local.api_gcp06_candidate_enabled ? toset(["database-password"]) : toset([]),
     var.enable_database ? toset(["database-migrator-password"]) : toset([]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_admin_bootstrap_job) ? toset(["gcp06-admin-bootstrap-password"]) : toset([]),
@@ -549,8 +552,20 @@ resource "google_secret_manager_secret_iam_member" "api_secret_access" {
   depends_on = [google_project_service.required]
 }
 
+# The V67 runtime password is managed outside this Terraform root. Grant only
+# the API runtime identity access to its existing, version-pinned secret.
+resource "google_secret_manager_secret_iam_member" "v67_api_secret_access" {
+  count     = var.enable_foundation && local.api_v67_target_enabled ? 1 : 0
+  project   = var.project_id
+  secret_id = data.google_secret_manager_secret.v67_database_password[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime["api"].email}"
+
+  depends_on = [google_project_service.required]
+}
+
 resource "google_secret_manager_secret_iam_member" "migrator_db_access" {
-  count     = var.enable_foundation ? 1 : 0
+  count     = var.enable_foundation && !local.api_v67_target_enabled ? 1 : 0
   project   = var.project_id
   secret_id = google_secret_manager_secret.runtime[local.migrator_database_secret_id].secret_id
   role      = "roles/secretmanager.secretAccessor"
@@ -873,6 +888,7 @@ resource "google_cloud_run_v2_service" "api" {
     google_project_service.required,
     google_storage_bucket_iam_member.api_files,
     google_secret_manager_secret_iam_member.api_secret_access,
+    google_secret_manager_secret_iam_member.v67_api_secret_access,
     google_project_iam_member.cloudsql_clients,
   ]
 }

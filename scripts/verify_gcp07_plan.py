@@ -13,6 +13,31 @@ ALLOWED = {
     'google_cloud_run_v2_service.web["public"]': ("web", "espacigo-web"),
     'google_cloud_run_v2_service.web["private"]': ("web", "espacigo-web"),
 }
+BOOTSTRAP_IAM = {
+    'google_cloud_run_v2_service_iam_member.api_invoker["public"]': (
+        "espacigo-test-api", "roles/run.invoker",
+        "serviceAccount:espacigo-test-public-web@espacigo-testprod.iam.gserviceaccount.com"),
+    'google_cloud_run_v2_service_iam_member.api_invoker["private"]': (
+        "espacigo-test-api", "roles/run.invoker",
+        "serviceAccount:espacigo-test-private-web@espacigo-testprod.iam.gserviceaccount.com"),
+    'google_cloud_run_v2_service_iam_member.deployer_service_updater["api"]': (
+        "espacigo-test-api", "projects/espacigo-testprod/roles/espacigoCloudRunServiceUpdater",
+        "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"),
+    'google_cloud_run_v2_service_iam_member.deployer_service_updater["public"]': (
+        "espacigo-test-public", "projects/espacigo-testprod/roles/espacigoCloudRunServiceUpdater",
+        "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"),
+    'google_cloud_run_v2_service_iam_member.deployer_service_updater["private"]': (
+        "espacigo-test-private", "projects/espacigo-testprod/roles/espacigoCloudRunServiceUpdater",
+        "serviceAccount:espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com"),
+    "google_cloud_run_v2_service_iam_member.public_web_invoker[0]": (
+        "espacigo-test-public", "roles/run.invoker", "allUsers"),
+    "google_cloud_run_v2_service_iam_member.private_iap_invoker[0]": (
+        "espacigo-test-private", "roles/run.invoker",
+        "service-447373903153@gcp-sa-iap.iam.gserviceaccount.com"),
+    "google_secret_manager_secret_iam_member.v67_api_secret_access[0]": (
+        "espacigo-test-database-password-v67", "roles/secretmanager.secretAccessor",
+        "serviceAccount:espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com"),
+}
 API_ENV_NAMES = {
     "APP_PROFILE", "LOCAL_VERIFICATION_IP_LIMIT", "DATABASE_CONNECTION_MODE",
     "CLOUD_SQL_INSTANCE_CONNECTION_NAME", "DATABASE_NAME", "DATABASE_PASSWORD_FILE",
@@ -364,6 +389,24 @@ def initial_service_matches(address, resource, database_password_version):
     return True
 
 
+def initial_iam_matches(address, resource):
+    expected = BOOTSTRAP_IAM.get(address)
+    after = resource.get("after")
+    if expected is None or not isinstance(after, dict):
+        return False
+    name, role, member = expected
+    if (resource.get("actions") != ["create"]
+            or resource.get("before") is not None
+            or after.get("role") != role
+            or after.get("member") != member):
+        return False
+    if address.startswith("google_secret_manager_secret_iam_member."):
+        return after.get("secret_id") == name
+    return (after.get("project") == "espacigo-testprod"
+            and after.get("location") == "southamerica-west1"
+            and after.get("name") == name)
+
+
 def validate(plan, expected, source_sha, release_run_id, mode="update", database_password_version=""):
     resources = plan.get("resource_changes")
     if (not isinstance(resources, list) or plan.get("applyable") is not True
@@ -372,6 +415,7 @@ def validate(plan, expected, source_sha, release_run_id, mode="update", database
     if mode not in {"update", "bootstrap"}:
         raise PolicyError()
     summary = []
+    iam_summary = []
     seen = set()
     for item in resources:
         actions = item.get("change", {}).get("actions")
@@ -380,6 +424,14 @@ def validate(plan, expected, source_sha, release_run_id, mode="update", database
         if item.get("mode") == "data" and actions == ["read"]:
             continue
         address = item.get("address")
+        if mode == "bootstrap" and address in BOOTSTRAP_IAM:
+            if not initial_iam_matches(address, item.get("change", {})) or address in seen:
+                raise PolicyError()
+            after = item["change"]["after"]
+            iam_summary.append({"address": address, "action": "create",
+                                "role": after["role"], "member": after["member"]})
+            seen.add(address)
+            continue
         if address not in ALLOWED or address in seen:
             raise PolicyError()
         component, repository = ALLOWED[address]
@@ -409,7 +461,9 @@ def validate(plan, expected, source_sha, release_run_id, mode="update", database
                 raise PolicyError()
         seen.add(address)
         summary.append({"address": address, "action": actions[0], "image": image})
-    if mode == "bootstrap" and seen != set(ALLOWED):
+    if mode == "bootstrap" and (
+            not set(ALLOWED).issubset(seen)
+            or seen - set(ALLOWED) != set(BOOTSTRAP_IAM)):
         raise PolicyError()
     normalized = {
         "mode": mode,
@@ -417,6 +471,8 @@ def validate(plan, expected, source_sha, release_run_id, mode="update", database
         "release_run_id": str(release_run_id),
         "changes": sorted(summary, key=lambda row: row["address"]),
     }
+    if mode == "bootstrap":
+        normalized["iam_changes"] = sorted(iam_summary, key=lambda row: row["address"])
     fingerprint = hashlib.sha256(json.dumps(normalized, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {**normalized, "fingerprint": fingerprint}
 

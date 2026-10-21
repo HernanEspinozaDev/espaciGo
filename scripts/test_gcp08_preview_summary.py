@@ -1,5 +1,6 @@
 import unittest
 
+from verify_gcp07_plan import BOOTSTRAP_IAM
 from verify_gcp08_preview_summary import TARGETS, valid
 
 
@@ -15,6 +16,10 @@ class Gcp08PreviewSummaryTests(unittest.TestCase):
                  "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/"
                           + image + "@sha256:" + ("c" if image == "espacigo-api" else "d") * 64}
                 for address, image in TARGETS.items()
+            ],
+            "iam_changes": [
+                {"address": address, "action": "create", "role": role, "member": member}
+                for address, (_, role, member) in BOOTSTRAP_IAM.items()
             ],
         }
 
@@ -33,6 +38,12 @@ class Gcp08PreviewSummaryTests(unittest.TestCase):
         self.assertFalse(valid(summary, "b" * 64))
         summary = self.summary()
         summary["changes"][0]["image"] = "example.invalid/api:latest"
+        self.assertFalse(valid(summary, "b" * 64))
+        summary = self.summary()
+        summary["iam_changes"].pop()
+        self.assertFalse(valid(summary, "b" * 64))
+        summary = self.summary()
+        summary["iam_changes"][0]["member"] = "allUsers"
         self.assertFalse(valid(summary, "b" * 64))
         self.assertFalse(valid(self.summary(), "f" * 64))
 

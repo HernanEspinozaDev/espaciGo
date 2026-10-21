@@ -212,8 +212,8 @@ variable "api_v67_database_instance_name" {
   default     = ""
   description = "Exact existing PostgreSQL 18 Cloud SQL instance for the reviewed V67 testprod runtime. Empty preserves the current managed/candidate target selection."
   validation {
-    condition     = var.api_v67_database_instance_name == "" || (var.api_v67_database_instance_name == "espacigo-testprod-db" && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && var.api_gcp06_candidate_run_id == "")
-    error_message = "V67 runtime mode is limited to espacigo-testprod-db in the testprod Santiago project and cannot be combined with GCP-06 candidate mode."
+    condition     = var.api_v67_database_instance_name == "" || (var.api_v67_database_instance_name == "espacigo-testprod-db" && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && var.api_gcp06_candidate_run_id == "" && !var.enable_database && !var.enable_gcp06_jobs_reviewed)
+    error_message = "V67 runtime mode is limited to the existing espacigo-testprod-db instance in the testprod Santiago project and cannot create a database or enable GCP-06 candidate Jobs."
   }
 }
 
