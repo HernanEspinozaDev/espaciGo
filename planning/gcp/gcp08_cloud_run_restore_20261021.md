@@ -10,20 +10,21 @@ The V67 schema migration and baseline guard are already on `main` from PR #473. 
 
 ## Required reviewed setup
 
-Before a preview can reach the privileged job, the testprod environment must already satisfy the rollout protection check, and operators must configure the reviewed V67 runtime password secret version, the SHA-256 of the runtime preflight evidence, and protected Terraform inputs that affirm runtime secret versions, runtime database bootstrap, and service enablement. The workflow forces the exact database target and disables managed-database creation and GCP-06 candidate selection. It never creates a password, secret, database login, or grant.
+Before a preview can reach the privileged job, the testprod environment must already satisfy the rollout protection check, and operators must configure the reviewed V67 runtime password secret version, the canonical SHA-256 of the reviewed preflight record, and protected Terraform inputs that affirm runtime secret versions, runtime database bootstrap, and service enablement. The record is checked against the exact target, schema/login/grants/connectivity checks, enabled secret version, reviewer identity/commit, and evidence references. GitHub verifies that the evidence PR was merged to `main`, the specified reviewer approved the exact commit, and each linked workflow run succeeded on that same commit. A hash by itself is not accepted as proof. The checked-in record currently has `status: pending`, so preview and apply remain blocked. The workflow forces the exact database target and disables managed-database creation and GCP-06 candidate selection. It never creates a password, secret, database login, or grant.
 
 Preview artifacts contain only the allowlisted service addresses, actions, immutable images, source/release identifiers, mode, and fingerprint. Apply re-plans, validates the same policy, checks the approved preview and exact confirmation phrase, then applies only that job's private plan. Automatic rollouts remain image-only updates after the baseline gate.
 
 ## Observed blockers (reported 2026-10-21)
 
 - Cloud Run inventory is empty, so the one-time create path is needed.
-- Cloud SQL inventory shows only the `postgres` database; the named V67 database, login, grants, and runtime preflight have not been verified.
+- Cloud SQL inventory confirms `espacigo-testprod-db` contains `espacigo_dms_stage_20261020` with encoding `UTF8` and collation `es_ES.utf8`.
+- The V67 schema and runtime login/grants have not been verified, and runtime connectivity has not been tested.
 - The V67 database password secret is absent. No runtime credential is available or fabricated by this PR.
 - The only configured GitHub repository variable is `GCP07C_PUBLISH_ENABLED`; rollout activation, V67 password version, and runtime preflight SHA are not configured.
 - The protected Terraform variable secret `GCP07D_TFVARS_JSON` is absent.
 - No IAM or Secret Manager mutation is authorized here. The deployer must already have read access to the existing target metadata; if the initial Terraform plan proposes IAM changes, policy rejects it and a separately reviewed authorization step is required.
 
-These blockers mean the workflow must remain fail-closed until the existing database and secret are provisioned and verified by an authorized process, the required protected inputs are configured, and the exact preview is reviewed. This PR does not perform those operations or claim that runtime connectivity works.
+These blockers mean the workflow must remain fail-closed until the schema, runtime identity/grants, connectivity, and secret are verified by an authorized process, the reviewed evidence record and protected inputs are updated, and the exact preview is reviewed. This PR does not perform those operations or claim runtime connectivity works.
 
 ## Validation and limits
 

@@ -6,6 +6,9 @@ import re
 import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+from verify_gcp08_runtime_preflight import load_valid
 
 API = "https://api.github.com"
 
@@ -89,10 +92,33 @@ def event_gate_ready(event, mode, publish_enabled, rollout_enabled,
     return False
 
 
-def v67_runtime_ready(password_version, preflight_sha):
-    return (re.fullmatch(r"[1-9][0-9]*", password_version or "") is not None
-            and re.fullmatch(r"[0-9a-f]{64}", preflight_sha or "") is not None
-            and set(preflight_sha) != {"0"})
+def v67_runtime_ready(password_version, preflight_sha, preflight_path, repo, token):
+    if not load_valid(preflight_path, preflight_sha, password_version):
+        return False
+    try:
+        with open(preflight_path, encoding="utf-8") as stream:
+            record = json.load(stream)
+        review = record["review"]
+        pull = request_json(f"{API}/repos/{repo}/pulls/{review['pr']}", token)
+        reviews = request_json(f"{API}/repos/{repo}/pulls/{review['pr']}/reviews?per_page=100", token)
+        if not (pull.get("merged") is True and (pull.get("base") or {}).get("ref") == "main"
+                and (pull.get("head") or {}).get("sha") == review["commit"]
+                and any(item.get("user", {}).get("login") == "HernanEspinozaDev"
+                        and item.get("state") == "APPROVED"
+                        and item.get("commit_id") == review["commit"] for item in reviews)):
+            return False
+        for ref in record["evidence_refs"]:
+            match = re.fullmatch(r"https://github\.com/HernanEspinozaDev/espaciGo/actions/runs/([1-9][0-9]*)", ref)
+            if not match:
+                continue
+            run = request_json(f"{API}/repos/{repo}/actions/runs/{match.group(1)}", token)
+            if (run.get("status") != "completed" or run.get("conclusion") != "success"
+                    or run.get("head_sha") != review["commit"]
+                    or (run.get("repository") or {}).get("full_name") != repo):
+                return False
+        return True
+    except (OSError, ValueError, KeyError, TypeError, urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
+        return False
 
 
 def main():
@@ -111,7 +137,10 @@ def main():
     if eligible and mode in {"auto", "preview", "apply", "bootstrap-preview", "bootstrap-apply"}:
         eligible = v67_runtime_ready(
             os.environ.get("V67_RUNTIME_PASSWORD_VERSION", ""),
-            os.environ.get("V67_RUNTIME_PREFLIGHT_SHA", ""))
+            os.environ.get("V67_RUNTIME_PREFLIGHT_SHA", ""),
+            os.environ.get("V67_RUNTIME_PREFLIGHT_PATH", str(
+                Path(__file__).resolve().parents[1] / "planning/gcp/gcp08_v67_runtime_preflight.json")),
+            repo, token)
     if token and repo and output and eligible:
         base = f"{API}/repos/{repo}/environments/testprod"
         try:

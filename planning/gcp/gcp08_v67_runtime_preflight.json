@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "status": "pending",
+  "target": {
+    "project": "espacigo-testprod",
+    "instance": "espacigo-testprod-db",
+    "database": "espacigo_dms_stage_20261020",
+    "encoding": "UTF8",
+    "collation": "es_ES.utf8"
+  },
+  "checks": {
+    "v67_schema_verified": false,
+    "runtime_login_and_grants_verified": false,
+    "runtime_connectivity_probe_passed": false,
+    "password_secret_enabled": false
+  },
+  "password_secret": {
+    "id": "espacigo-test-database-password-v67",
+    "version": "",
+    "state": "MISSING"
+  },
+  "review": null,
+  "evidence_refs": []
+}

@@ -49,6 +49,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+      pull-requests: read
     outputs:
       ready: ${{ steps.verify.outputs.ready }}
       migration_free: ${{ steps.scope.outputs.migration_free }}
@@ -155,6 +156,8 @@ jobs:
           protected["api_v67_database_instance_name"] = "espacigo-testprod-db"
           protected["api_v67_database_name"] = "espacigo_dms_stage_20261020"
           protected["api_v67_database_password_version"] = os.environ["V67_RUNTIME_PASSWORD_VERSION"]
+          if os.environ.get("MODE") == "bootstrap":
+              protected["private_demo_origin_override"] = ""
           if "api" in manifest["images"]: protected["api_image"]=manifest["images"]["api"]
           if "web" in manifest["images"]: protected["frontend_image"]=manifest["images"]["web"]
           with open(p,"w",encoding="utf-8") as f: json.dump(protected,f,sort_keys=True)
