@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Fail closed unless GitHub's testprod environment has the agreed protection."""
 import json
+import io
 import os
 import re
 import sys
 import urllib.error
 import urllib.request
+import zipfile
 from pathlib import Path
+from urllib.parse import urlsplit
+
+from gcp07_release_policy import release_manifest_matches, release_run_identity_valid
 
 from verify_gcp08_runtime_preflight import load_valid
 
@@ -37,20 +42,68 @@ def is_ready(environment, policies):
     return len(branches) == 1 and branches[0].get("name") == "main"
 
 
-def published_release_exists(repo, run_id, token):
+def published_release_exists(repo, run_id, token, allow_manual_publish=False):
+    if not str(run_id).isdigit():
+        return False
     base = f"{API}/repos/{repo}/actions/runs/{run_id}"
     run = request_json(base, token)
-    if (run.get("status") != "completed" or run.get("conclusion") != "success"
-            or run.get("event") != "push" or run.get("head_branch") != "main"
-            or run.get("path") != ".github/workflows/application-release.yml"
-            or (run.get("head_repository") or {}).get("full_name") != repo):
+    if not release_run_identity_valid(run, repo):
+        return False
+    if run.get("event") == "workflow_dispatch" and not allow_manual_publish:
         return False
     jobs = request_json(base + "/jobs?per_page=100", token).get("jobs", [])
     if not any(job.get("name") == "publish digest-pinned images and attestations"
                and job.get("conclusion") == "success" for job in jobs):
         return False
     artifacts = request_json(base + "/artifacts?per_page=100", token).get("artifacts", [])
-    return any(a.get("name") == f"gcp07d-release-{run_id}" and not a.get("expired") for a in artifacts)
+    artifact = next((a for a in artifacts if a.get("name") == f"gcp07d-release-{run_id}"
+                     and not a.get("expired") and str(a.get("id", "")).isdigit()), None)
+    if artifact is None:
+        return False
+    try:
+        manifest = download_release_manifest(repo, artifact["id"], token)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, zipfile.BadZipFile):
+        return False
+    return release_manifest_matches(manifest, run, repo, run_id)
+
+
+def download_release_manifest(repo, artifact_id, token):
+    url = f"{API}/repos/{repo}/actions/artifacts/{artifact_id}/zip"
+    request = urllib.request.Request(url, headers={
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+    })
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, request, fp, code, message, headers, new_url):
+            return None
+
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with opener.open(request, timeout=20) as response:
+            archive = response.read(1_048_577)
+    except urllib.error.HTTPError as response:
+        if response.code not in {301, 302, 303, 307, 308}:
+            raise
+        download_url = response.headers.get("Location", "")
+        if urlsplit(download_url).scheme != "https":
+            raise ValueError("artifact download URL is invalid") from None
+        with urllib.request.urlopen(download_url, timeout=20) as download:
+            archive = download.read(1_048_577)
+    if len(archive) > 1_048_576:
+        raise ValueError("release manifest artifact is too large")
+    with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+        files = [item for item in bundle.infolist() if not item.is_dir()]
+        if len(files) != 1 or files[0].file_size > 1_048_576:
+            raise ValueError("release artifact contents are invalid")
+        name = files[0].filename
+        if name.startswith("/") or ".." in name.split("/") or name.rsplit("/", 1)[-1] != "manifest.json":
+            raise ValueError("release manifest path is invalid")
+        manifest = json.loads(bundle.read(files[0]))
+    if not isinstance(manifest, dict):
+        raise ValueError("release manifest is invalid")
+    return manifest
 
 
 def successful_preview_exists(repo, run_id, token):
@@ -152,14 +205,16 @@ def main():
                 ready = run_id.isdigit() and published_release_exists(repo, run_id, token)
             elif ready and event == "workflow_dispatch" and mode in {"preview", "apply", "bootstrap-preview"}:
                 run_id = os.environ.get("RELEASE_RUN_ID", "")
-                ready = run_id.isdigit() and published_release_exists(repo, run_id, token)
+                ready = run_id.isdigit() and published_release_exists(
+                    repo, run_id, token, allow_manual_publish=True)
                 if ready and mode == "apply":
                     preview_run_id = os.environ.get("PREVIEW_RUN_ID", "")
                     ready = preview_run_id.isdigit() and successful_preview_exists(repo, preview_run_id, token)
             elif ready and event == "workflow_dispatch" and mode == "bootstrap-apply":
                 run_id = os.environ.get("RELEASE_RUN_ID", "")
                 preview_run_id = os.environ.get("PREVIEW_RUN_ID", "")
-                ready = (run_id.isdigit() and published_release_exists(repo, run_id, token)
+                ready = (run_id.isdigit() and published_release_exists(
+                    repo, run_id, token, allow_manual_publish=True)
                          and preview_run_id.isdigit() and successful_preview_exists(repo, preview_run_id, token))
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, ValueError, KeyError, TypeError):
             ready = False

@@ -6,6 +6,8 @@ import re
 import subprocess
 import sys
 
+from gcp07_release_policy import images_are_digest_pinned
+
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -13,10 +15,13 @@ def rollout_allowed(manifest, baseline_sha, baseline_is_ancestor, pending_migrat
     if not isinstance(manifest, dict):
         return False
     source_sha = manifest.get("source_sha")
+    manual_publish = (manifest.get("publish_only") is True
+                      and manifest.get("contains_migrations") is False
+                      and images_are_digest_pinned(manifest.get("images"), require_both=True))
     return (manifest.get("schema") == 1
             and isinstance(manifest.get("contains_migrations"), bool)
             and manifest["contains_migrations"] is False
-            and manifest.get("publish_only") is False
+            and (manifest.get("publish_only") is False or manual_publish)
             and isinstance(source_sha, str) and SHA.fullmatch(source_sha) is not None
             and isinstance(baseline_sha, str) and SHA.fullmatch(baseline_sha) is not None
             and baseline_is_ancestor and baseline_has_v67 and not pending_migrations)

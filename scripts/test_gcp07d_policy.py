@@ -122,14 +122,62 @@ class Gcp07dPolicyTests(unittest.TestCase):
     def test_automatic_trigger_requires_successful_publish_and_artifact(self):
         run = {"status": "completed", "conclusion": "success", "event": "push",
                "head_branch": "main", "path": ".github/workflows/application-release.yml",
+               "head_sha": "a" * 40,
                "head_repository": {"full_name": "HernanEspinozaDev/espaciGo"}}
         jobs = {"jobs": [{"name": "publish digest-pinned images and attestations", "conclusion": "success"}]}
-        artifact = {"artifacts": [{"name": "gcp07d-release-42", "expired": False}]}
-        with patch("verify_gcp07_environment.request_json", side_effect=[run, jobs, artifact]):
+        artifact = {"artifacts": [{"id": 42, "name": "gcp07d-release-42", "expired": False}]}
+        manifest = {"schema": 1, "repository": "HernanEspinozaDev/espaciGo", "run_id": "42",
+                    "source_sha": "a" * 40, "contains_migrations": False, "publish_only": False,
+                    "images": {"api": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:" + "a" * 64}}
+        with patch("verify_gcp07_environment.request_json", side_effect=[run, jobs, artifact]), \
+                patch("verify_gcp07_environment.download_release_manifest", return_value=manifest):
             self.assertTrue(published_release_exists("HernanEspinozaDev/espaciGo", "42", "token"))
         artifact["artifacts"][0]["expired"] = True
-        with patch("verify_gcp07_environment.request_json", side_effect=[run, jobs, artifact]):
+        with patch("verify_gcp07_environment.request_json", side_effect=[run, jobs, artifact]), \
+                patch("verify_gcp07_environment.download_release_manifest") as download:
             self.assertFalse(published_release_exists("HernanEspinozaDev/espaciGo", "42", "token"))
+            download.assert_not_called()
+
+    def test_manual_publish_release_requires_exact_main_manifest_and_two_images(self):
+        repo = "HernanEspinozaDev/espaciGo"
+        run = {"status": "completed", "conclusion": "success", "event": "workflow_dispatch",
+               "head_branch": "main", "path": ".github/workflows/application-release.yml",
+               "head_sha": "a" * 40, "head_repository": {"full_name": repo}}
+        jobs = {"jobs": [{"name": "publish digest-pinned images and attestations", "conclusion": "success"}]}
+        artifact = {"artifacts": [{"id": 42, "name": "gcp07d-release-42", "expired": False}]}
+        prefix = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/"
+        manifest = {"schema": 1, "repository": repo, "run_id": "42", "source_sha": "a" * 40,
+                    "contains_migrations": False, "publish_only": True,
+                    "images": {"api": prefix + "espacigo-api@sha256:" + "a" * 64,
+                               "web": prefix + "espacigo-web@sha256:" + "b" * 64}}
+
+        def check(candidate_run=run, candidate_jobs=jobs, candidate_artifact=artifact,
+                  candidate_manifest=manifest, allow_manual_publish=True):
+            with patch("verify_gcp07_environment.request_json",
+                       side_effect=[candidate_run, candidate_jobs, candidate_artifact]), \
+                    patch("verify_gcp07_environment.download_release_manifest", return_value=candidate_manifest):
+                return published_release_exists(repo, "42", "token", allow_manual_publish=allow_manual_publish)
+
+        self.assertTrue(check())
+        self.assertFalse(check(allow_manual_publish=False))
+        bad_manifests = (
+            {**manifest, "publish_only": False},
+            {**manifest, "contains_migrations": True},
+            {**manifest, "source_sha": "c" * 40},
+            {**manifest, "repository": "attacker/repo"},
+            {**manifest, "images": {"api": manifest["images"]["api"]}},
+            {**manifest, "images": {**manifest["images"], "web": "example.invalid/web:latest"}},
+        )
+        for bad_manifest in bad_manifests:
+            self.assertFalse(check(candidate_manifest=bad_manifest))
+        self.assertFalse(check(candidate_run={**run, "head_branch": "feature"}))
+        self.assertFalse(check(candidate_run={**run, "head_repository": {"full_name": "attacker/repo"}}))
+        self.assertFalse(check(candidate_jobs={"jobs": [{"name": "publish digest-pinned images and attestations",
+                                                          "conclusion": "failure"}]}))
+        self.assertFalse(check(candidate_artifact={"artifacts": [{"id": 42, "name": "other-artifact",
+                                                                    "expired": False}]}))
+        self.assertFalse(check(candidate_artifact={"artifacts": [{"id": 42, "name": "gcp07d-release-42",
+                                                                    "expired": True}]}))
 
     def test_manual_apply_requires_a_successful_main_preview_artifact(self):
         run = {"status": "completed", "conclusion": "success", "event": "workflow_dispatch",
@@ -241,7 +289,14 @@ class Gcp07dPolicyTests(unittest.TestCase):
         self.assertFalse(rollout_allowed(manifest, "a" * 40, True, ["db/migrations/V66__example.sql"], True))
         self.assertFalse(rollout_allowed(manifest, "c" * 40, False, [], False))
         self.assertFalse(rollout_allowed({"schema": 1, "contains_migrations": False}, "a" * 40, True, [], True))
-        self.assertFalse(rollout_allowed({**manifest, "publish_only": True}, "a" * 40, True, [], True))
+        prefix = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/"
+        manual = {"schema": 1, "contains_migrations": False, "source_sha": "b" * 40,
+                  "publish_only": True,
+                  "images": {"api": prefix + "espacigo-api@sha256:" + "a" * 64,
+                             "web": prefix + "espacigo-web@sha256:" + "b" * 64}}
+        self.assertTrue(rollout_allowed(manual, "a" * 40, True, [], True))
+        self.assertFalse(rollout_allowed({**manual, "contains_migrations": True}, "a" * 40, True, [], True))
+        self.assertFalse(rollout_allowed({**manual, "images": {"api": manual["images"]["api"]}}, "a" * 40, True, [], True))
         self.assertFalse(rollout_allowed(manifest, "a" * 40, True, [], False))
 
     def test_schema_baseline_must_contain_v67_migration(self):
