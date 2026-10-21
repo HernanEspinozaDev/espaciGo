@@ -24,10 +24,16 @@ RULES = (
         r"could not find default credentials|unauthenticated|oauth", re.IGNORECASE)),
 )
 STAGES = {"init", "workspace", "plan", "inspect", "policy"}
+GCP_PERMISSION_NAME = (
+    r"(?:run|compute|cloudsql|secretmanager|iap|artifactregistry)\."
+    r"[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*"
+    r"|iam\.(?:roles|serviceAccounts)\.[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*"
+    r"|storage\.(?:objects|managedFolders)\.[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*"
+    r"|resourcemanager\.projects\.[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*"
+    r"|serviceusage\.services\.[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)*"
+)
 DENIED_PERMISSION = re.compile(
-    r"permission\s+[\"']((?:run|iam\.serviceAccounts|storage\.(?:objects|managedFolders)|"
-    r"resourcemanager\.projects|serviceusage\.services)\.[A-Za-z][A-Za-z0-9.]*)[\"']\s+denied",
-    re.IGNORECASE,
+    rf"(?i:permission)\s+[\"']({GCP_PERMISSION_NAME})[\"']\s+(?i:denied)",
 )
 
 

@@ -38,7 +38,43 @@ class ClassifyGcp08TerraformFailureTests(unittest.TestCase):
     def test_emits_only_a_recognized_denied_permission_name(self):
         diagnostic = "Error 403: Permission 'run.services.getIamPolicy' denied on private-resource secret-value"
         self.assertEqual(denied_permission(diagnostic), "run.services.getIamPolicy")
-        self.assertIsNone(denied_permission("Permission 'token-looking-secret-value' denied"))
+
+    def test_emits_permissions_from_each_approved_gcp_namespace(self):
+        permissions = (
+            "run.services.getIamPolicy",
+            "compute.networks.get",
+            "cloudsql.instances.get",
+            "secretmanager.secrets.get",
+            "iap.webServices.setIamPolicy",
+            "artifactregistry.repositories.downloadArtifacts",
+            "iam.roles.get",
+            "iam.serviceAccounts.actAs",
+            "storage.objects.get",
+            "storage.managedFolders.get",
+            "resourcemanager.projects.get",
+            "serviceusage.services.use",
+        )
+        for permission in permissions:
+            with self.subTest(permission=permission):
+                self.assertEqual(
+                    denied_permission(f"Permission '{permission}' denied on private-resource secret-value"),
+                    permission,
+                )
+
+    def test_rejects_permissions_outside_allowlisted_namespaces_or_invalid_names(self):
+        diagnostics = (
+            "Permission 'token-looking-secret-value' denied",
+            "Permission 'madeup.services.get' denied",
+            "Permission 'storage.buckets.get' denied",
+            "Permission 'iam.groups.get' denied",
+            "Permission 'resourcemanager.organizations.get' denied",
+            "Permission 'compute.invalid permission' denied",
+            "Permission 'compute.instances.get;secret=value' denied",
+            "Permission 'Compute.instances.get' denied",
+        )
+        for diagnostic in diagnostics:
+            with self.subTest(diagnostic=diagnostic):
+                self.assertIsNone(denied_permission(diagnostic))
 
     def test_cli_reports_permission_name_without_resource_or_value(self):
         sensitive_marker = "private-resource-and-value-must-stay-private"
@@ -54,6 +90,22 @@ class ClassifyGcp08TerraformFailureTests(unittest.TestCase):
         finally:
             os.unlink(path)
         self.assertEqual(result.stdout.strip(), "GCP08_TERRAFORM_FAILURE stage=plan category=iam permission=run.services.getIamPolicy")
+        self.assertNotIn(sensitive_marker, result.stdout + result.stderr)
+
+    def test_cli_reports_new_gcp_namespace_without_diagnostic_context(self):
+        sensitive_marker = "resource-name-and-secret-value"
+        diagnostic = f"Permission 'secretmanager.secrets.get' denied on {sensitive_marker}"
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as stream:
+            stream.write(diagnostic)
+            path = stream.name
+        try:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--stage", "plan", path],
+                check=True, capture_output=True, text=True,
+            )
+        finally:
+            os.unlink(path)
+        self.assertEqual(result.stdout.strip(), "GCP08_TERRAFORM_FAILURE stage=plan category=iam permission=secretmanager.secrets.get")
         self.assertNotIn(sensitive_marker, result.stdout + result.stderr)
 
     def test_policy_rejection_is_guard_and_unmatched_errors_stay_unclassified(self):
