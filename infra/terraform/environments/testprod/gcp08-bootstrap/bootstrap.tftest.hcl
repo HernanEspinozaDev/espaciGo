@@ -65,8 +65,8 @@ run "bootstrap_access_is_constrained_and_expires" {
   }
 
   assert {
-    condition     = toset(google_project_iam_custom_role.private_iap_policy_manager[0].permissions) == toset(["iap.webServices.getIamPolicy", "iap.webServices.setIamPolicy"]) && google_project_iam_member.private_iap_policy_manager[0].condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}') && resource.type == 'iap.googleapis.com/WebService' && resource.name == 'projects/447373903153/iap_web/cloud_run-southamerica-west1/services/espacigo-test-private'"
-    error_message = "Bootstrap may read and manage IAP policy only on the exact private Cloud Run IAP resource, and only until expiry."
+    condition     = toset(google_project_iam_custom_role.private_iap_policy_manager[0].permissions) == toset(["iap.webServices.getIamPolicy", "iap.webServices.setIamPolicy"]) && google_project_iam_member.private_iap_policy_manager[0].condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}') && resource.type == 'iap.googleapis.com/WebService'"
+    error_message = "Bootstrap IAP policy permissions must expire and apply only to IAP WebService resources."
   }
 
   assert {

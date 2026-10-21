@@ -9,7 +9,6 @@ locals {
   ]
   bootstrap_v67_instance_name = "projects/${var.project_id}/instances/espacigo-testprod-db"
   bootstrap_v67_secret_name   = "projects/${var.project_number}/secrets/espacigo-test-database-password-v67"
-  bootstrap_iap_service_name  = "projects/${var.project_number}/iap_web/cloud_run-${var.region}/services/espacigo-test-private"
   runtime_service_account_names = [
     "projects/${var.project_id}/serviceAccounts/espacigo-test-api@${var.project_id}.iam.gserviceaccount.com",
     "projects/${var.project_id}/serviceAccounts/espacigo-test-public-web@${var.project_id}.iam.gserviceaccount.com",
@@ -170,7 +169,7 @@ resource "google_project_iam_custom_role" "private_iap_policy_manager" {
   project     = var.project_id
   role_id     = "espacigoGcp08PrivateIapPolicyManager"
   title       = "EspaciGo GCP-08 temporary private IAP policy manager"
-  description = "Read and set policy only for the private Cloud Run IAP WebService used by the initial restore."
+  description = "Temporary read/set access to IAP WebService policies; limited to that resource type and bounded by the bootstrap window."
   stage       = "GA"
   permissions = ["iap.webServices.getIamPolicy", "iap.webServices.setIamPolicy"]
 
@@ -185,8 +184,8 @@ resource "google_project_iam_member" "private_iap_policy_manager" {
 
   condition {
     title       = "gcp08-private-iap-policy-expiry"
-    description = "Expires within 24 hours and is limited to the private Cloud Run IAP WebService policy."
-    expression  = "${local.bootstrap_expiry} && resource.type == 'iap.googleapis.com/WebService' && resource.name == '${local.bootstrap_iap_service_name}'"
+    description = "Expires within 24 hours and is limited to IAP WebService policy resources."
+    expression  = "${local.bootstrap_expiry} && resource.type == 'iap.googleapis.com/WebService'"
   }
 
   depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
