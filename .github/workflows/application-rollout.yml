@@ -92,7 +92,7 @@ jobs:
 
   rollout:
     needs: preflight
-    if: needs.preflight.outputs.ready == 'true' && needs.preflight.outputs.migration_free == 'true'
+    if: needs.preflight.outputs.ready == 'true' && needs.preflight.outputs.migration_free == 'true' && (github.event_name != 'workflow_dispatch' || inputs.operation != 'initial-restore' || github.actor_id == '176093371')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: testprod
@@ -183,7 +183,16 @@ jobs:
           os.chmod(image_path,0o600)
           PY
           echo "GCP07D_TFVARS=$RUNNER_TEMP/gcp07d/terraform.tfvars.json" >> "$GITHUB_ENV"
-      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      - name: Authenticate bootstrap federated identity
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'initial-restore'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-gcp08-bootstrap/providers/espacigo-initial-restore
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Authenticate restricted application deployer
+        if: github.event_name == 'workflow_run' || inputs.operation != 'initial-restore'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-testprod-github/providers/espacigo-main
           service_account: espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com
@@ -209,7 +218,26 @@ jobs:
             python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage workspace "$RUNNER_TEMP/gcp07d/workspace.log" | tee -a "$GITHUB_STEP_SUMMARY"
             echo "Terraform workspace selection failed; raw diagnostics remain private on runner"; exit 1;
           }
-          terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || {
+          plan_scope=()
+          if [[ "$POLICY_MODE" == bootstrap ]]; then
+            # Refresh the targeted resources and dependencies, but leave unrelated foundation state out of scope;
+            # the validator still requires all three services and exactly the nine bootstrap IAM bindings.
+            plan_scope=(
+              '-target=google_cloud_run_v2_service.api[0]'
+              '-target=google_cloud_run_v2_service.web["public"]'
+              '-target=google_cloud_run_v2_service.web["private"]'
+              '-target=google_cloud_run_v2_service_iam_member.api_invoker["public"]'
+              '-target=google_cloud_run_v2_service_iam_member.api_invoker["private"]'
+              '-target=google_cloud_run_v2_service_iam_member.deployer_service_updater["api"]'
+              '-target=google_cloud_run_v2_service_iam_member.deployer_service_updater["public"]'
+              '-target=google_cloud_run_v2_service_iam_member.deployer_service_updater["private"]'
+              '-target=google_cloud_run_v2_service_iam_member.public_web_invoker[0]'
+              '-target=google_cloud_run_v2_service_iam_member.private_iap_invoker[0]'
+              '-target=google_secret_manager_secret_iam_member.v67_api_secret_access[0]'
+              '-target=google_iap_web_cloud_run_service_iam_member.private_evaluators["user:pasteleriahijitos@gmail.com"]'
+            )
+          fi
+          terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" "${plan_scope[@]}" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || {
             python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage plan "$RUNNER_TEMP/gcp07d/plan.log" | tee -a "$GITHUB_STEP_SUMMARY"
             echo "Terraform plan failed; raw diagnostics remain private on runner"; exit 1;
           }

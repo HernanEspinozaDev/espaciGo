@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from classify_gcp08_terraform_failure import classify
+from classify_gcp08_terraform_failure import classify, denied_permission
 
 
 SCRIPT = Path(__file__).with_name("classify_gcp08_terraform_failure.py")
@@ -34,6 +34,27 @@ class ClassifyGcp08TerraformFailureTests(unittest.TestCase):
         self.assertEqual(classify("plan", "googleapi: Error 403: permission denied"), "iam")
         self.assertEqual(classify("init", "could not find default credentials"), "provider")
         self.assertEqual(classify("init", "failed to acquire the state lock"), "backend")
+
+    def test_emits_only_a_recognized_denied_permission_name(self):
+        diagnostic = "Error 403: Permission 'run.services.getIamPolicy' denied on private-resource secret-value"
+        self.assertEqual(denied_permission(diagnostic), "run.services.getIamPolicy")
+        self.assertIsNone(denied_permission("Permission 'token-looking-secret-value' denied"))
+
+    def test_cli_reports_permission_name_without_resource_or_value(self):
+        sensitive_marker = "private-resource-and-value-must-stay-private"
+        diagnostic = f"Permission 'run.services.getIamPolicy' denied on {sensitive_marker}"
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as stream:
+            stream.write(diagnostic)
+            path = stream.name
+        try:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--stage", "plan", path],
+                check=True, capture_output=True, text=True,
+            )
+        finally:
+            os.unlink(path)
+        self.assertEqual(result.stdout.strip(), "GCP08_TERRAFORM_FAILURE stage=plan category=iam permission=run.services.getIamPolicy")
+        self.assertNotIn(sensitive_marker, result.stdout + result.stderr)
 
     def test_policy_rejection_is_guard_and_unmatched_errors_stay_unclassified(self):
         self.assertEqual(classify("policy", "sensitive image and state data"), "guard")
