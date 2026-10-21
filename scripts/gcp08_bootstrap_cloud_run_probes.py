@@ -47,6 +47,12 @@ TESTED_SA_PERMISSIONS = tuple(sorted({
     "iam.serviceAccounts.actAs", "iam.serviceAccounts.get",
 }))
 TESTED_SA_POLICY_PERMISSIONS = ("iam.serviceAccounts.getIamPolicy",)
+TESTED_IAP_PERMISSIONS = tuple(sorted({
+    "iap.webServices.getIamPolicy", "iap.webServices.setIamPolicy",
+}))
+TESTED_PROJECT_IAM_PERMISSIONS = tuple(sorted({
+    "resourcemanager.projects.get", "resourcemanager.projects.getIamPolicy",
+}))
 TESTED_SECRET_PERMISSIONS = tuple(sorted({
     "secretmanager.secrets.get", "secretmanager.secrets.getIamPolicy",
     "secretmanager.secrets.setIamPolicy",
@@ -61,6 +67,9 @@ PROBES = (
     ("cloud_run_service.public.get_iam_policy", "get-iam-policy", "espacigo-test-public"),
     ("cloud_run_service.private.get_iam_policy", "get-iam-policy", "espacigo-test-private"),
     ("cloud_run_service.private.iap_get_iam_policy", "iap-get-iam-policy", "private"),
+    ("cloud_run_service.private.iap_test_iam_permissions", "iap-test-iam", "private"),
+    ("project.metadata.get", "project-get", "project"),
+    ("project.test_iam_permissions", "project-test-iam", "project"),
     ("cloud_sql_instance.v67.get", "sql-instance-get", "v67"),
     ("cloud_run_service.api.test_iam_permissions", "run-test-iam", "espacigo-test-api"),
     ("cloud_run_service.public.test_iam_permissions", "run-test-iam", "espacigo-test-public"),
@@ -104,7 +113,12 @@ SAFE_RUN_PERMISSIONS = {
     "run.services.create", "run.services.update", "run.services.list",
     "run.operations.get",
 }
-SAFE_IAP_PERMISSIONS = {"iap.webServices.getIamPolicy"}
+SAFE_IAP_PERMISSIONS = {
+    "iap.webServices.getIamPolicy", "iap.webServices.setIamPolicy",
+}
+SAFE_PROJECT_PERMISSIONS = {
+    "resourcemanager.projects.get", "resourcemanager.projects.getIamPolicy",
+}
 SAFE_SQL_PERMISSIONS = {"cloudsql.instances.get"}
 SAFE_SA_PERMISSIONS = {
     "iam.serviceAccounts.actAs", "iam.serviceAccounts.get", "iam.serviceAccounts.getIamPolicy",
@@ -116,7 +130,7 @@ SAFE_SECRET_MANAGER_PERMISSIONS = {
     "secretmanager.secrets.setIamPolicy",
 }
 SAFE_PERMISSIONS = (
-    SAFE_RUN_PERMISSIONS | SAFE_IAP_PERMISSIONS | SAFE_SQL_PERMISSIONS | SAFE_SA_PERMISSIONS
+    SAFE_RUN_PERMISSIONS | SAFE_IAP_PERMISSIONS | SAFE_PROJECT_PERMISSIONS | SAFE_SQL_PERMISSIONS | SAFE_SA_PERMISSIONS
     | SAFE_COMPUTE_PERMISSIONS | SAFE_SERVICE_USAGE_PERMISSIONS | SAFE_SECRET_MANAGER_PERMISSIONS
 )
 
@@ -156,8 +170,16 @@ def build_rest_url(target):
             "projects", PROJECT, "locations", REGION, "services",
         ))
         return f"{API_ROOT}/{resource}"
-    if operation == "iap-get-iam-policy":
+    if operation in {"iap-get-iam-policy", "iap-test-iam"}:
         raise ValueError("IAP policy probe requires validated private configuration")
+    if operation == "project-get":
+        if service != "project":
+            raise ValueError("invalid project metadata probe")
+        return f"{RESOURCE_MANAGER_API_ROOT}/projects/{PROJECT}"
+    if operation == "project-test-iam":
+        if service != "project":
+            raise ValueError("invalid project IAM permission probe")
+        return f"{RESOURCE_MANAGER_API_ROOT}/projects/{PROJECT}:testIamPermissions"
     if operation == "sql-instance-get":
         raise ValueError("Cloud SQL probe requires validated V67 configuration")
     if operation == "run-test-iam":
@@ -403,7 +425,7 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     project_number=None, private_service_name=None,
                     sql_instance_name=None):
     operation, _ = PROBE_BY_ENUM[target]
-    if operation == "iap-get-iam-policy":
+    if operation in {"iap-get-iam-policy", "iap-test-iam"}:
         if project_number is None or private_service_name is None:
             _emit(target, "other")
             return False
@@ -412,7 +434,15 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
         except ValueError:
             _emit(target, "other")
             return False
-        method, body = "POST", b"{}"
+        if operation == "iap-get-iam-policy":
+            method, body = "POST", b"{}"
+        else:
+            url = url.rsplit(":", 1)[0] + ":testIamPermissions"
+            method = "POST"
+            requested_permissions = TESTED_IAP_PERMISSIONS
+            body = json.dumps(
+                {"permissions": list(requested_permissions)}, separators=(",", ":")
+            ).encode()
     elif operation == "sql-instance-get":
         try:
             url = _sqladmin_rest_url(operation, sql_instance_name)
@@ -424,6 +454,16 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
         url = build_rest_url(target)
         # The IAM REST method is POST with policy version in the query and an empty body.
         method, body = "POST", b""
+    elif operation == "project-test-iam":
+        url = build_rest_url(target)
+        method = "POST"
+        requested_permissions = TESTED_PROJECT_IAM_PERMISSIONS
+        body = json.dumps(
+            {"permissions": list(requested_permissions)}, separators=(",", ":")
+        ).encode()
+    elif operation == "project-get":
+        url = build_rest_url(target)
+        method, body = "GET", None
     elif operation in {
         "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
         "secretmanager-secret-test-iam",
@@ -468,13 +508,13 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
             url, token, opener_factory, timeout, method=method, body=body,
             read_success_body=operation in {
                 "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
-                "secretmanager-secret-test-iam",
+                "secretmanager-secret-test-iam", "iap-test-iam", "project-test-iam",
             },
         )
         if isinstance(http_status, int) and 200 <= http_status < 300:
             if operation in {
                 "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
-                "secretmanager-secret-test-iam",
+                "secretmanager-secret-test-iam", "iap-test-iam", "project-test-iam",
             }:
                 response_path = private_dir / "response.json"
                 try:
@@ -491,6 +531,10 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     allowed = set(TESTED_SA_POLICY_PERMISSIONS)
                 elif operation == "secretmanager-secret-test-iam":
                     allowed = SAFE_SECRET_MANAGER_PERMISSIONS
+                elif operation == "iap-test-iam":
+                    allowed = SAFE_IAP_PERMISSIONS
+                elif operation == "project-test-iam":
+                    allowed = SAFE_PROJECT_PERMISSIONS
                 elif operation == "run-parent-test-iam":
                     allowed = SAFE_RUN_PERMISSIONS | SAFE_SERVICE_USAGE_PERMISSIONS
                 else:
@@ -504,6 +548,10 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
                 elif operation == "sa-test-get-iam-policy":
                     method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
+                elif operation == "iap-test-iam":
+                    method, resource_scope = "webServices.testIamPermissions", "iap_web_service"
+                elif operation == "project-test-iam":
+                    method, resource_scope = "projects.testIamPermissions", "project"
                 else:
                     method, resource_scope = "secrets.testIamPermissions", "secret"
                 print(
@@ -576,7 +624,8 @@ def run_probe(target, private_root, runner=subprocess.run,
         raise ValueError("invalid target")
     operation, _ = PROBE_BY_ENUM[target]
     if operation in {
-        "describe", "list", "iap-get-iam-policy", "sql-instance-get",
+        "describe", "list", "iap-get-iam-policy", "iap-test-iam", "project-get",
+        "project-test-iam", "sql-instance-get",
         "run-test-iam", "run-parent-test-iam", "sa-test-iam",
         "sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy",
         "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
