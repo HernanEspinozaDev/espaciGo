@@ -11,7 +11,7 @@ RULES = (
         r"undeclared input variable|invalid type for variable|"
         r"required variable.*not set|failed to parse.*tfvars", re.IGNORECASE)),
     ("iam", re.compile(
-        r"iam_permission_denied|permission denied|does not have .*permission|"
+        r"iam_permission_denied|permission[_ ]denied|does not have .*permission|"
         r"permission\s+[\"'][^\n]{1,120}[\"']\s+denied|"
         r"insufficient permissions|access denied|\b403\b|forbidden", re.IGNORECASE)),
     ("backend", re.compile(
