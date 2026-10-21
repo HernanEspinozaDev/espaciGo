@@ -33,7 +33,7 @@ COMPUTED_ROOT_FIELDS = {
     "create_time", "update_time", "uid", "etag", "generation", "observed_generation",
     "latest_created_revision", "latest_ready_revision", "reconciling", "satisfies_pzs",
     "uri", "url", "conditions", "terminal_condition", "traffic_statuses",
-    "effective_annotations", "effective_labels",
+    "effective_annotations", "effective_labels", "id",
 }
 
 

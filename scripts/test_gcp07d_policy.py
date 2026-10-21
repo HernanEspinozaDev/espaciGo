@@ -293,6 +293,9 @@ class Gcp07dPolicyTests(unittest.TestCase):
         image = IMAGE_PATH + "espacigo-api@sha256:" + "a" * 64
         pristine = initial_resource("google_cloud_run_v2_service.api[0]", image)["change"]
         self.assertTrue(initial_service_matches("google_cloud_run_v2_service.api[0]", pristine, "7"))
+        computed_id = copy.deepcopy(pristine)
+        computed_id["after_unknown"] = {"id": True}
+        self.assertTrue(initial_service_matches("google_cloud_run_v2_service.api[0]", computed_id, "7"))
         mutations = []
         changed = copy.deepcopy(pristine); changed["after"]["template"][0]["service_account"] = "attacker@example.test"; mutations.append(changed)
         changed = copy.deepcopy(pristine); changed["after"]["template"][0]["containers"][0]["env"].append({"name": "EXTRA", "value": "x"}); mutations.append(changed)
