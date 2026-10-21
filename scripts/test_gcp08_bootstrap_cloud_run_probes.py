@@ -28,6 +28,9 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             ("compute.networks.get", "compute.googleapis.com"),
             ("compute.subnetworks.get", "compute.googleapis.com"),
             ("serviceusage.services.get", "serviceusage.googleapis.com"),
+            ("secretmanager.secrets.get", "secretmanager.googleapis.com"),
+            ("secretmanager.secrets.getIamPolicy", "secretmanager.googleapis.com"),
+            ("secretmanager.secrets.setIamPolicy", "secretmanager.googleapis.com"),
         ):
             with self.subTest(permission=permission):
                 payload = {"error": {"code": 403, "details": [{
@@ -91,19 +94,177 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("private-token", output.getvalue())
                 self.assertIn(f"target={target} category=success", output.getvalue())
 
+    def test_v67_secret_metadata_and_iam_policy_probes_are_exact_read_only_gets(self):
+        expected = {
+            "secret.v67.metadata.get": (
+                "https://secretmanager.googleapis.com/v1/projects/espacigo-testprod/secrets/"
+                "espacigo-test-database-password-v67"
+            ),
+            "secret.v67.iam_policy.get": (
+                "https://secretmanager.googleapis.com/v1/projects/espacigo-testprod/secrets/"
+                "espacigo-test-database-password-v67:getIamPolicy?options.requestedPolicyVersion=3"
+            ),
+        }
+
+        class FakeResponse:
+            read_called = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                self.read_called = True
+                return b'{"secretData":"must-not-be-read"}'
+
+        for target, url in expected.items():
+            with self.subTest(target=target):
+                observed = {}
+                response = FakeResponse()
+
+                def token_runner(command, **_kwargs):
+                    observed["token_command"] = command
+                    return SimpleNamespace(returncode=0, stdout="private-token", stderr="")
+
+                class FakeOpener:
+                    def open(self, request, timeout):
+                        observed["url"] = request.full_url
+                        observed["method"] = request.get_method()
+                        return response
+
+                with tempfile.TemporaryDirectory() as root:
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        self.assertTrue(run_probe(
+                            target, root, runner=token_runner,
+                            opener_factory=lambda *_: FakeOpener(),
+                        ))
+
+                self.assertEqual(observed["url"], url)
+                self.assertEqual(observed["method"], "GET")
+                self.assertFalse(response.read_called)
+                self.assertNotIn("secretData", output.getvalue())
+                self.assertNotIn("private-token", output.getvalue())
+                self.assertIn("category=success", output.getvalue())
+
+    def test_v67_secret_test_iam_checks_only_three_permissions_on_the_exact_secret(self):
+        marker = "unapproved-secret-permission"
+        observed = {}
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                return json.dumps({"permissions": [
+                    "secretmanager.secrets.get",
+                    "secretmanager.secrets.getIamPolicy",
+                    marker,
+                ]}).encode()
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["body"] = json.loads(request.data)
+                observed["authorization"] = request.get_header("Authorization")
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertTrue(run_probe(
+                    "secret.v67.test_iam_permissions", root, runner=token_runner,
+                    opener_factory=lambda *_: FakeOpener(),
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+        self.assertEqual(observed["url"],
+                         "https://secretmanager.googleapis.com/v1/projects/espacigo-testprod/secrets/"
+                         "espacigo-test-database-password-v67:testIamPermissions")
+        self.assertEqual(observed["method"], "POST")
+        self.assertEqual(set(observed["body"]["permissions"]), {
+            "secretmanager.secrets.get", "secretmanager.secrets.getIamPolicy",
+            "secretmanager.secrets.setIamPolicy",
+        })
+        self.assertEqual(observed["authorization"], "Bearer token-hidden")
+        emitted = output.getvalue()
+        self.assertIn("resource=secret category=success", emitted)
+        self.assertIn("permission=secretmanager.secrets.get result=granted", emitted)
+        self.assertIn("permission=secretmanager.secrets.getIamPolicy result=granted", emitted)
+        self.assertIn("permission=secretmanager.secrets.setIamPolicy result=not_granted", emitted)
+        self.assertNotIn(marker, emitted)
+        self.assertNotIn("token-hidden", emitted)
+
+    def test_v67_secret_403_keeps_only_exact_permission_and_service(self):
+        for target, permission in (
+            ("secret.v67.metadata.get", "secretmanager.secrets.get"),
+            ("secret.v67.iam_policy.get", "secretmanager.secrets.getIamPolicy"),
+        ):
+            with self.subTest(target=target):
+                marker = "private-secret-resource-and-message"
+                payload = {"error": {"code": 403, "status": "PERMISSION_DENIED", "details": [{
+                    "reason": "IAM_PERMISSION_DENIED",
+                    "domain": "secretmanager.googleapis.com",
+                    "metadata": {"permission": permission, "resource": marker},
+                }]}}
+
+                def token_runner(_command, **_kwargs):
+                    return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+                class FakeOpener:
+                    def open(self, request, timeout):
+                        return urllib.error.HTTPError(
+                            request.full_url, 403, "Forbidden", {},
+                            io.BytesIO(json.dumps(payload).encode()),
+                        )
+
+                with tempfile.TemporaryDirectory() as root:
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        self.assertFalse(run_probe(
+                            target, root, runner=token_runner,
+                            opener_factory=lambda *_: FakeOpener(),
+                        ))
+
+                emitted = output.getvalue()
+                self.assertIn(f"permission={permission}", emitted)
+                self.assertIn("service=secretmanager.googleapis.com", emitted)
+                self.assertIn("category=permission_denied status=403", emitted)
+                self.assertNotIn(marker, emitted)
+                self.assertNotIn("token-hidden", emitted)
+
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 20)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 20)
+        self.assertEqual(len(PROBES), 23)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 23)
         self.assertEqual({operation for _, operation, _ in PROBES}, {
             "describe", "get-iam-policy", "list", "iap-get-iam-policy",
             "sql-instance-get", "run-test-iam", "run-parent-test-iam", "sa-test-iam",
             "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
+            "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
+            "secretmanager-secret-test-iam",
         })
         self.assertEqual({service for _, operation, service in PROBES
                           if service is not None and operation not in {
                               "iap-get-iam-policy", "sql-instance-get", "run-test-iam",
                               "run-parent-test-iam", "sa-test-iam",
                               "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
+                              "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
+                              "secretmanager-secret-test-iam",
                           }}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
@@ -146,6 +307,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                     "runtime_service_account.api.test_act_as",
                     "runtime_service_account.public.test_act_as",
                     "runtime_service_account.private.test_act_as",
+                "secret.v67.metadata.get", "secret.v67.iam_policy.get",
+                "secret.v67.test_iam_permissions",
                 })
             elif operation == "compute-network-get":
                 self.assertEqual(build_rest_url(target),
@@ -155,6 +318,15 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             elif operation == "serviceusage-service-get":
                 self.assertEqual(build_rest_url(target),
                                  "https://serviceusage.googleapis.com/v1/projects/espacigo-testprod/services/run.googleapis.com")
+            elif operation == "secretmanager-secret-get":
+                self.assertEqual(build_rest_url(target),
+                                 "https://secretmanager.googleapis.com/v1/projects/espacigo-testprod/secrets/espacigo-test-database-password-v67")
+            elif operation == "secretmanager-secret-get-iam-policy":
+                self.assertEqual(build_rest_url(target),
+                                 "https://secretmanager.googleapis.com/v1/projects/espacigo-testprod/secrets/espacigo-test-database-password-v67:getIamPolicy?options.requestedPolicyVersion=3")
+            elif operation == "secretmanager-secret-test-iam":
+                self.assertEqual(build_rest_url(target),
+                                 "https://secretmanager.googleapis.com/v1/projects/espacigo-testprod/secrets/espacigo-test-database-password-v67:testIamPermissions")
 
     def test_cloudsql_probe_urls_use_only_validated_v67_identifiers(self):
         self.assertEqual(
