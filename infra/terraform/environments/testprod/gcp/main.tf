@@ -1251,7 +1251,8 @@ resource "google_cloud_run_v2_service" "web" {
     containers {
       image = var.frontend_image
       resources {
-        limits = { cpu = "1", memory = "1Gi" }
+        cpu_idle = true
+        limits   = { cpu = "1", memory = "1Gi" }
       }
       env {
         name  = "FRONTEND_ENTRY_MODE"

@@ -263,8 +263,9 @@ def _template_config_matches(change, api, database_password_version):
         resources = container.get("resources")
         if (not isinstance(resources, list) or len(resources) != 1
                 or not isinstance(resources[0], dict)
-                or set(resources[0]) - {"limits", "startup_cpu_boost"}
+                or set(resources[0]) - {"limits", "cpu_idle", "startup_cpu_boost"}
                 or resources[0].get("limits") != {"cpu": "1", "memory": "1Gi"}
+                or resources[0].get("cpu_idle") is not True
                 or not _empty(resources[0].get("startup_cpu_boost"))):
             return False
     return True

@@ -88,6 +88,7 @@ def initial_resource(address, image):
             "IAP_JWT_AUDIENCE": "/projects/123/locations/southamerica-west1/services/espacigo-test-private" if private else "",
         }
         container["env"] = [{"name": k, "value": v} for k, v in values.items()]
+        container["resources"][0]["cpu_idle"] = True
     return {"address": address, "change": {"actions": ["create"], "before": None, "after": after}}
 
 
