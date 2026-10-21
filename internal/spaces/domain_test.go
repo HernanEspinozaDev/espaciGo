@@ -157,4 +157,25 @@ func TestAttributeProfilesValidateOptionalTypedValuesAndRules(t *testing.T) {
 	}
 }
 
+func TestProfileRejectsMissingRequiredAttributes(t *testing.T) {
+	p := Profile{CategoryCode: "inmuebles", SchemaVersion: 1, Attributes: []AttributeDefinition{
+		{Code: "tipo_inmueble", Type: "enum", Required: true, Options: []string{"casa", "departamento"}},
+		{Code: "amoblado", Type: "boolean"},
+	}}
+	for _, values := range []map[string]any{nil, {}, {"amoblado": false}} {
+		if err := p.ValidateAttributes(values); err == nil {
+			t.Errorf("missing required attribute accepted: %#v", values)
+		}
+	}
+	if err := p.ValidateAttributes(map[string]any{"tipo_inmueble": "casa", "amoblado": false}); err != nil {
+		t.Fatalf("valid required attribute rejected: %v", err)
+	}
+	if err := p.ValidateAttributes(map[string]any{"tipo_inmueble": "bodega"}); err == nil {
+		t.Fatal("invalid required enum accepted")
+	}
+	if err := p.ValidateAttributeFilters(map[string]any{"amoblado": false}); err != nil {
+		t.Fatalf("partial filter incorrectly required publication attributes: %v", err)
+	}
+}
+
 func floatPtr(v float64) *float64 { return &v }

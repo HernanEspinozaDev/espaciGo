@@ -9,7 +9,7 @@ import sys
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
-def rollout_allowed(manifest, baseline_sha, baseline_is_ancestor, pending_migrations):
+def rollout_allowed(manifest, baseline_sha, baseline_is_ancestor, pending_migrations, baseline_has_v67):
     if not isinstance(manifest, dict):
         return False
     source_sha = manifest.get("source_sha")
@@ -19,7 +19,7 @@ def rollout_allowed(manifest, baseline_sha, baseline_is_ancestor, pending_migrat
             and manifest.get("publish_only") is False
             and isinstance(source_sha, str) and SHA.fullmatch(source_sha) is not None
             and isinstance(baseline_sha, str) and SHA.fullmatch(baseline_sha) is not None
-            and baseline_is_ancestor and not pending_migrations)
+            and baseline_is_ancestor and baseline_has_v67 and not pending_migrations)
 
 
 def pending_migrations(baseline_sha, source_sha):
@@ -40,6 +40,16 @@ def pending_migrations(baseline_sha, source_sha):
     return [line for line in changed.stdout.splitlines() if line]
 
 
+def baseline_has_v67_migration(baseline_sha):
+    if not SHA.fullmatch(baseline_sha or ""):
+        return False
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{baseline_sha}:db/migrations/V000067__inmuebles_residential_rentals.sql"],
+        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
 def main(path):
     allowed = False
     try:
@@ -48,14 +58,14 @@ def main(path):
         baseline = os.environ.get("SCHEMA_BASELINE_SHA", "")
         source_sha = manifest.get("source_sha") if isinstance(manifest, dict) else ""
         pending = pending_migrations(baseline, source_sha)
-        allowed = rollout_allowed(manifest, baseline, pending is not None, pending or [])
+        allowed = rollout_allowed(manifest, baseline, pending is not None, pending or [], baseline_has_v67_migration(baseline))
     except (OSError, ValueError, TypeError):
         allowed = False
     output = os.environ.get("GITHUB_OUTPUT")
     if output:
         with open(output, "a", encoding="utf-8") as stream:
             stream.write(f"migration_free={'true' if allowed else 'false'}\n")
-    print("release scope is eligible" if allowed else "rollout skipped: schema baseline is absent/unverified or migrations remain unapplied")
+    print("release scope is eligible" if allowed else "rollout skipped: schema baseline is absent, lacks V67, is unverified, or migrations remain unapplied")
     return 0
 
 
