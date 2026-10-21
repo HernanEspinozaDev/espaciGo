@@ -197,6 +197,12 @@ jobs:
           workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-testprod-github/providers/espacigo-main
           service_account: espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com
           token_format: access_token
+      - name: Set up Cloud SDK for read-only bootstrap diagnostics
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'initial-restore'
+        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: '>= 363.0.0'
+          project_id: espacigo-testprod
       - name: Initialize canonical Terraform root and produce private plan
         env:
           MODE: ${{ github.event_name == 'workflow_run' && 'auto' || inputs.mode }}
@@ -240,9 +246,8 @@ jobs:
           terraform plan -input=false -lock-timeout=5m -var-file="$GCP07D_TFVARS" "${plan_scope[@]}" -out="$RUNNER_TEMP/gcp07d/rollout.tfplan" -no-color > "$RUNNER_TEMP/gcp07d/plan.log" 2>&1 || {
             python3 "$GITHUB_WORKSPACE/scripts/classify_gcp08_terraform_failure.py" --stage plan "$RUNNER_TEMP/gcp07d/plan.log" | tee -a "$GITHUB_STEP_SUMMARY"
             if [[ "$POLICY_MODE" == bootstrap ]]; then
-              python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_plan_diagnostics.py" \
-                --var-file "$GCP07D_TFVARS" --private-dir "$RUNNER_TEMP/gcp07d" \
-                --working-directory "$PWD" | tee -a "$GITHUB_STEP_SUMMARY"
+              python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_cloud_run_probes.py" \
+                --private-dir "$RUNNER_TEMP/gcp07d" | tee -a "$GITHUB_STEP_SUMMARY"
             fi
             echo "Terraform plan failed; raw diagnostics remain private on runner"; exit 1;
           }

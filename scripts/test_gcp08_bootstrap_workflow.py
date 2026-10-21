@@ -46,6 +46,20 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
         self.assertIn(guard, rollout_job)
         self.assertLess(workflow.index(guard), bootstrap_auth)
 
+    def test_bootstrap_cloud_sdk_is_available_only_after_direct_wif_auth(self):
+        workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
+        auth = workflow.index("- name: Authenticate bootstrap federated identity")
+        deployer = workflow.index("- name: Authenticate restricted application deployer")
+        setup = workflow.index("- name: Set up Cloud SDK for read-only bootstrap diagnostics")
+        rollout = workflow.index("- name: Initialize canonical Terraform root and produce private plan")
+        self.assertLess(auth, setup)
+        self.assertLess(deployer, setup)
+        self.assertLess(setup, rollout)
+        setup_step = workflow[setup:rollout]
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.operation == 'initial-restore'", setup_step)
+        self.assertIn("setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1", setup_step)
+        self.assertIn("project_id: espacigo-testprod", setup_step)
+
     def test_initial_restore_plan_is_targeted_and_skips_unrelated_refresh(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
         start = workflow.index('if [[ "$POLICY_MODE" == bootstrap ]]')

@@ -34,6 +34,7 @@ class ClassifyGcp08TerraformFailureTests(unittest.TestCase):
 
     def test_distinguishes_iam_provider_and_backend_errors(self):
         self.assertEqual(classify("plan", "googleapi: Error 403: permission denied"), "iam")
+        self.assertEqual(classify("plan", "PERMISSION_DENIED: Permission 'run.services.get' denied"), "iam")
         self.assertEqual(classify("init", "could not find default credentials"), "provider")
         self.assertEqual(classify("init", "failed to acquire the state lock"), "backend")
 
