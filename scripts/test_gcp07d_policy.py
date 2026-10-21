@@ -12,7 +12,7 @@ from verify_gcp07_environment import (
     successful_preview_exists,
     v67_runtime_ready,
 )
-from verify_gcp07_plan import ALLOWED, IMAGE_PATH, PolicyError, initial_service_matches, validate
+from verify_gcp07_plan import ALLOWED, IMAGE_PATH, PolicyError, initial_service_matches, validate, web_api_references_are_exact
 from classify_gcp07_release_changes import classify, migrations_pending
 from verify_gcp07_manifest_scope import baseline_has_v67_migration, rollout_allowed
 
@@ -53,6 +53,7 @@ def initial_resource(address, image):
         }],
     }
     container = after["template"][0]["containers"][0]
+    after_unknown = {}
     if api:
         values = {
             "APP_PROFILE": "cloud-test", "LOCAL_VERIFICATION_IP_LIMIT": "20", "DATABASE_CONNECTION_MODE": "cloudsql",
@@ -88,8 +89,18 @@ def initial_resource(address, image):
             "IAP_JWT_AUDIENCE": "/projects/123/locations/southamerica-west1/services/espacigo-test-private" if private else "",
         }
         container["env"] = [{"name": k, "value": v} for k, v in values.items()]
+        for item in container["env"]:
+            if item["name"] in {"API_INTERNAL_BASE_URL", "API_SERVICE_AUDIENCE"}:
+                item["value"] = None
+        after_unknown = {"template": [{"containers": [{"env": [
+            {"value": True} if item["name"] in {"API_INTERNAL_BASE_URL", "API_SERVICE_AUDIENCE"} else {}
+            for item in container["env"]
+        ]}]}]}
         container["resources"][0]["cpu_idle"] = True
-    return {"address": address, "change": {"actions": ["create"], "before": None, "after": after}}
+    change = {"actions": ["create"], "before": None, "after": after}
+    if after_unknown:
+        change["after_unknown"] = after_unknown
+    return {"address": address, "change": change}
 
 
 class Gcp07dPolicyTests(unittest.TestCase):
@@ -306,6 +317,18 @@ class Gcp07dPolicyTests(unittest.TestCase):
         self.assertTrue(initial_service_matches(web_address, web, "7"))
         web["after_unknown"]["template"][0]["containers"][0]["env"][1] = {"value": True}
         self.assertFalse(initial_service_matches(web_address, web, "7"))
+
+    def test_web_api_url_and_audience_must_reference_the_new_api_service(self):
+        web_address = 'google_cloud_run_v2_service.web["public"]'
+        web = initial_resource(web_address, IMAGE_PATH + "espacigo-web@sha256:" + "b" * 64)["change"]
+        self.assertTrue(web_api_references_are_exact())
+        for name, external in (("API_INTERNAL_BASE_URL", "https://attacker.example/api/v1"),
+                               ("API_SERVICE_AUDIENCE", "https://attacker.example")):
+            changed = copy.deepcopy(web)
+            env = changed["after"]["template"][0]["containers"][0]["env"]
+            next(item for item in env if item["name"] == name)["value"] = external
+            changed.pop("after_unknown", None)
+            self.assertFalse(initial_service_matches(web_address, changed, "7"))
 
     def test_accepts_empty_plan_as_noop(self):
         result = validate({"applyable": True, "resource_changes": []}, {}, "b" * 40, "123")

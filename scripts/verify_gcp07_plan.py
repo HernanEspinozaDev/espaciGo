@@ -5,6 +5,7 @@ import hashlib
 import json
 import re
 import sys
+from pathlib import Path
 
 IMAGE_PATH = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/"
 ALLOWED = {
@@ -63,6 +64,19 @@ def _unknowns_are_computed_or_referenced(change):
             continue
         return False
     return True
+
+
+def web_api_references_are_exact():
+    main_tf = Path(__file__).resolve().parents[1] / "infra/terraform/environments/testprod/gcp/main.tf"
+    try:
+        source = main_tf.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    expected = (
+        r'name\s*=\s*"API_INTERNAL_BASE_URL"\s+value\s*=\s*"\$\{google_cloud_run_v2_service\.api\[0\]\.uri\}/api/v1"',
+        r'name\s*=\s*"API_SERVICE_AUDIENCE"\s+value\s*=\s*google_cloud_run_v2_service\.api\[0\]\.uri',
+    )
+    return all(len(re.findall(pattern, source)) == 1 for pattern in expected)
 
 
 def _env_map(container, expected_names, allow_unknown_names=()):
@@ -173,7 +187,9 @@ def _template_config_matches(change, api, database_password_version):
     except (KeyError, IndexError, TypeError):
         pass
     allowed_unknown_env = {"API_INTERNAL_BASE_URL", "API_SERVICE_AUDIENCE"} if not api else set()
-    if not unknown_env_names <= allowed_unknown_env:
+    if (not unknown_env_names <= allowed_unknown_env
+            or (not api and unknown_env_names != allowed_unknown_env)
+            or (not api and not web_api_references_are_exact())):
         return False
     env = _env_map(container, expected_env, unknown_env_names)
     if env is None:
@@ -250,9 +266,9 @@ def _template_config_matches(change, api, database_password_version):
             return False
         if env.get("FRONTEND_PUBLIC_ORIGIN") != f"https://{expected_host}":
             return False
-        if not (env.get("API_INTERNAL_BASE_URL") is None or env.get("API_INTERNAL_BASE_URL", "").endswith("/api/v1")):
+        if env.get("API_INTERNAL_BASE_URL") is not None:
             return False
-        if not (env.get("API_SERVICE_AUDIENCE") is None or env.get("API_SERVICE_AUDIENCE", "").startswith("https://")):
+        if env.get("API_SERVICE_AUDIENCE") is not None:
             return False
         if env.get("PRIVATE_DEMO_ORIGIN") != "https://espacigo-demo.testingpage.store":
             return False
