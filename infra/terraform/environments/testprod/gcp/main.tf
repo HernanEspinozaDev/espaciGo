@@ -180,7 +180,7 @@ resource "google_compute_subnetwork" "mailpit" {
 }
 
 resource "google_compute_global_address" "private_services" {
-  count         = var.enable_database ? 1 : 0
+  count         = (var.enable_database || var.enable_private_services_access) ? 1 : 0
   name          = "espacigo-testprod-private-services"
   purpose       = "VPC_PEERING"
   address_type  = "INTERNAL"
@@ -190,7 +190,7 @@ resource "google_compute_global_address" "private_services" {
 }
 
 resource "google_service_networking_connection" "private_services" {
-  count                   = var.enable_database ? 1 : 0
+  count                   = (var.enable_database || var.enable_private_services_access) ? 1 : 0
   network                 = google_compute_network.testprod[0].id
   service                 = "servicenetworking.googleapis.com"
   reserved_peering_ranges = [google_compute_global_address.private_services[0].name]
@@ -1348,7 +1348,7 @@ resource "google_service_account_iam_member" "deployer_act_as_runtime" {
 }
 
 resource "google_iap_web_cloud_run_service_iam_member" "private_evaluators" {
-  for_each               = var.enable_services ? toset(var.iap_evaluator_members) : toset([])
+  for_each               = var.enable_services ? toset(var.private_web_iap_evaluator_members) : toset([])
   project                = var.project_id
   location               = var.region
   cloud_run_service_name = google_cloud_run_v2_service.web["private"].name
