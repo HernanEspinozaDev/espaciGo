@@ -41,7 +41,9 @@ STRUCTURED_PERMISSION = re.compile(
 )
 HTTP_STATUS = re.compile(
     r"(?:googleapi:\s*)?Error\s+(\d{3})\b|"
-    r"HTTP\s+(\d{3})\b|status\s+code\s+(\d{3})\b", re.IGNORECASE,
+    r"HTTP\s+(\d{3})\b|status\s+code\s+(\d{3})\b|"
+    r"[\"'](?:code|statusCode|httpStatus)[\"']\s*:\s*[\"']?(\d{3})\b",
+    re.IGNORECASE,
 )
 SAFE_HTTP_STATUSES = {400, 401, 403, 404, 409, 429, 500, 502, 503, 504}
 STATUS_REASONS = {

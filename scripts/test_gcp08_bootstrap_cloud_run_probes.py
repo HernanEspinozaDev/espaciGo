@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from gcp08_bootstrap_cloud_run_probes import (
-    PROBES, build_command, classify_probe, run_probe,
+    PROBES, SAFE_CATEGORIES, build_command, classify_probe, run_probe,
 )
 
 
@@ -40,7 +40,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         target = "cloud_run_service.api.describe"
         marker = "private-resource-name-and-config-value"
         diagnostic = (
-            f"ERROR: (gcloud.run.services.describe) PERMISSION_DENIED: Permission 'run.services.get' "
+            f"ERROR: HTTP status code 403 (gcloud.run.services.describe) PERMISSION_DENIED: "
+            f"Permission 'run.services.get' "
             f"denied on {marker}"
         )
         observed = {}
@@ -63,11 +64,12 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertEqual(
             emitted,
             "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_service.api.describe "
-            "category=iam permission=run.services.get service=run.googleapis.com "
-            "resource_type=run.googleapis.com/Service operation=get",
+            "category=permission_denied status=403 permission=run.services.get service=run.googleapis.com",
         )
         self.assertNotIn(marker, emitted)
         self.assertNotIn("PERMISSION_DENIED", emitted)
+        self.assertNotIn("resource_type=", emitted)
+        self.assertNotIn("operation=", emitted)
         self.assertEqual(observed["log_mode"], 0o600)
         self.assertTrue(observed["env"]["CLOUDSDK_CONFIG"].startswith(root))
         self.assertNotIn("--log-http", observed["command"])
@@ -85,8 +87,35 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
 
             with redirect_stdout(output):
                 self.assertFalse(run_probe("cloud_run_service.private.get_iam_policy", root, fake_runner))
-        self.assertIn("category=not_found status=404 reason=not_found", output.getvalue())
+        self.assertIn("category=not_found status=404", output.getvalue())
         self.assertNotIn(marker, output.getvalue())
+
+    def test_structured_error_fields_are_extracted_and_categories_are_closed(self):
+        diagnostic = (
+            '{"error":{"code":403,"status":"PERMISSION_DENIED",'
+            '"details":[{"permission":"run.services.get","service":"run.googleapis.com"}]}}'
+        )
+        self.assertEqual(SAFE_CATEGORIES, {
+            "success", "not_found", "permission_denied", "auth_error", "other",
+        })
+        with tempfile.TemporaryDirectory() as root:
+            output = StringIO()
+
+            def fake_runner(_command, **kwargs):
+                kwargs["stdout"].write(diagnostic)
+                return SimpleNamespace(returncode=1)
+
+            with redirect_stdout(output):
+                self.assertFalse(run_probe("cloud_run_service.public.describe", root, fake_runner))
+        self.assertEqual(
+            output.getvalue().strip(),
+            "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_service.public.describe "
+            "category=permission_denied status=403 permission=run.services.get service=run.googleapis.com",
+        )
+
+    def test_auth_error_and_unknown_errors_use_fixed_categories_only(self):
+        self.assertEqual(classify_probe("problem refreshing auth tokens: invalid_grant"), "auth_error")
+        self.assertEqual(classify_probe("unexpected private error value"), "other")
 
     def test_success_emits_only_probe_enum_and_success(self):
         with tempfile.TemporaryDirectory() as root:
@@ -108,8 +137,9 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             run_probe("cloud_run_service.private.list", "/nonexistent", runner=runner)
         runner.assert_not_called()
 
-    def test_timeout_emits_safe_unclassified_record_and_cleans_temp_files(self):
+    def test_timeout_classifies_partial_private_diagnostic_and_cleans_temp_files(self):
         def timeout(*_args, **_kwargs):
+            _kwargs["stdout"].write("gcloud: problem refreshing auth tokens: invalid_grant secret-marker")
             raise subprocess.TimeoutExpired("gcloud", 120)
 
         with tempfile.TemporaryDirectory() as root:
@@ -117,7 +147,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             with redirect_stdout(output):
                 self.assertFalse(run_probe("cloud_run_service.api.get_iam_policy", root, timeout))
             self.assertEqual(list(Path(root).iterdir()), [])
-        self.assertIn("category=unclassified", output.getvalue())
+        self.assertIn("category=auth_error", output.getvalue())
+        self.assertNotIn("secret-marker", output.getvalue())
 
     def test_workflow_installs_sdk_after_bootstrap_auth_and_runs_only_on_plan_failure(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
