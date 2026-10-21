@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,6 +29,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             ("compute.networks.get", "compute.googleapis.com"),
             ("compute.subnetworks.get", "compute.googleapis.com"),
             ("serviceusage.services.get", "serviceusage.googleapis.com"),
+            ("iam.serviceAccounts.getIamPolicy", "iam.googleapis.com"),
             ("secretmanager.secrets.get", "secretmanager.googleapis.com"),
             ("secretmanager.secrets.getIamPolicy", "secretmanager.googleapis.com"),
             ("secretmanager.secrets.setIamPolicy", "secretmanager.googleapis.com"),
@@ -249,14 +251,15 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("token-hidden", emitted)
 
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 23)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 23)
+        self.assertEqual(len(PROBES), 35)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 35)
         self.assertEqual({operation for _, operation, _ in PROBES}, {
             "describe", "get-iam-policy", "list", "iap-get-iam-policy",
             "sql-instance-get", "run-test-iam", "run-parent-test-iam", "sa-test-iam",
             "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
             "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
-            "secretmanager-secret-test-iam",
+            "secretmanager-secret-test-iam", "sa-metadata-get", "sa-get-iam-policy",
+            "sa-test-get-iam-policy",
         })
         self.assertEqual({service for _, operation, service in PROBES
                           if service is not None and operation not in {
@@ -264,7 +267,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                               "run-parent-test-iam", "sa-test-iam",
                               "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
                               "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
-                              "secretmanager-secret-test-iam",
+                              "secretmanager-secret-test-iam", "sa-metadata-get",
+                              "sa-get-iam-policy", "sa-test-get-iam-policy",
                           }}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
@@ -296,6 +300,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             elif operation in {
                 "iap-get-iam-policy", "sql-instance-get", "run-test-iam",
                 "run-parent-test-iam", "sa-test-iam",
+                "sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy",
             }:
                 self.assertIn(target, {
                     "cloud_run_service.private.iap_get_iam_policy",
@@ -309,6 +314,14 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                     "runtime_service_account.private.test_act_as",
                 "secret.v67.metadata.get", "secret.v67.iam_policy.get",
                 "secret.v67.test_iam_permissions",
+                "service_account.deployer.metadata.get", "service_account.deployer.iam_policy.get",
+                "service_account.deployer.test_get_iam_policy",
+                "service_account.api.metadata.get", "service_account.api.iam_policy.get",
+                "service_account.api.test_get_iam_policy",
+                "service_account.public.metadata.get", "service_account.public.iam_policy.get",
+                "service_account.public.test_get_iam_policy",
+                "service_account.private.metadata.get", "service_account.private.iam_policy.get",
+                "service_account.private.test_get_iam_policy",
                 })
             elif operation == "compute-network-get":
                 self.assertEqual(build_rest_url(target),
@@ -774,6 +787,184 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         })
         self.assertIn("permission=iam.serviceAccounts.actAs result=granted", output.getvalue())
         self.assertIn("permission=iam.serviceAccounts.get result=granted", output.getvalue())
+
+    def test_service_account_metadata_and_policy_probes_are_fixed_read_only_requests(self):
+        accounts = {
+            "deployer": "espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com",
+            "api": "espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+            "public": "espacigo-test-public-web@espacigo-testprod.iam.gserviceaccount.com",
+            "private": "espacigo-test-private-web@espacigo-testprod.iam.gserviceaccount.com",
+        }
+
+        class FakeResponse:
+            def __init__(self):
+                self.read_called = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                self.read_called = True
+                return b'{"email":"private-email","policy":"private-policy"}'
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        for label, email in accounts.items():
+            for suffix, method, body in (
+                ("metadata.get", "GET", None),
+                ("iam_policy.get", "POST", b""),
+            ):
+                with self.subTest(account=label, probe=suffix):
+                    observed = {}
+                    response = FakeResponse()
+
+                    class FakeOpener:
+                        def open(self, request, timeout):
+                            observed["url"] = request.full_url
+                            observed["method"] = request.get_method()
+                            observed["body"] = request.data
+                            observed["authorization"] = request.get_header("Authorization")
+                            return response
+
+                    target = f"service_account.{label}.{suffix}"
+                    with tempfile.TemporaryDirectory() as root:
+                        output = io.StringIO()
+                        with redirect_stdout(output):
+                            self.assertTrue(run_probe(
+                                target, root, runner=token_runner,
+                                opener_factory=lambda *_: FakeOpener(),
+                            ))
+
+                    encoded_email = urllib.parse.quote(email, safe="")
+                    expected_url = (
+                        "https://iam.googleapis.com/v1/projects/espacigo-testprod/serviceAccounts/"
+                        f"{encoded_email}"
+                    )
+                    if suffix == "iam_policy.get":
+                        expected_url += ":getIamPolicy?options.requestedPolicyVersion=3"
+                    self.assertEqual(observed["url"], expected_url)
+                    self.assertEqual(observed["method"], method)
+                    self.assertEqual(observed["body"], body)
+                    self.assertEqual(observed["authorization"], "Bearer token-hidden")
+                    self.assertFalse(response.read_called)
+                    emitted = output.getvalue()
+                    self.assertIn(f"target={target} category=success", emitted)
+                    self.assertNotIn(email, emitted)
+                    self.assertNotIn("private-email", emitted)
+                    self.assertNotIn("private-policy", emitted)
+                    self.assertNotIn("token-hidden", emitted)
+
+    def test_service_account_test_iam_checks_only_get_iam_policy_for_each_account(self):
+        accounts = {
+            "deployer": "espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com",
+            "api": "espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
+            "public": "espacigo-test-public-web@espacigo-testprod.iam.gserviceaccount.com",
+            "private": "espacigo-test-private-web@espacigo-testprod.iam.gserviceaccount.com",
+        }
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                return (
+                    b'{"permissions":["iam.serviceAccounts.getIamPolicy",'
+                    b'"iam.serviceAccounts.update","private-permission"]}'
+                )
+
+        for label, email in accounts.items():
+            with self.subTest(account=label):
+                observed = {}
+
+                class FakeOpener:
+                    def open(self, request, timeout):
+                        observed["url"] = request.full_url
+                        observed["method"] = request.get_method()
+                        observed["body"] = json.loads(request.data)
+                        observed["authorization"] = request.get_header("Authorization")
+                        return FakeResponse()
+
+                target = f"service_account.{label}.test_get_iam_policy"
+                with tempfile.TemporaryDirectory() as root:
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        self.assertTrue(run_probe(
+                            target, root, runner=token_runner,
+                            opener_factory=lambda *_: FakeOpener(),
+                        ))
+                    self.assertEqual(list(Path(root).iterdir()), [])
+
+                encoded_email = urllib.parse.quote(email, safe="")
+                self.assertEqual(
+                    observed["url"],
+                    "https://iam.googleapis.com/v1/projects/espacigo-testprod/serviceAccounts/"
+                    f"{encoded_email}:testIamPermissions",
+                )
+                self.assertEqual(observed["method"], "POST")
+                self.assertEqual(observed["body"], {
+                    "permissions": ["iam.serviceAccounts.getIamPolicy"],
+                })
+                self.assertEqual(observed["authorization"], "Bearer token-hidden")
+                emitted = output.getvalue()
+                self.assertIn(f"target={target}", emitted)
+                self.assertIn("resource=service_account category=success", emitted)
+                self.assertIn("permission=iam.serviceAccounts.getIamPolicy result=granted", emitted)
+                self.assertNotIn("iam.serviceAccounts.update", emitted)
+                self.assertNotIn("private-permission", emitted)
+                self.assertNotIn(email, emitted)
+                self.assertNotIn("token-hidden", emitted)
+
+    def test_service_account_policy_403_output_exposes_only_permission_service_and_status(self):
+        permission = "iam.serviceAccounts.getIamPolicy"
+        private_marker = "private-account-and-policy-data"
+        payload = {"error": {"code": 403, "status": "PERMISSION_DENIED", "details": [{
+            "reason": "IAM_PERMISSION_DENIED",
+            "domain": "iam.googleapis.com",
+            "metadata": {"permission": permission, "resource": private_marker},
+        }]}}
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                return urllib.error.HTTPError(
+                    request.full_url, 403, "Forbidden", {},
+                    io.BytesIO(json.dumps(payload).encode()),
+                )
+
+        for label in ("deployer", "api", "public", "private"):
+            with self.subTest(account=label):
+                target = f"service_account.{label}.iam_policy.get"
+                with tempfile.TemporaryDirectory() as root:
+                    output = io.StringIO()
+                    with redirect_stdout(output):
+                        self.assertFalse(run_probe(
+                            target, root, runner=token_runner,
+                            opener_factory=lambda *_: FakeOpener(),
+                        ))
+                emitted = output.getvalue()
+                self.assertIn(f"permission={permission}", emitted)
+                self.assertIn("service=iam.googleapis.com", emitted)
+                self.assertIn("category=permission_denied status=403", emitted)
+                self.assertNotIn(private_marker, emitted)
+                self.assertNotIn("token-hidden", emitted)
 
     def test_missing_iap_cloud_run_service_is_reported_as_not_found(self):
         payload = {"error": {"code": 404, "status": "NOT_FOUND"}}
