@@ -21,6 +21,7 @@ API_ROOT = "https://run.googleapis.com/v2"
 IAP_API_ROOT = "https://iap.googleapis.com/v1"
 SQLADMIN_API_ROOT = "https://sqladmin.googleapis.com/sql/v1beta4"
 IAM_API_ROOT = "https://iam.googleapis.com/v1"
+RESOURCE_MANAGER_API_ROOT = "https://cloudresourcemanager.googleapis.com/v3"
 DEFAULT_PRIVATE_SERVICE_NAME = "espacigo-test-private"
 RUNTIME_SERVICE_ACCOUNTS = {
     "api": "espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com",
@@ -30,6 +31,9 @@ RUNTIME_SERVICE_ACCOUNTS = {
 TESTED_RUN_PERMISSIONS = tuple(sorted({
     "run.services.get", "run.services.getIamPolicy", "run.services.setIamPolicy",
     "run.services.update",
+}))
+TESTED_RUN_PARENT_PERMISSIONS = tuple(sorted({
+    "run.operations.get", "run.services.create",
 }))
 TESTED_SA_PERMISSIONS = ("iam.serviceAccounts.actAs",)
 MAX_RESPONSE_BYTES = 2_000_000
@@ -46,6 +50,7 @@ PROBES = (
     ("cloud_run_service.api.test_iam_permissions", "run-test-iam", "espacigo-test-api"),
     ("cloud_run_service.public.test_iam_permissions", "run-test-iam", "espacigo-test-public"),
     ("cloud_run_service.private.test_iam_permissions", "run-test-iam", "espacigo-test-private"),
+    ("cloud_run_create_parent.project.test_iam_permissions", "run-parent-test-iam", "project"),
     ("runtime_service_account.api.test_act_as", "sa-test-iam", "api"),
     ("runtime_service_account.public.test_act_as", "sa-test-iam", "public"),
     ("runtime_service_account.private.test_act_as", "sa-test-iam", "private"),
@@ -115,6 +120,11 @@ def build_rest_url(target):
             "projects", PROJECT, "locations", REGION, "services", service,
         ))
         return f"{API_ROOT}/{resource}:testIamPermissions"
+    if operation == "run-parent-test-iam":
+        # Cloud Run create checks its location parent. Its testIamPermissions
+        # endpoint only accepts a service path, so test the project-level grant
+        # inherited by that location through Resource Manager and label that scope.
+        return f"{RESOURCE_MANAGER_API_ROOT}/projects/{PROJECT}:testIamPermissions"
     if operation == "sa-test-iam":
         if service not in RUNTIME_SERVICE_ACCOUNTS:
             raise ValueError("invalid runtime service-account probe")
@@ -322,9 +332,14 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
             _emit(target, "other")
             return False
         method, body = "GET", None
-    elif operation in {"run-test-iam", "sa-test-iam"}:
+    elif operation in {"run-test-iam", "run-parent-test-iam", "sa-test-iam"}:
         url = build_rest_url(target)
-        requested_permissions = TESTED_RUN_PERMISSIONS if operation == "run-test-iam" else TESTED_SA_PERMISSIONS
+        if operation == "run-test-iam":
+            requested_permissions = TESTED_RUN_PERMISSIONS
+        elif operation == "run-parent-test-iam":
+            requested_permissions = TESTED_RUN_PARENT_PERMISSIONS
+        else:
+            requested_permissions = TESTED_SA_PERMISSIONS
         method = "POST"
         body = json.dumps({"permissions": list(requested_permissions)}, separators=(",", ":")).encode()
     else:
@@ -352,10 +367,10 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
 
         http_status, response_body = _fetch_rest_response(
             url, token, opener_factory, timeout, method=method, body=body,
-            read_success_body=operation in {"run-test-iam", "sa-test-iam"},
+            read_success_body=operation in {"run-test-iam", "run-parent-test-iam", "sa-test-iam"},
         )
         if isinstance(http_status, int) and 200 <= http_status < 300:
-            if operation in {"run-test-iam", "sa-test-iam"}:
+            if operation in {"run-test-iam", "run-parent-test-iam", "sa-test-iam"}:
                 response_path = private_dir / "response.json"
                 try:
                     _write_private_response(response_path, response_body)
@@ -365,9 +380,19 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     return False
                 actual = payload.get("permissions") if isinstance(payload, dict) else None
                 actual = set(actual) if isinstance(actual, list) and all(isinstance(item, str) for item in actual) else set()
-                allowed = SAFE_RUN_PERMISSIONS if operation == "run-test-iam" else SAFE_SA_PERMISSIONS
+                allowed = SAFE_SA_PERMISSIONS if operation == "sa-test-iam" else SAFE_RUN_PERMISSIONS
                 granted = actual & allowed
-                print(f"GCP08_PERMISSION_TEST stage=bootstrap target={target} category=success", flush=True)
+                if operation == "run-parent-test-iam":
+                    method, resource_scope = "projects.testIamPermissions", "project"
+                elif operation == "run-test-iam":
+                    method, resource_scope = "services.testIamPermissions", "cloud_run_service"
+                else:
+                    method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
+                print(
+                    f"GCP08_PERMISSION_TEST stage=bootstrap target={target} "
+                    f"method={method} resource={resource_scope} category=success",
+                    flush=True,
+                )
                 for permission in requested_permissions:
                     result = "granted" if permission in granted else "not_granted"
                     print(f"GCP08_PERMISSION_TEST stage=bootstrap target={target} permission={permission} result={result}", flush=True)
@@ -432,7 +457,10 @@ def run_probe(target, private_root, runner=subprocess.run,
     if target not in PROBE_BY_ENUM:
         raise ValueError("invalid target")
     operation, _ = PROBE_BY_ENUM[target]
-    if operation in {"describe", "list", "iap-get-iam-policy", "sql-instance-get", "run-test-iam", "sa-test-iam"}:
+    if operation in {
+        "describe", "list", "iap-get-iam-policy", "sql-instance-get",
+        "run-test-iam", "run-parent-test-iam", "sa-test-iam",
+    }:
         return _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                                project_number, private_service_name,
                                sql_instance_name)

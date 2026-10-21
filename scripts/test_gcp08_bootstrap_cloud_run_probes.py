@@ -22,15 +22,16 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 15)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 15)
+        self.assertEqual(len(PROBES), 16)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 16)
         self.assertEqual({operation for _, operation, _ in PROBES}, {
             "describe", "get-iam-policy", "list", "iap-get-iam-policy",
-            "sql-instance-get", "run-test-iam", "sa-test-iam",
+            "sql-instance-get", "run-test-iam", "run-parent-test-iam", "sa-test-iam",
         })
         self.assertEqual({service for _, operation, service in PROBES
                           if service is not None and operation not in {
-                              "iap-get-iam-policy", "sql-instance-get", "run-test-iam", "sa-test-iam",
+                              "iap-get-iam-policy", "sql-instance-get", "run-test-iam",
+                              "run-parent-test-iam", "sa-test-iam",
                           }}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
@@ -66,6 +67,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                     "cloud_run_service.api.test_iam_permissions",
                     "cloud_run_service.public.test_iam_permissions",
                     "cloud_run_service.private.test_iam_permissions",
+                    "cloud_run_create_parent.project.test_iam_permissions",
                     "runtime_service_account.api.test_act_as",
                     "runtime_service_account.public.test_act_as",
                     "runtime_service_account.private.test_act_as",
@@ -419,6 +421,58 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         emitted = output.getvalue()
         self.assertIn("permission=run.services.update result=granted", emitted)
         self.assertIn("permission=run.services.get result=not_granted", emitted)
+        self.assertNotIn(marker, emitted)
+        self.assertNotIn("token-hidden", emitted)
+
+    def test_cloud_run_create_parent_permission_uses_project_level_read_only_test(self):
+        observed = {}
+        marker = "private-extra-permission"
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                return json.dumps({"permissions": [
+                    "run.services.create", "run.operations.get", marker,
+                ]}).encode()
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["body"] = json.loads(request.data)
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertTrue(run_probe(
+                    "cloud_run_create_parent.project.test_iam_permissions", root,
+                    runner=token_runner, opener_factory=lambda *_: FakeOpener(),
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+
+        self.assertEqual(observed["method"], "POST")
+        self.assertEqual(observed["url"],
+                         "https://cloudresourcemanager.googleapis.com/v3/projects/"
+                         "espacigo-testprod:testIamPermissions")
+        self.assertEqual(set(observed["body"]["permissions"]), {
+            "run.services.create", "run.operations.get",
+        })
+        emitted = output.getvalue()
+        self.assertIn("method=projects.testIamPermissions resource=project", emitted)
+        self.assertIn("permission=run.services.create result=granted", emitted)
+        self.assertIn("permission=run.operations.get result=granted", emitted)
         self.assertNotIn(marker, emitted)
         self.assertNotIn("token-hidden", emitted)
 
