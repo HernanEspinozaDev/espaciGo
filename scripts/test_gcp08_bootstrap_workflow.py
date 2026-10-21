@@ -134,6 +134,18 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
         self.assertIn("github.actor_id == '176093371'", cleanup.group(1))
         self.assertIn("inputs.operation == 'legacy-state-reconcile'", cleanup.group(1))
         self.assertIn("workloadIdentityPools/espacigo-gcp08-bootstrap/providers/espacigo-initial-restore", cleanup.group(1))
+        self.assertNotIn("    env:\n      TF_DATA_DIR: ${{ runner.temp }}", cleanup.group(1))
+        for step_name in (
+            "Initialize canonical state backend and select default workspace",
+            "Inspect exact legacy SQL state bindings",
+            "Back up and remove only the inspected legacy bindings",
+        ):
+            step = re.search(
+                rf"(?ms)^      - name: {re.escape(step_name)}\n(.*?)(?=^      - name:|\Z)",
+                cleanup.group(1),
+            )
+            self.assertIsNotNone(step)
+            self.assertIn("TF_DATA_DIR: ${{ runner.temp }}/gcp08-state-reconcile/terraform-data", step.group(1))
         self.assertIn("-lock-timeout=5m", workflow)
         self.assertNotIn("terraform state rm", rollout.group(1))
         self.assertIn("inputs.operation != 'legacy-state-reconcile'", rollout.group(1))

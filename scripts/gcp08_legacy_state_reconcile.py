@@ -250,7 +250,19 @@ def _object_metadata(uri, private_dir, name, runner=subprocess.run, timeout=120)
         metadata = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise ReconcileError("object_metadata_invalid") from error
-    result = {key: metadata.get(key) for key in ("name", "generation", "size", "crc32c", "md5Hash")}
+    def normalize_alias(primary, alternate):
+        values = [metadata[key] for key in (primary, alternate) if key in metadata]
+        if not values or any(value != values[0] for value in values[1:]):
+            raise ReconcileError("object_metadata_invalid")
+        return values[0]
+
+    result = {
+        "name": metadata.get("name"),
+        "generation": metadata.get("generation"),
+        "size": metadata.get("size"),
+        "crc32c": normalize_alias("crc32c_hash", "crc32c"),
+        "md5Hash": normalize_alias("md5_hash", "md5Hash"),
+    }
     for key in ("generation", "size"):
         if isinstance(result[key], int) and not isinstance(result[key], bool):
             result[key] = str(result[key])
