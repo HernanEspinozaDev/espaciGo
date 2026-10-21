@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""Run fixed, read-only Cloud Run probes and emit only allowlisted diagnostics."""
+"""Run fixed read-only Cloud Run probes and emit only allowlisted diagnostics."""
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
-from classify_gcp08_terraform_failure import classify, safe_details
+from classify_gcp08_terraform_failure import SAFE_HTTP_STATUSES, classify, safe_details
 
 
 PROJECT = "espacigo-testprod"
 REGION = "southamerica-west1"
+API_ROOT = "https://run.googleapis.com/v2"
+MAX_RESPONSE_BYTES = 2_000_000
 PROBES = (
     ("cloud_run_service.api.describe", "describe", "espacigo-test-api"),
     ("cloud_run_service.public.describe", "describe", "espacigo-test-public"),
@@ -31,9 +37,15 @@ AUTH_ERROR = re.compile(
 )
 SAFE_CATEGORIES = {"success", "not_found", "permission_denied", "auth_error", "other"}
 SAFE_DETAIL_KEYS = {"status", "permission", "service"}
+SAFE_RUN_PERMISSIONS = {
+    "run.services.get", "run.services.getIamPolicy", "run.services.setIamPolicy",
+    "run.services.create", "run.services.update", "run.services.list",
+    "run.operations.get",
+}
 
 
 def classify_probe(diagnostic):
+    """Map private gcloud text diagnostics into the closed probe category set."""
     category = classify("plan", diagnostic)
     if category == "iam":
         return "permission_denied"
@@ -46,38 +58,197 @@ def classify_probe(diagnostic):
     return "other"
 
 
-def build_command(target):
+def build_gcloud_command(target):
     if target not in PROBE_BY_ENUM:
         raise ValueError("invalid target")
     operation, service = PROBE_BY_ENUM[target]
+    if operation != "get-iam-policy":
+        raise ValueError("describe probes use the REST transport")
     return [
         "gcloud", "run", "services", operation, service,
         f"--region={REGION}", f"--project={PROJECT}", "--format=none", "--quiet",
     ]
 
 
-def _emit(target, category, diagnostic=""):
+def build_rest_url(target):
+    if target not in PROBE_BY_ENUM:
+        raise ValueError("invalid target")
+    operation, service = PROBE_BY_ENUM[target]
+    if operation != "describe":
+        raise ValueError("IAM policy probes use the gcloud read command")
+    resource = "/".join(urllib.parse.quote(part, safe="") for part in (
+        "projects", PROJECT, "locations", REGION, "services", service,
+    ))
+    return f"{API_ROOT}/{resource}"
+
+
+def _error_object(payload):
+    if not isinstance(payload, dict):
+        return {}
+    error = payload.get("error")
+    return error if isinstance(error, dict) else {}
+
+
+def _structured_status(http_status, payload):
+    error = _error_object(payload)
+    body_code = error.get("code")
+    if isinstance(body_code, int) and not isinstance(body_code, bool):
+        if http_status is not None and body_code != http_status:
+            return None
+        return body_code if body_code in SAFE_HTTP_STATUSES else None
+    return http_status if http_status in SAFE_HTTP_STATUSES else None
+
+
+def classify_rest_response(http_status, payload):
+    if isinstance(http_status, int) and 200 <= http_status < 300:
+        return "success"
+    error = _error_object(payload)
+    code = _structured_status(http_status, payload)
+    symbolic_status = error.get("status") if isinstance(error.get("status"), str) else ""
+    details = error.get("details") if isinstance(error.get("details"), list) else []
+    reasons = {
+        item.get("reason") for item in details
+        if isinstance(item, dict) and isinstance(item.get("reason"), str)
+    }
+    if code == 403 or symbolic_status == "PERMISSION_DENIED" or "IAM_PERMISSION_DENIED" in reasons:
+        return "permission_denied"
+    if code == 404 or symbolic_status == "NOT_FOUND" or "NOT_FOUND" in reasons:
+        return "not_found"
+    if code == 401 or symbolic_status == "UNAUTHENTICATED":
+        return "auth_error"
+    return "other"
+
+
+def safe_rest_fields(http_status, payload):
+    """Extract only approved HTTP status, Cloud Run permission, and API domain."""
+    fields = []
+    status = _structured_status(http_status, payload)
+    if status is not None:
+        fields.append(f"status={status}")
+
+    error = _error_object(payload)
+    details = error.get("details") if isinstance(error.get("details"), list) else []
+    permission = None
+    service = None
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        domain = item.get("domain")
+        if domain == "run.googleapis.com":
+            service = domain
+        metadata = item.get("metadata")
+        candidate = metadata.get("permission") if isinstance(metadata, dict) else None
+        if isinstance(candidate, str) and candidate in SAFE_RUN_PERMISSIONS:
+            permission = candidate
+            service = "run.googleapis.com"
+    if permission:
+        fields.append(f"permission={permission}")
+    if service:
+        fields.append(f"service={service}")
+    return fields
+
+
+def _emit(target, category, fields=()):
     if category not in SAFE_CATEGORIES:
         category = "other"
-    fields = [f"target={target}", f"category={category}"]
-    if category != "success":
-        fields.extend(
-            item for item in safe_details(diagnostic)
-            if item.split("=", 1)[0] in SAFE_DETAIL_KEYS
-        )
-    print("GCP08_CLOUD_RUN_PROBE stage=bootstrap " + " ".join(fields), flush=True)
+    safe_fields = []
+    for field in fields:
+        key, separator, value = field.partition("=")
+        if separator and key in SAFE_DETAIL_KEYS and re.fullmatch(r"[A-Za-z0-9._/-]{1,100}", value):
+            safe_fields.append(f"{key}={value}")
+    suffix = " " + " ".join(safe_fields) if safe_fields else ""
+    print(f"GCP08_CLOUD_RUN_PROBE stage=bootstrap target={target} category={category}{suffix}", flush=True)
 
 
-def _read_diagnostic(log_path):
+def _safe_gcloud_fields(diagnostic):
+    return [
+        item for item in safe_details(diagnostic)
+        if item.split("=", 1)[0] in SAFE_DETAIL_KEYS
+    ]
+
+
+def _write_private_response(path, body):
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as response_file:
+        response_file.write(body[:MAX_RESPONSE_BYTES])
+
+
+def _read_private_response(path):
     try:
-        return log_path.read_text(encoding="utf-8", errors="replace")[:2_000_000]
-    except OSError:
-        return ""
+        return json.loads(path.read_text(encoding="utf-8", errors="strict"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
 
 
-def run_probe(target, private_root, runner=subprocess.run, timeout=120):
-    """Execute one fixed probe with private output files and no shell expansion."""
-    command = build_command(target)
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # Never forward the short-lived bearer token to a redirected host.
+        return None
+
+
+def _fetch_rest_response(url, token, opener_factory=urllib.request.build_opener, timeout=120):
+    request = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+        method="GET",
+    )
+    opener = opener_factory(_NoRedirect)
+    try:
+        with opener.open(request, timeout=timeout) as response:
+            status = response.getcode()
+            if isinstance(status, int) and 200 <= status < 300:
+                return status, b""
+            return status, response.read(MAX_RESPONSE_BYTES + 1)
+    except urllib.error.HTTPError as error:
+        try:
+            return error.code, error.read(MAX_RESPONSE_BYTES + 1)
+        finally:
+            error.close()
+    except (OSError, urllib.error.URLError, TimeoutError):
+        return None, b""
+
+
+def _run_rest_probe(target, private_root, runner, opener_factory, timeout):
+    url = build_rest_url(target)
+    with tempfile.TemporaryDirectory(prefix="probe-", dir=private_root) as temporary:
+        private_dir = Path(temporary)
+        os.chmod(private_dir, 0o700)
+        sdk_config = private_dir / "cloud-sdk"
+        sdk_config.mkdir(mode=0o700)
+        env = os.environ.copy()
+        env["CLOUDSDK_CONFIG"] = str(sdk_config)
+        env["CLOUDSDK_CORE_DISABLE_PROMPTS"] = "1"
+        try:
+            token_result = runner(
+                ["gcloud", "auth", "print-access-token"], capture_output=True, text=True,
+                env=env, timeout=min(timeout, 60), check=False,
+            )
+            token = token_result.stdout.strip() if token_result.returncode == 0 else ""
+        except (OSError, subprocess.TimeoutExpired):
+            token = ""
+        if not token or re.search(r"\s", token):
+            _emit(target, "auth_error")
+            return False
+
+        http_status, response_body = _fetch_rest_response(url, token, opener_factory, timeout)
+        if isinstance(http_status, int) and 200 <= http_status < 300:
+            _emit(target, "success")
+            return True
+        response_path = private_dir / "response.json"
+        try:
+            _write_private_response(response_path, response_body)
+        except OSError:
+            _emit(target, "other")
+            return False
+        truncated = len(response_body) > MAX_RESPONSE_BYTES
+        payload = {} if truncated else _read_private_response(response_path)
+        category = classify_rest_response(http_status, payload)
+        fields = safe_rest_fields(http_status, payload)
+        _emit(target, category, fields)
+        return category == "success"
+
+
+def _run_gcloud_probe(target, private_root, runner, timeout):
+    command = build_gcloud_command(target)
     with tempfile.TemporaryDirectory(prefix="probe-", dir=private_root) as temporary:
         private_dir = Path(temporary)
         os.chmod(private_dir, 0o700)
@@ -93,15 +264,34 @@ def run_probe(target, private_root, runner=subprocess.run, timeout=120):
                 result = runner(command, stdout=log, stderr=subprocess.STDOUT, env=env,
                                 timeout=timeout, check=False)
         except (OSError, subprocess.TimeoutExpired):
-            diagnostic = _read_diagnostic(log_path)
-            _emit(target, classify_probe(diagnostic), diagnostic)
+            try:
+                diagnostic = log_path.read_text(encoding="utf-8", errors="replace")[:MAX_RESPONSE_BYTES]
+            except OSError:
+                diagnostic = ""
+            category = classify_probe(diagnostic)
+            _emit(target, category, _safe_gcloud_fields(diagnostic))
             return False
         if result.returncode == 0:
             _emit(target, "success")
             return True
-        diagnostic = _read_diagnostic(log_path)
-        _emit(target, classify_probe(diagnostic), diagnostic)
+        try:
+            diagnostic = log_path.read_text(encoding="utf-8", errors="replace")[:MAX_RESPONSE_BYTES]
+        except OSError:
+            diagnostic = ""
+        category = classify_probe(diagnostic)
+        _emit(target, category, _safe_gcloud_fields(diagnostic))
         return False
+
+
+def run_probe(target, private_root, runner=subprocess.run,
+              opener_factory=urllib.request.build_opener, timeout=120):
+    """Run one fixed read-only probe; tokens and response bodies never reach stdout."""
+    if target not in PROBE_BY_ENUM:
+        raise ValueError("invalid target")
+    operation, _ = PROBE_BY_ENUM[target]
+    if operation == "describe":
+        return _run_rest_probe(target, private_root, runner, opener_factory, timeout)
+    return _run_gcloud_probe(target, private_root, runner, timeout)
 
 
 def main():

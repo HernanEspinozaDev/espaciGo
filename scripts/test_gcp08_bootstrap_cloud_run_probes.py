@@ -1,17 +1,19 @@
+import io
+import json
 import os
 import stat
 import subprocess
 import tempfile
 import unittest
+import urllib.error
 from contextlib import redirect_stdout
-from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
-from classify_gcp08_terraform_failure import safe_details
 from gcp08_bootstrap_cloud_run_probes import (
-    PROBES, SAFE_CATEGORIES, build_command, classify_probe, run_probe,
+    PROBES, SAFE_CATEGORIES, _write_private_response, build_gcloud_command,
+    build_rest_url, classify_rest_response, run_probe,
 )
 
 
@@ -19,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
-    def test_fixed_allowlist_is_exactly_six_get_only_probes_for_three_services(self):
+    def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
         self.assertEqual(len(PROBES), 6)
         self.assertEqual(len({target for target, _, _ in PROBES}), 6)
         self.assertEqual({operation for _, operation, _ in PROBES}, {"describe", "get-iam-policy"})
@@ -27,38 +29,66 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
         for target, operation, service in PROBES:
-            command = build_command(target)
-            self.assertEqual(command[:4], ["gcloud", "run", "services", operation])
-            self.assertEqual(command[4], service)
-            self.assertIn("--project=espacigo-testprod", command)
-            self.assertIn("--region=southamerica-west1", command)
-            self.assertIn("--format=none", command)
-            self.assertNotIn("list", command)
-            self.assertNotIn("set-iam-policy", command)
-            self.assertNotIn("--log-http", command)
+            if operation == "describe":
+                self.assertEqual(
+                    build_rest_url(target),
+                    f"https://run.googleapis.com/v2/projects/espacigo-testprod/locations/"
+                    f"southamerica-west1/services/{service}",
+                )
+            else:
+                command = build_gcloud_command(target)
+                self.assertEqual(command[:4], ["gcloud", "run", "services", "get-iam-policy"])
+                self.assertEqual(command[4], service)
+                self.assertIn("--project=espacigo-testprod", command)
+                self.assertIn("--region=southamerica-west1", command)
+                self.assertIn("--format=none", command)
+                self.assertNotIn("list", command)
+                self.assertNotIn("set-iam-policy", command)
+                self.assertNotIn("--log-http", command)
 
-    def test_permission_denial_publishes_only_allowlisted_details(self):
-        target = "cloud_run_service.api.describe"
-        marker = "private-resource-name-and-config-value"
-        diagnostic = (
-            f"ERROR: HTTP status code 403 (gcloud.run.services.describe) PERMISSION_DENIED: "
-            f"Permission 'run.services.get' "
-            f"denied on {marker}"
-        )
+    def test_rest_403_errorinfo_emits_only_allowlisted_status_permission_and_service(self):
+        token = "private-short-lived-token-value"
+        marker = "private-resource-and-error-message"
+        payload = {
+            "error": {
+                "code": 403,
+                "status": "PERMISSION_DENIED",
+                "message": marker,
+                "details": [{
+                    "reason": "IAM_PERMISSION_DENIED",
+                    "domain": "run.googleapis.com",
+                    "metadata": {
+                        "permission": "run.services.get",
+                        "resource": "projects/private-project/locations/private-region/services/private-service",
+                    },
+                }],
+            },
+        }
         observed = {}
 
-        def fake_runner(command, **kwargs):
-            observed["command"] = command
-            observed["env"] = kwargs["env"]
-            log = kwargs["stdout"]
-            observed["log_mode"] = stat.S_IMODE(os.fstat(log.fileno()).st_mode)
-            log.write(diagnostic)
-            return SimpleNamespace(returncode=1)
+        def token_runner(command, **kwargs):
+            observed["token_command"] = command
+            observed["token_env"] = kwargs["env"]
+            return SimpleNamespace(returncode=0, stdout=token, stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["authorization"] = request.get_header("Authorization")
+                observed["timeout"] = timeout
+                body = json.dumps(payload).encode()
+                return urllib.error.HTTPError(
+                    request.full_url, 403, "Forbidden", {}, io.BytesIO(body),
+                )
 
         with tempfile.TemporaryDirectory() as root:
-            output = StringIO()
+            output = io.StringIO()
             with redirect_stdout(output):
-                self.assertFalse(run_probe(target, root, runner=fake_runner))
+                self.assertFalse(run_probe(
+                    "cloud_run_service.api.describe", root, runner=token_runner,
+                    opener_factory=lambda *_handlers: FakeOpener(),
+                ))
             self.assertEqual(list(Path(root).iterdir()), [])
 
         emitted = output.getvalue().strip()
@@ -67,65 +97,159 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_service.api.describe "
             "category=permission_denied status=403 permission=run.services.get service=run.googleapis.com",
         )
+        self.assertNotIn(token, emitted)
         self.assertNotIn(marker, emitted)
-        self.assertNotIn("PERMISSION_DENIED", emitted)
-        self.assertNotIn("resource_type=", emitted)
-        self.assertNotIn("operation=", emitted)
-        self.assertEqual(observed["log_mode"], 0o600)
-        self.assertTrue(observed["env"]["CLOUDSDK_CONFIG"].startswith(root))
-        self.assertNotIn("--log-http", observed["command"])
+        self.assertNotIn("private-project", emitted)
+        self.assertEqual(observed["authorization"], f"Bearer {token}")
+        self.assertEqual(observed["method"], "GET")
+        self.assertEqual(observed["token_command"], ["gcloud", "auth", "print-access-token"])
+        self.assertTrue(observed["token_env"]["CLOUDSDK_CONFIG"].startswith(root))
 
-    def test_not_found_is_distinct_and_does_not_expose_resource_text(self):
-        marker = "hidden-service-name"
-        diagnostic = f"ERROR: NOT_FOUND: service {marker} does not exist (HTTP 404)"
-        self.assertEqual(classify_probe(diagnostic), "not_found")
+    def test_rest_404_error_json_emits_status_but_not_error_body(self):
+        marker = "private-service-name-and-message"
+        payload = {"error": {"code": 404, "status": "NOT_FOUND", "message": marker}}
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                return urllib.error.HTTPError(
+                    request.full_url, 404, "Not Found", {},
+                    io.BytesIO(json.dumps(payload).encode()),
+                )
+
         with tempfile.TemporaryDirectory() as root:
-            output = StringIO()
-
-            def fake_runner(_command, **kwargs):
-                kwargs["stdout"].write(diagnostic)
-                return SimpleNamespace(returncode=1)
-
+            output = io.StringIO()
             with redirect_stdout(output):
-                self.assertFalse(run_probe("cloud_run_service.private.get_iam_policy", root, fake_runner))
-        self.assertIn("category=not_found status=404", output.getvalue())
-        self.assertNotIn(marker, output.getvalue())
-
-    def test_structured_error_fields_are_extracted_and_categories_are_closed(self):
-        diagnostic = (
-            '{"error":{"code":403,"status":"PERMISSION_DENIED",'
-            '"details":[{"permission":"run.services.get","service":"run.googleapis.com"}]}}'
+                self.assertFalse(run_probe(
+                    "cloud_run_service.private.describe", root, runner=token_runner,
+                    opener_factory=lambda *_handlers: FakeOpener(),
+                ))
+        self.assertEqual(
+            output.getvalue().strip(),
+            "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_service.private.describe "
+            "category=not_found status=404",
         )
+        self.assertNotIn(marker, output.getvalue())
+        self.assertNotIn("token-hidden", output.getvalue())
+
+    def test_errorinfo_permission_uses_exact_cloud_run_allowlist(self):
+        def fields(permission):
+            payload = {"error": {"code": 403, "details": [{
+                "reason": "IAM_PERMISSION_DENIED",
+                "domain": "run.googleapis.com",
+                "metadata": {"permission": permission, "resource": "private-resource"},
+            }]}}
+            with tempfile.TemporaryDirectory() as root:
+                output = io.StringIO()
+                body = json.dumps(payload).encode()
+
+                def token_runner(_command, **_kwargs):
+                    return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+                class FakeOpener:
+                    def open(self, request, timeout):
+                        return urllib.error.HTTPError(
+                            request.full_url, 403, "Forbidden", {}, io.BytesIO(body),
+                        )
+
+                with redirect_stdout(output):
+                    self.assertFalse(run_probe(
+                        "cloud_run_service.api.describe", root, runner=token_runner,
+                        opener_factory=lambda *_handlers: FakeOpener(),
+                    ))
+            return output.getvalue().strip()
+
+        allowed = fields("run.services.setIamPolicy")
+        self.assertIn("permission=run.services.setIamPolicy", allowed)
+        self.assertNotIn("private-resource", allowed)
+        unknown = fields("run.services.delete")
+        self.assertIn("category=permission_denied status=403", unknown)
+        self.assertNotIn("permission=", unknown)
+        self.assertNotIn("run.services.delete", unknown)
+
+    def test_success_response_body_is_private_and_never_echoed(self):
+        marker = "private-service-config-body"
+        payload = {"name": marker, "uri": "https://private.example"}
+        response = None
+
+        def token_runner(_command, **_kwargs):
+            return SimpleNamespace(returncode=0, stdout="token-hidden", stderr="")
+
+        class FakeResponse:
+            status = 200
+            read_called = False
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return self.status
+
+            def read(self, _limit):
+                self.read_called = True
+                return json.dumps(payload).encode()
+
+        class FakeOpener:
+            def open(self, _request, timeout):
+                nonlocal response
+                response = FakeResponse()
+                return response
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertTrue(run_probe(
+                    "cloud_run_service.public.describe", root, runner=token_runner,
+                    opener_factory=lambda *_handlers: FakeOpener(),
+                ))
+            self.assertEqual(list(Path(root).iterdir()), [])
+        self.assertEqual(
+            output.getvalue().strip(),
+            "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_service.public.describe category=success",
+        )
+        self.assertNotIn(marker, output.getvalue())
+        self.assertFalse(response.read_called)
+
+    def test_private_response_file_is_mode_0600(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "response.json"
+            _write_private_response(path, b'{"error":{"code":403}}')
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+            self.assertEqual(json.loads(path.read_text()), {"error": {"code": 403}})
+
+    def test_rest_categories_are_closed_and_auth_failure_never_exposes_token_error(self):
         self.assertEqual(SAFE_CATEGORIES, {
             "success", "not_found", "permission_denied", "auth_error", "other",
         })
+        self.assertEqual(classify_rest_response(401, {"error": {"code": 401, "status": "UNAUTHENTICATED"}}), "auth_error")
+        self.assertEqual(classify_rest_response(500, {"error": {"code": 500}}), "other")
+        marker = "private-auth-error"
+
+        def failed_token(_command, **_kwargs):
+            return SimpleNamespace(returncode=1, stdout="", stderr=marker)
+
         with tempfile.TemporaryDirectory() as root:
-            output = StringIO()
-
-            def fake_runner(_command, **kwargs):
-                kwargs["stdout"].write(diagnostic)
-                return SimpleNamespace(returncode=1)
-
+            output = io.StringIO()
             with redirect_stdout(output):
-                self.assertFalse(run_probe("cloud_run_service.public.describe", root, fake_runner))
-        self.assertEqual(
-            output.getvalue().strip(),
-            "GCP08_CLOUD_RUN_PROBE stage=bootstrap target=cloud_run_service.public.describe "
-            "category=permission_denied status=403 permission=run.services.get service=run.googleapis.com",
-        )
+                self.assertFalse(run_probe("cloud_run_service.api.describe", root, runner=failed_token))
+            self.assertEqual(list(Path(root).iterdir()), [])
+        self.assertIn("category=auth_error", output.getvalue())
+        self.assertNotIn(marker, output.getvalue())
 
-    def test_numeric_status_field_is_recognized_without_echoing_status_text(self):
-        diagnostic = '{"error":{"status":404,"message":"private marker"}}'
-        self.assertEqual(classify_probe(diagnostic), "not_found")
-        self.assertEqual(safe_details(diagnostic)[:2], ["status=404", "reason=not_found"])
+    def test_unknown_enum_fails_before_spawning_a_command(self):
+        runner = Mock()
+        with self.assertRaises(ValueError):
+            run_probe("cloud_run_service.private.list", "/nonexistent", runner=runner)
+        runner.assert_not_called()
 
-    def test_auth_error_and_unknown_errors_use_fixed_categories_only(self):
-        self.assertEqual(classify_probe("problem refreshing auth tokens: invalid_grant"), "auth_error")
-        self.assertEqual(classify_probe("unexpected private error value"), "other")
-
-    def test_success_emits_only_probe_enum_and_success(self):
+    def test_iam_policy_gcloud_success_emits_only_enum_and_success(self):
         with tempfile.TemporaryDirectory() as root:
-            output = StringIO()
+            output = io.StringIO()
             with redirect_stdout(output):
                 self.assertTrue(run_probe(
                     "cloud_run_service.public.get_iam_policy", root,
@@ -137,19 +261,13 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             "target=cloud_run_service.public.get_iam_policy category=success",
         )
 
-    def test_unknown_enum_fails_before_spawning_a_command(self):
-        runner = Mock()
-        with self.assertRaises(ValueError):
-            run_probe("cloud_run_service.private.list", "/nonexistent", runner=runner)
-        runner.assert_not_called()
-
-    def test_timeout_classifies_partial_private_diagnostic_and_cleans_temp_files(self):
-        def timeout(*_args, **_kwargs):
-            _kwargs["stdout"].write("gcloud: problem refreshing auth tokens: invalid_grant secret-marker")
+    def test_iam_policy_timeout_classifies_partial_private_diagnostic(self):
+        def timeout(_command, **kwargs):
+            kwargs["stdout"].write("gcloud: problem refreshing auth tokens: invalid_grant secret-marker")
             raise subprocess.TimeoutExpired("gcloud", 120)
 
         with tempfile.TemporaryDirectory() as root:
-            output = StringIO()
+            output = io.StringIO()
             with redirect_stdout(output):
                 self.assertFalse(run_probe("cloud_run_service.api.get_iam_policy", root, timeout))
             self.assertEqual(list(Path(root).iterdir()), [])
