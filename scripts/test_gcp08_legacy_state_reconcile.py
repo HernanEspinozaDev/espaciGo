@@ -229,6 +229,28 @@ class Gcp08LegacyStateReconcileTests(unittest.TestCase):
         changed["resources"][1]["instances"][0]["attributes"]["name"] = "changed-service"
         self.assertNotEqual(state_resource_fingerprint(base), state_resource_fingerprint(changed))
 
+    def test_state_fingerprint_ignores_only_volatile_check_results_metadata(self):
+        base = make_state()
+        base["check_results"] = [{
+            "config_addr": "check.api",
+            "object_kind": "resource",
+            "status": "pass",
+            "objects": [{"status": "pass"}],
+        }]
+        refreshed = make_state()
+        refreshed["check_results"] = [{
+            "config_addr": "check.api",
+            "object_kind": "resource",
+            "status": "unknown",
+            "objects": [{"status": "unknown"}],
+        }]
+        self.assertEqual(state_resource_fingerprint(base), state_resource_fingerprint(refreshed))
+
+        unrelated_change = make_state()
+        unrelated_change["check_results"] = refreshed["check_results"]
+        unrelated_change["resources"][1]["instances"][0]["attributes"]["name"] = "changed-service"
+        self.assertNotEqual(state_resource_fingerprint(base), state_resource_fingerprint(unrelated_change))
+
 
 if __name__ == "__main__":
     unittest.main()

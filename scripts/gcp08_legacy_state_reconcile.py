@@ -190,6 +190,9 @@ def verify_identity(context):
 def state_fingerprint_without_targets(state):
     normalized = copy.deepcopy(state)
     normalized.pop("serial", None)
+    # Terraform 1.16 refreshes check_results between state pulls without changing
+    # managed bindings; compare all stable state data and resource instances.
+    normalized.pop("check_results", None)
     resources = normalized.get("resources")
     if not isinstance(resources, list):
         raise ReconcileError("state_shape_invalid")
