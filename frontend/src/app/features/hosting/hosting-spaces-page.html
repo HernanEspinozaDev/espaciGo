@@ -274,6 +274,9 @@
                       @for (attribute of attributeProfile.attributes; track attribute.code) {
                         <label
                           >{{ attribute.label }}
+                          @if (attribute.required) {
+                            <span>(obligatorio)</span>
+                          }
                           @if (attribute.unit) {
                             <span>({{ attribute.unit }})</span>
                           }
@@ -281,6 +284,7 @@
                             <select
                               [name]="'attr-' + attribute.code"
                               [formControl]="attributeControl(attribute.code, attribute.type)"
+                              [required]="attribute.required ?? false"
                             >
                               <option value="">Sin declarar</option>
                               <option value="true">Sí</option>
@@ -290,6 +294,7 @@
                             <select
                               [name]="'attr-' + attribute.code"
                               [formControl]="attributeControl(attribute.code, attribute.type)"
+                              [required]="attribute.required ?? false"
                             >
                               <option value="">Selecciona…</option>
                               @for (option of attribute.options ?? []; track option) {
@@ -308,6 +313,7 @@
                               [min]="attribute.minimum ?? null"
                               [max]="attribute.maximum ?? null"
                               [formControl]="attributeControl(attribute.code, attribute.type)"
+                              [required]="attribute.required ?? false"
                               [placeholder]="
                                 attribute.type === 'enum_list' ? 'separa con comas' : ''
                               "

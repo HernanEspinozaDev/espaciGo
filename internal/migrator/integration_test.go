@@ -1393,13 +1393,13 @@ func TestGCP06TestAccessMigrationV66LeastPrivilege(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 66 || migrations[65].Name != "V000066__gcp06_test_access_reset.sql" {
-		t.Fatalf("unexpected GCP-06 migration tail: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
+	if len(migrations) != 67 || migrations[65].Name != "V000066__gcp06_test_access_reset.sql" || migrations[66].Name != "V000067__inmuebles_residential_rentals.sql" {
+		t.Fatalf("unexpected migration tail around GCP-06/V67: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
 	}
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
 		result, err := Run(ctx, databaseURL, sourceDir)
-		if err != nil || len(result.Applied) != 66 || result.Applied[65] != 66 {
-			t.Fatalf("fresh V1-V66 migration: applied=%v err=%v", result.Applied, err)
+		if err != nil || len(result.Applied) != 67 || result.Applied[65] != 66 || result.Applied[66] != 67 {
+			t.Fatalf("fresh V1-V67 migration: applied=%v err=%v", result.Applied, err)
 		}
 		conn := connectTestDB(t, ctx, databaseURL)
 		defer conn.Close(context.Background())

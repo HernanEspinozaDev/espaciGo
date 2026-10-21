@@ -5,7 +5,7 @@ from unittest.mock import patch
 from verify_gcp07_environment import event_gate_ready, is_ready, published_release_exists
 from verify_gcp07_plan import ALLOWED, IMAGE_PATH, PolicyError, validate
 from classify_gcp07_release_changes import classify, migrations_pending
-from verify_gcp07_manifest_scope import rollout_allowed
+from verify_gcp07_manifest_scope import baseline_has_v67_migration, rollout_allowed
 
 
 def environment():
@@ -57,23 +57,32 @@ class Gcp07dPolicyTests(unittest.TestCase):
         self.assertTrue(migration_only["migrations"])
         self.assertFalse(migration_only["web"])
         manifest = {"schema": 1, "contains_migrations": migration_only["migrations"], "source_sha": "b" * 40, "publish_only": False}
-        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, []))
+        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, [], True))
 
         mixed = classify(["internal/api/handler.go", "frontend/src/app.ts", "db/migrations/V65__example.sql"])
         self.assertTrue(mixed["api"])
         self.assertTrue(mixed["web"])
         self.assertTrue(mixed["migrations"])
         manifest = {"schema": 1, "contains_migrations": mixed["migrations"], "source_sha": "b" * 40, "publish_only": False}
-        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, []))
+        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, [], True))
 
         app_only = classify(["internal/api/handler.go", "frontend/src/app.ts"])
         manifest = {"schema": 1, "contains_migrations": app_only["migrations"], "source_sha": "b" * 40, "publish_only": False}
-        self.assertTrue(rollout_allowed(manifest, "a" * 40, True, []))
-        self.assertFalse(rollout_allowed(manifest, "", False, []))
-        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, ["db/migrations/V66__example.sql"]))
-        self.assertFalse(rollout_allowed(manifest, "c" * 40, False, []))
-        self.assertFalse(rollout_allowed({"schema": 1, "contains_migrations": False}, "a" * 40, True, []))
-        self.assertFalse(rollout_allowed({**manifest, "publish_only": True}, "a" * 40, True, []))
+        self.assertTrue(rollout_allowed(manifest, "a" * 40, True, [], True))
+        self.assertFalse(rollout_allowed(manifest, "", False, [], False))
+        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, ["db/migrations/V66__example.sql"], True))
+        self.assertFalse(rollout_allowed(manifest, "c" * 40, False, [], False))
+        self.assertFalse(rollout_allowed({"schema": 1, "contains_migrations": False}, "a" * 40, True, [], True))
+        self.assertFalse(rollout_allowed({**manifest, "publish_only": True}, "a" * 40, True, [], True))
+        self.assertFalse(rollout_allowed(manifest, "a" * 40, True, [], False))
+
+    def test_schema_baseline_must_contain_v67_migration(self):
+        self.assertFalse(baseline_has_v67_migration(""))
+        with patch("verify_gcp07_manifest_scope.subprocess.run", return_value=type("Result", (), {"returncode": 0})()) as run:
+            self.assertTrue(baseline_has_v67_migration("a" * 40))
+            self.assertIn("V000067__inmuebles_residential_rentals.sql", run.call_args.args[0][-1])
+        with patch("verify_gcp07_manifest_scope.subprocess.run", return_value=type("Result", (), {"returncode": 1})()):
+            self.assertFalse(baseline_has_v67_migration("a" * 40))
 
     def test_migration_baseline_fails_closed_and_detects_pending_paths(self):
         self.assertTrue(migrations_pending("", "b" * 40))

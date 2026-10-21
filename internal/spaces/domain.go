@@ -180,6 +180,7 @@ type AttributeDefinition struct {
 	Label           string   `json:"label"`
 	Description     string   `json:"description,omitempty"`
 	Type            string   `json:"type"`
+	Required        bool     `json:"required,omitempty"`
 	Unit            string   `json:"unit,omitempty"`
 	Options         []string `json:"options,omitempty"`
 	Minimum         *float64 `json:"minimum,omitempty"`
@@ -189,9 +190,6 @@ type AttributeDefinition struct {
 }
 
 func (p Profile) ValidateAttributes(values map[string]any) error {
-	if len(values) == 0 {
-		return nil
-	}
 	data, err := json.Marshal(values)
 	if err != nil || len(data) > 16*1024 {
 		return ErrInvalid
@@ -199,6 +197,16 @@ func (p Profile) ValidateAttributes(values map[string]any) error {
 	defs := make(map[string]AttributeDefinition, len(p.Attributes))
 	for _, d := range p.Attributes {
 		defs[d.Code] = d
+	}
+	for _, definition := range p.Attributes {
+		if definition.Required {
+			if _, exists := values[definition.Code]; !exists {
+				return ErrInvalid
+			}
+		}
+	}
+	if len(values) == 0 {
+		return nil
 	}
 	for code, value := range values {
 		d, ok := defs[code]

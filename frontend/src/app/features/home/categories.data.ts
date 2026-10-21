@@ -1,4 +1,5 @@
 export const categories = [
+  { code: 'inmuebles', name: 'Inmuebles', detail: 'Casas, departamentos y habitaciones por hora, día o mes.' },
   { code: 'oficina', name: 'Oficina', detail: 'Un lugar para concentrarte y avanzar.' },
   { code: 'sala_multiproposito', name: 'Sala multipropósito', detail: 'Espacio adaptable para reunirse o crear.' },
   { code: 'bodega', name: 'Bodega', detail: 'Almacenamiento para distintas necesidades.' },

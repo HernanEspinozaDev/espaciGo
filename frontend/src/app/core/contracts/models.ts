@@ -466,6 +466,7 @@ export type SpaceAttributeProfile = {
     label: string;
     description?: string;
     type: 'boolean' | 'integer' | 'number' | 'enum' | 'enum_list';
+    required?: boolean;
     order: number;
     unit?: string;
     options?: Array<string>;

@@ -4540,6 +4540,7 @@ components:
               label: { type: string }
               description: { type: string }
               type: { type: string, enum: [boolean, integer, number, enum, enum_list] }
+              required: { type: boolean }
               order: { type: integer, minimum: 1 }
               unit: { type: string }
               options: { type: array, items: { type: string } }
