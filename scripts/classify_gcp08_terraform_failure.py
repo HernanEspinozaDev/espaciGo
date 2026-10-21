@@ -104,13 +104,13 @@ TERRAFORM_ADDRESSES = {
     "google_secret_manager_secret_iam_member.v67_api_secret_access[0]": "secret_manager_iam.v67_api_secret_access",
 }
 TERRAFORM_ADDRESS_PATTERNS = tuple(
-    (address, re.compile(rf"(?m)^\s*with\s+{re.escape(address)}\s*,?\s*$"))
+    (address, re.compile(rf"(?m)^[ \t]*(?:│[ \t]*)?with[ \t]+{re.escape(address)}[ \t]*,?[ \t]*$"))
     for address in TERRAFORM_ADDRESSES
 ) + ((
     "google_iap_web_cloud_run_service_iam_member.private_evaluators[<key>]",
     re.compile(
-        r'(?m)^\s*with\s+google_iap_web_cloud_run_service_iam_member'
-        r'\.private_evaluators\["[^"\r\n]{1,254}"\]\s*,?\s*$'
+        r'(?m)^[ \t]*(?:│[ \t]*)?with[ \t]+google_iap_web_cloud_run_service_iam_member'
+        r'\.private_evaluators\["[^"\r\n]{1,254}"\][ \t]*,?[ \t]*$'
     ),
 ),)
 TERRAFORM_ADDRESS_ENUMS = {
@@ -129,6 +129,7 @@ OPERATION_PATTERNS = (
     ("read", re.compile(r"\b(?:Error\s+when\s+)?reading\b", re.IGNORECASE)),
     ("get", re.compile(r"\bRequest\s+Method\s*:\s*GET\b", re.IGNORECASE)),
 )
+ERROR_BLOCK = re.compile(r"(?ms)^\s*╷\s*\n(.*?)(?=^\s*╵\s*$)")
 STRUCTURED_OPERATION = re.compile(
     r"(?:[\"']operation[\"']|\boperation\b)\s*[:=]\s*[\"']?"
     r"(getIamPolicy|setIamPolicy|get|read|create|update)"
@@ -179,6 +180,28 @@ def terraform_operation(diagnostic, permission=None):
         return next(iter(structured))
     candidates = {operation for operation, pattern in OPERATION_PATTERNS if pattern.search(diagnostic)}
     return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def terraform_403_contexts(diagnostic):
+    """Return allowlisted address/operation pairs for each distinct Terraform 403 block."""
+    blocks = ERROR_BLOCK.findall(diagnostic)
+    if not blocks:
+        blocks = re.split(r"(?m)(?=^\s*(?:│\s*)?Error:)", diagnostic)
+    contexts = []
+    for block in blocks[:64]:
+        status_match = HTTP_STATUS.search(block)
+        has_403 = bool(
+            (status_match and any(group == "403" for group in status_match.groups()))
+            or re.search(r"\b403\b|permission[_ ]denied|IAM_PERMISSION_DENIED", block, re.IGNORECASE)
+        )
+        if not has_403:
+            continue
+        permission = denied_permission(block)
+        address = terraform_address(block)
+        operation = terraform_operation(block, permission)
+        if address or operation:
+            contexts.append((address, operation))
+    return contexts
 
 
 def safe_details(diagnostic):
@@ -234,6 +257,14 @@ def main():
         category = "unclassified"
     # Never echo diagnostic text, even when it contains values or credentials.
     details = safe_details(diagnostic) if category == "iam" else []
+    contexts = terraform_403_contexts(diagnostic) if category == "iam" else []
+    if len(contexts) > 1:
+        details = [item for item in details if not item.startswith(("address=", "operation="))]
+        for index, (address, operation) in enumerate(contexts, 1):
+            if address:
+                details.append(f"terraform_address_{index}={address}")
+            if operation:
+                details.append(f"terraform_operation_{index}={operation}")
     detail = f" {' '.join(details)}" if details else ""
     print(f"GCP08_TERRAFORM_FAILURE stage={args.stage} category={category}{detail}")
     return 0

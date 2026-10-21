@@ -251,10 +251,11 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("token-hidden", emitted)
 
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 35)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 35)
+        self.assertEqual(len(PROBES), 38)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 38)
         self.assertEqual({operation for _, operation, _ in PROBES}, {
-            "describe", "get-iam-policy", "list", "iap-get-iam-policy",
+            "describe", "get-iam-policy", "list", "iap-get-iam-policy", "iap-test-iam",
+            "project-get", "project-test-iam",
             "sql-instance-get", "run-test-iam", "run-parent-test-iam", "sa-test-iam",
             "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
             "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
@@ -263,7 +264,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         })
         self.assertEqual({service for _, operation, service in PROBES
                           if service is not None and operation not in {
-                              "iap-get-iam-policy", "sql-instance-get", "run-test-iam",
+                              "iap-get-iam-policy", "iap-test-iam", "project-get",
+                              "project-test-iam", "sql-instance-get", "run-test-iam",
                               "run-parent-test-iam", "sa-test-iam",
                               "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
                               "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
@@ -298,12 +300,15 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("set-iam-policy", command)
                 self.assertNotIn("--log-http", command)
             elif operation in {
-                "iap-get-iam-policy", "sql-instance-get", "run-test-iam",
+                "iap-get-iam-policy", "iap-test-iam", "project-get", "project-test-iam",
+                "sql-instance-get", "run-test-iam",
                 "run-parent-test-iam", "sa-test-iam",
                 "sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy",
             }:
                 self.assertIn(target, {
                     "cloud_run_service.private.iap_get_iam_policy",
+                    "cloud_run_service.private.iap_test_iam_permissions",
+                    "project.metadata.get", "project.test_iam_permissions",
                     "cloud_sql_instance.v67.get",
                     "cloud_run_service.api.test_iam_permissions",
                     "cloud_run_service.public.test_iam_permissions",
