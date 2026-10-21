@@ -183,7 +183,16 @@ jobs:
           os.chmod(image_path,0o600)
           PY
           echo "GCP07D_TFVARS=$RUNNER_TEMP/gcp07d/terraform.tfvars.json" >> "$GITHUB_ENV"
-      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      - name: Authenticate bootstrap federated identity
+        if: github.event_name == 'workflow_dispatch' && inputs.operation == 'initial-restore'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-gcp08-bootstrap/providers/espacigo-initial-restore
+          create_credentials_file: true
+          export_environment_variables: true
+      - name: Authenticate restricted application deployer
+        if: github.event_name == 'workflow_run' || inputs.operation != 'initial-restore'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
         with:
           workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-testprod-github/providers/espacigo-main
           service_account: espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com

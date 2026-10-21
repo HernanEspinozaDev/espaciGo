@@ -1,0 +1,17 @@
+# GCP-08 temporary Cloud Run bootstrap
+
+This separate Terraform root provisions a one-time identity for the initial Cloud Run restore. It does not replace the restricted application deployer used by application release and automatic image rollouts.
+
+## Lifecycle
+
+1. A project IAM operator chooses an RFC3339 `bootstrap_expires_at` no more than 24 hours in the future, runs `python3 scripts/verify_gcp08_bootstrap_expiry.py --expires-at "$GCP08_BOOTSTRAP_EXPIRES_AT"`, then reviews and applies this root with `enable_bootstrap=true`. Terraform rechecks the window immediately before creating any grant, so a stale preview fails closed. The operator uses their own short-lived user credentials with Terraform; no service-account key or manual Cloud console/gcloud IAM edit is part of the procedure. The root uses its own remote state prefix `espacigo/testprod/gcp08-bootstrap`.
+2. The one-time grant trusts only the exact `application-rollout.yml` workflow on `main`, from the EspaciGo repository, for `workflow_dispatch` jobs attached to the protected `testprod` environment. Bootstrap uses direct Workload Identity Federation and does not impersonate the application deployer service account.
+3. The temporary Cloud Run role contains only `run.services.create`, `get`, `update`, `getIamPolicy`, `setIamPolicy`, and `operations.get`. It has no delete, Cloud Run Jobs, project IAM, or other service permissions. The IAM policy condition allows only the existing `roles/run.invoker` and `espacigoCloudRunServiceUpdater` grant types. Cloud Run does not expose `resource.name` for IAM Conditions, so this project-level role cannot be conditioned to the three service names. Its exposure is bounded by the exact WIF workflow/ref/environment and a hard maximum lifetime of 24 hours. The separate `iam.serviceAccounts.actAs` role is granted directly on only the API and two web runtime service accounts, with the same expiry. State access is granted only on the existing managed folder `espacigo/testprod/gcp/` using the existing object-only role, and also expires within 24 hours.
+4. The manual `initial-restore` workflow authenticates directly as that federated principal. Existing preflight checks, migration gate, digest manifest, Terraform plan allowlist, reviewed preview fingerprint, exact apply phrase, and approval environment still apply. The updater service account continues to handle normal release/rollout workflows.
+5. Immediately after the reviewed initial restore succeeds, the operator sets `enable_bootstrap=false` and applies this root again. That removes the temporary role grants, custom roles, provider, and pool. IAM conditions independently stop granting access at `bootstrap_expires_at`, even if cleanup is delayed.
+
+The initial enablement and final cleanup require a project IAM operator because the current application deployer is deliberately unable to create IAM roles, modify project IAM, or provision WIF. This root only describes that path; this PR does not run Terraform against Cloud or create any identity or grant.
+
+## Validation
+
+Run `terraform init -backend=false -input=false -lockfile=readonly`, `terraform fmt -check -recursive`, `terraform validate -no-color`, and `terraform test -no-color` in this directory. From the repository root, run `PYTHONPATH=scripts python3 -m unittest scripts.test_gcp08_bootstrap_expiry scripts.test_gcp08_bootstrap_workflow scripts.test_classify_gcp08_terraform_failure`. The tests use a mocked provider and do not need Cloud credentials or the remote backend.
