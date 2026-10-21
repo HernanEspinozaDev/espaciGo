@@ -35,6 +35,48 @@ GCP_PERMISSION_NAME = (
 DENIED_PERMISSION = re.compile(
     rf"(?i:permission)\s+[\"']({GCP_PERMISSION_NAME})[\"']\s+(?i:denied)",
 )
+HTTP_STATUS = re.compile(
+    r"(?:googleapi:\s*)?Error\s+(\d{3})\b|"
+    r"HTTP\s+(\d{3})\b|status\s+code\s+(\d{3})\b", re.IGNORECASE,
+)
+SAFE_HTTP_STATUSES = {400, 401, 403, 404, 409, 429, 500, 502, 503, 504}
+STATUS_REASONS = {
+    400: "invalid_argument", 401: "unauthenticated", 403: "permission_denied",
+    404: "not_found", 409: "conflict", 429: "quota_exceeded",
+    500: "internal_error", 502: "upstream_error", 503: "unavailable",
+    504: "timeout",
+}
+PROVIDER_REASONS = {
+    "serviceDisabled": "service_disabled",
+    "rateLimitExceeded": "quota_exceeded",
+    "quotaExceeded": "quota_exceeded",
+    "accessNotConfigured": "service_disabled",
+}
+PERMISSION_SERVICES = {
+    "run": "run.googleapis.com", "compute": "compute.googleapis.com",
+    "cloudsql": "sqladmin.googleapis.com", "secretmanager": "secretmanager.googleapis.com",
+    "iap": "iap.googleapis.com", "artifactregistry": "artifactregistry.googleapis.com",
+    "iam": "iam.googleapis.com", "storage": "storage.googleapis.com",
+    "resourcemanager": "cloudresourcemanager.googleapis.com",
+    "serviceusage": "serviceusage.googleapis.com",
+}
+RESOURCE_TYPES = {
+    ("run", "services"): "run.googleapis.com/Service",
+    ("compute", "instances"): "compute.googleapis.com/Instance",
+    ("compute", "networks"): "compute.googleapis.com/Network",
+    ("compute", "subnetworks"): "compute.googleapis.com/Subnetwork",
+    ("cloudsql", "instances"): "sqladmin.googleapis.com/Instance",
+    ("secretmanager", "secrets"): "secretmanager.googleapis.com/Secret",
+    ("iap", "webServices"): "iap.googleapis.com/WebService",
+    ("artifactregistry", "repositories"): "artifactregistry.googleapis.com/Repository",
+    ("iam", "roles"): "iam.googleapis.com/Role",
+    ("iam", "serviceAccounts"): "iam.googleapis.com/ServiceAccount",
+    ("storage", "objects"): "storage.googleapis.com/Object",
+    ("storage", "managedFolders"): "storage.googleapis.com/ManagedFolder",
+    ("resourcemanager", "projects"): "cloudresourcemanager.googleapis.com/Project",
+    ("serviceusage", "services"): "serviceusage.googleapis.com/Service",
+}
+DOMAIN_SERVICES = {service: service for service in PERMISSION_SERVICES.values()}
 
 
 def classify(stage, diagnostic):
@@ -53,6 +95,40 @@ def denied_permission(diagnostic):
     return match.group(1) if match else None
 
 
+def safe_details(diagnostic):
+    """Return only predefined or strictly validated fields; never return resource values."""
+    details = []
+    status_match = HTTP_STATUS.search(diagnostic)
+    status = int(next(group for group in status_match.groups() if group)) if status_match else None
+    provider_reason = next(
+        (mapped for token, mapped in PROVIDER_REASONS.items()
+         if re.search(rf"(?<![A-Za-z0-9]){re.escape(token)}(?![A-Za-z0-9])", diagnostic)),
+        None,
+    )
+    if status in SAFE_HTTP_STATUSES:
+        details.append(f"status={status}")
+        details.append(f"reason={provider_reason or STATUS_REASONS[status]}")
+
+    permission = denied_permission(diagnostic)
+    if permission:
+        details.append(f"permission={permission}")
+        namespace, resource = permission.split(".", 2)[:2]
+        service = PERMISSION_SERVICES.get(namespace)
+        if service:
+            details.append(f"service={service}")
+        resource_type = RESOURCE_TYPES.get((namespace, resource))
+        if resource_type:
+            details.append(f"resource_type={resource_type}")
+    else:
+        service = next((
+            name for domain, name in DOMAIN_SERVICES.items()
+            if re.search(rf"(?<![A-Za-z0-9.-]){re.escape(domain)}(?![A-Za-z0-9.-])", diagnostic)
+        ), None)
+        if service:
+            details.append(f"service={service}")
+    return details
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stage", choices=sorted(STAGES), required=True)
@@ -65,7 +141,8 @@ def main():
     except OSError:
         category = "unclassified"
     # Never echo diagnostic text, even when it contains values or credentials.
-    detail = f" permission={denied_permission(diagnostic)}" if category == "iam" and denied_permission(diagnostic) else ""
+    details = safe_details(diagnostic) if category == "iam" else []
+    detail = f" {' '.join(details)}" if details else ""
     print(f"GCP08_TERRAFORM_FAILURE stage={args.stage} category={category}{detail}")
     return 0
 
