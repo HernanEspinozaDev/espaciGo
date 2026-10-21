@@ -89,7 +89,11 @@ class ClassifyGcp08TerraformFailureTests(unittest.TestCase):
             )
         finally:
             os.unlink(path)
-        self.assertEqual(result.stdout.strip(), "GCP08_TERRAFORM_FAILURE stage=plan category=iam permission=run.services.getIamPolicy")
+        self.assertEqual(
+            result.stdout.strip(),
+            "GCP08_TERRAFORM_FAILURE stage=plan category=iam permission=run.services.getIamPolicy "
+            "service=run.googleapis.com resource_type=run.googleapis.com/Service",
+        )
         self.assertNotIn(sensitive_marker, result.stdout + result.stderr)
 
     def test_cli_reports_new_gcp_namespace_without_diagnostic_context(self):
@@ -105,8 +109,62 @@ class ClassifyGcp08TerraformFailureTests(unittest.TestCase):
             )
         finally:
             os.unlink(path)
-        self.assertEqual(result.stdout.strip(), "GCP08_TERRAFORM_FAILURE stage=plan category=iam permission=secretmanager.secrets.get")
+        self.assertEqual(
+            result.stdout.strip(),
+            "GCP08_TERRAFORM_FAILURE stage=plan category=iam permission=secretmanager.secrets.get "
+            "service=secretmanager.googleapis.com "
+            "resource_type=secretmanager.googleapis.com/Secret",
+        )
         self.assertNotIn(sensitive_marker, result.stdout + result.stderr)
+
+    def test_googleapi_permission_error_emits_only_safe_structured_fields(self):
+        sensitive_values = ("projects/secret-project", "db-prod-private", "user@example.test")
+        diagnostic = (
+            "googleapi: Error 403: Permission 'cloudsql.instances.get' denied on resource "
+            "'projects/secret-project/instances/db-prod-private' (caller user@example.test), forbidden"
+        )
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as stream:
+            stream.write(diagnostic)
+            path = stream.name
+        try:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--stage", "plan", path],
+                check=True, capture_output=True, text=True,
+            )
+        finally:
+            os.unlink(path)
+        self.assertEqual(
+            result.stdout.strip(),
+            "GCP08_TERRAFORM_FAILURE stage=plan category=iam status=403 reason=permission_denied "
+            "permission=cloudsql.instances.get service=sqladmin.googleapis.com "
+            "resource_type=sqladmin.googleapis.com/Instance",
+        )
+        for value in sensitive_values:
+            self.assertNotIn(value, result.stdout + result.stderr)
+
+    def test_provider_status_variants_are_bounded_to_predefined_codes(self):
+        from classify_gcp08_terraform_failure import safe_details
+
+        self.assertEqual(safe_details("Error 404: not found"), ["status=404", "reason=not_found"])
+        self.assertEqual(safe_details("HTTP 429: quota"), ["status=429", "reason=quota_exceeded"])
+        self.assertEqual(safe_details("status code 418: private details"), [])
+        self.assertEqual(safe_details("opaque 403 value"), [])
+        self.assertEqual(safe_details("Error 403: sqladmin.googleapis.com.evil/private"), [
+            "status=403", "reason=permission_denied",
+        ])
+
+    def test_service_disabled_provider_error_never_echoes_message_or_resource(self):
+        diagnostic = (
+            "googleapi: Error 403: sqladmin.googleapis.com API is disabled for "
+            "projects/secret-project, serviceDisabled"
+        )
+        from classify_gcp08_terraform_failure import safe_details
+
+        self.assertEqual(
+            safe_details(diagnostic),
+            ["status=403", "reason=service_disabled", "service=sqladmin.googleapis.com"],
+        )
+        self.assertNotIn("secret-project", " ".join(safe_details(diagnostic)))
 
     def test_policy_rejection_is_guard_and_unmatched_errors_stay_unclassified(self):
         self.assertEqual(classify("policy", "sensitive image and state data"), "guard")
