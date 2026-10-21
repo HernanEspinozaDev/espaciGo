@@ -156,7 +156,7 @@ resource "google_project_iam_custom_role" "dependency_metadata_reader" {
   title       = "EspaciGo GCP-08 temporary dependency metadata read"
   description = "Temporary read-only access to existing project, network, and enabled API metadata needed by the protected restore plan."
   stage       = "GA"
-  permissions = ["compute.networks.get", "resourcemanager.projects.get", "serviceusage.services.get"]
+  permissions = ["compute.networks.get", "resourcemanager.projects.get", "serviceusage.services.get", "serviceusage.services.list"]
 
   depends_on = [terraform_data.bootstrap_expiry_guard]
 }
@@ -169,7 +169,7 @@ resource "google_project_iam_member" "dependency_metadata_reader" {
 
   condition {
     title       = "gcp08-dependency-metadata-expiry"
-    description = "Expires with the protected initial-restore bootstrap window; grants only the three read permissions required for project and dependency metadata refresh."
+    description = "Expires with the protected initial-restore bootstrap window; grants only the four read permissions required for project, network, and service usage metadata refresh."
     expression  = local.bootstrap_expiry
   }
 
