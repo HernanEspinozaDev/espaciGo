@@ -23,6 +23,7 @@ PROBES = (
     ("cloud_run_service.api.describe", "describe", "espacigo-test-api"),
     ("cloud_run_service.public.describe", "describe", "espacigo-test-public"),
     ("cloud_run_service.private.describe", "describe", "espacigo-test-private"),
+    ("cloud_run_services.list", "list", None),
     ("cloud_run_service.api.get_iam_policy", "get-iam-policy", "espacigo-test-api"),
     ("cloud_run_service.public.get_iam_policy", "get-iam-policy", "espacigo-test-public"),
     ("cloud_run_service.private.get_iam_policy", "get-iam-policy", "espacigo-test-private"),
@@ -74,6 +75,11 @@ def build_rest_url(target):
     if target not in PROBE_BY_ENUM:
         raise ValueError("invalid target")
     operation, service = PROBE_BY_ENUM[target]
+    if operation == "list":
+        resource = "/".join(urllib.parse.quote(part, safe="") for part in (
+            "projects", PROJECT, "locations", REGION, "services",
+        ))
+        return f"{API_ROOT}/{resource}"
     if operation != "describe":
         raise ValueError("IAM policy probes use the gcloud read command")
     resource = "/".join(urllib.parse.quote(part, safe="") for part in (
@@ -289,7 +295,7 @@ def run_probe(target, private_root, runner=subprocess.run,
     if target not in PROBE_BY_ENUM:
         raise ValueError("invalid target")
     operation, _ = PROBE_BY_ENUM[target]
-    if operation == "describe":
+    if operation in {"describe", "list"}:
         return _run_rest_probe(target, private_root, runner, opener_factory, timeout)
     return _run_gcloud_probe(target, private_root, runner, timeout)
 
