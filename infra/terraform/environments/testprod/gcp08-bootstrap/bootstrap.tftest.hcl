@@ -19,6 +19,11 @@ run "disabled_by_default" {
   }
 
   assert {
+    condition     = length(google_project_iam_custom_role.dependency_metadata_reader) == 0 && length(google_project_iam_member.dependency_metadata_reader) == 0 && length(google_project_iam_custom_role.runtime_subnetwork_metadata_reader) == 0 && length(google_compute_subnetwork_iam_member.runtime_subnetwork_metadata_reader) == 0
+    error_message = "Disabled bootstrap must create no temporary dependency metadata permissions or bindings."
+  }
+
+  assert {
     condition     = length(local.bootstrap_pool_display_name) <= local.wif_display_name_max_chars && length(local.bootstrap_provider_display_name) <= local.wif_display_name_max_chars
     error_message = "Pool and provider display names must respect the Google API's 32-character limit."
   }
@@ -72,13 +77,23 @@ run "bootstrap_access_is_constrained_and_expires" {
   }
 
   assert {
+    condition     = toset(google_project_iam_custom_role.dependency_metadata_reader[0].permissions) == toset(["compute.networks.get", "serviceusage.services.get"]) && google_project_iam_member.dependency_metadata_reader[0].member == local.workload_member && google_project_iam_member.dependency_metadata_reader[0].condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"
+    error_message = "Project-scoped dependency metadata access must contain only the observed network/API read permissions and expire with the bootstrap."
+  }
+
+  assert {
+    condition     = toset(google_project_iam_custom_role.runtime_subnetwork_metadata_reader[0].permissions) == toset(["compute.subnetworks.get"]) && toset(keys(google_compute_subnetwork_iam_member.runtime_subnetwork_metadata_reader)) == toset(local.runtime_subnetwork_names) && alltrue([for grant in values(google_compute_subnetwork_iam_member.runtime_subnetwork_metadata_reader) : grant.member == local.workload_member && grant.region == var.region && grant.condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"])
+    error_message = "Subnetwork metadata read must expire and be bound only to the two existing serverless subnetworks."
+  }
+
+  assert {
     condition     = google_project_iam_member.iam_role_metadata_reader[0].role == google_project_iam_custom_role.iam_role_metadata_reader[0].name && google_project_iam_member.iam_role_metadata_reader[0].member == local.workload_member && google_project_iam_member.iam_role_metadata_reader[0].condition[0].expression == "request.time < timestamp('${var.bootstrap_expires_at}')"
     error_message = "IAM role metadata read must go only to the exact bootstrap workflow principal and share its expiry; it must not depend on IAM resource name attributes."
   }
 
   assert {
-    condition     = toset(google_project_iam_custom_role.runtime_service_account_user[0].permissions) == toset(["iam.serviceAccounts.actAs"])
-    error_message = "Temporary service-account attachment access must contain only actAs."
+    condition     = toset(google_project_iam_custom_role.runtime_service_account_user[0].permissions) == toset(["iam.serviceAccounts.actAs", "iam.serviceAccounts.get"])
+    error_message = "Temporary service-account attachment and metadata access must contain only actAs and get."
   }
 
   assert {

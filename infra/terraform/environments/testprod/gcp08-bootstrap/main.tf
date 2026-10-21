@@ -17,6 +17,10 @@ locals {
     "projects/${var.project_id}/serviceAccounts/espacigo-test-public-web@${var.project_id}.iam.gserviceaccount.com",
     "projects/${var.project_id}/serviceAccounts/espacigo-test-private-web@${var.project_id}.iam.gserviceaccount.com",
   ]
+  runtime_subnetwork_names = [
+    "espacigo-testprod-serverless",
+    "espacigo-testprod-api-serverless",
+  ]
 }
 
 resource "terraform_data" "bootstrap_expiry_guard" {
@@ -144,6 +148,62 @@ resource "google_project_iam_member" "iam_role_metadata_reader" {
   depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
 }
 
+resource "google_project_iam_custom_role" "dependency_metadata_reader" {
+  count       = var.enable_bootstrap ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoGcp08DependencyReader"
+  title       = "EspaciGo GCP-08 temporary dependency metadata read"
+  description = "Temporary read-only access to the existing network and enabled API metadata needed by the protected restore plan."
+  stage       = "GA"
+  permissions = ["compute.networks.get", "serviceusage.services.get"]
+
+  depends_on = [terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_member" "dependency_metadata_reader" {
+  count   = var.enable_bootstrap ? 1 : 0
+  project = var.project_id
+  role    = google_project_iam_custom_role.dependency_metadata_reader[0].name
+  member  = local.workload_member
+
+  condition {
+    title       = "gcp08-dependency-metadata-expiry"
+    description = "Expires with the protected initial-restore bootstrap window; grants only the two read permissions required for dependency refresh."
+    expression  = local.bootstrap_expiry
+  }
+
+  depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_custom_role" "runtime_subnetwork_metadata_reader" {
+  count       = var.enable_bootstrap ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoGcp08SubnetworkReader"
+  title       = "EspaciGo GCP-08 temporary subnetwork metadata read"
+  description = "Temporary read-only access to the two existing serverless subnetworks used by the protected restore plan."
+  stage       = "GA"
+  permissions = ["compute.subnetworks.get"]
+
+  depends_on = [terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_compute_subnetwork_iam_member" "runtime_subnetwork_metadata_reader" {
+  for_each   = var.enable_bootstrap ? toset(local.runtime_subnetwork_names) : toset([])
+  project    = var.project_id
+  region     = var.region
+  subnetwork = each.value
+  role       = google_project_iam_custom_role.runtime_subnetwork_metadata_reader[0].name
+  member     = local.workload_member
+
+  condition {
+    title       = "gcp08-subnetwork-metadata-expiry"
+    description = "Expires with the bootstrap and grants read access on only the two existing serverless subnetworks."
+    expression  = local.bootstrap_expiry
+  }
+
+  depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
+}
+
 resource "google_project_iam_custom_role" "v67_cloudsql_metadata_reader" {
   count       = var.enable_bootstrap ? 1 : 0
   project     = var.project_id
@@ -235,9 +295,9 @@ resource "google_project_iam_custom_role" "runtime_service_account_user" {
   project     = var.project_id
   role_id     = "espacigoGcp08RuntimeServiceAccountUser"
   title       = "EspaciGo GCP-08 temporary runtime service account attachment"
-  description = "Temporary iam.serviceAccounts.actAs for only the API and two web runtime service accounts."
+  description = "Temporary actAs and metadata read for only the API and two web runtime service accounts."
   stage       = "GA"
-  permissions = ["iam.serviceAccounts.actAs"]
+  permissions = ["iam.serviceAccounts.actAs", "iam.serviceAccounts.get"]
 
   depends_on = [terraform_data.bootstrap_expiry_guard]
 }
