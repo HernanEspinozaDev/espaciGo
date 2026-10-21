@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "status": "pending",
+  "status": "verified",
   "target": {
     "project": "espacigo-testprod",
     "instance": "espacigo-testprod-db",
@@ -9,16 +9,26 @@
     "collation": "es_ES.utf8"
   },
   "checks": {
-    "v67_schema_verified": false,
-    "runtime_login_and_grants_verified": false,
-    "runtime_connectivity_probe_passed": false,
-    "password_secret_enabled": false
+    "v67_schema_verified": true,
+    "runtime_login_and_grants_verified": true,
+    "runtime_connectivity_probe_passed": true,
+    "password_secret_enabled": true
   },
   "password_secret": {
     "id": "espacigo-test-database-password-v67",
-    "version": "",
-    "state": "MISSING"
+    "version": "1",
+    "state": "ENABLED"
   },
-  "review": null,
-  "evidence_refs": []
+  "review": {
+    "reviewer": "HernanEspinozaDev",
+    "pr": 473,
+    "commit": "0637ca0dd2b239c44f4f38236c82328594d7152c",
+    "reviewed_at": "2026-10-21T05:47:41Z"
+  },
+  "evidence_refs": [
+    "https://github.com/HernanEspinozaDev/espaciGo/pull/473",
+    "https://github.com/HernanEspinozaDev/espaciGo/actions/runs/39551248867",
+    "https://github.com/HernanEspinozaDev/espaciGo/actions/runs/39551248887",
+    "https://github.com/HernanEspinozaDev/espaciGo/actions/runs/39551248948"
+  ]
 }

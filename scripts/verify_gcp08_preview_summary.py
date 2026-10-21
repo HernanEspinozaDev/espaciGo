@@ -5,6 +5,8 @@ import argparse
 import re
 import sys
 
+from verify_gcp07_plan import BOOTSTRAP_IAM, initial_iam_summary
+
 SHA = re.compile(r"^[0-9a-f]{64}$")
 TARGETS = {
     "google_cloud_run_v2_service.api[0]": "espacigo-api",
@@ -36,7 +38,21 @@ def valid(summary, fingerprint=None):
         if not re.fullmatch(re.escape(PREFIX + repository) + r"@sha256:[0-9a-f]{64}", image):
             return False
         seen.add(address)
-    return seen == set(TARGETS)
+    if seen != set(TARGETS):
+        return False
+    iam_changes = summary.get("iam_changes")
+    if not isinstance(iam_changes, list) or len(iam_changes) != len(BOOTSTRAP_IAM):
+        return False
+    iam_seen = set()
+    for change in iam_changes:
+        if not isinstance(change, dict):
+            return False
+        address = change.get("address")
+        expected = initial_iam_summary(address)
+        if expected is None or address in iam_seen or change != expected:
+            return False
+        iam_seen.add(address)
+    return iam_seen == set(BOOTSTRAP_IAM)
 
 
 def main(path, fingerprint):
