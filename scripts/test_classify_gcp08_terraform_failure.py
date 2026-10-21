@@ -145,6 +145,21 @@ class ClassifyGcp08TerraformFailureTests(unittest.TestCase):
         for value in sensitive_values:
             self.assertNotIn(value, result.stdout + result.stderr)
 
+    def test_sql_database_refresh_failure_reports_allowlisted_address_and_operation(self):
+        diagnostic = (
+            "googleapi: Error 403: Permission 'cloudsql.databases.get' denied on "
+            "projects/private-project/instances/private-instance/databases/private-db\n"
+            "  with google_sql_database.application[0],\n  on main.tf line 670"
+        )
+        details = safe_details(diagnostic)
+        self.assertEqual(details, [
+            "status=403", "reason=permission_denied", "permission=cloudsql.databases.get",
+            "service=sqladmin.googleapis.com", "resource_type=sqladmin.googleapis.com/Database",
+            "address=cloud_sql_database.legacy_application", "operation=get",
+        ])
+        for value in ("private-project", "private-instance", "private-db"):
+            self.assertNotIn(value, " ".join(details))
+
     def test_provider_status_variants_are_bounded_to_predefined_codes(self):
         from classify_gcp08_terraform_failure import safe_details
 

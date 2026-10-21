@@ -8,7 +8,9 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
 
-from gcp08_bootstrap_state_inventory import RESOURCE_TYPES, diagnose, summarize_state_addresses
+from gcp08_bootstrap_state_inventory import (
+    RESOURCE_TYPES, STATE_ADDRESS_ALIASES, diagnose, summarize_state_addresses,
+)
 
 
 class BootstrapStateInventoryTests(unittest.TestCase):
@@ -19,6 +21,9 @@ class BootstrapStateInventoryTests(unittest.TestCase):
             'google_cloud_run_v2_service.web["private"]',
             'google_cloud_run_v2_service_iam_member.private_iap_invoker[0]',
             "data.google_sql_database_instance.v67_target[0]",
+            "google_sql_database_instance.postgres[0]",
+            "google_sql_database.application[0]",
+            "data.google_sql_database.v67_target[0]",
             f'google_iap_web_cloud_run_service_iam_member.private_evaluators["{marker}"]',
             "google_secret_manager_secret.runtime[\"database-password\"]",
             42,
@@ -28,10 +33,16 @@ class BootstrapStateInventoryTests(unittest.TestCase):
             "run_service_iam": 1,
             "iap_service_iam": 1,
             "service_account_iam": 0,
-            "sql_instance": 1,
-            "sql_database": 0,
+            "sql_instance": 2,
+            "sql_database": 2,
+            "legacy_postgres_managed": 1,
+            "v67_instance_data": 1,
+            "candidate_instance_data": 0,
+            "v67_database_data": 1,
+            "legacy_database_managed": 1,
         })
-        self.assertEqual(tuple(counts), tuple(label for label, _ in RESOURCE_TYPES))
+        self.assertEqual(tuple(counts)[:len(RESOURCE_TYPES)], tuple(label for label, _ in RESOURCE_TYPES))
+        self.assertEqual(tuple(counts)[len(RESOURCE_TYPES):], tuple(STATE_ADDRESS_ALIASES.values()))
         self.assertNotIn(marker, str(counts))
 
     def test_state_list_output_is_private_and_only_sanitized_counts_are_printed(self):
@@ -42,6 +53,9 @@ class BootstrapStateInventoryTests(unittest.TestCase):
             kwargs["stdout"].write(
                 'google_cloud_run_v2_service.web["private"]\n'
                 f'google_iap_web_cloud_run_service_iam_member.private["{marker}"]\n'
+                'google_sql_database_instance.postgres[0]\n'
+                'google_sql_database.application[0]\n'
+                'data.google_sql_database_instance.v67_target[0]\n'
             )
             return SimpleNamespace(returncode=0)
 
@@ -55,6 +69,10 @@ class BootstrapStateInventoryTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(log.stat().st_mode), 0o600)
         self.assertIn("run_services=1", output.getvalue())
         self.assertIn("iap_service_iam=1", output.getvalue())
+        self.assertIn("legacy_postgres_managed=1", output.getvalue())
+        self.assertIn("legacy_database_managed=1", output.getvalue())
+        self.assertIn("v67_instance_data=1", output.getvalue())
+        self.assertIn("backend=gcs workspace=default policy_mode=bootstrap", output.getvalue())
         self.assertNotIn(marker, output.getvalue())
 
     def test_state_list_failure_prints_no_provider_or_backend_output(self):

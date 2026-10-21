@@ -73,6 +73,7 @@ RESOURCE_TYPES = {
     ("compute", "networks"): "compute.googleapis.com/Network",
     ("compute", "subnetworks"): "compute.googleapis.com/Subnetwork",
     ("cloudsql", "instances"): "sqladmin.googleapis.com/Instance",
+    ("cloudsql", "databases"): "sqladmin.googleapis.com/Database",
     ("secretmanager", "secrets"): "secretmanager.googleapis.com/Secret",
     ("iap", "webServices"): "iap.googleapis.com/WebService",
     ("artifactregistry", "repositories"): "artifactregistry.googleapis.com/Repository",
@@ -85,6 +86,11 @@ RESOURCE_TYPES = {
 }
 DOMAIN_SERVICES = {service: service for service in PERMISSION_SERVICES.values()}
 TERRAFORM_ADDRESSES = {
+    "google_sql_database_instance.postgres[0]": "cloud_sql_instance.legacy_postgres",
+    "google_sql_database.application[0]": "cloud_sql_database.legacy_application",
+    "data.google_sql_database_instance.v67_target[0]": "cloud_sql_instance.v67_target",
+    "data.google_sql_database_instance.gcp06_candidate[0]": "cloud_sql_instance.gcp06_candidate",
+    "data.google_sql_database.v67_target[0]": "cloud_sql_database.v67_target",
     "google_cloud_run_v2_service.api[0]": "cloud_run_v2_service.api",
     'google_cloud_run_v2_service.web["public"]': "cloud_run_v2_service.web.public",
     'google_cloud_run_v2_service.web["private"]': "cloud_run_v2_service.web.private",

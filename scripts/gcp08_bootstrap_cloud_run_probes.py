@@ -28,8 +28,7 @@ RUNTIME_SERVICE_ACCOUNTS = {
     "private": "espacigo-test-private-web@espacigo-testprod.iam.gserviceaccount.com",
 }
 TESTED_RUN_PERMISSIONS = tuple(sorted({
-    "run.operations.get", "run.services.create", "run.services.get",
-    "run.services.getIamPolicy", "run.services.list", "run.services.setIamPolicy",
+    "run.services.get", "run.services.getIamPolicy", "run.services.setIamPolicy",
     "run.services.update",
 }))
 TESTED_SA_PERMISSIONS = ("iam.serviceAccounts.actAs",)

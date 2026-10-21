@@ -413,12 +413,10 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertEqual(observed["url"], "https://run.googleapis.com/v2/projects/espacigo-testprod/"
                          "locations/southamerica-west1/services/espacigo-test-private:testIamPermissions")
         self.assertEqual(set(observed["body"]["permissions"]), {
-            "run.operations.get", "run.services.create", "run.services.get",
-            "run.services.getIamPolicy", "run.services.list", "run.services.setIamPolicy",
+            "run.services.get", "run.services.getIamPolicy", "run.services.setIamPolicy",
             "run.services.update",
         })
         emitted = output.getvalue()
-        self.assertIn("permission=run.services.create result=granted", emitted)
         self.assertIn("permission=run.services.update result=granted", emitted)
         self.assertIn("permission=run.services.get result=not_granted", emitted)
         self.assertNotIn(marker, emitted)
