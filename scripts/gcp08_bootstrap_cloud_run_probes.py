@@ -46,6 +46,7 @@ TESTED_RUN_PARENT_PERMISSIONS = tuple(sorted({
 TESTED_SA_PERMISSIONS = tuple(sorted({
     "iam.serviceAccounts.actAs", "iam.serviceAccounts.get",
 }))
+TESTED_SA_GET_PERMISSION = ("iam.serviceAccounts.get",)
 TESTED_SA_POLICY_PERMISSIONS = ("iam.serviceAccounts.getIamPolicy",)
 TESTED_IAP_PERMISSIONS = tuple(sorted({
     "iap.webServices.getIamPolicy", "iap.webServices.setIamPolicy",
@@ -79,6 +80,7 @@ PROBES = (
     ("runtime_service_account.public.test_act_as", "sa-test-iam", "public"),
     ("runtime_service_account.private.test_act_as", "sa-test-iam", "private"),
     ("service_account.deployer.metadata.get", "sa-metadata-get", "deployer"),
+    ("service_account.deployer.test_get_metadata", "sa-test-get-metadata", "deployer"),
     ("service_account.deployer.iam_policy.get", "sa-get-iam-policy", "deployer"),
     ("service_account.deployer.test_get_iam_policy", "sa-test-get-iam-policy", "deployer"),
     ("service_account.api.metadata.get", "sa-metadata-get", "api"),
@@ -197,7 +199,9 @@ def build_rest_url(target):
             raise ValueError("invalid runtime service-account probe")
         account = RUNTIME_SERVICE_ACCOUNTS[service]
         return f"{IAM_API_ROOT}/projects/{PROJECT}/serviceAccounts/{urllib.parse.quote(account, safe='')}:testIamPermissions"
-    if operation in {"sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy"}:
+    if operation in {
+        "sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy", "sa-test-get-metadata",
+    }:
         if service not in SERVICE_ACCOUNT_RESOURCES:
             raise ValueError("invalid service-account probe")
         account = SERVICE_ACCOUNT_RESOURCES[service]
@@ -421,6 +425,26 @@ def read_probe_configuration(var_file):
     }
 
 
+def safe_auth_context(environ=None):
+    """Report credential-source environment flags without exposing paths or identities."""
+    environment = os.environ if environ is None else environ
+    terraform_file = environment.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    gcloud_file = environment.get("CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE", "")
+    same_file = bool(terraform_file and gcloud_file) and (
+        os.path.abspath(os.path.expanduser(terraform_file))
+        == os.path.abspath(os.path.expanduser(gcloud_file))
+    )
+    terraform_impersonation = bool(environment.get("GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"))
+    gcloud_impersonation = bool(environment.get("CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT"))
+    return {
+        "terraform_adc": "present" if terraform_file else "absent",
+        "gcloud_credential_override": "present" if gcloud_file else "absent",
+        "shared_credential_file": "yes" if same_file else "no",
+        "terraform_impersonation_env": "present" if terraform_impersonation else "absent",
+        "gcloud_impersonation_env": "present" if gcloud_impersonation else "absent",
+    }
+
+
 def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     project_number=None, private_service_name=None,
                     sql_instance_name=None):
@@ -466,6 +490,7 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
         method, body = "GET", None
     elif operation in {
         "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
+        "sa-test-get-metadata",
         "secretmanager-secret-test-iam",
     }:
         url = build_rest_url(target)
@@ -477,6 +502,8 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
             requested_permissions = TESTED_SA_PERMISSIONS
         elif operation == "sa-test-get-iam-policy":
             requested_permissions = TESTED_SA_POLICY_PERMISSIONS
+        elif operation == "sa-test-get-metadata":
+            requested_permissions = TESTED_SA_GET_PERMISSION
         else:
             requested_permissions = TESTED_SECRET_PERMISSIONS
         method = "POST"
@@ -508,12 +535,14 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
             url, token, opener_factory, timeout, method=method, body=body,
             read_success_body=operation in {
                 "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
+                "sa-test-get-metadata",
                 "secretmanager-secret-test-iam", "iap-test-iam", "project-test-iam",
             },
         )
         if isinstance(http_status, int) and 200 <= http_status < 300:
             if operation in {
                 "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-iam-policy",
+                "sa-test-get-metadata",
                 "secretmanager-secret-test-iam", "iap-test-iam", "project-test-iam",
             }:
                 response_path = private_dir / "response.json"
@@ -529,6 +558,8 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     allowed = SAFE_SA_PERMISSIONS
                 elif operation == "sa-test-get-iam-policy":
                     allowed = set(TESTED_SA_POLICY_PERMISSIONS)
+                elif operation == "sa-test-get-metadata":
+                    allowed = set(TESTED_SA_GET_PERMISSION)
                 elif operation == "secretmanager-secret-test-iam":
                     allowed = SAFE_SECRET_MANAGER_PERMISSIONS
                 elif operation == "iap-test-iam":
@@ -547,6 +578,8 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                 elif operation == "sa-test-iam":
                     method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
                 elif operation == "sa-test-get-iam-policy":
+                    method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
+                elif operation == "sa-test-get-metadata":
                     method, resource_scope = "serviceAccounts.testIamPermissions", "service_account"
                 elif operation == "iap-test-iam":
                     method, resource_scope = "webServices.testIamPermissions", "iap_web_service"
@@ -626,7 +659,7 @@ def run_probe(target, private_root, runner=subprocess.run,
     if operation in {
         "describe", "list", "iap-get-iam-policy", "iap-test-iam", "project-get",
         "project-test-iam", "sql-instance-get",
-        "run-test-iam", "run-parent-test-iam", "sa-test-iam",
+        "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-metadata",
         "sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy",
         "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
         "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
@@ -647,6 +680,8 @@ def main():
     private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(private_root, 0o700)
     config = read_probe_configuration(args.var_file)
+    auth_fields = " ".join(f"{key}={value}" for key, value in safe_auth_context().items())
+    print(f"GCP08_AUTH_CONTEXT stage=bootstrap {auth_fields}", flush=True)
     for target, _, _ in PROBES:
         run_probe(target, private_root, **config)
     return 0

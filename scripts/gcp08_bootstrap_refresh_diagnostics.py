@@ -12,6 +12,7 @@ from gcp08_bootstrap_target_diagnostics import TARGETS
 MAX_LOG_BYTES = 2_000_000
 SAFE_DETAIL_KEYS = {
     "status", "reason", "permission", "service", "resource_type", "address", "operation",
+    "service_account",
 }
 
 
