@@ -8,19 +8,19 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Preview or re-plan and apply an approved Cloud Run plan
+        description: Preview/apply Cloud Run, or inspect/remove the two approved legacy SQL state bindings
         required: true
         type: choice
-        options: [preview, apply]
+        options: [preview, apply, state-inspect, state-remove]
       operation:
-        description: Existing image update or the one-time initial V67 Cloud Run restore
+        description: Existing image update, initial V67 restore, or legacy SQL state reconciliation
         required: true
         type: choice
         default: update
-        options: [update, initial-restore]
+        options: [update, initial-restore, legacy-state-reconcile]
       release_run_id:
-        description: Successful application-release run on main
-        required: true
+        description: Successful application-release run on main (not used for state reconciliation)
+        required: false
         type: string
       preview_run_id:
         description: Required for apply; run that produced the reviewed summary
@@ -31,9 +31,19 @@ on:
         required: false
         type: string
       confirmation:
-        description: Type APPLY GCP-07D for updates or APPLY GCP-08 INITIAL RESTORE for first creation
+        description: Exact confirmation for apply or legacy state removal
         required: false
         type: string
+      expected_state_serial:
+        description: State serial from a successful state-inspect run; required for state-remove
+        required: false
+        type: string
+      legacy_instance_absence:
+        description: Attest that a human-owner SQLAdmin GET returned 404 for the exact legacy instance
+        required: true
+        type: choice
+        default: unverified
+        options: [unverified, owner-get-404]
 
 permissions:
   contents: read
@@ -44,7 +54,9 @@ concurrency:
 
 jobs:
   preflight:
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_run' || inputs.operation != 'legacy-state-reconcile')
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -90,9 +102,141 @@ jobs:
           SCHEMA_BASELINE_SHA: ${{ vars.GCP07D_SCHEMA_BASELINE_SHA }}
         run: python3 scripts/verify_gcp07_manifest_scope.py preflight-release/manifest.json
 
+  legacy_state_reconcile:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      inputs.operation == 'legacy-state-reconcile' &&
+      (inputs.mode == 'state-inspect' || inputs.mode == 'state-remove') &&
+      github.actor_id == '176093371'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: testprod
+    env:
+      TF_DATA_DIR: ${{ runner.temp }}/gcp08-state-reconcile/terraform-data
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
+        with:
+          terraform_version: 1.16.6
+          terraform_wrapper: false
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: projects/447373903153/locations/global/workloadIdentityPools/espacigo-gcp08-bootstrap/providers/espacigo-initial-restore
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+        with:
+          version: '>= 363.0.0'
+          project_id: espacigo-testprod
+      - name: Verify cleanup identity and operator gates
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_REPOSITORY_OWNER_ID: ${{ github.repository_owner_id }}
+          GITHUB_ACTOR_ID: ${{ github.actor_id }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GCP08_CLEANUP_ENVIRONMENT: testprod
+          GCP08_CLEANUP_MODE: ${{ inputs.mode }}
+          GCP08_STATE_CLEANUP_CONFIRMATION: ${{ inputs.confirmation }}
+          GCP08_LEGACY_ABSENCE_ATTESTATION: ${{ inputs.legacy_instance_absence }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from scripts.gcp08_legacy_state_reconcile import CONFIRM_REMOVE, verify_identity, _context_from_env
+          if not verify_identity(_context_from_env()):
+              raise SystemExit("GCP08_STATE_RECONCILE category=blocked reason=identity_mismatch")
+          mode = os.environ.get("GCP08_CLEANUP_MODE")
+          if mode not in {"state-inspect", "state-remove"}:
+              raise SystemExit("GCP08_STATE_RECONCILE category=blocked reason=mode_mismatch")
+          if mode == "state-remove":
+              if os.environ.get("GCP08_STATE_CLEANUP_CONFIRMATION") != CONFIRM_REMOVE:
+                  raise SystemExit("GCP08_STATE_RECONCILE category=blocked reason=confirmation_mismatch")
+              if os.environ.get("GCP08_LEGACY_ABSENCE_ATTESTATION") != "owner-get-404":
+                  raise SystemExit("GCP08_STATE_RECONCILE category=blocked reason=owner_get_404_required")
+          print("GCP08_STATE_RECONCILE category=identity_verified")
+          PY
+      - name: Initialize canonical state backend and select default workspace
+        env:
+          GCP08_PRIVATE_DIR: ${{ runner.temp }}/gcp08-state-reconcile
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$GCP08_PRIVATE_DIR"
+          chmod 700 "$GCP08_PRIVATE_DIR"
+          cd infra/terraform/environments/testprod/gcp
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=espacigo-testprod-tfstate-447373903153-gcp" \
+            -backend-config="prefix=espacigo/testprod/gcp" \
+            > "$GCP08_PRIVATE_DIR/init.log" 2>&1 || {
+              echo "GCP08_STATE_RECONCILE category=blocked reason=backend_init_failed"; exit 1;
+            }
+          terraform workspace select default > "$GCP08_PRIVATE_DIR/workspace.log" 2>&1 || {
+            echo "GCP08_STATE_RECONCILE category=blocked reason=workspace_select_failed"; exit 1;
+          }
+      - name: Inspect exact legacy SQL state bindings
+        if: inputs.mode == 'state-inspect'
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_REPOSITORY_OWNER_ID: ${{ github.repository_owner_id }}
+          GITHUB_ACTOR_ID: ${{ github.actor_id }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GCP08_CLEANUP_ENVIRONMENT: testprod
+        run: |
+          set -euo pipefail
+          python3 scripts/gcp08_legacy_state_reconcile.py inspect \
+            --terraform-dir "$GITHUB_WORKSPACE/infra/terraform/environments/testprod/gcp" \
+            --private-dir "$RUNNER_TEMP/gcp08-state-reconcile/inspect"
+      - name: Back up and remove only the inspected legacy bindings
+        if: inputs.mode == 'state-remove'
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REPOSITORY_ID: ${{ github.repository_id }}
+          GITHUB_REPOSITORY_OWNER_ID: ${{ github.repository_owner_id }}
+          GITHUB_ACTOR_ID: ${{ github.actor_id }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GCP08_CLEANUP_ENVIRONMENT: testprod
+          GCP08_CLEANUP_MODE: ${{ inputs.mode }}
+          GCP08_STATE_CLEANUP_CONFIRMATION: ${{ inputs.confirmation }}
+          GCP08_LEGACY_ABSENCE_ATTESTATION: ${{ inputs.legacy_instance_absence }}
+          EXPECTED_STATE_SERIAL: ${{ inputs.expected_state_serial }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_STATE_SERIAL" =~ ^[0-9]+$ ]] || { echo "GCP08_STATE_RECONCILE category=blocked reason=state_serial_required"; exit 1; }
+          python3 scripts/gcp08_legacy_state_reconcile.py remove \
+            --terraform-dir "$GITHUB_WORKSPACE/infra/terraform/environments/testprod/gcp" \
+            --private-dir "$RUNNER_TEMP/gcp08-state-reconcile/remove" \
+            --expected-state-serial "$EXPECTED_STATE_SERIAL" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT"
+      - name: Remove private Terraform files
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/gcp08-state-reconcile"
+          rm -f infra/terraform/environments/testprod/gcp/terraform.tfstate \
+            infra/terraform/environments/testprod/gcp/terraform.tfstate.backup
+
   rollout:
     needs: preflight
-    if: needs.preflight.outputs.ready == 'true' && needs.preflight.outputs.migration_free == 'true' && (github.event_name != 'workflow_dispatch' || inputs.operation != 'initial-restore' || github.actor_id == '176093371')
+    if: >-
+      needs.preflight.outputs.ready == 'true' &&
+      needs.preflight.outputs.migration_free == 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.operation != 'legacy-state-reconcile') &&
+      (github.event_name != 'workflow_dispatch' || inputs.operation != 'initial-restore' || github.actor_id == '176093371')
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: testprod

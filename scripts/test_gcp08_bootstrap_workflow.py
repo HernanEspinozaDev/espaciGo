@@ -117,6 +117,28 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
         self.assertIn("terraform init -backend=false -input=false -lockfile=readonly", workflow)
         self.assertIn("terraform test -no-color", workflow)
 
+    def test_legacy_state_reconcile_is_a_separate_manual_protected_operation(self):
+        workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
+        preflight = re.search(r"(?ms)^  preflight:\n(.*?)(?=^  [a-z][a-z_-]*:\n|\Z)", workflow)
+        cleanup = re.search(r"(?ms)^  legacy_state_reconcile:\n(.*?)(?=^  [a-z][a-z_-]*:\n|\Z)", workflow)
+        rollout = re.search(r"(?ms)^  rollout:\n(.*?)(?=^  [a-z][a-z_-]*:\n|\Z)", workflow)
+        self.assertIsNotNone(preflight)
+        self.assertIsNotNone(cleanup)
+        self.assertIsNotNone(rollout)
+        self.assertEqual(len(re.findall(r"(?m)^    if:", preflight.group(1))), 1)
+        self.assertIn("inputs.operation != 'legacy-state-reconcile'", preflight.group(1))
+        self.assertIn("github.event_name == 'workflow_dispatch'", cleanup.group(1))
+        self.assertIn("inputs.mode == 'state-inspect'", cleanup.group(1))
+        self.assertIn("inputs.mode == 'state-remove'", cleanup.group(1))
+        self.assertIn("environment: testprod", cleanup.group(1))
+        self.assertIn("github.actor_id == '176093371'", cleanup.group(1))
+        self.assertIn("inputs.operation == 'legacy-state-reconcile'", cleanup.group(1))
+        self.assertIn("workloadIdentityPools/espacigo-gcp08-bootstrap/providers/espacigo-initial-restore", cleanup.group(1))
+        self.assertIn("-lock-timeout=5m", workflow)
+        self.assertNotIn("terraform state rm", rollout.group(1))
+        self.assertIn("inputs.operation != 'legacy-state-reconcile'", rollout.group(1))
+        self.assertIn("group: testprod-cloud-run-rollout", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
