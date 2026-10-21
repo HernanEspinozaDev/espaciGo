@@ -116,6 +116,33 @@ resource "google_project_iam_member" "cloud_run_bootstrap" {
   depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
 }
 
+resource "google_project_iam_custom_role" "iam_role_metadata_reader" {
+  count       = var.enable_bootstrap ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoGcp08IamRoleReader"
+  title       = "EspaciGo GCP-08 temporary IAM role metadata read"
+  description = "Temporary read-only access to IAM role definitions needed by the initial Cloud Run restore plan."
+  stage       = "GA"
+  permissions = ["iam.roles.get"]
+
+  depends_on = [terraform_data.bootstrap_expiry_guard]
+}
+
+resource "google_project_iam_member" "iam_role_metadata_reader" {
+  count   = var.enable_bootstrap ? 1 : 0
+  project = var.project_id
+  role    = google_project_iam_custom_role.iam_role_metadata_reader[0].name
+  member  = local.workload_member
+
+  condition {
+    title       = "gcp08-iam-role-read-expiry"
+    description = "Expires automatically with the GCP-08 bootstrap window; read-only IAM role metadata access."
+    expression  = local.bootstrap_expiry
+  }
+
+  depends_on = [google_iam_workload_identity_pool_provider.bootstrap, terraform_data.bootstrap_expiry_guard]
+}
+
 resource "google_project_iam_custom_role" "v67_cloudsql_metadata_reader" {
   count       = var.enable_bootstrap ? 1 : 0
   project     = var.project_id
