@@ -167,6 +167,9 @@ def main() -> int:
         "run.jobs.",
     )):
         errors.append("Cloud Build deployer role must not read secrets/SQL, delete services, or run Jobs")
+    container_analysis_permissions = set(re.findall(r'"(containeranalysis\.[^"]+)"', cloud_build_role.group(1))) if cloud_build_role else set()
+    if container_analysis_permissions != {"containeranalysis.occurrences.list"}:
+        errors.append("Cloud Build deployer may only list Container Analysis occurrences to verify image provenance")
     if 'toset(["database-migrator-password", "gcp06-sql-inspector-credential"])' not in terraform:
         errors.append("the existing migrator and SQL inspector secret containers must remain in Terraform state with their optional gates off")
     migrator_grant = re.search(
