@@ -10,13 +10,15 @@ import urllib.parse
 from contextlib import redirect_stdout
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from gcp08_bootstrap_cloud_run_probes import (
     PROBES, SAFE_CATEGORIES, _write_private_response, build_gcloud_command,
-    build_rest_url, classify_rest_response, read_probe_configuration, run_probe, _sqladmin_rest_url,
+    build_rest_url, classify_rest_response, probe_configuration_matches,
+    read_probe_configuration, run_probe, _sqladmin_rest_url,
     safe_auth_context, safe_rest_fields,
 )
+import gcp08_bootstrap_cloud_run_probes as cloud_run_probes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -276,8 +278,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("token-hidden", emitted)
 
     def test_fixed_allowlist_uses_rest_describe_and_read_only_iam_commands(self):
-        self.assertEqual(len(PROBES), 39)
-        self.assertEqual(len({target for target, _, _ in PROBES}), 39)
+        self.assertEqual(len(PROBES), 42)
+        self.assertEqual(len({target for target, _, _ in PROBES}), 42)
         self.assertEqual({operation for _, operation, _ in PROBES}, {
             "describe", "get-iam-policy", "list", "iap-get-iam-policy", "iap-test-iam",
             "project-get", "project-test-iam",
@@ -285,7 +287,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             "compute-network-get", "compute-subnetwork-get", "serviceusage-service-get",
             "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
             "secretmanager-secret-test-iam", "sa-metadata-get", "sa-get-iam-policy",
-            "sa-test-get-iam-policy", "sa-test-get-metadata",
+            "sa-test-get-iam-policy", "sa-test-get-metadata", "run-get-iam-policy-v2",
         })
         self.assertEqual({service for _, operation, service in PROBES
                           if service is not None and operation not in {
@@ -296,6 +298,7 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                               "secretmanager-secret-get", "secretmanager-secret-get-iam-policy",
                               "secretmanager-secret-test-iam", "sa-metadata-get",
                               "sa-get-iam-policy", "sa-test-get-iam-policy", "sa-test-get-metadata",
+                              "run-get-iam-policy-v2",
                           }}, {
             "espacigo-test-api", "espacigo-test-public", "espacigo-test-private",
         })
@@ -324,6 +327,12 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertNotIn("list", command)
                 self.assertNotIn("set-iam-policy", command)
                 self.assertNotIn("--log-http", command)
+            elif operation == "run-get-iam-policy-v2":
+                self.assertEqual(
+                    build_rest_url(target),
+                    f"https://run.googleapis.com/v2/projects/espacigo-testprod/locations/"
+                    f"southamerica-west1/services/espacigo-test-{service}:getIamPolicy",
+                )
             elif operation in {
                 "iap-get-iam-policy", "iap-test-iam", "project-get", "project-test-iam",
                 "sql-instance-get", "run-test-iam",
@@ -386,15 +395,53 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             vars_path = Path(root) / "vars.json"
             vars_path.write_text(json.dumps({
+                "project_id": "espacigo-testprod",
                 "project_number": 447373903153,
                 "api_v67_database_instance_name": "espacigo-testprod-db",
             }))
             config = read_probe_configuration(vars_path)
         self.assertEqual(config, {
+            "project_id": "espacigo-testprod",
             "project_number": "447373903153",
+            "region": "southamerica-west1",
+            "api_service_name": "espacigo-test-api",
+            "public_service_name": "espacigo-test-public",
             "private_service_name": "espacigo-test-private",
             "sql_instance_name": "espacigo-testprod-db",
         })
+
+    def test_protected_probe_target_matches_emit_only_aliases_and_booleans(self):
+        config = {
+            "project_id": "espacigo-testprod", "project_number": "447373903153",
+            "region": "southamerica-west1", "api_service_name": "espacigo-test-api",
+            "public_service_name": "espacigo-test-public", "private_service_name": "espacigo-test-private",
+        }
+        matches = probe_configuration_matches(config)
+        self.assertTrue(all(matches.values()))
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertTrue(cloud_run_probes._emit_configuration_matches(config))
+        self.assertEqual(output.getvalue().splitlines(), [
+            f"GCP08_PROBE_CONFIG alias={alias} result=match" for alias in matches
+        ])
+        for sensitive_value in ("espacigo-testprod", "447373903153", "southamerica-west1"):
+            self.assertNotIn(sensitive_value, output.getvalue())
+
+    def test_mismatched_protected_target_stops_before_any_cloud_probe(self):
+        marker = "private-project-name"
+        with tempfile.TemporaryDirectory() as root:
+            vars_path = Path(root) / "vars.json"
+            vars_path.write_text(json.dumps({"project_id": marker, "project_number": 447373903153}))
+            output = io.StringIO()
+            with redirect_stdout(output), patch.object(
+                cloud_run_probes.sys, "argv",
+                ["gcp08_bootstrap_cloud_run_probes.py", "--validate-configuration", "--var-file", str(vars_path)],
+            ), patch.object(cloud_run_probes, "run_probe") as probe:
+                self.assertEqual(cloud_run_probes.main(), 2)
+                probe.assert_not_called()
+        self.assertIn("alias=project_id result=mismatch", output.getvalue())
+        self.assertNotIn(marker, output.getvalue())
+        self.assertNotIn("status=", output.getvalue())
 
     def test_services_list_rest_probe_emits_only_permission_metadata(self):
         token = "private-short-lived-token"
@@ -1193,9 +1240,58 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 ))
         self.assertEqual(
             output.getvalue().strip(),
-            "GCP08_CLOUD_RUN_PROBE stage=bootstrap "
-            "target=cloud_run_service.public.get_iam_policy category=success",
+            "GCP08_CLOUD_RUN_IAM_COMPARE stage=bootstrap alias=public "
+            "api=v1 status=success category=success",
         )
+
+    def test_cloud_run_v2_iam_policy_probe_uses_provider_endpoint_and_emits_only_alias_status(self):
+        marker = "private-policy-body-and-resource"
+        observed = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return None
+
+            def getcode(self):
+                return 200
+
+            def read(self, _limit):
+                return marker.encode()
+
+        def token_runner(command, **_kwargs):
+            self.assertEqual(command, ["gcloud", "auth", "print-access-token"])
+            return SimpleNamespace(returncode=0, stdout="private-token", stderr="")
+
+        class FakeOpener:
+            def open(self, request, timeout):
+                observed["url"] = request.full_url
+                observed["method"] = request.get_method()
+                observed["authorization"] = request.get_header("Authorization")
+                return FakeResponse()
+
+        with tempfile.TemporaryDirectory() as root:
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertTrue(run_probe(
+                    "cloud_run_service.public.get_iam_policy_v2", root,
+                    runner=token_runner, opener_factory=lambda *_: FakeOpener(),
+                ))
+        self.assertEqual(
+            observed["url"],
+            "https://run.googleapis.com/v2/projects/espacigo-testprod/locations/"
+            "southamerica-west1/services/espacigo-test-public:getIamPolicy",
+        )
+        self.assertEqual(observed["method"], "GET")
+        self.assertEqual(observed["authorization"], "Bearer private-token")
+        self.assertEqual(output.getvalue().strip(),
+                         "GCP08_CLOUD_RUN_IAM_COMPARE stage=bootstrap alias=public "
+                         "api=v2 status=200 category=success")
+        self.assertNotIn(marker, output.getvalue())
+        self.assertNotIn("private-token", output.getvalue())
+        self.assertNotIn("espacigo-test-public", output.getvalue())
 
     def test_iam_policy_timeout_classifies_partial_private_diagnostic(self):
         def timeout(_command, **kwargs):
@@ -1217,13 +1313,23 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         rollout = workflow.index("- name: Initialize canonical Terraform root and produce private plan")
         self.assertLess(auth, setup)
         self.assertLess(setup, rollout)
-        start = workflow.index("python3 \"$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_cloud_run_probes.py\"")
+        private_dir = workflow.index('--private-dir "$RUNNER_TEMP/gcp07d"')
+        start = workflow.rfind("python3 \"$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_cloud_run_probes.py\"", 0, private_dir)
         block_start = workflow.rfind("if [[ \"$POLICY_MODE\" == bootstrap ]]", 0, start)
         self.assertGreater(block_start, workflow.index("terraform plan -input=false"))
         self.assertIn("inputs.operation == 'initial-restore'", workflow[setup:rollout])
         self.assertIn("gcp08_bootstrap_refresh_diagnostics.py", workflow[block_start:start])
         self.assertIn('--var-file "$GCP07D_TFVARS"', workflow[start:start + 250])
         self.assertNotRegex(workflow[start:start + 300], r"gcloud\s+run\s+services\s+list|--log-http")
+
+    def test_workflow_validates_protected_names_before_authentication(self):
+        workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
+        validation = workflow.index("Validate protected bootstrap probe targets")
+        auth = workflow.index("Authenticate bootstrap federated identity")
+        block = workflow[validation:auth]
+        self.assertLess(validation, auth)
+        self.assertIn("--validate-configuration", block)
+        self.assertIn('--var-file "$GCP07D_TFVARS"', block)
 
 
 if __name__ == "__main__":
