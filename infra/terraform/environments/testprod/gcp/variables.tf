@@ -28,11 +28,11 @@ variable "enable_foundation" {
 
 variable "enable_database" {
   type        = bool
-  description = "Separate explicit apply gate for the zonal, deletion-protected Cloud SQL instance."
+  description = "Deprecated compatibility input. This root no longer creates Cloud SQL instances or databases and this must remain false."
   default     = false
   validation {
-    condition     = !var.enable_database || var.enable_foundation
-    error_message = "The SQL instance requires the separately gated foundation network and APIs."
+    condition     = !var.enable_database
+    error_message = "Cloud SQL is externally managed and cannot be enabled in this Terraform root."
   }
 }
 
@@ -48,11 +48,11 @@ variable "enable_private_services_access" {
 
 variable "enable_services" {
   type        = bool
-  description = "Separate explicit apply gate for Cloud Run services; requires foundation and database."
+  description = "Deprecated compatibility input. Cloud Run application services are externally managed by Cloud Build and this must remain false."
   default     = false
   validation {
-    condition     = !var.enable_services || (var.enable_foundation && (var.enable_database || var.api_gcp06_candidate_run_id != "" || var.api_v67_database_instance_name != "") && (var.mailpit_private_address != "" || var.enable_mailpit) && var.confirm_runtime_secret_versions && var.confirm_runtime_database_bootstrap)
-    error_message = "Cloud Run services require foundation, a managed or exact existing database target, a private Mailpit endpoint or gated VM, loaded runtime secret versions, and completed SQL runtime-user bootstrap."
+    condition     = !var.enable_services
+    error_message = "Cloud Run application services are externally managed and cannot be enabled in this Terraform root."
   }
 }
 
@@ -61,9 +61,15 @@ variable "enable_edge" {
   description = "Separate explicit apply gate for load balancer, managed certificate and Cloud Armor."
   default     = false
   validation {
-    condition     = !var.enable_edge || (var.enable_services && var.confirm_pga_iap_key_preflight)
-    error_message = "The edge requires Cloud Run services and a verified IAP-key egress preflight through Direct VPC and Private Google Access."
+    condition     = !var.enable_edge || (var.confirm_external_cloud_run_services && var.confirm_pga_iap_key_preflight)
+    error_message = "The edge requires confirmation that externally managed Cloud Run services and the IAP-key egress preflight are verified."
   }
+}
+
+variable "confirm_external_cloud_run_services" {
+  type        = bool
+  description = "Set only after confirming both external Cloud Run services exist with reviewed names, IAM and runtime configuration."
+  default     = false
 }
 
 variable "enable_mailpit" {
@@ -214,36 +220,6 @@ variable "api_gcp06_candidate_password_version" {
   validation {
     condition     = var.api_gcp06_candidate_run_id == "" || can(regex("^[1-9][0-9]*$", var.api_gcp06_candidate_password_version))
     error_message = "Candidate mode requires an explicit positive Secret Manager version number."
-  }
-}
-
-variable "api_v67_database_instance_name" {
-  type        = string
-  default     = ""
-  description = "Exact existing PostgreSQL 18 Cloud SQL instance for the reviewed V67 testprod runtime. Empty preserves the current managed/candidate target selection."
-  validation {
-    condition     = var.api_v67_database_instance_name == "" || (var.api_v67_database_instance_name == "espacigo-testprod-db" && var.project_id == "espacigo-testprod" && var.region == "southamerica-west1" && var.api_gcp06_candidate_run_id == "" && !var.enable_database && !var.enable_gcp06_jobs_reviewed)
-    error_message = "V67 runtime mode is limited to the existing espacigo-testprod-db instance in the testprod Santiago project and cannot create a database or enable GCP-06 candidate Jobs."
-  }
-}
-
-variable "api_v67_database_name" {
-  type        = string
-  default     = ""
-  description = "Exact existing V67 database name on the external testprod instance."
-  validation {
-    condition     = var.api_v67_database_instance_name == "" ? var.api_v67_database_name == "" : var.api_v67_database_name == "espacigo_dms_stage_20261020"
-    error_message = "When V67 runtime mode is enabled, the database must be espacigo_dms_stage_20261020."
-  }
-}
-
-variable "api_v67_database_password_version" {
-  type        = string
-  default     = ""
-  description = "Numeric version of the externally provisioned V67 API login secret; Terraform never reads its payload."
-  validation {
-    condition     = var.api_v67_database_instance_name == "" ? var.api_v67_database_password_version == "" : can(regex("^[1-9][0-9]*$", var.api_v67_database_password_version))
-    error_message = "V67 runtime mode requires an explicit positive Secret Manager version number."
   }
 }
 

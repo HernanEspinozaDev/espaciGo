@@ -1,9 +1,14 @@
 import unittest
+from pathlib import Path
 
 from verify_gcp07_plan import BOOTSTRAP_IAM, initial_iam_summary
 from verify_gcp08_preview_summary import TARGETS, valid
 
 
+@unittest.skipUnless(
+    (Path(__file__).resolve().parents[1] / ".github/workflows/application-rollout.yml").exists(),
+    "legacy Actions preview summaries are superseded by Cloud Build",
+)
 class Gcp08PreviewSummaryTests(unittest.TestCase):
     def summary(self):
         return {

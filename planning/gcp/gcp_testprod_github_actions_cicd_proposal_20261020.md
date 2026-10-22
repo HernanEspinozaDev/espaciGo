@@ -146,3 +146,6 @@ Este código no implica que los gates estén configurados ni autoriza ejecutarlo
 - [Google Cloud: permisos de Artifact Registry](https://docs.cloud.google.com/artifact-registry/docs/access-control) (el acceso puede limitarse al repositorio).
 - [Docker: Build attestations](https://docs.docker.com/build/metadata/attestations/) (BuildKit adjunta SBOM y provenance a imágenes OCI).
 - [Docker: SBOM attestations](https://docs.docker.com/build/metadata/attestations/sbom/) (BuildKit genera SBOM SPDX y permite fijar el scanner generator).
+# Estado: propuesta supersedida
+
+Esta propuesta de publicación y despliegue con GitHub Actions se conserva como historial y queda supersedida por [la transición a Cloud Build](gcp08_cloud_build_transition_20261022.md). No activar sus workflows o permisos.

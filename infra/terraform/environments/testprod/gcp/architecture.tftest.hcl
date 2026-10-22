@@ -1,12 +1,6 @@
 mock_provider "google" {
   override_during = plan
 
-  mock_resource "google_cloud_run_v2_service" {
-    defaults = {
-      uri = "https://espacigo-test.run.app"
-    }
-  }
-
   mock_data "google_compute_image" {
     defaults = {
       self_link = "projects/cos-cloud/global/images/cos-stable-test"
@@ -82,16 +76,37 @@ run "foundation_plan_is_gated_and_scoped" {
     error_message = "GCP-06 candidate Jobs and their identities must remain absent until their dedicated review gate is enabled."
   }
   assert {
-    condition     = google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_id"] == "assertion.repository_id" && google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id" && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "application-release.yml@refs/heads/main") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "application-rollout.yml@refs/heads/main") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "environment")
-    error_message = "GitHub federation must use immutable repository identity and restrict both trusted workflows to main and the protected environment."
-  }
-  assert {
-    condition     = length(google_service_account_iam_member.deployer_act_as_runtime) == 3 && !contains(keys(google_service_account_iam_member.deployer_act_as_runtime), "migrator")
-    error_message = "The deployer may act as the API and two web identities only, never the migrator."
+    condition     = google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_id"] == "assertion.repository_id" && google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id" && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "refs/heads/main") && strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "environment")
+    error_message = "Dormant legacy GitHub federation must remain limited to the immutable repository identity, main branch, and protected environment until separate IAM cleanup."
   }
   assert {
     condition     = google_storage_managed_folder.terraform_state[0].name == "espacigo/testprod/gcp/" && google_storage_managed_folder_iam_member.deployer_terraform_state[0].managed_folder == "espacigo/testprod/gcp/"
     error_message = "The deployer state grant must be scoped to the managed folder for the canonical Terraform state and lock prefix."
+  }
+}
+
+run "edge_targets_external_cloud_run_service_names" {
+  command = plan
+
+  variables {
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_edge                         = true
+    confirm_external_cloud_run_services = true
+    confirm_pga_iap_key_preflight       = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    bucket_suffix                       = "offline-test"
+  }
+
+  assert {
+    condition = (
+      google_compute_region_network_endpoint_group.web["public"].cloud_run[0].service == "espacigo-test-public" &&
+      google_compute_region_network_endpoint_group.web["private"].cloud_run[0].service == "espacigo-test-private" &&
+      length(google_compute_url_map.edge) == 1
+    )
+    error_message = "The Terraform-owned HTTPS edge must target the externally managed service names after explicit inventory confirmation."
   }
 }
 
@@ -161,226 +176,11 @@ run "foundation_rejects_missing_human_gates" {
   expect_failures = [var.enable_foundation]
 }
 
-run "database_plan_is_private_and_protected" {
-  command = plan
 
-  variables {
-    project_id                 = "offline-test-project"
-    project_number             = "123456789012"
-    enable_foundation          = true
-    enable_database            = true
-    confirm_project_inventory  = true
-    confirm_cost_policy_review = true
-    bucket_suffix              = "offline-test"
-  }
 
-  assert {
-    condition     = google_sql_database_instance.postgres[0].settings[0].ip_configuration[0].ipv4_enabled == false
-    error_message = "Cloud SQL must not receive a public IPv4 address."
-  }
-  assert {
-    condition     = google_sql_database_instance.postgres[0].deletion_protection == true
-    error_message = "Cloud SQL deletion protection must remain enabled."
-  }
-}
 
-run "services_and_edge_preserve_runtime_contracts" {
-  command = plan
 
-  variables {
-    project_id                          = "offline-test-project"
-    project_number                      = "123456789012"
-    enable_foundation                   = true
-    enable_database                     = true
-    enable_services                     = true
-    api_contract_encryption_key_version = "1"
-    enable_edge                         = true
-    confirm_project_inventory           = true
-    confirm_cost_policy_review          = true
-    acknowledge_gcp04_runtime_gates     = true
-    confirm_pga_iap_key_preflight       = true
-    bucket_suffix                       = "offline-test"
-    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address             = "10.80.0.10:1025"
-    confirm_runtime_secret_versions     = true
-    confirm_runtime_database_bootstrap  = true
-  }
 
-  assert {
-    condition     = length(google_cloud_run_v2_service_iam_member.deployer_service_updater) == 3 && alltrue([for binding in values(google_cloud_run_v2_service_iam_member.deployer_service_updater) : binding.role == "projects/${var.project_id}/roles/espacigoCloudRunServiceUpdater"])
-    error_message = "The deployer must receive only the custom service updater role on the three existing application services."
-  }
-
-  assert {
-    condition     = toset(google_project_iam_custom_role.deployer_cloud_run_service_updater[0].permissions) == toset(["run.services.get", "run.services.update", "run.operations.get"])
-    error_message = "The deployer custom role must contain only the Cloud Run permissions needed to update and observe existing service operations."
-  }
-
-  assert {
-    condition     = google_cloud_run_v2_service.api[0].template[0].containers[0].resources[0].cpu_idle == false
-    error_message = "API workers need explicitly allocated CPU while their instance is running."
-  }
-  assert {
-    condition     = one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "LOCAL_VERIFICATION_IP_LIMIT"]) == "20"
-    error_message = "The cloud-test API profile must receive a valid local verification quota at startup."
-  }
-  assert {
-    condition     = google_cloud_run_v2_service.api[0].ingress == "INGRESS_TRAFFIC_ALL"
-    error_message = "The API run.app URL must be network-reachable for authenticated SSR service-to-service calls; IAM still limits callers."
-  }
-  assert {
-    condition     = alltrue([for service in values(google_cloud_run_v2_service.web) : service.ingress == (var.enable_edge ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL")])
-    error_message = "Web ingress must match the selected run.app or load-balancer stage."
-  }
-  assert {
-    condition     = one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "NG_ALLOWED_HOSTS"]) == var.public_hostname && one([for env in google_cloud_run_v2_service.web["private"].template[0].containers[0].env : env.value if env.name == "NG_ALLOWED_HOSTS"]) == var.private_hostname
-    error_message = "Each Angular SSR service must allow only its configured public or private hostname."
-  }
-  assert {
-    condition     = alltrue([for binding in values(google_cloud_run_v2_service_iam_member.api_invoker) : binding.member != "allUsers" && binding.member != "allAuthenticatedUsers"])
-    error_message = "The API must not grant public invocation; only SSR service identities are allowed."
-  }
-  assert {
-    condition     = google_cloud_run_v2_service_iam_member.public_web_invoker[0].member == "allUsers" && google_cloud_run_v2_service.web["public"].iap_enabled == false
-    error_message = "The public test entry must be publicly reachable and must not require IAP."
-  }
-  assert {
-    condition     = google_cloud_run_v2_service.web["private"].iap_enabled == true && google_cloud_run_v2_service_iam_member.private_iap_invoker[0].member == google_project_service_identity.iap[0].member
-    error_message = "The private run.app entry must retain native Cloud Run IAP and grant run.invoker only to the IAP service agent."
-  }
-  assert {
-    condition     = alltrue([for service in values(google_cloud_run_v2_service.web) : service.template[0].vpc_access[0].egress == "ALL_TRAFFIC"])
-    error_message = "SSR must retain Direct VPC egress for private service dependencies and IAP key retrieval."
-  }
-  assert {
-    condition     = output.api_internal_base_url == "https://espacigo-test.run.app/api/v1"
-    error_message = "API_INTERNAL_BASE_URL must satisfy configuredApiBase's /api/v1 contract."
-  }
-  assert {
-    condition     = output.api_service_audience == "https://espacigo-test.run.app"
-    error_message = "The IAM ID-token audience must remain the API service origin without a path."
-  }
-  assert {
-    condition     = one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "API_INTERNAL_BASE_URL"]) == output.api_internal_base_url
-    error_message = "The deployed SSR environment and exported API base URL must match."
-  }
-  assert {
-    condition     = one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "API_SERVICE_AUDIENCE"]) == output.api_service_audience
-    error_message = "The deployed SSR audience and exported API audience must match."
-  }
-  assert {
-    condition     = google_cloud_run_v2_service.web["private"].iap_enabled == true && google_cloud_run_v2_service.web["private"].ingress == (var.enable_edge ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL")
-    error_message = "The private entry must retain native Cloud Run IAP and use the selected ingress stage."
-  }
-  assert {
-    condition     = google_cloud_run_v2_service_iam_member.private_iap_invoker[0].member == google_project_service_identity.iap[0].member
-    error_message = "The private service must grant invoker to the explicitly provisioned IAP service identity."
-  }
-  assert {
-    condition     = google_compute_subnetwork.serverless[0].private_ip_google_access == true && google_cloud_run_v2_service.web["private"].template[0].vpc_access[0].egress == "ALL_TRAFFIC"
-    error_message = "The private SSR's IAP key download must use its Direct VPC egress subnet with Private Google Access."
-  }
-  assert {
-    condition     = google_compute_network.testprod[0].delete_default_routes_on_create == false
-    error_message = "The VPC must retain its default-internet-gateway route required for Private Google Access to Google service destinations."
-  }
-  assert {
-    condition     = google_compute_backend_service.web["public"].security_policy == google_compute_security_policy.public_edge[0].id && google_compute_backend_service.web["private"].security_policy == null
-    error_message = "Cloud Armor must be attached only to the public backend."
-  }
-  assert {
-    condition     = length(google_compute_security_policy.public_edge[0].rule) == 3 && contains([for rule in google_compute_security_policy.public_edge[0].rule : rule.priority], 100) && contains([for rule in google_compute_security_policy.public_edge[0].rule : rule.priority], 200)
-    error_message = "The public policy must keep separate priority-ordered catalog and general public route throttles plus its terminal allow rule."
-  }
-  assert {
-    condition     = one([for rule in google_compute_security_policy.public_edge[0].rule : rule.rate_limit_options[0].rate_limit_threshold[0].count if rule.priority == 100]) == var.public_catalog_requests_per_minute && one([for rule in google_compute_security_policy.public_edge[0].rule : rule.rate_limit_options[0].rate_limit_threshold[0].count if rule.priority == 200]) == var.public_other_requests_per_minute
-    error_message = "Each rate-limit rule must use its own configurable per-IP threshold."
-  }
-  assert {
-    condition     = strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/sitemap.xml") && strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/health/ready") && strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/public/spaces/") && strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/explorar") && strcontains(one([for rule in google_compute_security_policy.public_edge[0].rule : rule.match[0].expr[0].expression if rule.priority == 200]), "/espacios/")
-    error_message = "Public SSR, image, sitemap, readiness and API paths must be rate-limited by the general public rule."
-  }
-}
-
-run "candidate_mode_targets_only_the_pinned_gcp06_database" {
-  command = plan
-
-  variables {
-    project_id                           = "espacigo-testprod"
-    project_number                       = "123456789012"
-    enable_foundation                    = true
-    enable_database                      = true
-    enable_services                      = true
-    api_contract_encryption_key_version  = "1"
-    confirm_project_inventory            = true
-    confirm_cost_policy_review           = true
-    acknowledge_gcp04_runtime_gates      = true
-    bucket_suffix                        = "offline-test"
-    api_image                            = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                       = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address              = "10.80.0.10:1025"
-    confirm_runtime_secret_versions      = true
-    confirm_runtime_database_bootstrap   = true
-    api_gcp06_candidate_run_id           = "20261020-gcp06a"
-    api_gcp06_candidate_password_version = "3"
-  }
-
-  override_data {
-    target = data.google_sql_database_instance.gcp06_candidate[0]
-    values = {
-      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg"
-      database_version   = "POSTGRES_18"
-      private_ip_address = "10.189.0.13"
-      region             = "southamerica-west1"
-    }
-  }
-
-  assert {
-    condition     = length(google_sql_database_instance.postgres) == 1 && length(data.google_sql_database_instance.gcp06_candidate) == 1
-    error_message = "Candidate mode must retain the managed legacy instance while reading the existing GCP-06 target; it must not destroy the old database."
-  }
-  assert {
-    condition     = local.api_sql_connection_name == "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg" && local.api_database_name == "espacigo_gcp06_candidate_20261020-gcp06a"
-    error_message = "The API revision must target the pinned candidate instance and database."
-  }
-  assert {
-    condition = (
-      one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "DATABASE_USER"]) == "espacigo_api_login" &&
-      one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "DATABASE_SET_ROLE"]) == "espacigo_runtime" &&
-      one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "CLOUD_SQL_INSTANCE_CONNECTION_NAME"]) == "espacigo-testprod:southamerica-west1:espacigo-gcp06-20261020-gcp06a-pg" &&
-      one([for env in google_cloud_run_v2_service.api[0].template[0].containers[0].env : env.value if env.name == "DATABASE_NAME"]) == "espacigo_gcp06_candidate_20261020-gcp06a"
-    )
-    error_message = "Candidate mode must use the fixed least-privilege API login and SET ROLE contract on only the candidate database."
-  }
-  assert {
-    condition     = local.web_services["public"].name == "espacigo-test-public" && local.web_services["private"].name == "espacigo-test-private" && length(local.web_services) == 2
-    error_message = "Candidate mode must retain the existing public/private frontend services."
-  }
-  assert {
-    condition = (
-      google_cloud_run_v2_service.api[0].template[0].containers[0].image == var.api_image &&
-      google_cloud_run_v2_service.web["public"].template[0].containers[0].image == var.frontend_image &&
-      google_cloud_run_v2_service.web["private"].template[0].containers[0].image == var.frontend_image &&
-      one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "API_INTERNAL_BASE_URL"]) == output.api_internal_base_url &&
-      one([for env in google_cloud_run_v2_service.web["private"].template[0].containers[0].env : env.value if env.name == "API_INTERNAL_BASE_URL"]) == output.api_internal_base_url
-    )
-    error_message = "Candidate database wiring may change the API database target but must retain both frontend images and their existing API origin."
-  }
-  assert {
-    condition     = local.api_database_secret_key == "database-password-gcp06" && local.api_database_password_version == "3"
-    error_message = "Candidate API must mount the separately versioned candidate DB secret without reading its payload."
-  }
-  assert {
-    condition = (
-      contains(local.runtime_secret_ids, "database-password") &&
-      contains(local.runtime_secret_ids, "database-password-gcp06") &&
-      contains(local.api_secret_access_keys, "database-password") &&
-      contains(local.api_secret_access_keys, "database-password-gcp06")
-    )
-    error_message = "Candidate mode must retain the existing DB secret resource/access for rollback while adding candidate-only access."
-  }
-}
 
 run "candidate_mode_rejects_a_different_run_id" {
   command = plan
@@ -454,119 +254,11 @@ run "candidate_jobs_are_one_shot_private_and_separately_secret_scoped" {
   }
 }
 
-run "services_without_edge_expose_runapp_with_private_gates" {
-  command = plan
 
-  variables {
-    project_id                          = "offline-test-project"
-    project_number                      = "123456789012"
-    enable_foundation                   = true
-    enable_database                     = true
-    enable_services                     = true
-    api_contract_encryption_key_version = "1"
-    enable_edge                         = false
-    confirm_project_inventory           = true
-    confirm_cost_policy_review          = true
-    bucket_suffix                       = "offline-test"
-    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address             = "10.80.0.10:1025"
-    confirm_pga_iap_key_preflight       = true
-    confirm_runtime_secret_versions     = true
-    confirm_runtime_database_bootstrap  = true
-    private_demo_origin_override        = "https://private-123.run.app"
-  }
 
-  assert {
-    condition     = google_cloud_run_v2_service.api[0].ingress == "INGRESS_TRAFFIC_ALL" && alltrue([for service in values(google_cloud_run_v2_service.web) : service.ingress == "INGRESS_TRAFFIC_ALL"])
-    error_message = "The first demo endpoints must be network-reachable by run.app."
-  }
-  assert {
-    condition     = length(google_cloud_run_v2_service_iam_member.api_invoker) == 2 && alltrue([for binding in values(google_cloud_run_v2_service_iam_member.api_invoker) : startswith(binding.member, "serviceAccount:") && binding.member != "allUsers" && binding.member != "allAuthenticatedUsers"])
-    error_message = "Only the two SSR runtime service accounts may invoke the API."
-  }
-  assert {
-    condition     = google_cloud_run_v2_service_iam_member.public_web_invoker[0].member == "allUsers" && google_cloud_run_v2_service.web["private"].iap_enabled == true && google_cloud_run_v2_service_iam_member.private_iap_invoker[0].member == google_project_service_identity.iap[0].member
-    error_message = "Public web stays public while private web requires native IAP and its IAP service agent."
-  }
-  assert {
-    condition     = alltrue([for service in values(google_cloud_run_v2_service.web) : service.template[0].vpc_access[0].egress == "PRIVATE_RANGES_ONLY"])
-    error_message = "The run.app-only stage must not claim the edge egress preflight."
-  }
-  assert {
-    condition     = one([for env in google_cloud_run_v2_service.web["public"].template[0].containers[0].env : env.value if env.name == "PRIVATE_DEMO_ORIGIN"]) == var.private_demo_origin_override
-    error_message = "The second no-DNS rollout step must route private links to the private IAP-protected run.app origin."
-  }
-}
 
-run "v67_runtime_targets_existing_database_and_pinned_secret" {
-  command = plan
 
-  variables {
-    project_id                          = "espacigo-testprod"
-    project_number                      = "123456789012"
-    enable_foundation                   = true
-    enable_services                     = true
-    api_contract_encryption_key_version = "1"
-    enable_edge                         = false
-    confirm_project_inventory           = true
-    confirm_cost_policy_review          = true
-    bucket_suffix                       = "v67-runtime"
-    api_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address             = "10.80.0.10:1025"
-    confirm_pga_iap_key_preflight       = true
-    confirm_runtime_secret_versions     = true
-    confirm_runtime_database_bootstrap  = true
-    api_v67_database_instance_name      = "espacigo-testprod-db"
-    api_v67_database_name               = "espacigo_dms_stage_20261020"
-    api_v67_database_password_version   = "7"
-  }
 
-  override_data {
-    target = data.google_sql_database_instance.v67_target[0]
-    values = {
-      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
-      database_version   = "POSTGRES_18"
-      private_ip_address = "10.189.0.13"
-    }
-  }
-
-  assert {
-    condition = (
-      local.api_sql_connection_name == "espacigo-testprod:southamerica-west1:espacigo-testprod-db" &&
-      local.api_database_name == "espacigo_dms_stage_20261020" &&
-      local.api_database_password_version == "7" &&
-      local.api_database_secret_id == "espacigo-test-database-password-v67"
-    )
-    error_message = "V67 runtime must use the exact external database and explicitly pinned existing secret metadata."
-  }
-}
-
-run "services_reject_unverified_iap_key_egress" {
-  command = plan
-
-  variables {
-    project_id                          = "offline-test-project"
-    project_number                      = "123456789012"
-    enable_foundation                   = true
-    enable_database                     = true
-    enable_services                     = true
-    api_contract_encryption_key_version = "1"
-    enable_edge                         = true
-    confirm_project_inventory           = true
-    confirm_cost_policy_review          = true
-    acknowledge_gcp04_runtime_gates     = true
-    bucket_suffix                       = "offline-test"
-    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address             = "10.80.0.10:1025"
-    confirm_runtime_secret_versions     = true
-    confirm_runtime_database_bootstrap  = true
-  }
-
-  expect_failures = [var.enable_edge]
-}
 
 run "mailpit_vm_is_private_and_scoped" {
   command = plan
@@ -612,91 +304,9 @@ run "mailpit_vm_is_private_and_scoped" {
   }
 }
 
-run "private_web_iap_identity_is_separate_from_mailpit" {
-  command = plan
 
-  variables {
-    project_id                          = "espacigo-testprod"
-    project_number                      = "123456789012"
-    enable_foundation                   = true
-    enable_services                     = true
-    enable_mailpit                      = true
-    confirm_project_inventory           = true
-    confirm_cost_policy_review          = true
-    confirm_runtime_secret_versions     = true
-    confirm_runtime_database_bootstrap  = true
-    api_v67_database_instance_name      = "espacigo-testprod-db"
-    api_v67_database_name               = "espacigo_dms_stage_20261020"
-    api_v67_database_password_version   = "1"
-    api_contract_encryption_key_version = "1"
-    api_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    bucket_suffix                       = "v67-runtime"
-    iap_evaluator_members               = ["user:mailpit@example.test"]
-    private_web_iap_evaluator_members   = ["user:private-web@example.test"]
-  }
 
-  override_data {
-    target = data.google_sql_database_instance.v67_target[0]
-    values = {
-      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
-      database_version   = "POSTGRES_18"
-      private_ip_address = "10.189.0.13"
-    }
-  }
 
-  assert {
-    condition     = toset(keys(google_iap_tunnel_instance_iam_member.mailpit_ui)) == toset(["user:mailpit@example.test"])
-    error_message = "Mailpit IAP tunnel access must use its independent evaluator list."
-  }
-  assert {
-    condition     = toset(keys(google_iap_web_cloud_run_service_iam_member.private_evaluators)) == toset(["user:private-web@example.test"])
-    error_message = "Private Cloud Run IAP access must use its independent evaluator list."
-  }
-}
-
-run "v67_services_retain_private_services_access_without_database_creation" {
-  command = plan
-
-  variables {
-    project_id                          = "espacigo-testprod"
-    project_number                      = "123456789012"
-    enable_foundation                   = true
-    enable_services                     = true
-    enable_private_services_access      = true
-    enable_database                     = false
-    confirm_project_inventory           = true
-    confirm_cost_policy_review          = true
-    confirm_runtime_secret_versions     = true
-    confirm_runtime_database_bootstrap  = true
-    api_v67_database_instance_name      = "espacigo-testprod-db"
-    api_v67_database_name               = "espacigo_dms_stage_20261020"
-    api_v67_database_password_version   = "1"
-    api_contract_encryption_key_version = "1"
-    api_image                           = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                      = "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    bucket_suffix                       = "v67-runtime"
-    mailpit_private_address             = "10.81.1.2:1025"
-  }
-
-  override_data {
-    target = data.google_sql_database_instance.v67_target[0]
-    values = {
-      connection_name    = "espacigo-testprod:southamerica-west1:espacigo-testprod-db"
-      database_version   = "POSTGRES_18"
-      private_ip_address = "10.189.0.13"
-    }
-  }
-
-  assert {
-    condition     = length(google_compute_global_address.private_services) == 1 && length(google_service_networking_connection.private_services) == 1
-    error_message = "V67 service bootstrapping must retain the existing Private Services Access range and peering without enabling Cloud SQL creation."
-  }
-  assert {
-    condition     = length(google_sql_database_instance.postgres) == 0 && length(google_sql_database.application) == 0
-    error_message = "The V67 bootstrap must not manage or recreate the legacy Cloud SQL instance or database."
-  }
-}
 
 run "mailpit_vm_uses_explicit_cos_image_pin" {
   command = plan
@@ -716,52 +326,4 @@ run "mailpit_vm_uses_explicit_cos_image_pin" {
     condition     = google_compute_instance.mailpit[0].boot_disk[0].initialize_params[0].image == var.mailpit_cos_image && length(data.google_compute_image.mailpit_cos) == 0
     error_message = "An explicit COS pin must be used directly without querying the moving cos-stable family."
   }
-}
-
-run "services_reject_missing_runtime_secret_versions" {
-  command = plan
-
-  variables {
-    project_id                          = "offline-test-project"
-    project_number                      = "123456789012"
-    enable_foundation                   = true
-    enable_database                     = true
-    enable_services                     = true
-    api_contract_encryption_key_version = "1"
-    confirm_project_inventory           = true
-    confirm_cost_policy_review          = true
-    acknowledge_gcp04_runtime_gates     = true
-    confirm_pga_iap_key_preflight       = true
-    confirm_runtime_database_bootstrap  = true
-    bucket_suffix                       = "offline-test"
-    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address             = "10.80.0.10:1025"
-  }
-
-  expect_failures = [var.enable_services]
-}
-
-run "services_reject_missing_runtime_database_bootstrap" {
-  command = plan
-
-  variables {
-    project_id                          = "offline-test-project"
-    project_number                      = "123456789012"
-    enable_foundation                   = true
-    enable_database                     = true
-    enable_services                     = true
-    api_contract_encryption_key_version = "1"
-    confirm_project_inventory           = true
-    confirm_cost_policy_review          = true
-    acknowledge_gcp04_runtime_gates     = true
-    confirm_pga_iap_key_preflight       = true
-    confirm_runtime_secret_versions     = true
-    bucket_suffix                       = "offline-test"
-    api_image                           = "southamerica-west1-docker.pkg.dev/offline-test/repo/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    frontend_image                      = "southamerica-west1-docker.pkg.dev/offline-test/repo/web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    mailpit_private_address             = "10.80.0.10:1025"
-  }
-
-  expect_failures = [var.enable_services]
 }

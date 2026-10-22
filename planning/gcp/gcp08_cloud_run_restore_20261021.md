@@ -85,3 +85,6 @@ Las variables de repositorio `GCP07D_SCHEMA_BASELINE_SHA=b1b38d1883a34096f902737
 ## Validación de este cambio
 
 La validación de este corte ejecuta pruebas Python de política/resumen, clasificación segura de diagnósticos, pruebas Terraform de arquitectura, `terraform fmt -check -recursive`, `terraform validate`, `compileall`, `git diff --check` y la clasificación local del release contra el baseline V67 (`contains_migrations=false`). Las pruebas mock validan la allowlist y que Private Services Access solo pueda quedar `no-op`; no prueban IAM efectivo ni el refresco real del state. No se ejecuta un plan remoto ni un apply como parte de este PR.
+# Estado: estrategia supersedida
+
+La ruta GitHub Actions → Artifact Registry → Terraform Cloud Run descrita aquí quedó supersedida por [la transición a Cloud Build](gcp08_cloud_build_transition_20261022.md). Se conserva este archivo como historial. No activar sus previews, workflows, APIs, permisos ni cambios de estado; PR #515 queda sin cambios.

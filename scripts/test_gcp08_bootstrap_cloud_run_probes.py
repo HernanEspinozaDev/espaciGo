@@ -1350,6 +1350,10 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertIn("category=auth_error", output.getvalue())
         self.assertNotIn("secret-marker", output.getvalue())
 
+    @unittest.skipUnless(
+        (ROOT / ".github/workflows/application-rollout.yml").exists(),
+        "legacy Actions rollout diagnostic steps are superseded by Cloud Build",
+    )
     def test_workflow_installs_sdk_after_bootstrap_auth_and_runs_only_on_plan_failure(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
         auth = workflow.index("- name: Authenticate bootstrap federated identity")
@@ -1366,6 +1370,10 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertIn('--var-file "$GCP07D_TFVARS"', workflow[start:start + 250])
         self.assertNotRegex(workflow[start:start + 300], r"gcloud\s+run\s+services\s+list|--log-http")
 
+    @unittest.skipUnless(
+        (ROOT / ".github/workflows/application-rollout.yml").exists(),
+        "legacy Actions rollout diagnostic steps are superseded by Cloud Build",
+    )
     def test_workflow_validates_protected_names_before_authentication(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
         validation = workflow.index("Validate protected bootstrap probe targets")

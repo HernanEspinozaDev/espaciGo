@@ -1,0 +1,31 @@
+serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+  requestedVerifyOption: VERIFIED
+substitutions:
+  _REGION: southamerica-west1
+  _PROJECT: espacigo-testprod
+  _AR_REPOSITORY: espacigo-testprod
+  _COMMIT_SHA: ""
+steps:
+  - id: build-api
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["-"]
+    args:
+      - build
+      - --target=api
+      - --tag=${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-api:sha-${_COMMIT_SHA}
+      - .
+
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    dir: frontend
+    waitFor: ["-"]
+    args:
+      - build
+      - --tag=${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web:sha-${_COMMIT_SHA}
+      - .
+
+images:
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-api:sha-${_COMMIT_SHA}
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web:sha-${_COMMIT_SHA}
