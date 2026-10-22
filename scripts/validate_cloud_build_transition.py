@@ -197,6 +197,16 @@ def main() -> int:
         errors.append("builds must serialize on a GCS lock")
     if "created_epoch <= prior_epoch" not in script:
         errors.append("deployments must reject builds older than the successful main watermark")
+    lock_step = next((step for step in steps if step.get("id") == "acquire-and-validate-deploy-lock"), {})
+    lock_script = "\n".join(lock_step.get("args", []))
+    if (
+        'sed -nE' not in lock_script
+        or '"created_epoch"' not in lock_script
+        or '[[ "$$prior_epoch" =~ ^[0-9]+$$ ]]' not in lock_script
+        or "python3" in lock_script
+        or "jq" in lock_script
+    ):
+        errors.append("the deployment watermark must be parsed and validated with tools available in google-cloud-cli:stable")
     if 'gcloud builds describe "$BUILD_ID" --project="${_PROJECT}" --region="${_REGION}"' not in script:
         errors.append("the regional parent build lookup must include its configured Cloud Build region")
     if '--if-generation-match="$$generation"' not in script:
