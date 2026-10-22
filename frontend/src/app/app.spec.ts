@@ -106,7 +106,12 @@ describe('App logout navigation', () => {
     const fixture = TestBed.createComponent(App);
     await fixture.whenStable();
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.brand')?.textContent).toContain('espaciGo');
+    const brand = compiled.querySelector<HTMLAnchorElement>('.brand');
+    const brandParts = [...(brand?.children ?? [])].map((part) =>
+      part instanceof HTMLImageElement ? part.getAttribute('src') : part.textContent?.trim(),
+    );
+    expect(brand?.getAttribute('aria-label')).toBe('EspaciGo, ir a la portada');
+    expect(brandParts).toEqual(['espaci', '/espacigo-mark.svg', 'o']);
     expect(compiled.querySelector('nav')?.textContent).toContain('Categorías');
     fixture.destroy();
   });
