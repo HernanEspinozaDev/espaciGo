@@ -444,6 +444,48 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertNotIn(marker, output.getvalue())
         self.assertNotIn("status=", output.getvalue())
 
+    def test_main_passes_only_probe_supported_configuration_to_run_probe(self):
+        protected_config = {
+            "project_id": "espacigo-testprod",
+            "project_number": 447373903153,
+            "region": "southamerica-west1",
+            "api_service_name": "espacigo-test-api",
+            "public_service_name": "espacigo-test-public",
+            "private_service_name": "espacigo-test-private",
+            "api_v67_database_instance_name": "espacigo-testprod-db",
+        }
+        with tempfile.TemporaryDirectory() as root:
+            vars_path = Path(root) / "vars.json"
+            vars_path.write_text(json.dumps(protected_config), encoding="utf-8")
+            calls = []
+
+            def strict_run_probe(target, private_root, project_number=None,
+                                 private_service_name=None, sql_instance_name=None):
+                calls.append((target, Path(private_root), project_number,
+                              private_service_name, sql_instance_name))
+                return True
+
+            argv = [
+                "gcp08_bootstrap_cloud_run_probes.py", "--private-dir", root,
+                "--var-file", str(vars_path),
+            ]
+            with redirect_stdout(io.StringIO()), patch.object(
+                cloud_run_probes.sys, "argv", argv
+            ), patch.object(
+                cloud_run_probes, "PROBES",
+                (("cloud_run_service.api.get_iam_policy_v2", "run-get-iam-policy-v2", "api"),),
+            ), patch.object(
+                cloud_run_probes, "safe_auth_context", return_value={}
+            ), patch.object(
+                cloud_run_probes, "run_probe", side_effect=strict_run_probe
+            ):
+                self.assertEqual(cloud_run_probes.main(), 0)
+
+        self.assertEqual(calls, [(
+            "cloud_run_service.api.get_iam_policy_v2", Path(root),
+            "447373903153", "espacigo-test-private", "espacigo-testprod-db",
+        )])
+
     def test_services_list_rest_probe_emits_only_permission_metadata(self):
         token = "private-short-lived-token"
         marker = "private-service-name-and-response-body"
