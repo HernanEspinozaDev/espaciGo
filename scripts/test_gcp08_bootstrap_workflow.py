@@ -60,6 +60,17 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
         self.assertIn("setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1", setup_step)
         self.assertIn("project_id: espacigo-testprod", setup_step)
 
+    def test_bootstrap_provider_credential_guard_runs_after_auth_before_terraform(self):
+        workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
+        auth = workflow.index("- name: Authenticate bootstrap federated identity")
+        guard = workflow.index("- name: Verify bootstrap Terraform provider credential source")
+        rollout = workflow.index("- name: Initialize canonical Terraform root and produce private plan")
+        guard_block = workflow[guard:rollout]
+        self.assertLess(auth, guard)
+        self.assertLess(guard, rollout)
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.operation == 'initial-restore'", guard_block)
+        self.assertIn("--check-provider-credentials", guard_block)
+
     def test_initial_restore_plan_is_targeted_and_skips_unrelated_refresh(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")
         start = workflow.index('if [[ "$POLICY_MODE" == bootstrap ]]')

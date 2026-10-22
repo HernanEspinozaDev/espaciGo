@@ -503,6 +503,41 @@ def safe_auth_context(environ=None):
     }
 
 
+PROVIDER_CREDENTIAL_OVERRIDES = (
+    "GOOGLE_CREDENTIALS",
+    "GOOGLE_CLOUD_KEYFILE_JSON",
+    "GCLOUD_KEYFILE_JSON",
+)
+
+
+def safe_provider_credentials_context(environ=None):
+    """Identify the Google provider credential source without exposing its value."""
+    environment = os.environ if environ is None else environ
+    adc_path = environment.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    selected_override = next(
+        (name for name in PROVIDER_CREDENTIAL_OVERRIDES if environment.get(name)),
+        None,
+    )
+    override_matches_adc = bool(
+        selected_override and adc_path
+        and environment[selected_override] == adc_path
+    )
+    if selected_override:
+        provider_source = selected_override
+    elif adc_path:
+        provider_source = "GOOGLE_APPLICATION_CREDENTIALS"
+    else:
+        provider_source = "ADC"
+    return {
+        **{name.lower(): "present" if environment.get(name) else "absent"
+           for name in PROVIDER_CREDENTIAL_OVERRIDES},
+        "google_application_credentials": "present" if adc_path else "absent",
+        "provider_source": provider_source,
+        "override_matches_adc": "yes" if override_matches_adc else "no",
+        "override_conflict": "yes" if selected_override and not override_matches_adc else "no",
+    }
+
+
 def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     project_number=None, private_service_name=None,
                     sql_instance_name=None):
@@ -757,9 +792,17 @@ def run_probe(target, private_root, runner=subprocess.run,
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--private-dir")
-    parser.add_argument("--var-file", required=True)
+    parser.add_argument("--var-file")
     parser.add_argument("--validate-configuration", action="store_true")
+    parser.add_argument("--check-provider-credentials", action="store_true")
     args = parser.parse_args()
+    if args.check_provider_credentials:
+        context = safe_provider_credentials_context()
+        fields = " ".join(f"{key}={value}" for key, value in context.items())
+        print(f"GCP08_PROVIDER_CREDENTIALS stage=bootstrap {fields}", flush=True)
+        return 2 if context["override_conflict"] == "yes" else 0
+    if not args.var_file:
+        parser.error("--var-file is required unless a standalone check is selected")
     config = read_probe_configuration(args.var_file)
     if not _emit_configuration_matches(config):
         return 2

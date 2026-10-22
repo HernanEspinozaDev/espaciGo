@@ -16,7 +16,7 @@ from gcp08_bootstrap_cloud_run_probes import (
     PROBES, SAFE_CATEGORIES, _write_private_response, build_gcloud_command,
     build_rest_url, classify_rest_response, probe_configuration_matches,
     read_probe_configuration, run_probe, _sqladmin_rest_url,
-    safe_auth_context, safe_rest_fields,
+    safe_auth_context, safe_provider_credentials_context, safe_rest_fields,
 )
 import gcp08_bootstrap_cloud_run_probes as cloud_run_probes
 
@@ -25,6 +25,51 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class BootstrapCloudRunProbeTests(unittest.TestCase):
+    def test_provider_credential_source_uses_documented_override_precedence_safely(self):
+        marker = "credential-secret-marker"
+        context = safe_provider_credentials_context({
+            "GOOGLE_APPLICATION_CREDENTIALS": "/private/wif.json",
+            "GOOGLE_CREDENTIALS": marker,
+            "GOOGLE_CLOUD_KEYFILE_JSON": "second-secret-marker",
+            "GCLOUD_KEYFILE_JSON": "third-secret-marker",
+        })
+        self.assertEqual(context["provider_source"], "GOOGLE_CREDENTIALS")
+        self.assertEqual(context["override_conflict"], "yes")
+        self.assertEqual(context["google_credentials"], "present")
+        self.assertEqual(context["google_cloud_keyfile_json"], "present")
+        self.assertEqual(context["gcloud_keyfile_json"], "present")
+        rendered = " ".join(context.values())
+        for secret in (marker, "second-secret-marker", "third-secret-marker", "/private/wif.json"):
+            self.assertNotIn(secret, rendered)
+
+    def test_provider_credential_source_allows_adc_and_matching_override(self):
+        adc = "/private/wif.json"
+        context = safe_provider_credentials_context({"GOOGLE_APPLICATION_CREDENTIALS": adc})
+        self.assertEqual(context["provider_source"], "GOOGLE_APPLICATION_CREDENTIALS")
+        self.assertEqual(context["override_conflict"], "no")
+
+        same_file = safe_provider_credentials_context({
+            "GOOGLE_APPLICATION_CREDENTIALS": adc,
+            "GCLOUD_KEYFILE_JSON": adc,
+        })
+        self.assertEqual(same_file["provider_source"], "GCLOUD_KEYFILE_JSON")
+        self.assertEqual(same_file["override_matches_adc"], "yes")
+        self.assertEqual(same_file["override_conflict"], "no")
+
+    def test_provider_credential_check_fails_closed_without_leaking_override(self):
+        marker = "private-credential-value-marker"
+        output = io.StringIO()
+        with patch.dict(os.environ, {
+            "GOOGLE_APPLICATION_CREDENTIALS": "/private/wif.json",
+            "GOOGLE_CREDENTIALS": marker,
+        }, clear=True), patch("sys.argv", ["probe", "--check-provider-credentials"]), redirect_stdout(output):
+            result = cloud_run_probes.main()
+        self.assertEqual(result, 2)
+        self.assertIn("provider_source=GOOGLE_CREDENTIALS", output.getvalue())
+        self.assertIn("override_conflict=yes", output.getvalue())
+        self.assertNotIn(marker, output.getvalue())
+        self.assertNotIn("/private/wif.json", output.getvalue())
+
     def test_auth_context_reports_only_shared_credential_file_and_impersonation_flags(self):
         private_path = "/runner/private/wif-credentials.json"
         private_identity = "service-account@example.invalid"
