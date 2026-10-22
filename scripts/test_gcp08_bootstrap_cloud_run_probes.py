@@ -1332,6 +1332,11 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertLess(validation, auth)
         self.assertIn("--validate-configuration", block)
         self.assertIn('--var-file "$GCP07D_TFVARS"', block)
+        self.assertIn(
+            'run: python3 "$GITHUB_WORKSPACE/scripts/gcp08_bootstrap_cloud_run_probes.py" '
+            '--validate-configuration --var-file "$GCP07D_TFVARS"',
+            block,
+        )
 
 
 if __name__ == "__main__":
