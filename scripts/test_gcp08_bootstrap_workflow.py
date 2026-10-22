@@ -90,7 +90,7 @@ class Gcp08BootstrapWorkflowTests(unittest.TestCase):
         bootstrap_branch = workflow.index('if [[ "$POLICY_MODE" == bootstrap ]]', plan)
         refresh_diagnostic = workflow.index("gcp08_bootstrap_refresh_diagnostics.py")
         state_inventory = workflow.index("gcp08_bootstrap_state_inventory.py")
-        fixed_probes = workflow.index("gcp08_bootstrap_cloud_run_probes.py")
+        fixed_probes = workflow.index("gcp08_bootstrap_cloud_run_probes.py", plan)
         target_diagnostics = workflow.index("gcp08_bootstrap_target_diagnostics.py")
         self.assertGreater(bootstrap_branch, plan)
         self.assertLess(state_inventory, refresh_diagnostic)

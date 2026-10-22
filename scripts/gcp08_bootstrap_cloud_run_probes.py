@@ -26,6 +26,20 @@ SERVICE_USAGE_API_ROOT = "https://serviceusage.googleapis.com/v1"
 SECRET_MANAGER_API_ROOT = "https://secretmanager.googleapis.com/v1"
 RESOURCE_MANAGER_API_ROOT = "https://cloudresourcemanager.googleapis.com/v3"
 DEFAULT_PRIVATE_SERVICE_NAME = "espacigo-test-private"
+SERVICE_NAMES = {
+    "api": "espacigo-test-api",
+    "public": "espacigo-test-public",
+    "private": "espacigo-test-private",
+}
+SERVICE_ALIASES = {service_name: alias for alias, service_name in SERVICE_NAMES.items()}
+EXPECTED_PROBE_CONFIGURATION = {
+    "project_id": ("project_id", PROJECT, None),
+    "project_number": ("project_number", "447373903153", None),
+    "region": ("region", REGION, REGION),
+    "api_service_name": ("api_service_name", SERVICE_NAMES["api"], SERVICE_NAMES["api"]),
+    "public_service_name": ("public_service_name", SERVICE_NAMES["public"], SERVICE_NAMES["public"]),
+    "private_service_name": ("private_service_name", SERVICE_NAMES["private"], SERVICE_NAMES["private"]),
+}
 V67_DATABASE_SECRET = "espacigo-test-database-password-v67"
 SERVICE_ACCOUNT_RESOURCES = {
     "deployer": "espacigo-test-deployer@espacigo-testprod.iam.gserviceaccount.com",
@@ -67,6 +81,9 @@ PROBES = (
     ("cloud_run_service.api.get_iam_policy", "get-iam-policy", "espacigo-test-api"),
     ("cloud_run_service.public.get_iam_policy", "get-iam-policy", "espacigo-test-public"),
     ("cloud_run_service.private.get_iam_policy", "get-iam-policy", "espacigo-test-private"),
+    ("cloud_run_service.api.get_iam_policy_v2", "run-get-iam-policy-v2", "api"),
+    ("cloud_run_service.public.get_iam_policy_v2", "run-get-iam-policy-v2", "public"),
+    ("cloud_run_service.private.get_iam_policy_v2", "run-get-iam-policy-v2", "private"),
     ("cloud_run_service.private.iap_get_iam_policy", "iap-get-iam-policy", "private"),
     ("cloud_run_service.private.iap_test_iam_permissions", "iap-test-iam", "private"),
     ("project.metadata.get", "project-get", "project"),
@@ -167,6 +184,13 @@ def build_rest_url(target):
     if target not in PROBE_BY_ENUM:
         raise ValueError("invalid target")
     operation, service = PROBE_BY_ENUM[target]
+    if operation == "run-get-iam-policy-v2":
+        if service not in SERVICE_NAMES:
+            raise ValueError("invalid Cloud Run IAM policy alias")
+        resource = "/".join(urllib.parse.quote(part, safe="") for part in (
+            "projects", PROJECT, "locations", REGION, "services", SERVICE_NAMES[service],
+        ))
+        return f"{API_ROOT}/{resource}:getIamPolicy?options.requestedPolicyVersion=3"
     if operation == "list":
         resource = "/".join(urllib.parse.quote(part, safe="") for part in (
             "projects", PROJECT, "locations", REGION, "services",
@@ -417,12 +441,46 @@ def read_probe_configuration(var_file):
     if isinstance(project_number, int) and not isinstance(project_number, bool):
         project_number = str(project_number)
     return {
+        "project_id": config.get("project_id"),
         "project_number": project_number,
-        # The Terraform variable is pinned to this default by validation; it is
-        # commonly omitted from tfvars because it is not an override.
+        "region": config.get("region", REGION),
+        "api_service_name": config.get("api_service_name", SERVICE_NAMES["api"]),
+        "public_service_name": config.get("public_service_name", SERVICE_NAMES["public"]),
         "private_service_name": config.get("private_service_name", DEFAULT_PRIVATE_SERVICE_NAME),
         "sql_instance_name": config.get("api_v67_database_instance_name"),
     }
+
+
+def probe_configuration_matches(config):
+    """Return only allowlisted aliases and booleans; never include protected values."""
+    results = {}
+    for alias, (key, expected, default) in EXPECTED_PROBE_CONFIGURATION.items():
+        actual = config.get(key, default)
+        if alias == "project_number" and isinstance(actual, int) and not isinstance(actual, bool):
+            actual = str(actual)
+        results[alias] = actual == expected
+    return results
+
+
+def _emit_configuration_matches(config):
+    matches = probe_configuration_matches(config)
+    for alias, matched in matches.items():
+        print(f"GCP08_PROBE_CONFIG alias={alias} result={'match' if matched else 'mismatch'}", flush=True)
+    return all(matches.values())
+
+
+def _emit_iam_comparison(alias, api_version, status, category):
+    if alias not in {"api", "public", "private"} or api_version not in {"v1", "v2"}:
+        alias, api_version = "unknown", "unknown"
+    if not (status == "success" or re.fullmatch(r"[1-5][0-9]{2}", str(status))):
+        status = "unavailable"
+    if category not in SAFE_CATEGORIES:
+        category = "other"
+    print(
+        f"GCP08_CLOUD_RUN_IAM_COMPARE stage=bootstrap alias={alias} "
+        f"api={api_version} status={status} category={category}",
+        flush=True,
+    )
 
 
 def safe_auth_context(environ=None):
@@ -596,7 +654,10 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
                     result = "granted" if permission in granted else "not_granted"
                     print(f"GCP08_PERMISSION_TEST stage=bootstrap target={target} permission={permission} result={result}", flush=True)
             else:
-                _emit(target, "success")
+                if operation == "run-get-iam-policy-v2":
+                    _emit_iam_comparison(PROBE_BY_ENUM[target][1], "v2", http_status, "success")
+                else:
+                    _emit(target, "success")
             return True
         response_path = private_dir / "response.json"
         try:
@@ -607,6 +668,12 @@ def _run_rest_probe(target, private_root, runner, opener_factory, timeout,
         truncated = len(response_body) > MAX_RESPONSE_BYTES
         payload = {} if truncated else _read_private_response(response_path)
         category = classify_rest_response(http_status, payload)
+        if operation == "run-get-iam-policy-v2":
+            _emit_iam_comparison(
+                PROBE_BY_ENUM[target][1], "v2",
+                http_status if isinstance(http_status, int) else "unavailable", category,
+            )
+            return category == "success"
         fields = safe_rest_fields(http_status, payload)
         _emit(target, category, fields)
         return category == "success"
@@ -634,9 +701,19 @@ def _run_gcloud_probe(target, private_root, runner, timeout):
             except OSError:
                 diagnostic = ""
             category = classify_probe(diagnostic)
+            if PROBE_BY_ENUM[target][0] == "get-iam-policy":
+                alias = SERVICE_ALIASES.get(PROBE_BY_ENUM[target][1], "unknown")
+                status = next((item.split("=", 1)[1] for item in safe_details(diagnostic)
+                               if item.startswith("status=")), "unavailable")
+                _emit_iam_comparison(alias, "v1", status, category)
+                return False
             _emit(target, category, _safe_gcloud_fields(diagnostic))
             return False
         if result.returncode == 0:
+            if PROBE_BY_ENUM[target][0] == "get-iam-policy":
+                alias = SERVICE_ALIASES.get(PROBE_BY_ENUM[target][1], "unknown")
+                _emit_iam_comparison(alias, "v1", "success", "success")
+                return True
             _emit(target, "success")
             return True
         try:
@@ -644,6 +721,12 @@ def _run_gcloud_probe(target, private_root, runner, timeout):
         except OSError:
             diagnostic = ""
         category = classify_probe(diagnostic)
+        if PROBE_BY_ENUM[target][0] == "get-iam-policy":
+            alias = SERVICE_ALIASES.get(PROBE_BY_ENUM[target][1], "unknown")
+            status = next((item.split("=", 1)[1] for item in safe_details(diagnostic)
+                           if item.startswith("status=")), "unavailable")
+            _emit_iam_comparison(alias, "v1", status, category)
+            return False
         _emit(target, category, _safe_gcloud_fields(diagnostic))
         return False
 
@@ -657,7 +740,7 @@ def run_probe(target, private_root, runner=subprocess.run,
         raise ValueError("invalid target")
     operation, _ = PROBE_BY_ENUM[target]
     if operation in {
-        "describe", "list", "iap-get-iam-policy", "iap-test-iam", "project-get",
+        "describe", "list", "run-get-iam-policy-v2", "iap-get-iam-policy", "iap-test-iam", "project-get",
         "project-test-iam", "sql-instance-get",
         "run-test-iam", "run-parent-test-iam", "sa-test-iam", "sa-test-get-metadata",
         "sa-metadata-get", "sa-get-iam-policy", "sa-test-get-iam-policy",
@@ -673,13 +756,20 @@ def run_probe(target, private_root, runner=subprocess.run,
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--private-dir", required=True)
+    parser.add_argument("--private-dir")
     parser.add_argument("--var-file", required=True)
+    parser.add_argument("--validate-configuration", action="store_true")
     args = parser.parse_args()
+    config = read_probe_configuration(args.var_file)
+    if not _emit_configuration_matches(config):
+        return 2
+    if args.validate_configuration:
+        return 0
+    if not args.private_dir:
+        parser.error("--private-dir is required unless --validate-configuration is set")
     private_root = Path(args.private_dir)
     private_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(private_root, 0o700)
-    config = read_probe_configuration(args.var_file)
     auth_fields = " ".join(f"{key}={value}" for key, value in safe_auth_context().items())
     print(f"GCP08_AUTH_CONTEXT stage=bootstrap {auth_fields}", flush=True)
     for target, _, _ in PROBES:
