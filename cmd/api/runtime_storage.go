@@ -3,15 +3,36 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/cloudstorage"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/mediafs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 )
 
 type runtimeFileStore interface {
 	Put(context.Context, string, []byte) error
 	Get(context.Context, string) ([]byte, error)
 	Delete(context.Context, string) error
+}
+
+func newRuntimeMediaStore(ctx context.Context, getenv func(string) string, evidenceRoot string) (media.ObjectStore, error) {
+	backend, bucket, _, err := runtimeFileStoreConfig(getenv)
+	if err != nil {
+		return nil, err
+	}
+	switch backend {
+	case "filesystem":
+		if evidenceRoot == "" {
+			return nil, errors.New("M03_EVIDENCE_DIR is required for filesystem media storage")
+		}
+		return mediafs.New(filepath.Join(evidenceRoot, "private-media"))
+	case "gcs":
+		return cloudstorage.NewMediaStore(ctx, bucket)
+	default:
+		return nil, errors.New("media storage configuration is invalid")
+	}
 }
 
 func newRuntimeFileStore(ctx context.Context, getenv func(string) string, evidenceRoot string) (runtimeFileStore, error) {

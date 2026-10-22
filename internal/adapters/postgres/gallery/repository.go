@@ -141,6 +141,13 @@ func (w *candidateWriter) Add(ctx context.Context, item gallery.Photo, key strin
 		VALUES($1,$2,$3,$1,$4,$5,$6,$7,'activa',$8,$9)`, item.ID, w.spaceID, w.owner, item.Fixture, item.MIME, item.SHA256, item.Size, item.CreatedAt.UTC(), key); err != nil {
 		return gallery.Photo{}, false, err
 	}
+	var position int
+	if err = w.tx.QueryRow(ctx, `SELECT COALESCE(max(position),0)+1 FROM public.gallery_item_order WHERE espacio_id=$1`, w.spaceID).Scan(&position); err != nil {
+		return gallery.Photo{}, false, err
+	}
+	if _, err = w.tx.Exec(ctx, `INSERT INTO public.gallery_item_order(id,espacio_id,propietario_id,synthetic_photo_id,position) VALUES(gen_random_uuid(),$1,$2,$3,$4)`, w.spaceID, w.owner, item.ID, position); err != nil {
+		return gallery.Photo{}, false, err
+	}
 	result, err := w.tx.Exec(ctx, `DELETE FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1 AND estado='reservado'`, w.fileID)
 	if err != nil {
 		return gallery.Photo{}, false, err
@@ -247,14 +254,15 @@ func (r *Repository) List(ctx context.Context, owner, spaceID string) ([]gallery
 	} else if err != nil {
 		return nil, err
 	}
-	rows, err := r.pool.Query(ctx, `SELECT `+activePhotoColumns+` FROM public.espacio_galeria_sintetica_local WHERE espacio_id=$1 AND propietario_id=$2 AND estado='activa' ORDER BY creada_en,id`, spaceID, owner)
+	rows, err := r.pool.Query(ctx, `SELECT g.id::text,g.fixture_code,g.mime_type,g.sha256,g.size_bytes,g.creada_en,g.publicada_en_catalogo,o.position FROM public.espacio_galeria_sintetica_local g JOIN public.gallery_item_order o ON o.synthetic_photo_id=g.id WHERE g.espacio_id=$1 AND g.propietario_id=$2 AND g.estado='activa' ORDER BY o.position,g.id`, spaceID, owner)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	items := []gallery.Photo{}
 	for rows.Next() {
-		item, e := scanPhoto(rows)
+		var item gallery.Photo
+		e := rows.Scan(&item.ID, &item.Fixture, &item.MIME, &item.SHA256, &item.Size, &item.CreatedAt, &item.PublicInCatalog, &item.Position)
 		if e != nil {
 			return nil, e
 		}
@@ -350,6 +358,12 @@ func (r *Repository) Remove(ctx context.Context, owner, spaceID, photoID string)
 		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL WHERE id=$1 AND propietario_id=$2 AND portada_foto_id=$3`, spaceID, owner, photoID); err != nil {
 			return gallery.Removal{}, err
 		}
+		if _, err = tx.Exec(ctx, `DELETE FROM public.gallery_item_order WHERE synthetic_photo_id=$1`, photoID); err != nil {
+			return gallery.Removal{}, err
+		}
+		if _, err = tx.Exec(ctx, `WITH ranked AS (SELECT id,row_number() OVER (ORDER BY position,id)::smallint AS next_position FROM public.gallery_item_order WHERE espacio_id=$1) UPDATE public.gallery_item_order o SET position=ranked.next_position FROM ranked WHERE o.id=ranked.id`, spaceID); err != nil {
+			return gallery.Removal{}, err
+		}
 		if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET estado='retirada',retirada_en=clock_timestamp(),proximo_intento_en=clock_timestamp() WHERE id=$1 AND estado='activa'`, photoID); err != nil {
 			return gallery.Removal{}, err
 		}
@@ -391,7 +405,7 @@ func (r *Repository) SelectCover(ctx context.Context, owner, spaceID, photoID st
 	if photoState != "activa" {
 		return gallery.Cover{}, gallery.ErrNotFound
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=$3 WHERE id=$1 AND propietario_id=$2`, spaceID, owner, photoID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_media_id=NULL,portada_foto_id=$3 WHERE id=$1 AND propietario_id=$2`, spaceID, owner, photoID); err != nil {
 		return gallery.Cover{}, err
 	}
 	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {

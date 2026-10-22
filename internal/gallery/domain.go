@@ -24,6 +24,7 @@ var (
 
 type Photo struct {
 	ID              string    `json:"id"`
+	Position        int       `json:"position,omitempty"`
 	Fixture         string    `json:"fixture_code"`
 	MIME            string    `json:"mime_type"`
 	SHA256          string    `json:"sha256"`

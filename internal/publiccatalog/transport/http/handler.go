@@ -68,7 +68,35 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		parts := strings.Split(strings.TrimPrefix(r.URL.Path, imagesPrefix), "/images/")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" || strings.Contains(parts[0], "/") || strings.Contains(parts[1], "/") {
+		if len(parts) != 2 || parts[0] == "" || strings.Contains(parts[0], "/") {
+			publicError(w, 404)
+			return
+		}
+		if strings.Contains(parts[1], "/variants/") {
+			variantParts := strings.Split(parts[1], "/variants/")
+			if len(variantParts) != 2 || variantParts[0] == "" || variantParts[1] == "" || strings.Contains(variantParts[0], "/") || strings.Contains(variantParts[1], "/") {
+				publicError(w, 404)
+				return
+			}
+			item, blob, err := h.service.MediaImageContent(r.Context(), parts[0], variantParts[0], variantParts[1])
+			if errors.Is(err, publiccatalog.ErrNotFound) {
+				publicError(w, 404)
+				return
+			}
+			if err != nil {
+				publicError(w, 500)
+				return
+			}
+			w.Header().Set("Content-Type", item.MIME)
+			w.Header().Set("Content-Length", strconv.Itoa(len(blob)))
+			w.Header().Set("Content-Disposition", "inline; filename=space-image.webp")
+			w.Header().Set("ETag", `"`+item.SHA256+`"`)
+			w.Header().Set("Cache-Control", "public, max-age=60, must-revalidate")
+			w.WriteHeader(200)
+			_, _ = w.Write(blob)
+			return
+		}
+		if parts[1] == "" || strings.Contains(parts[1], "/") {
 			publicError(w, 404)
 			return
 		}

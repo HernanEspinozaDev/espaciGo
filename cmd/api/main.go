@@ -26,6 +26,7 @@ import (
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
+	mediapg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/media"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
 	operationspg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/operations"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
@@ -54,6 +55,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
 	noticehttp "github.com/HernanEspinozaDev/espaciGo/internal/localnotice/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
@@ -72,6 +74,26 @@ import (
 )
 
 const readyURL = "http://127.0.0.1:8080/health/ready"
+
+const (
+	apiReadHeaderTimeout = 5 * time.Second
+	// 11 MiB multipart payloads get a two-minute body window (~96 KiB/s).
+	apiReadTimeout = 2 * time.Minute
+	// WriteTimeout starts with request processing; four minutes allows the
+	// full body window plus two minutes for conversion, storage, and response.
+	apiWriteTimeout = 4 * time.Minute
+)
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: apiReadHeaderTimeout,
+		ReadTimeout:       apiReadTimeout,
+		WriteTimeout:      apiWriteTimeout,
+		IdleTimeout:       60 * time.Second,
+	}
+}
 
 func main() {
 	if len(os.Args) >= 2 && (os.Args[1] == "local-privacy-retention-purge" || os.Args[1] == "local-privacy-replay-export" || os.Args[1] == "local-privacy-replay-apply") {
@@ -157,6 +179,7 @@ func run() error {
 	var localPrivacyService *privacy.Service
 	var localM02Service *m02local.Service
 	var localGalleryService *gallery.Service
+	var localMediaService *media.Service
 	var localContractService *contract.Service
 	var localOperationService *operation.Service
 	var localNoticeService *localnotice.Service
@@ -236,10 +259,6 @@ func run() error {
 			return errors.New("local M02 initialization failed")
 		}
 		localM02Service = m02Service
-		m02Handler := m02local.NewHandler(service, m02Service, cfg.allowedOrigins)
-		mux.Handle("/api/v1/profile/photo", m02Handler)
-		mux.Handle("/api/v1/profile/photo/", m02Handler)
-		mux.Handle("/api/v1/payout-account", m02Handler)
 		mux.Handle("/api/v1/", identityhttp.NewHandlerWithSuppressionRegistry(service, repo, cfg.allowedOrigins, privacyService, evidenceStore, privacyReplayRegistryPath, privacyReplayStore))
 		globalAdminService, err := adminglobal.New(pool, time.Now)
 		if err != nil {
@@ -277,14 +296,31 @@ func run() error {
 		}
 		localGalleryService = galleryService
 		globalAdminService.SetPublicationGallery(galleryService)
-		galleryHandler := galleryhttp.NewHandler(service, galleryService, cfg.allowedOrigins)
+		mediaStore, err := newRuntimeMediaStore(context.Background(), os.Getenv, evidenceRoot)
+		if err != nil {
+			return errors.New("private media storage is unavailable")
+		}
+		if closer, ok := mediaStore.(interface{ Close() error }); ok {
+			defer closer.Close()
+		}
+		mediaService, err := media.NewService(mediapg.New(pool), mediaStore, credentials.Generator{}, time.Now)
+		if err != nil {
+			return errors.New("media service initialization failed")
+		}
+		localMediaService = mediaService
+		galleryHandler := galleryhttp.NewHandlerWithMedia(service, galleryService, mediaService, cfg.allowedOrigins)
+		m02Handler := m02local.NewHandlerWithMedia(service, m02Service, mediaService, cfg.allowedOrigins)
+		mux.Handle("/api/v1/profile/photo", m02Handler)
+		mux.Handle("/api/v1/profile/photo/", m02Handler)
+		mux.Handle("/api/v1/payout-account", m02Handler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/cover", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/content", galleryHandler)
+		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/variants/{variant}", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/publication", galleryHandler)
 		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
-			publicCatalogService, err := publiccatalog.NewWithImageStore(publiccatalogpg.New(pool), publicCatalogMasterKey, evidenceStore)
+			publicCatalogService, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), publicCatalogMasterKey, evidenceStore, mediaStore)
 			if err != nil {
 				return errors.New("public catalog initialization failed")
 			}
@@ -396,14 +432,7 @@ func run() error {
 			http.ServeFile(w, r, "/openapi.yaml")
 		})
 	}
-	server := &http.Server{
-		Addr:              cfg.httpAddr,
-		Handler:           identityhttp.RestrictedAccountMiddleware(localIdentityService, mux, cfg.allowedOrigins...),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(localIdentityService, mux, cfg.allowedOrigins...))
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- server.ListenAndServe()
@@ -429,6 +458,23 @@ func run() error {
 				case <-ticker.C:
 					_, _ = localContractService.EnsureApproved(ctx)
 					_, _ = localContractService.ExpireDue(ctx)
+				}
+			}
+		}()
+	}
+	if localMediaService != nil && !isolatedDatasetClock {
+		go func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					// Reconciliation is bounded and logs no media/account identifiers.
+					if err := localMediaService.CleanOnce(ctx, 50); err != nil {
+						log.Print("private media cleanup pass failed")
+					}
 				}
 			}
 		}()
