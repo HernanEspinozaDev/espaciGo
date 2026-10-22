@@ -96,6 +96,7 @@ func TestIMG01EProfileMediaUploadExportAndRevocation(t *testing.T) {
 	if len(exclusions) != 0 {
 		t.Fatalf("unexpected media export exclusions: %v", exclusions)
 	}
+	assertIMG01EPrivacyWorkerCannotMutateUnclaimedMedia(t, h, owner, uploaded.Photo.ID)
 	found := false
 	for _, file := range files {
 		if file.Name == wantName {
@@ -118,6 +119,45 @@ func TestIMG01EProfileMediaUploadExportAndRevocation(t *testing.T) {
 	}
 	if _, err := store.Generation(h.ctx, variant.ObjectKey); !errors.Is(err, media.ErrNotFound) {
 		t.Fatalf("retired avatar object remains after cleanup: %v", err)
+	}
+}
+
+func assertIMG01EPrivacyWorkerCannotMutateUnclaimedMedia(t *testing.T, h *authHarness, owner, uploadedID string) {
+	t.Helper()
+	otherID := "00000000-0000-4000-8000-000000000073"
+	_, err := h.pool.Exec(h.ctx, `INSERT INTO public.media_asset
+		(id,propietario_id,proposito,estado,idempotency_key,input_sha256,lease_until)
+		VALUES($1,$2,'perfil','pending','img01e-negative-worker-0001',repeat('0',64),clock_timestamp()+interval '1 hour')`, otherID, owner)
+	if err != nil {
+		t.Fatalf("seed unrelated pending asset: %v", err)
+	}
+	config := h.pool.Config().Copy()
+	config.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, `SET ROLE espacigo_privacy_cleanup_worker`)
+		return err
+	}
+	worker, err := pgxpool.NewWithConfig(h.ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Close()
+
+	for name, query := range map[string]string{
+		"update unrelated asset":    `UPDATE public.media_asset SET estado='deleted' WHERE id=$1`,
+		"delete unrelated variants": `DELETE FROM public.media_variant WHERE media_id=$1`,
+		"delete unrelated intents":  `DELETE FROM public.media_variant_intent WHERE media_id=$1`,
+	} {
+		if _, err := worker.Exec(h.ctx, query, otherID); err == nil {
+			t.Errorf("worker unexpectedly could %s", name)
+		}
+	}
+	var completed bool
+	if err := worker.QueryRow(h.ctx, `SELECT public.complete_private_media_cleanup($1,0,clock_timestamp())`, uploadedID).Scan(&completed); err != nil || completed {
+		t.Fatalf("worker completed an asset without a current claim: completed=%t err=%v", completed, err)
+	}
+	var state string
+	if err := h.pool.QueryRow(h.ctx, `SELECT estado FROM public.media_asset WHERE id=$1`, otherID).Scan(&state); err != nil || state != "pending" {
+		t.Fatalf("unrelated asset state=%q err=%v", state, err)
 	}
 }
 

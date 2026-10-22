@@ -11,14 +11,95 @@ $$;
 
 GRANT SELECT (id,propietario_id,estado,fencing_token,lease_until,updated_at)
     ON public.media_asset TO espacigo_privacy_cleanup_worker;
-GRANT UPDATE (estado,fencing_token,lease_until,updated_at,deleted_at)
-    ON public.media_asset TO espacigo_privacy_cleanup_worker;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.media_asset FROM espacigo_privacy_cleanup_worker;
 GRANT SELECT (media_id,variant,provider,bucket_name,object_key,generation,mime_type,size_bytes,sha256,width,height)
     ON public.media_variant TO espacigo_privacy_cleanup_worker;
-GRANT DELETE ON public.media_variant TO espacigo_privacy_cleanup_worker;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.media_variant FROM espacigo_privacy_cleanup_worker;
 GRANT SELECT (media_id,variant,object_key,generation,write_complete)
     ON public.media_variant_intent TO espacigo_privacy_cleanup_worker;
-GRANT DELETE ON public.media_variant_intent TO espacigo_privacy_cleanup_worker;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.media_variant_intent FROM espacigo_privacy_cleanup_worker;
+
+CREATE OR REPLACE FUNCTION public.claim_private_media_cleanup(p_limit integer, p_at timestamptz)
+RETURNS TABLE(id text, fencing_token bigint)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+SET timezone = 'UTC'
+AS $$
+BEGIN
+    IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
+        RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
+    END IF;
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_at IS NULL THEN
+        RAISE EXCEPTION 'valid cleanup limit and timestamp are required' USING ERRCODE = '22023';
+    END IF;
+    RETURN QUERY
+    WITH claimed AS (
+        SELECT a.id FROM public.media_asset a
+         WHERE (a.estado='deleting' AND (a.lease_until IS NULL OR a.lease_until <= p_at))
+            OR (a.estado='pending' AND a.lease_until <= p_at)
+         ORDER BY a.updated_at,a.id FOR UPDATE SKIP LOCKED LIMIT p_limit
+    ), changed AS (
+        UPDATE public.media_asset a
+           SET estado='deleting',fencing_token=a.fencing_token+1,
+               lease_until=p_at+interval '5 minutes',updated_at=p_at
+          FROM claimed c WHERE a.id=c.id
+        RETURNING a.id::text,a.fencing_token
+    ) SELECT changed.id,changed.fencing_token FROM changed;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.complete_private_media_cleanup(p_id uuid, p_token bigint, p_at timestamptz)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+SET timezone = 'UTC'
+AS $$
+BEGIN
+    IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
+        RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
+    END IF;
+    IF p_at IS NULL THEN
+        RAISE EXCEPTION 'cleanup completion time is required' USING ERRCODE = '22004';
+    END IF;
+    PERFORM 1 FROM public.media_asset
+     WHERE id=p_id AND estado='deleting' AND fencing_token=p_token FOR UPDATE;
+    IF NOT FOUND THEN RETURN false; END IF;
+    DELETE FROM public.media_variant WHERE media_id=p_id;
+    DELETE FROM public.media_variant_intent WHERE media_id=p_id;
+    UPDATE public.media_asset SET estado='deleted',deleted_at=p_at,lease_until=NULL,updated_at=p_at
+     WHERE id=p_id AND estado='deleting' AND fencing_token=p_token;
+    RETURN FOUND;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION public.fail_private_media_cleanup(p_id uuid, p_token bigint, p_at timestamptz)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+SET timezone = 'UTC'
+AS $$
+BEGIN
+    IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
+        RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
+    END IF;
+    IF p_at IS NULL THEN
+        RAISE EXCEPTION 'cleanup retry time is required' USING ERRCODE = '22004';
+    END IF;
+    UPDATE public.media_asset SET lease_until=p_at+interval '1 minute',updated_at=p_at
+     WHERE id=p_id AND estado='deleting' AND fencing_token=p_token;
+    RETURN FOUND;
+END
+$$;
+
+REVOKE ALL ON FUNCTION public.claim_private_media_cleanup(integer,timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.complete_private_media_cleanup(uuid,bigint,timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fail_private_media_cleanup(uuid,bigint,timestamptz) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.claim_private_media_cleanup(integer,timestamptz) TO espacigo_privacy_cleanup_worker;
+GRANT EXECUTE ON FUNCTION public.complete_private_media_cleanup(uuid,bigint,timestamptz) TO espacigo_privacy_cleanup_worker;
+GRANT EXECUTE ON FUNCTION public.fail_private_media_cleanup(uuid,bigint,timestamptz) TO espacigo_privacy_cleanup_worker;
 
 COMMENT ON TABLE public.media_asset IS
     'IMG-01 private media lifecycle; the privacy cleanup worker can only claim and finalize deleting assets.';
