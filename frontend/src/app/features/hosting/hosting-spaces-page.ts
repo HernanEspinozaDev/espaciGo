@@ -5,6 +5,7 @@ import { FormControl, FormGroup, FormRecord, ReactiveFormsModule } from '@angula
 import { RouterLink } from '@angular/router';
 import { ModelControls } from '../../shared/forms/model-controls';
 import { HostingSpacesFacade } from './application/hosting-spaces-facade';
+import type { SpaceGalleryPhoto, SpaceMediaPhoto } from '../../core/contracts/models';
 
 @Component({
   providers: [ModelControls, HostingSpacesFacade],
@@ -93,6 +94,11 @@ export class HostingSpacesPage {
   get maxPhotos() {
     return this.facade.maxPhotos;
   }
+  get uploadQueue() { return this.facade.uploadQueue; }
+  get uploadRunning() { return this.facade.uploadRunning; }
+  get uploadMessage() { return this.facade.uploadMessage; }
+  get uploadSlotsAvailable() { return this.facade.uploadSlotsAvailable; }
+  get queuedUploadCount() { return this.facade.queuedUploadCount; }
   get photoUrl() {
     return this.facade.photoUrl;
   }
@@ -201,9 +207,13 @@ export class HostingSpacesPage {
   readonly loadBlocks = this.facade.loadBlocks.bind(this.facade);
   readonly saveWeekly = this.facade.saveWeekly.bind(this.facade);
   readonly addSyntheticPhoto = this.facade.addSyntheticPhoto.bind(this.facade);
+  readonly startPhotoUploads = this.facade.startPhotoUploads.bind(this.facade);
+  readonly removeQueuedPhoto = this.facade.removeQueuedPhoto.bind(this.facade);
+  readonly retryQueuedPhoto = this.facade.retryQueuedPhoto.bind(this.facade);
   readonly selectCover = this.facade.selectCover.bind(this.facade);
   readonly showPhoto = this.facade.showPhoto.bind(this.facade);
   readonly removePhoto = this.facade.removePhoto.bind(this.facade);
+  readonly setPhotoVisible = this.facade.setPhotoVisible.bind(this.facade);
   readonly setPhotoPublic = this.facade.setPhotoPublic.bind(this.facade);
   readonly setRateUnit = this.facade.setRateUnit.bind(this.facade);
   readonly setTimeZone = this.facade.setTimeZone.bind(this.facade);
@@ -220,4 +230,25 @@ export class HostingSpacesPage {
   readonly closePhoto = this.facade.closePhoto.bind(this.facade);
   readonly setNotice = this.facade.setNotice.bind(this.facade);
   readonly zoneDateTime = this.facade.zoneDateTime.bind(this.facade);
+
+  queuePhotoFiles(event: Event): void {
+    const input = event.target as HTMLInputElement | null;
+    if (input?.files) this.facade.queuePhotoFiles(input.files);
+    if (input) input.value = '';
+  }
+  isMediaPhoto(photo: SpaceGalleryPhoto): photo is SpaceMediaPhoto {
+    return this.facade.isMediaPhoto(photo);
+  }
+  photoIsVisible(photo: SpaceGalleryPhoto): boolean { return this.facade.photoIsVisible(photo); }
+  photoIsCover(photo: SpaceGalleryPhoto): boolean { return this.facade.photoIsCover(photo); }
+  uploadFileSize(size: number): string { return this.facade.uploadFileSize(size); }
+  saveAltText(photo: SpaceMediaPhoto, event: Event): void {
+    const value = (event.target as HTMLInputElement).value;
+    void this.facade.updateMediaPhoto(photo.id, { alt_text: value });
+  }
+  savePosition(photo: SpaceMediaPhoto, event: Event): void {
+    const value = Number((event.target as HTMLInputElement).value);
+    if (Number.isInteger(value) && value >= 1 && value <= this.gallery().length)
+      void this.facade.updateMediaPhoto(photo.id, { position: value });
+  }
 }

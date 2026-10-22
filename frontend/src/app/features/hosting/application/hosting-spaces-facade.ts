@@ -5,6 +5,7 @@ import {
   OnDestroy,
   OnInit,
   PLATFORM_ID,
+  computed,
   effect,
   inject,
   signal,
@@ -19,6 +20,9 @@ import type {
   SpaceCategoryList,
   SpaceDraft,
   SpaceDraftInput,
+  SpaceGalleryPhoto,
+  SpaceMediaPhoto,
+  SpaceMediaPhotoUpdate,
   SyntheticSpaceGalleryPhoto,
 } from '../../../core/contracts/models';
 import { IdentitySession } from '../../../core/identity/application/identity-session';
@@ -30,6 +34,15 @@ type Section = 'datos' | 'tarifas' | 'calendario' | 'galeria';
 type ExactSpace = Omit<SpaceDraft, 'base_price_clp'> & { base_price_clp: string };
 type ExactDraftList = { items: ExactSpace[] };
 type GalleryAttempt = { key: string; payload: { fixture_code: 'synthetic-png-v1' } };
+type PhotoUploadTask = {
+  id: string;
+  key: string;
+  file: File;
+  previewUrl: string | null;
+  status: 'queued' | 'uploading' | 'error';
+  progress: number | null;
+  error: string;
+};
 type RequestContext = {
   token: string;
   session: NonNullable<ReturnType<IdentitySession['session']>>;
@@ -65,6 +78,11 @@ const emptyForm = (): DraftForm => ({
   attributes: {},
 });
 const dayNames = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+const maxPhotoInputBytes = 10 << 20;
+
+function isMediaPhoto(photo: SpaceGalleryPhoto): photo is SpaceMediaPhoto {
+  return !('fixture_code' in photo);
+}
 
 @Injectable()
 export class HostingSpacesFacade implements OnInit, OnDestroy {
@@ -84,6 +102,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   private simulationQueryGeneration = 0;
   private availabilityQueryGeneration = 0;
   private galleryGeneration = 0;
+  private uploadGeneration = 0;
   private profileGeneration = 0;
   private selectionRevision = 0;
   private ownerToken = this.identity.accessToken();
@@ -104,8 +123,15 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   readonly locationsError = signal('');
   readonly selectedSpace = signal<ExactSpace | null>(null);
   readonly profile = signal<SpaceAttributeProfile | null>(null);
-  readonly gallery = signal<SyntheticSpaceGalleryPhoto[]>([]);
+  readonly gallery = signal<SpaceGalleryPhoto[]>([]);
   readonly maxPhotos = signal(10);
+  readonly uploadQueue = signal<PhotoUploadTask[]>([]);
+  readonly uploadRunning = signal(false);
+  readonly uploadMessage = signal('');
+  readonly uploadSlotsAvailable = computed(() => Math.max(0,
+    this.maxPhotos() - this.gallery().length - this.uploadQueue().length,
+  ));
+  readonly queuedUploadCount = computed(() => this.uploadQueue().filter((task) => task.status === 'queued').length);
   readonly photoUrl = signal<string | null>(null);
   readonly previewPhotoId = signal<string | null>(null);
   readonly tariff = signal<{
@@ -193,7 +219,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
         value === 'calendario'
           ? 'Disponibilidad y calendario'
           : value === 'galeria'
-            ? 'Galería sintética'
+            ? 'Galería'
             : value === 'tarifas'
               ? 'Tarifas y simulaciones'
               : 'Datos del espacio',
@@ -210,6 +236,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.galleryGeneration++;
     this.galleryAttempts.clear();
     this.unregister?.();
+    this.clearUploadQueue();
     this.revokePhoto();
   }
 
@@ -833,6 +860,136 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     }
   }
 
+  queuePhotoFiles(files: FileList | readonly File[]): void {
+    if (!isPlatformBrowser(this.platform) || !this.selectedSpace()) return;
+    const remaining = this.uploadSlotsAvailable();
+    const selected = Array.from(files);
+    const accepted = selected.slice(0, remaining);
+    const tasks = accepted.map((file): PhotoUploadTask => {
+      const oversized = file.size > maxPhotoInputBytes;
+      let previewUrl: string | null = null;
+      if (!oversized && file.type.startsWith('image/')) {
+        try {
+          previewUrl = URL.createObjectURL(file);
+        } catch {
+          previewUrl = null;
+        }
+      }
+      return {
+        id: this.newIdempotencyKey(),
+        key: this.newIdempotencyKey(),
+        file,
+        previewUrl,
+        status: oversized ? 'error' : 'queued',
+        progress: 0,
+        error: oversized ? 'El archivo supera el máximo de 10 MiB.' : '',
+      };
+    });
+    this.uploadQueue.update((queue) => [...queue, ...tasks]);
+    this.uploadMessage.set(
+      selected.length > accepted.length
+        ? `Solo quedan ${remaining} cupos en esta galería. Se añadieron ${accepted.length} archivos.`
+        : '',
+    );
+  }
+
+  removeQueuedPhoto(id: string): void {
+    const task = this.uploadQueue().find((item) => item.id === id);
+    if (!task || task.status === 'uploading') return;
+    this.revokeUploadUrl(task.previewUrl);
+    this.uploadQueue.update((items) => items.filter((item) => item.id !== id));
+  }
+
+  async startPhotoUploads(): Promise<void> {
+    const context = this.context();
+    const space = this.selectedSpace();
+    if (!context || !space || !isPlatformBrowser(this.platform) || this.uploadRunning()) return;
+    if (!this.uploadQueue().some((task) => task.status === 'queued')) return;
+    const generation = this.uploadGeneration;
+    this.uploadRunning.set(true);
+    this.uploadMessage.set('');
+    await Promise.all([this.uploadWorker(context, space.id, generation), this.uploadWorker(context, space.id, generation)]);
+    if (this.uploadCurrent(context, space.id, generation)) {
+      this.uploadRunning.set(false);
+      if (!this.uploadQueue().some((task) => task.status === 'error')) {
+        this.notice.set('Las imágenes seleccionadas se guardaron y Go confirmó su estado.');
+      }
+    }
+  }
+
+  retryQueuedPhoto(id: string): void {
+    if (this.uploadRunning()) return;
+    this.uploadQueue.update((items) => items.map((task) =>
+      task.id === id && task.status === 'error'
+        ? { ...task, status: 'queued', progress: 0, error: '' }
+        : task,
+    ));
+    void this.startPhotoUploads();
+  }
+
+  async updateMediaPhoto(photoId: string, update: SpaceMediaPhotoUpdate): Promise<void> {
+    const context = this.context();
+    const space = this.selectedSpace();
+    if (!context || !space) return;
+    const revision = ++this.resourceGeneration;
+    const saveOperation = this.beginSaving();
+    try {
+      const updated = await this.api.updateMediaPhoto(context.token, space.id, photoId, update);
+      if (!this.writeCurrent(context, revision, space.id)) return;
+      this.gallery.update((items) => [...items.filter((item) => item.id !== photoId), updated]
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0)));
+      this.notice.set('Cambios de la imagen confirmados por Go.');
+    } catch (error) {
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
+    } finally {
+      this.finishSaving(saveOperation);
+    }
+  }
+
+  async setPhotoVisible(photoId: string, visible: boolean): Promise<void> {
+    const photo = this.gallery().find((item) => item.id === photoId);
+    if (!photo) return;
+    if (isMediaPhoto(photo)) {
+      await this.updateMediaPhoto(photoId, { visible });
+      return;
+    }
+    await this.setSyntheticPhotoPublic(photoId, visible);
+  }
+
+  async setPhotoPublic(photoId: string, publicInCatalog: boolean): Promise<void> {
+    const context = this.context();
+    const space = this.selectedSpace();
+    if (!context || !space) return;
+    const revision = ++this.resourceGeneration;
+    const operation = this.beginSaving();
+    this.error.set('');
+    try {
+      const updated = await this.api.setPhotoPublic(context.token, space.id, photoId, publicInCatalog);
+      if (!this.writeCurrent(context, revision, space.id)) return;
+      this.gallery.update((items) => items.map((item) => item.id === photoId ? updated : item));
+    } catch (error) {
+      this.fail(error, context, this.writeCurrent(context, revision, space.id));
+    } finally {
+      this.finishSaving(operation);
+    }
+  }
+
+  isMediaPhoto(photo: SpaceGalleryPhoto): photo is SpaceMediaPhoto {
+    return isMediaPhoto(photo);
+  }
+
+  photoIsVisible(photo: SpaceGalleryPhoto): boolean {
+    return isMediaPhoto(photo) ? photo.visible : photo.public_in_catalog;
+  }
+
+  photoIsCover(photo: SpaceGalleryPhoto): boolean {
+    return isMediaPhoto(photo) ? photo.cover : this.selectedSpace()?.cover_photo_id === photo.id;
+  }
+
+  uploadFileSize(size: number): string {
+    return `${(size / (1024 * 1024)).toFixed(size < 1024 * 1024 ? 2 : 1)} MiB`;
+  }
+
   async addSyntheticPhoto(): Promise<void> {
     const context = this.context();
     const space = this.selectedSpace();
@@ -893,7 +1050,10 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       this.selectedSpace.update((item) =>
         item ? { ...item, cover_photo_id: cover.photo_id } : item,
       );
-      this.notice.set('Portada sintética confirmada por Go.');
+      this.gallery.update((items) => items.map((item) =>
+        isMediaPhoto(item) ? { ...item, cover: item.id === photoId } : item,
+      ));
+      this.notice.set('Portada confirmada por Go.');
     } catch (error) {
       this.fail(error, context, this.writeCurrent(context, revision, space.id));
     }
@@ -907,7 +1067,10 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     const selection = this.selectionRevision;
     this.revokePhoto();
     try {
-      const blob = await this.api.photoContent(context.token, space.id, photoId);
+      const photo = this.gallery().find((item) => item.id === photoId);
+      const blob = photo && isMediaPhoto(photo)
+        ? await this.api.mediaVariant(context.token, space.id, photoId, 'display')
+        : await this.api.photoContent(context.token, space.id, photoId);
       if (
         !this.contextCurrent(context) ||
         generation !== this.galleryGeneration ||
@@ -933,7 +1096,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   async removePhoto(photoId: string): Promise<void> {
     const context = this.context();
     const space = this.selectedSpace();
-    if (!context || !space || !globalThis.confirm('Retirar esta imagen sintética de la galería?'))
+    if (!context || !space || !globalThis.confirm('¿Retirar esta imagen de la galería?'))
       return;
     const revision = ++this.resourceGeneration;
     try {
@@ -948,13 +1111,13 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       if (space.cover_photo_id === photoId)
         this.selectedSpace.update((item) => (item ? { ...item, cover_photo_id: undefined } : item));
       this.revokePhoto();
-      this.notice.set('Go retiró la imagen sintética.');
+      this.notice.set('Go retiró la imagen de la galería.');
     } catch (error) {
       this.fail(error, context, this.writeCurrent(context, revision, space.id));
     }
   }
 
-  async setPhotoPublic(photoId:string,enabled:boolean):Promise<void>{
+  private async setSyntheticPhotoPublic(photoId:string,enabled:boolean):Promise<void>{
     const context=this.context();const space=this.selectedSpace();if(!context||!space)return;
     const revision=++this.resourceGeneration;const operation=this.beginSaving();this.error.set('');
     try{const updated=await this.api.setPhotoPublic(context.token,space.id,photoId,enabled);if(!this.writeCurrent(context,revision,space.id))return;this.gallery.update(items=>items.map(item=>item.id===photoId?updated:item));}
@@ -1208,6 +1371,72 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     );
   }
 
+  private uploadCurrent(context: RequestContext, spaceId: string, generation: number): boolean {
+    return this.contextCurrent(context) && generation === this.uploadGeneration &&
+      this.selectedSpace()?.id === spaceId;
+  }
+
+  private async uploadWorker(context: RequestContext, spaceId: string, generation: number): Promise<void> {
+    while (this.uploadCurrent(context, spaceId, generation)) {
+      const task = this.takeQueuedUpload();
+      if (!task) return;
+      try {
+        const photo = await this.api.uploadPhoto(context.token, spaceId, task.file, task.key, (progress) => {
+          if (!this.uploadCurrent(context, spaceId, generation)) return;
+          this.uploadQueue.update((items) => items.map((item) =>
+            item.id === task.id ? { ...item, progress } : item,
+          ));
+        });
+        if (!this.uploadCurrent(context, spaceId, generation)) return;
+        this.gallery.update((items) => [...items.filter((item) => item.id !== photo.id), photo]
+          .sort((a, b) => (a.position ?? 0) - (b.position ?? 0)));
+        this.releaseUpload(task.id);
+        this.notice.set('Go guardó la imagen y confirmó su estado.');
+      } catch (error) {
+        if (!this.uploadCurrent(context, spaceId, generation)) return;
+        const message = uploadFailureMessage(error);
+        this.uploadQueue.update((items) => items.map((item) =>
+          item.id === task.id ? { ...item, status: 'error', progress: null, error: message } : item,
+        ));
+        this.fail(error, context, true);
+      }
+    }
+  }
+
+  private takeQueuedUpload(): PhotoUploadTask | null {
+    let next: PhotoUploadTask | null = null;
+    this.uploadQueue.update((items) => items.map((item) => {
+      if (!next && item.status === 'queued') {
+        next = { ...item, status: 'uploading', progress: 0, error: '' };
+        return next;
+      }
+      return item;
+    }));
+    return next;
+  }
+
+  private releaseUpload(id: string): void {
+    const task = this.uploadQueue().find((item) => item.id === id);
+    if (task?.previewUrl) this.revokeUploadUrl(task.previewUrl);
+    this.uploadQueue.update((items) => items.filter((item) => item.id !== id));
+  }
+
+  private revokeUploadUrl(url: string | null): void {
+    if (url && typeof URL.revokeObjectURL === 'function') URL.revokeObjectURL(url);
+  }
+
+  private clearUploadQueue(): void {
+    this.uploadGeneration++;
+    for (const task of this.uploadQueue()) this.revokeUploadUrl(task.previewUrl);
+    this.uploadQueue.set([]);
+    this.uploadRunning.set(false);
+    this.uploadMessage.set('');
+  }
+
+  private newIdempotencyKey(): string {
+    return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+  }
+
   private draftWriteCurrent(
     context: RequestContext,
     revision: number,
@@ -1294,6 +1523,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.previewPhotoId.set(null);
   }
   private clearEditor(): void {
+    this.clearUploadQueue();
     this.profile.set(null);
     this.gallery.set([]);
     this.tariff.set(null);
@@ -1307,6 +1537,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.revokePhoto();
   }
   private resetResourceState(): void {
+    this.clearUploadQueue();
     this.profileGeneration++;
     this.selectedSpace.set(null);
     this.profile.set(null);
@@ -1365,6 +1596,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.profileGeneration++;
     this.savingGeneration++;
     this.galleryGeneration++;
+    this.clearUploadQueue();
     this.selectionRevision++;
     this.activeSpaceId = null;
     this.originalForm.clear();
@@ -1453,4 +1685,19 @@ function goErrorMessage(error: unknown): string {
     return 'Go rechazó los campos o intervalos enviados. Revisa las reglas del formulario.';
   if (error instanceof Error && !(error as { error?: unknown }).error) return error.message;
   return 'Go no pudo completar la solicitud.';
+}
+
+function uploadFailureMessage(error: unknown): string {
+  const status = statusOf(error);
+  if (status === 0 || status === undefined)
+    return 'No se confirmó la carga. Puedes reintentar; se conservará la misma clave segura de operación.';
+  if (status === 409)
+    return 'La galería cambió durante la carga. Actualiza el espacio e inténtalo otra vez.';
+  if (status === 413)
+    return 'El archivo supera el máximo de carga permitido de 10 MiB.';
+  if (status === 415 || status === 422)
+    return 'Go no pudo validar la imagen. Usa un JPEG, PNG o WebP estático de hasta 25 megapíxeles.';
+  if (status === 503)
+    return 'El almacenamiento no está disponible ahora. Reintenta esta imagen más tarde.';
+  return goErrorMessage(error);
 }

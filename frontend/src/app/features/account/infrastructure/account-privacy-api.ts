@@ -1,6 +1,7 @@
-import { HttpClient, HttpHeaders, HttpResponse } from '@angular/common/http';
-import { Injectable, inject } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
+import { HttpBackend, HttpClient, HttpEventType, HttpHeaders, HttpResponse, HttpXhrBackend } from '@angular/common/http';
+import { isPlatformBrowser, XhrFactory } from '@angular/common';
+import { InjectionToken, Injectable, PLATFORM_ID, inject } from '@angular/core';
+import { filter, firstValueFrom, tap } from 'rxjs';
 import { M02Local } from '../../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../../core/api-runtime-config';
 import type {
@@ -13,15 +14,23 @@ import type {
 import {
   AccountPrivacyApiError,
   AccountPrivacyPort,
-  PhotoMetadata,
+  OwnProfilePhoto,
   SyntheticPayoutAccount,
   statusOf,
 } from '../domain/ports/account-privacy-port';
+
+export const ACCOUNT_UPLOAD_BACKEND = new InjectionToken<HttpBackend>('account upload backend', {
+  providedIn: 'root',
+  factory: () => isPlatformBrowser(inject(PLATFORM_ID))
+    ? new HttpXhrBackend(inject(XhrFactory))
+    : inject(HttpBackend),
+});
 
 @Injectable({ providedIn: 'root' })
 export class AccountPrivacyApi extends AccountPrivacyPort {
   private readonly m02 = inject(M02Local);
   private readonly http = inject(HttpClient);
+  private readonly uploadHttp = new HttpClient(inject(ACCOUNT_UPLOAD_BACKEND));
   private readonly runtime = inject(ApiRuntimeConfig);
 
   async profile(token: string): Promise<Profile> {
@@ -32,8 +41,27 @@ export class AccountPrivacyApi extends AccountPrivacyPort {
     return unwrap(await this.m02.updateOwnProfile({ body: value, headers: auth(token) }));
   }
 
-  async photoMetadata(token: string): Promise<PhotoMetadata> {
+  async photoMetadata(token: string): Promise<OwnProfilePhoto> {
     return unwrap(await this.m02.getOwnSyntheticProfilePhoto({ headers: auth(token) }));
+  }
+
+  async uploadPhoto(token: string, file: File, key: string, onProgress: (percent: number | null) => void): Promise<void> {
+    const base = this.runtime.apiBaseUrl();
+    if (!base) throw new Error('La API todavía no está configurada.');
+    await firstValueFrom(this.uploadHttp.put(`${base}/profile/photo`, (() => {
+      const form = new FormData();
+      form.append('image', file, file.name);
+      return form;
+    })(), {
+      headers: new HttpHeaders({ ...auth(token), 'Idempotency-Key': key }),
+      observe: 'events', reportProgress: true, responseType: 'text',
+    }).pipe(
+      tap((event) => {
+        if (event.type === HttpEventType.UploadProgress) onProgress(event.total ? Math.min(99, Math.round(event.loaded * 100 / event.total)) : null);
+      }),
+      filter((event): event is HttpResponse<string> => event instanceof HttpResponse),
+    ));
+    onProgress(100);
   }
 
   async photoContent(token: string): Promise<Blob> {

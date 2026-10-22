@@ -93,31 +93,37 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">ARCHIVO PRIVADO</p>
-          <h2 id="photo-heading">Foto sintética</h2>
+          <h2 id="photo-heading">Foto de perfil</h2>
         </div>
       </div>
+      <label class="secondary-button">
+        Cargar o reemplazar JPEG, PNG o WebP
+        <input type="file" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" [disabled]="busy()" (change)="uploadPhoto($any($event.target).files?.item(0) ?? null)" aria-label="Seleccionar o reemplazar foto de perfil" />
+      </label>
+      @if (photoUploadProgress() !== null) {
+        <progress max="100" [value]="photoUploadProgress()" aria-label="Progreso de carga de foto de perfil"></progress>
+      }
       @if (photo(); as metadata) {
         @if (photoUrl()) {
-          <img class="profile-photo" [src]="photoUrl()" alt="Foto sintética privada de la cuenta" />
+          <img class="profile-photo" [src]="photoUrl()" alt="Foto privada de la cuenta" />
         } @else {
           <div class="artifact-retired">
             El PNG ya no está disponible. No se recreó una copia local.
           </div>
         }
-        <dl class="metadata">
-          <div>
-            <dt>Formato</dt>
-            <dd>{{ metadata.mime_type }} · {{ metadata.size_bytes }} bytes</dd>
-          </div>
-          <div>
-            <dt>Fixture</dt>
-            <dd>{{ metadata.fixture_code }}</dd>
-          </div>
-          <div>
-            <dt>SHA-256</dt>
-            <dd>{{ metadata.sha256 }}</dd>
-          </div>
-        </dl>
+        @if (isSyntheticPhoto(metadata)) {
+          <dl class="metadata">
+            <div><dt>Formato</dt><dd>{{ metadata.mime_type }} · {{ metadata.size_bytes }} bytes</dd></div>
+            <div><dt>Origen</dt><dd>PNG sintético de ensayo · {{ metadata.fixture_code }}</dd></div>
+            <div><dt>SHA-256</dt><dd>{{ metadata.sha256 }}</dd></div>
+          </dl>
+        } @else {
+          <dl class="metadata"><div><dt>Origen</dt><dd>Imagen cargada y normalizada por Go</dd></div>
+            @for (variant of metadata.variants; track variant.name) {
+              <div><dt>{{ variant.name }}</dt><dd>{{ variant.mime_type }} · {{ variant.size_bytes }} bytes</dd></div>
+            }
+          </dl>
+        }
         <div class="button-row">
           <button
             appButton="secondary"
@@ -126,7 +132,7 @@
             [disabled]="busy()"
             (click)="createPhoto()"
           >
-            Generar/reemplazar fixture
+            {{ isSyntheticPhoto(metadata) ? 'Generar/reemplazar fixture' : 'Generar fixture sintético' }}
           </button>
           <button
             appButton="primary"
@@ -139,7 +145,7 @@
           </button>
         </div>
       } @else {
-        <div class="empty-state">No hay foto sintética activa para esta cuenta.</div>
+        <div class="empty-state">No hay una foto activa para esta cuenta.</div>
         <button
           appButton="secondary"
           class="secondary-button"
@@ -150,10 +156,7 @@
           Generar foto sintética
         </button>
       }
-      <p class="hint">
-        Go genera un PNG fijo y lo entrega con autorización. Esta pantalla no sube ni acepta
-        archivos.
-      </p>
+      <p class="hint">La foto cargada permanece privada. Go valida el archivo y genera variantes WebP; el navegador solo muestra el contenido autorizado.</p>
     </section>
 
     <section class="panel section" aria-labelledby="payout-heading">

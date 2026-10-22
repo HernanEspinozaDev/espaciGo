@@ -15,7 +15,7 @@ import { IdentitySession } from '../../../core/identity/application/identity-ses
 import { PrivateSessionState } from '../../../core/identity/private-session-state';
 import {
   AccountPrivacyPort,
-  PhotoMetadata,
+  OwnProfilePhoto,
   SyntheticPayoutAccount,
   statusOf,
 } from '../domain/ports/account-privacy-port';
@@ -45,7 +45,8 @@ export class AccountPrivacyFacade implements OnInit, OnDestroy {
   readonly profileReady = signal(false);
   readonly displayName = signal('');
   readonly phone = signal('');
-  readonly photo = signal<PhotoMetadata | null>(null);
+  readonly photo = signal<OwnProfilePhoto | null>(null);
+  readonly photoUploadProgress = signal<number | null>(null);
   readonly photoUrl = signal<string | null>(null);
   readonly payout = signal<SyntheticPayoutAccount | null>(null);
   readonly rights = signal<RightsRequest[]>([]);
@@ -174,6 +175,39 @@ export class AccountPrivacyFacade implements OnInit, OnDestroy {
     await this.mutate('photo-create', (token) =>
       this.api.generatePhoto(token, this.keyFor('photo-create')),
     );
+  }
+
+  async uploadPhoto(file: File | null): Promise<void> {
+    const token = this.identity.accessToken();
+    const session = this.identity.session();
+    if (!token || !session || !file || !isPlatformBrowser(this.platformId)) return;
+    if (file.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      this.error.set('Usa JPEG, PNG o WebP estático de hasta 10 MiB.');
+      return;
+    }
+    const generation = ++this.generation;
+    this.busy.set(true);
+    this.error.set('');
+    this.notice.set('');
+    this.photoUploadProgress.set(0);
+    try {
+      await this.api.uploadPhoto(token, file, idempotencyKey(), (progress) => {
+        if (this.isCurrent(generation, token, session)) this.photoUploadProgress.set(progress);
+      });
+      if (!this.isCurrent(generation, token, session)) return;
+      await this.load();
+      if (this.isSessionCurrent(token, session)) this.notice.set('Foto de perfil guardada por Go.');
+    } catch (error) {
+      if (this.handleError(error, token)) return;
+      if (this.isCurrent(generation, token, session)) this.error.set(messageFor(error));
+    } finally {
+      this.photoUploadProgress.set(null);
+      if (this.isSessionCurrent(token, session)) this.busy.set(false);
+    }
+  }
+
+  isSyntheticPhoto(photo: OwnProfilePhoto): photo is Extract<OwnProfilePhoto, { fixture_code: 'synthetic-png-v1' }> {
+    return 'fixture_code' in photo;
   }
 
   async removePhoto(): Promise<void> {

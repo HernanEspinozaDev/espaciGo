@@ -1,7 +1,8 @@
-import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Injectable, inject } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
-import { M04Local, M04M06Local, M06Local } from '../../../../generated/api/sdk.gen';
+import { isPlatformBrowser, XhrFactory } from '@angular/common';
+import { HttpBackend, HttpClient, HttpEventType, HttpHeaders, HttpResponse, HttpXhrBackend } from '@angular/common/http';
+import { InjectionToken, Injectable, PLATFORM_ID, inject } from '@angular/core';
+import { filter, firstValueFrom, map, tap } from 'rxjs';
+import { Img01Media, M04Local, M04M06Local, M06Local } from '../../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../../core/api-runtime-config';
 import type {
   AvailabilityConfigResponse,
@@ -22,6 +23,9 @@ import type {
   SpaceDraftInput,
   SpaceDraftList,
   SpacePublicationInput,
+  SpaceGalleryPhoto,
+  SpaceMediaPhoto,
+  SpaceMediaPhotoUpdate,
   SyntheticSpaceCover,
   SyntheticSpaceGalleryPhoto,
   SyntheticSpaceGalleryRemoval,
@@ -31,12 +35,21 @@ import { HostingApiError, HostingPort } from '../domain/ports/hosting-port';
 
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 
+export const HOSTING_UPLOAD_BACKEND = new InjectionToken<HttpBackend>('hosting upload backend', {
+  providedIn: 'root',
+  factory: () => isPlatformBrowser(inject(PLATFORM_ID))
+    ? new HttpXhrBackend(inject(XhrFactory))
+    : inject(HttpBackend),
+});
+
 @Injectable({ providedIn: 'root' })
 export class HostingApi extends HostingPort {
   private readonly sdk = inject(M04Local);
+  private readonly mediaSdk = inject(Img01Media);
   private readonly calendarSdk = inject(M04M06Local);
   private readonly weeklySdk = inject(M06Local);
   private readonly http = inject(HttpClient);
+  private readonly uploadHttp = new HttpClient(inject(HOSTING_UPLOAD_BACKEND));
   private readonly runtime = inject(ApiRuntimeConfig);
 
   async list(token: string): Promise<SpaceDraftList> {
@@ -100,9 +113,46 @@ export class HostingApi extends HostingPort {
   async gallery(
     token: string,
     spaceId: string,
-  ): Promise<{ items: SyntheticSpaceGalleryPhoto[]; max_photos: number; synthetic: true }> {
-    return unwrap(
-      await this.sdk.listOwnSyntheticSpaceGallery({ path: { spaceId }, headers: auth(token) }),
+  ): Promise<{ items: SpaceGalleryPhoto[]; max_photos: number }> {
+    return unwrap(await this.sdk.listOwnSyntheticSpaceGallery({ path: { spaceId }, headers: auth(token) }));
+  }
+  async uploadPhoto(token: string, spaceId: string, file: File, key: string, onProgress: (percent: number | null) => void): Promise<SpaceMediaPhoto> {
+    const base = this.runtime.apiBaseUrl();
+    if (!base) throw new HostingApiError('La API todavía no está configurada.');
+    const form = new FormData();
+    form.append('image', file, file.name);
+    const response = await firstValueFrom(this.uploadHttp.post(
+      `${base}/spaces/${encodeURIComponent(spaceId)}/gallery`,
+      form,
+      {
+        headers: new HttpHeaders({ ...auth(token), 'Idempotency-Key': key }),
+        observe: 'events',
+        reportProgress: true,
+        responseType: 'text',
+      },
+    ).pipe(
+      tap((event) => {
+        if (event.type === HttpEventType.UploadProgress) {
+          onProgress(event.total ? Math.min(99, Math.round((event.loaded / event.total) * 100)) : null);
+        }
+      }),
+      filter((event): event is HttpResponse<string> => event instanceof HttpResponse),
+      map((event) => event.body),
+      filter((body): body is string => body !== null),
+    ));
+    onProgress(100);
+    const envelope = parseExactClpJson<{ photo: SpaceGalleryPhoto }>(response);
+    if ('fixture_code' in envelope.photo) throw new HostingApiError('Go devolvió una imagen incompatible.');
+    return envelope.photo;
+  }
+  async updateMediaPhoto(token: string, spaceId: string, photoId: string, update: SpaceMediaPhotoUpdate): Promise<SpaceMediaPhoto> {
+    return unwrap(await this.mediaSdk.updateOwnSpaceMediaPhoto({
+      path: { spaceId, photoId }, body: update, headers: auth(token),
+    }));
+  }
+  async mediaVariant(token: string, spaceId: string, photoId: string, variant: 'display' | 'thumbnail'): Promise<Blob> {
+    return this.blob(token,
+      `/spaces/${encodeURIComponent(spaceId)}/gallery/${encodeURIComponent(photoId)}/variants/${variant}`,
     );
   }
   async addPhoto(token: string, spaceId: string, key: string): Promise<SyntheticSpaceGalleryPhoto> {

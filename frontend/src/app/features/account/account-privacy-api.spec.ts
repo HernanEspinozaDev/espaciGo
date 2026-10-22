@@ -1,4 +1,4 @@
-import { HttpClient, provideHttpClient } from '@angular/common/http';
+import { HttpClient, HttpEventType, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it, vi } from 'vitest';
@@ -7,7 +7,7 @@ import { provideHeyApiClient } from '../../../generated/api/client/client.gen';
 import { M02Local } from '../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../core/api-runtime-config';
 import { provideFrontendPorts } from '../../frontend.providers';
-import { AccountPrivacyApi } from './infrastructure/account-privacy-api';
+import { ACCOUNT_UPLOAD_BACKEND, AccountPrivacyApi } from './infrastructure/account-privacy-api';
 
 describe('AccountPrivacyApi', () => {
   it('sends profile reads through the generated client with the Bearer header', async () => {
@@ -128,6 +128,35 @@ describe('AccountPrivacyApi', () => {
     expect(new Uint8Array(await response.body!.arrayBuffer()).slice(0, 4)).toEqual(
       new Uint8Array([0x50, 0x4b, 0x03, 0x04]),
     );
+    http.verify();
+    TestBed.resetTestingModule();
+  });
+
+  it('uploads a private profile image as multipart with an idempotency key and progress', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(), provideHttpClient(), provideHttpClientTesting(),
+        { provide: ACCOUNT_UPLOAD_BACKEND, useExisting: HttpTestingController },
+      ],
+    });
+    const runtime = TestBed.inject(ApiRuntimeConfig);
+    runtime.apiBaseUrl.set('http://api.test/api/v1');
+    const api = TestBed.inject(AccountPrivacyApi);
+    const http = TestBed.inject(HttpTestingController);
+    const file = new File(['avatar'], 'avatar.webp', { type: 'image/webp' });
+    const progress: Array<number | null> = [];
+    const pending = api.uploadPhoto('bearer-a', file, 'profile-photo-key-1', (value) => progress.push(value));
+    const request = http.expectOne('http://api.test/api/v1/profile/photo');
+    expect(request.request.method).toBe('PUT');
+    expect(request.request.headers.get('Authorization')).toBe('Bearer bearer-a');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('profile-photo-key-1');
+    expect(request.request.headers.has('Content-Type')).toBe(false);
+    expect(request.request.body).toBeInstanceOf(FormData);
+    expect((request.request.body as FormData).get('image')).toMatchObject({ name: file.name, type: file.type });
+    request.event({ type: HttpEventType.UploadProgress, loaded: 3, total: 6 } as never);
+    request.flush('{}');
+    await pending;
+    expect(progress).toEqual([50, 100]);
     http.verify();
     TestBed.resetTestingModule();
   });

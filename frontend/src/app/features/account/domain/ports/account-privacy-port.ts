@@ -13,6 +13,12 @@ export type PhotoMetadata = {
   size_bytes: number;
   created_at: string;
 };
+export type ProfileMediaMetadata = {
+  id: string;
+  variants: Array<{ mime_type: 'image/webp'; size_bytes: number; name: 'avatar' | 'display' | 'thumbnail' }>;
+  created_at: string;
+};
+export type OwnProfilePhoto = PhotoMetadata | ProfileMediaMetadata;
 export type SyntheticPayoutAccount = {
   id: string;
   adapter: string;
@@ -35,8 +41,9 @@ export function statusOf(error: unknown): number | undefined {
 export abstract class AccountPrivacyPort {
   abstract profile(token: string): Promise<Profile>;
   abstract updateProfile(token: string, value: ProfileUpdate): Promise<Profile>;
-  abstract photoMetadata(token: string): Promise<PhotoMetadata>;
+  abstract photoMetadata(token: string): Promise<OwnProfilePhoto>;
   abstract photoContent(token: string): Promise<Blob>;
+  abstract uploadPhoto(token: string, file: File, key: string, onProgress: (percent: number | null) => void): Promise<void>;
   abstract generatePhoto(token: string, key: string): Promise<void>;
   abstract removePhoto(token: string, key: string): Promise<void>;
   abstract payoutAccount(token: string): Promise<SyntheticPayoutAccount | null>;

@@ -63,6 +63,9 @@ export class AccountPrivacyPage {
   readonly load = this.facade.load.bind(this.facade);
   readonly saveProfile = this.facade.saveProfile.bind(this.facade);
   readonly createPhoto = this.facade.createPhoto.bind(this.facade);
+  readonly uploadPhoto = this.facade.uploadPhoto.bind(this.facade);
+  readonly isSyntheticPhoto = this.facade.isSyntheticPhoto.bind(this.facade);
+  get photoUploadProgress() { return this.facade.photoUploadProgress; }
   readonly removePhoto = this.facade.removePhoto.bind(this.facade);
   readonly createPayout = this.facade.createPayout.bind(this.facade);
   readonly removePayout = this.facade.removePayout.bind(this.facade);
