@@ -85,6 +85,19 @@ run "foundation_plan_is_gated_and_scoped" {
   }
   assert {
     condition = (
+      !var.enable_database &&
+      !var.enable_gcp06_jobs_reviewed &&
+      contains(local.runtime_secret_ids, "database-migrator-password") &&
+      contains(local.runtime_secret_ids, "gcp06-sql-inspector-credential") &&
+      google_secret_manager_secret.runtime["database-migrator-password"].secret_id == "espacigo-test-database-migrator-password" &&
+      google_secret_manager_secret.runtime["gcp06-sql-inspector-credential"].secret_id == "espacigo-test-gcp06-sql-inspector-credential" &&
+      length(google_secret_manager_secret_iam_member.migrator_db_access) == 1 &&
+      google_secret_manager_secret_iam_member.migrator_db_access[0].secret_id == "espacigo-test-database-migrator-password"
+    )
+    error_message = "The existing migrator grant and database-migrator/SQL-inspector secret containers must remain managed while the optional gates are off."
+  }
+  assert {
+    condition = (
       length(google_service_account.cloud_build_deployer) == 1 &&
       google_service_account.cloud_build_deployer[0].account_id == "espacigo-cloud-build-deployer" &&
       length(google_project_iam_member.cloud_build_deployer) == 1 &&

@@ -167,6 +167,24 @@ def main() -> int:
         "run.jobs.",
     )):
         errors.append("Cloud Build deployer role must not read secrets/SQL, delete services, or run Jobs")
+    if 'toset(["database-migrator-password", "gcp06-sql-inspector-credential"])' not in terraform:
+        errors.append("the existing migrator and SQL inspector secret containers must remain in Terraform state with their optional gates off")
+    migrator_grant = re.search(
+        r'resource "google_secret_manager_secret_iam_member" "migrator_db_access" \{(.*?)\n\}',
+        terraform,
+        re.DOTALL,
+    )
+    if not migrator_grant or 'count     = var.enable_foundation ? 1 : 0' not in migrator_grant.group(1):
+        errors.append("the existing migrator secret IAM grant must remain managed when enable_database is false")
+    mailpit_start = terraform.find('resource "google_compute_instance" "mailpit" {')
+    mailpit_end = terraform.find('\nresource ', mailpit_start + 1)
+    mailpit_resource = terraform[mailpit_start:mailpit_end] if mailpit_start >= 0 and mailpit_end >= 0 else ""
+    if (
+        mailpit_resource.count("ignore_changes") != 1
+        or "ignore_changes  = [boot_disk[0].initialize_params[0].image]" not in mailpit_resource
+        or "prevent_destroy = true" not in mailpit_resource
+    ):
+        errors.append("Mailpit must ignore only its immutable COS boot image field and reject instance destruction")
 
     if not config["serviceAccount"].endswith(
         "espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com"

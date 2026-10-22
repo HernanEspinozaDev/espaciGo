@@ -53,3 +53,11 @@ Cloudflare/DNS mantiene los CNAME actuales al balanceador HTTPS de Santiago, inc
 ## Estado y evidencia
 
 Este PR prepara código, Terraform y controles locales. No ejecuta Cloud Build, Terraform remoto, APIs, conexión GitHub, IAM, Cloud Run, IAP, DNS, SQL ni billing. La cuenta y el bucket no existen hasta aplicar el plan exacto revisado. PR #515 y los previews anteriores permanecen sin cambios y están supersedidos por esta estrategia.
+
+## Seguimiento de retención de recursos
+
+Tras fusionar PR #516, la revisión del plan exacto desde `main` `f5cc58b18bc89b787c65b01786340399cf45a4fe` con `enable_services=false` y `enable_database=false` encontró tres acciones `delete`: los contenedores de secreto Terraform `database-migrator-password` y `gcp06-sql-inspector-credential`, y la concesión IAM `migrator_db_access[0]`. También propuso reemplazar `google_compute_instance.mailpit[0]`; `replace_paths` apuntó únicamente a `boot_disk[0].initialize_params[0].image`, aunque el valor COS resuelto antes y después era `cos-stable-121-18867-638-13`. El revisor mantiene apply y builds en pausa hasta que un plan refrescado ya no muestre estas acciones.
+
+Este PR de seguimiento propone mantener ambos contenedores de secreto bajo `enable_foundation` sin leer ni modificar sus versiones o payloads, y mantener la concesión IAM existente al migrator aunque `enable_database` permanezca falso. Ese flag sigue cerrado para no crear Cloud SQL. Para Mailpit, propone ignorar únicamente el campo inmutable de imagen de arranque y establecer `prevent_destroy` en la VM; el disco de datos conserva su propia protección. No se ignoran otros campos ni se cambia la imagen/COS de la instancia existente.
+
+La aceptación del cambio requiere que el revisor vuelva a generar el plan desde el HEAD fusionado de este PR y confirme cero deletes de esos secretos/IAM, cero reemplazos de Mailpit, cero cambios Cloud SQL y ningún cambio de payload. Los bloques `removed` no destructivos de Cloud Run/IAP de GCP-08 pueden seguir apareciendo como forgets intencionales. No ejecutar Terraform apply ni activar Cloud Build hasta esa confirmación.
