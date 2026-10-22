@@ -158,6 +158,57 @@ run "edge_targets_external_cloud_run_service_names" {
   }
 }
 
+run "edge_requires_foundation_gate" {
+  command = plan
+
+  variables {
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_edge                         = true
+    confirm_external_cloud_run_services = true
+    confirm_pga_iap_key_preflight       = true
+    bucket_suffix                       = "offline-test"
+  }
+
+  expect_failures = [var.enable_edge]
+}
+
+run "edge_requires_iap_key_egress_preflight" {
+  command = plan
+
+  variables {
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_edge                         = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    confirm_external_cloud_run_services = true
+    confirm_pga_iap_key_preflight       = false
+    bucket_suffix                       = "offline-test"
+  }
+
+  expect_failures = [var.enable_edge]
+}
+
+run "edge_requires_external_cloud_run_confirmation" {
+  command = plan
+
+  variables {
+    project_id                          = "offline-test-project"
+    project_number                      = "123456789012"
+    enable_foundation                   = true
+    enable_edge                         = true
+    confirm_project_inventory           = true
+    confirm_cost_policy_review          = true
+    confirm_external_cloud_run_services = false
+    confirm_pga_iap_key_preflight       = true
+    bucket_suffix                       = "offline-test"
+  }
+
+  expect_failures = [var.enable_edge]
+}
+
 run "sql_inspector_is_private_readonly_and_time_bounded" {
   command = plan
   variables {

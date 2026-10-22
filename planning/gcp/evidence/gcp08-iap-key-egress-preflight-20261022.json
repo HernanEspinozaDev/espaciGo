@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "status": "verified",
+  "target": {
+    "project": "espacigo-testprod",
+    "service": "espacigo-test-private",
+    "revision": "espacigo-test-private-00001-nlp",
+    "image_digest": "sha256:6fc2bfc70046a837b4c10f732bb9171b305a5548263c8025c5540ef12b399b3d"
+  },
+  "path": {
+    "network": "espacigo-testprod",
+    "subnet": "espacigo-testprod-serverless",
+    "egress": "private-ranges-only",
+    "private_google_access_enabled": true,
+    "pga_used": false,
+    "tested_endpoint": "https://www.gstatic.com/iap/verify/public_key",
+    "egress_semantics": "Public endpoint traffic follows Cloud Run public egress and does not traverse Direct VPC in private-ranges-only mode."
+  },
+  "probe": {
+    "kind": "temporary_cloud_run_job",
+    "job": "espacigo-iap-key-egress-preflight-20261022",
+    "execution": "espacigo-iap-key-egress-preflight-20261022-b46hw",
+    "image_matches_private_service": true,
+    "network_matches_private_service": true,
+    "egress_matches_private_service": true,
+    "http_status": 200,
+    "key_set_shape_valid": true,
+    "key_material_logged_or_saved": false,
+    "job_removed_after_execution": true,
+    "observed_at": "2026-10-22T03:44:55Z",
+    "prior_attempt": "A first temporary execution failed on command argument syntax before issuing the HTTP request; that job was removed."
+  }
+}

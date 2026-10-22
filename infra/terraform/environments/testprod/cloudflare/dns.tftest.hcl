@@ -2,6 +2,18 @@ mock_provider "cloudflare" {
   override_during = plan
 }
 
+run "dns_is_disabled_without_explicit_inventory_gate" {
+  command = plan
+
+  assert {
+    condition = (
+      length(cloudflare_dns_record.public_entry) == 0 &&
+      length(cloudflare_dns_record.private_entry) == 0
+    )
+    error_message = "Cloudflare records must remain unmanaged until an authorized zone and record inventory are supplied."
+  }
+}
+
 run "only_two_dns_only_records_are_managed" {
   command = plan
 
