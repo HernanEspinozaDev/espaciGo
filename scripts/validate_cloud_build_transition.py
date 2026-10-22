@@ -208,6 +208,19 @@ def main() -> int:
     }
     if not required_deploys.issubset(ids) or "@$${digest}" not in script:
         errors.append("API and SSR must deploy by digest")
+    deploy_ports = {
+        "deploy-api-by-digest": "--port=8080",
+        "deploy-public-web-by-digest": "--port=4000",
+        "deploy-private-web-by-digest": "--port=4000",
+    }
+    for step_id, expected_port in deploy_ports.items():
+        deploy_step = next((step for step in steps if step.get("id") == step_id), {})
+        deploy_script = "\n".join(deploy_step.get("args", []))
+        env_assignments = [arg for arg in deploy_step.get("args", []) if "--set-env-vars=" in arg]
+        if expected_port not in deploy_script:
+            errors.append(f"{step_id} must keep Cloud Run's explicit {expected_port} setting")
+        if len(env_assignments) != 1 or re.search(r"(?<![A-Za-z0-9_])PORT=", " ".join(env_assignments)):
+            errors.append(f"{step_id} must leave the reserved PORT environment variable to Cloud Run")
     if "gcloud builds submit /workspace" not in script or "cloudbuild-images.yaml" not in script:
         errors.append("the orchestrator must wait for a provenance-producing image build")
     if "--target=api" not in image_script or image_steps[0].get("waitFor") != ["-"]:
