@@ -15,7 +15,6 @@ import { routes } from './app.routes';
 import { ApiRuntimeConfig } from './core/api-runtime-config';
 import { publicTransferRequest } from './core/public-runtime-config';
 import { serverApiIdentityInterceptor } from './core/server-api-identity';
-import { PRIVATE_ENTRY_DOCUMENT_NAVIGATOR, privateEntryDocumentNavigator } from './core/identity/private-entry.guard';
 import { provideFrontendPorts } from './frontend.providers';
 
 export const appConfig: ApplicationConfig = {
@@ -23,7 +22,6 @@ export const appConfig: ApplicationConfig = {
     ...provideFrontendPorts(),
     provideBrowserGlobalErrorListeners(),
     provideHttpClient(withFetch(), withInterceptors([serverApiIdentityInterceptor])),
-    { provide: PRIVATE_ENTRY_DOCUMENT_NAVIGATOR, useFactory: privateEntryDocumentNavigator },
     provideHeyApiClient(client),
     provideRouter(routes),
     provideClientHydration(withHttpTransferCacheOptions({

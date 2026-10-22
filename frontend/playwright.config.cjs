@@ -16,6 +16,7 @@ module.exports = defineConfig({
     acceptDownloads: true,
     trace: 'retain-on-failure',
     launchOptions: {
+      ...(process.env.PLAYWRIGHT_EXECUTABLE_PATH ? { executablePath: process.env.PLAYWRIGHT_EXECUTABLE_PATH } : {}),
       args: (process.env.PLAYWRIGHT_INSECURE_ORIGINS || '').split(',').filter(Boolean)
         .map(origin => `--unsafely-treat-insecure-origin-as-secure=${origin}`),
     },

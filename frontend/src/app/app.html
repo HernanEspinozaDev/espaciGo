@@ -1,4 +1,4 @@
-<div class="application-shell" [attr.inert]="previewUnlocked() ? null : ''">
+<div class="application-shell">
 <a class="skip-link" href="#contenido">Saltar al contenido</a>
 <div class="announcement" role="note">
   <span class="announcement-dot" aria-hidden="true"></span>
@@ -198,45 +198,3 @@
   </div>
 </footer>
 </div>
-
-@if (!previewUnlocked()) {
-  <div class="preview-access-backdrop">
-    <section
-      class="preview-access-dialog"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="preview-access-title"
-      aria-describedby="preview-access-description"
-    >
-      <img class="preview-access-mark" src="/espacigo-mark.svg" alt="" aria-hidden="true" />
-      <p class="preview-access-eyebrow">ESPACIGO</p>
-      <h1 id="preview-access-title">Página en desarrollo</h1>
-      <p id="preview-access-description" class="preview-access-description">
-        Estamos preparando esta experiencia. Ingresa la contraseña de acceso para continuar.
-      </p>
-      <form class="preview-access-form" (submit)="$event.preventDefault(); unlockPreview(passwordEntry.value)">
-        <label for="preview-password">Ingresar contraseña</label>
-        <input
-          #passwordEntry
-          id="preview-password"
-          type="password"
-          autocomplete="current-password"
-          aria-describedby="preview-access-session"
-          [attr.aria-invalid]="previewPasswordInvalid()"
-          (input)="previewPasswordInvalid.set(false)"
-        />
-        @if (previewPasswordInvalid()) {
-          <span id="preview-access-error" class="preview-access-error" role="alert">
-            La contraseña no es correcta. Inténtalo de nuevo.
-          </span>
-        }
-        <button appButton="primary" class="preview-access-submit" type="submit">
-          Entrar a EspaciGo
-        </button>
-      </form>
-      <p id="preview-access-session" class="preview-access-session">
-        El acceso se mantiene en esta pestaña mientras esté abierta.
-      </p>
-    </section>
-  </div>
-}

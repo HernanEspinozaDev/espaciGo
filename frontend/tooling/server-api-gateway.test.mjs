@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, requestUrlWithinLimit, serviceAudienceMatches } from '../src/server-api-gateway.mjs';
+import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, publicIdentityNeedsClientIp, publicIdentityPostLimit, publicRequestClientIp, requestUrlWithinLimit, serviceAudienceMatches } from '../src/server-api-gateway.mjs';
 import { clearCloudRunIdentityCacheForTests, cloudRunIdentityHeaders } from '../src/cloud-run-identity.mjs';
 
 const spaceId = '5e7d9f2a-631a-4c82-9d26-791225d19412';
 const imageId = '1e7d9f2a-631a-4c82-9d26-791225d19412';
 
-test('public gateway permits only anonymous catalog GETs', () => {
+test('public gateway permits anonymous catalog reads and rejects other anonymous operations', () => {
   for (const path of [
     '/api/v1/public/spaces?page_size=25',
     `/api/v1/public/spaces/${spaceId}`,
@@ -21,6 +21,8 @@ test('public gateway permits only anonymous catalog GETs', () => {
     ['POST', '/api/v1/public/spaces', {}],
     ['GET', '/api/v1/reservations', {}],
     ['GET', '/api/v1/auth/login', {}],
+    ['GET', '/api/v1/auth/terms', { Authorization: 'Bearer app-token-0123456789' }],
+    ['POST', '/api/v1/auth/register', {}],
     ['GET', `/api/v1/public/spaces/${spaceId}/images/${imageId}`, { Cookie: 'session=x' }],
     ['GET', `/api/v1/public/spaces/${spaceId}`, { Authorization: 'Bearer token' }],
     ['GET', `/api/v1/public/spaces/${spaceId}`, { 'Content-Length': '12' }],
@@ -28,8 +30,52 @@ test('public gateway permits only anonymous catalog GETs', () => {
     ['GET', `/api/v1/public/spaces/${spaceId}%2f..%2freservations`, {}],
     ['GET', '/api/v1/public/spaces/not-a-uuid', {}],
   ]) {
-    assert.equal(apiRequestAllowed('public', method, path, headers), false, `${method} ${path}`);
+    assert.equal(apiRequestAllowed('public', method, path, headers, 'https://spaces.example.test'), false, `${method} ${path}`);
   }
+  assert.equal(apiRequestAllowed('public', 'GET', '/api/v1/auth/terms', {}, 'https://spaces.example.test'), true);
+  const publicIdentityPosts = [
+    ['/api/v1/auth/login', 4096],
+    ['/api/v1/auth/register', 8192],
+    ['/api/v1/auth/verification/reissue', 4096],
+    ['/api/v1/auth/verification', 4096],
+    ['/api/v1/auth/password/recovery', 4096],
+    ['/api/v1/auth/password/recovery/consume', 8192],
+  ];
+  for (const [path, maxBytes] of publicIdentityPosts) {
+    const headers = {
+      Origin: 'https://spaces.example.test',
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': '40',
+    };
+    assert.equal(apiRequestAllowed('public', 'POST', path, headers, 'https://spaces.example.test'), true, path);
+    assert.equal(publicIdentityPostLimit('POST', path), maxBytes, path);
+    assert.equal(apiRequestAllowed('public', 'POST', path, {
+      ...headers, 'Content-Length': String(maxBytes + 1),
+    }, 'https://spaces.example.test'), false, `${path} over body limit`);
+    assert.equal(apiRequestAllowed('public', 'POST', path, {
+      ...headers, Origin: 'https://attacker.test',
+    }, 'https://spaces.example.test'), false, `${path} cross-origin`);
+    assert.equal(apiRequestAllowed('public', 'POST', path, {
+      ...headers, Authorization: 'Bearer app-token-0123456789',
+    }, 'https://spaces.example.test'), false, `${path} must not accept a bearer on the public auth flow`);
+  }
+  assert.equal(apiRequestAllowed('public', 'POST', '/api/v1/auth/login?next=https://attacker.test', {
+    Origin: 'https://spaces.example.test', 'Content-Type': 'application/json', 'Content-Length': '40',
+  }, 'https://spaces.example.test'), false);
+  for (const headers of [
+    { Origin: 'https://attacker.test', 'Content-Type': 'application/json', 'Content-Length': '40' },
+    { Origin: 'https://spaces.example.test', 'Content-Type': 'text/plain', 'Content-Length': '40' },
+    { Origin: 'https://spaces.example.test', 'Content-Type': 'application/json', 'Content-Length': '0' },
+    { Origin: 'https://spaces.example.test', 'Content-Type': 'application/json', 'Content-Length': '4097' },
+    { Origin: 'https://spaces.example.test', 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' },
+    { Origin: 'https://spaces.example.test', 'Content-Type': 'application/json', 'Content-Length': '40', Cookie: 'session=x' },
+    { Origin: 'https://spaces.example.test', 'Content-Type': 'application/json', 'Content-Length': '40', Authorization: 'Bearer attacker-token-12345' },
+    { Origin: 'https://spaces.example.test', 'Content-Type': 'application/json', 'Content-Length': '40', 'X-Goog-Iap-Jwt-Assertion': 'assertion' },
+  ]) {
+    assert.equal(apiRequestAllowed('public', 'POST', '/api/v1/auth/login', headers, 'https://spaces.example.test'), false);
+  }
+  assert.equal(publicIdentityPostLimit('PUT', '/api/v1/auth/login'), null);
+  assert.equal(publicIdentityPostLimit('POST', '/api/v1/auth/login/extra'), null);
 });
 
 test('private and local gateways allow protected API operations but reject path confusion', () => {
@@ -61,6 +107,56 @@ test('gateway keeps application bearer separate and never forwards client IAM or
   assert.equal(headers.get('accept'), 'application/json');
   assert.equal(headers.get('x-request-id'), 'request-1');
   assert.equal(clientApiHeaders('public', client).has('authorization'), false);
+  const loginHeaders = clientApiHeaders('public', {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    Origin: 'https://spaces.example.test',
+    'X-Request-Id': 'login-id',
+  }, '/api/v1/auth/login');
+  assert.equal(loginHeaders.get('accept'), 'application/json');
+  assert.equal(loginHeaders.get('content-type'), 'application/json');
+  assert.equal(loginHeaders.has('origin'), false);
+  assert.equal(loginHeaders.has('x-request-id'), false);
+  const appHeaders = clientApiHeaders('public', {
+    Authorization: 'Bearer espacigo-application-token-123',
+  }, `/api/v1/spaces/${spaceId}`);
+  assert.equal(appHeaders.get('authorization'), 'Bearer espacigo-application-token-123');
+  assert.equal(appHeaders.has('x-serverless-authorization'), false);
+  assert.equal(appHeaders.has('x-goog-iap-jwt-assertion'), false);
+  const spoofedHeaders = clientApiHeaders('public', {
+    Authorization: 'Bearer espacigo-application-token-123',
+    'X-Serverless-Authorization': 'Bearer attacker-token',
+  }, `/api/v1/spaces/${spaceId}`);
+  assert.equal(spoofedHeaders.has('authorization'), false);
+  assert.equal(spoofedHeaders.has('x-espacigo-client-ip'), false);
+  assert.equal(spoofedHeaders.has('x-forwarded-for'), false);
+  assert.equal(apiRequestAllowed('public', 'GET', `/api/v1/spaces/${spaceId}`, {
+    Authorization: 'Bearer espacigo-application-token-123',
+  }), true);
+  assert.equal(apiRequestAllowed('public', 'GET', `/api/v1/spaces/${spaceId}`, {}), false);
+});
+
+test('public identity requests derive independent client IPs from the trusted load-balancer suffix', () => {
+  const registration = '/api/v1/auth/register';
+  assert.equal(publicIdentityNeedsClientIp('POST', registration), true);
+  assert.equal(publicIdentityNeedsClientIp('POST', '/api/v1/auth/login'), false);
+  const first = publicRequestClientIp(
+    { 'X-Forwarded-For': '198.51.100.99, 203.0.113.10, 192.0.2.1' },
+    '10.0.0.9',
+    true,
+  );
+  const second = publicRequestClientIp(
+    { 'X-Forwarded-For': '203.0.113.11, 192.0.2.1' },
+    '10.0.0.9',
+    true,
+  );
+  assert.equal(first, '203.0.113.10');
+  assert.equal(second, '203.0.113.11');
+  assert.notEqual(first, second);
+  assert.equal(publicRequestClientIp({ 'X-Forwarded-For': '198.51.100.99' }, '10.0.0.9', true), null);
+  assert.equal(publicRequestClientIp({ 'X-Forwarded-For': '198.51.100.99, invalid' }, '10.0.0.9', true), null);
+  // In local/direct mode, even a forged forwarded chain cannot select the quota key.
+  assert.equal(publicRequestClientIp({ 'X-Forwarded-For': '198.51.100.99, 192.0.2.1' }, '127.0.0.1'), '127.0.0.1');
 });
 
 test('shared cache is allowed only for explicitly public responses with a short bounded TTL', () => {

@@ -3,8 +3,6 @@ import { InjectionToken } from '@angular/core';
 export const API_SERVER_BASE_URL = new InjectionToken<string | null>('API_SERVER_BASE_URL');
 export const API_PUBLIC_BASE_URL = new InjectionToken<string | null>('API_PUBLIC_BASE_URL');
 export const FRONTEND_PUBLIC_ORIGIN = new InjectionToken<string | null>('FRONTEND_PUBLIC_ORIGIN');
-export const PRIVATE_DEMO_ORIGIN = new InjectionToken<string | null>('PRIVATE_DEMO_ORIGIN');
-
 export function configuredApiBase(value: string | undefined): string | null {
   if (!value) return null;
   try {
