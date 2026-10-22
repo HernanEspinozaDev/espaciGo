@@ -21,9 +21,21 @@ func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 func (r *Repository) PlanVariant(ctx context.Context, id string, token int64, name media.VariantName, key string) error {
 	cmd, err := r.pool.Exec(ctx, `INSERT INTO public.media_variant_intent(media_id,variant,object_key)
 		SELECT id,$3,$4 FROM public.media_asset WHERE id=$1 AND fencing_token=$2 AND estado='pending'
-		ON CONFLICT(media_id,variant) DO UPDATE SET object_key=EXCLUDED.object_key,provider=NULL,bucket_name=NULL,generation=NULL,updated_at=clock_timestamp()`, id, token, string(name), key)
+		ON CONFLICT(media_id,variant) DO UPDATE SET object_key=EXCLUDED.object_key,provider=NULL,bucket_name=NULL,generation=NULL,write_complete=false,updated_at=clock_timestamp()`, id, token, string(name), key)
 	if err != nil {
 		return mapError(err)
+	}
+	if cmd.RowsAffected() != 1 {
+		return media.ErrConflict
+	}
+	return nil
+}
+
+func (r *Repository) FinishVariantWrite(ctx context.Context, id string, name media.VariantName, key string) error {
+	cmd, err := r.pool.Exec(ctx, `UPDATE public.media_variant_intent SET write_complete=true,updated_at=clock_timestamp()
+		WHERE media_id=$1 AND variant=$2 AND object_key=$3`, id, string(name), key)
+	if err != nil {
+		return err
 	}
 	if cmd.RowsAffected() != 1 {
 		return media.ErrConflict
@@ -254,8 +266,10 @@ func (r *Repository) FinalizeProfile(ctx context.Context, owner, id string, toke
 }
 
 func (r *Repository) FailReservation(ctx context.Context, id string, token int64, at time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE public.media_asset SET estado=CASE WHEN EXISTS(SELECT 1 FROM public.media_variant v WHERE v.media_id=media_asset.id) OR EXISTS(SELECT 1 FROM public.media_variant_intent i WHERE i.media_id=media_asset.id) THEN 'deleting' ELSE 'failed' END,
-		lease_until=$3,updated_at=$3 WHERE id=$1 AND fencing_token=$2 AND estado='pending'`, id, token, at)
+	_, err := r.pool.Exec(ctx, `WITH changed AS (
+		UPDATE public.media_asset SET estado=CASE WHEN EXISTS(SELECT 1 FROM public.media_variant v WHERE v.media_id=media_asset.id) OR EXISTS(SELECT 1 FROM public.media_variant_intent i WHERE i.media_id=media_asset.id) THEN 'deleting' ELSE 'failed' END,
+			lease_until=$3,updated_at=$3 WHERE id=$1 AND fencing_token=$2 AND estado='pending' RETURNING id
+	) UPDATE public.media_variant_intent i SET write_complete=true,updated_at=$3 FROM changed c WHERE i.media_id=c.id`, id, token, at)
 	return err
 }
 
@@ -624,7 +638,7 @@ func (r *Repository) intents(ctx context.Context, id string) ([]media.ObjectInte
 }
 
 func intentsFrom(ctx context.Context, q queryer, id string) ([]media.ObjectIntent, error) {
-	rows, err := q.Query(ctx, `SELECT variant,object_key,COALESCE(generation,0) FROM public.media_variant_intent WHERE media_id=$1 ORDER BY variant`, id)
+	rows, err := q.Query(ctx, `SELECT variant,object_key,COALESCE(generation,0),write_complete FROM public.media_variant_intent WHERE media_id=$1 ORDER BY variant`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -632,7 +646,7 @@ func intentsFrom(ctx context.Context, q queryer, id string) ([]media.ObjectInten
 	out := []media.ObjectIntent{}
 	for rows.Next() {
 		var item media.ObjectIntent
-		if err = rows.Scan(&item.Name, &item.ObjectKey, &item.Generation); err != nil {
+		if err = rows.Scan(&item.Name, &item.ObjectKey, &item.Generation, &item.WriteComplete); err != nil {
 			return nil, err
 		}
 		out = append(out, item)

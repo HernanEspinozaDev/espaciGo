@@ -96,6 +96,14 @@ func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Pur
 		}
 		stored, putErr := s.store.Put(ctx, key, variants[i].Bytes, variants[i].MIME)
 		if putErr != nil {
+			// FailReservation marks all planned writes terminal only after Put
+			// has returned. Cleanup still resolves Generation to catch ambiguous
+			// outcomes that did leave an object.
+			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
+			return UploadResult{}, ErrUnavailable
+		}
+		if err = s.repo.FinishVariantWrite(ctx, reservation.ID, variants[i].Name, key); err != nil {
+			_ = s.store.Delete(context.Background(), stored.ObjectKey, stored.Generation)
 			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
 			return UploadResult{}, ErrUnavailable
 		}
@@ -259,10 +267,11 @@ func (s *Service) CleanOnce(ctx context.Context, limit int) error {
 				var resolveErr error
 				generation, resolveErr = s.store.Generation(ctx, intent.ObjectKey)
 				if errors.Is(resolveErr, ErrNotFound) {
-					// The writer may still be completing its create-only Put. Keep
-					// the durable intent and retry cleanup; treating absence as
-					// success here can orphan an object written just afterward.
-					failed = true
+					// An active writer can still make this key appear. Retain its
+					// intent until that writer reports completion.
+					if !intent.WriteComplete {
+						failed = true
+					}
 					continue
 				}
 				if resolveErr != nil {

@@ -103,6 +103,7 @@ type ObjectStore interface {
 type Repository interface {
 	Reserve(context.Context, string, string, string, Purpose, string, string, time.Time, time.Time) (Reservation, bool, error)
 	PlanVariant(context.Context, string, int64, VariantName, string) error
+	FinishVariantWrite(context.Context, string, VariantName, string) error
 	RecordVariant(context.Context, string, int64, Variant) error
 	FinalizeSpace(context.Context, string, int64, string, string, time.Time) (Photo, error)
 	FailReservation(context.Context, string, int64, time.Time) error
@@ -128,7 +129,8 @@ type CleanupItem struct {
 }
 
 type ObjectIntent struct {
-	Name       VariantName
-	ObjectKey  string
-	Generation int64
+	Name          VariantName
+	ObjectKey     string
+	Generation    int64
+	WriteComplete bool
 }
