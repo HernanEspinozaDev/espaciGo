@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 52" role="img" aria-labelledby="title">
+  <title id="title">Símbolo de EspaciGo: ubicación y espacios</title>
+  <path
+    fill="#a44731"
+    d="M24 2C12.4 2 3 11.1 3 22.2c0 14.4 16.5 26.3 19.6 28.4a2.4 2.4 0 0 0 2.8 0C28.5 48.5 45 36.6 45 22.2 45 11.1 35.6 2 24 2Z"
+  />
+  <circle cx="24" cy="21.5" r="13.2" fill="#f5eee6" />
+  <path
+    d="M30.7 16.2a8.5 8.5 0 1 0 1.5 6H25"
+    fill="none"
+    stroke="#a44731"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="3.6"
+  />
+</svg>

@@ -24,17 +24,8 @@
   box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 45%);
 }
 .preview-access-mark {
-  display: grid;
   width: 2.6rem;
-  aspect-ratio: 1;
-  place-items: center;
-  border-radius: 50% 50% 50% 0;
-  background: var(--brand-primary);
-  color: white;
-  font-family: metrics.$font-family-variant-1;
-  font-size: metrics.$font-size-1-5rem;
-  font-style: italic;
-  transform: rotate(-15deg);
+  height: 2.6rem;
 }
 .preview-access-eyebrow {
   margin: metrics.$space-1-5rem 0 metrics.$space-0-5rem;
@@ -149,18 +140,9 @@
   text-decoration: none;
 }
 .brand-mark {
-  display: grid;
   width: 2rem;
-  aspect-ratio: 1;
-  place-items: center;
-  border-radius: 50% 50% 50% 0;
-  background: var(--brand-primary);
-  color: white;
-  font-family: metrics.$font-family-variant-1;
-  font-size: metrics.$font-size-1-35rem;
-  font-style: italic;
-  font-weight: metrics.$font-weight-500;
-  transform: rotate(-15deg);
+  height: 2rem;
+  flex: 0 0 auto;
 }
 .brand-go {
   color: var(--brand-primary);
@@ -241,7 +223,7 @@
 }
 .footer-brand .brand-mark {
   width: 1.75rem;
-  font-size: metrics.$font-size-1-15rem;
+  height: 1.75rem;
 }
 .footer-main > div:first-child p {
   margin: metrics.$space-0-65rem 0 0;
