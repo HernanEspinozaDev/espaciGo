@@ -26,23 +26,25 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 SET timezone = 'UTC'
 AS $$
+DECLARE
+    v_now timestamptz := pg_catalog.clock_timestamp();
 BEGIN
     IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
         RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
     END IF;
-    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_at IS NULL THEN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_at IS NULL OR p_at > v_now THEN
         RAISE EXCEPTION 'valid cleanup limit and timestamp are required' USING ERRCODE = '22023';
     END IF;
     RETURN QUERY
     WITH claimed AS (
         SELECT a.id FROM public.media_asset a
-         WHERE (a.estado='deleting' AND (a.lease_until IS NULL OR a.lease_until <= p_at))
-            OR (a.estado='pending' AND a.lease_until <= p_at)
+         WHERE (a.estado='deleting' AND (a.lease_until IS NULL OR a.lease_until <= v_now))
+            OR (a.estado='pending' AND a.lease_until <= v_now)
          ORDER BY a.updated_at,a.id FOR UPDATE SKIP LOCKED LIMIT p_limit
     ), changed AS (
         UPDATE public.media_asset a
            SET estado='deleting',fencing_token=a.fencing_token+1,
-               lease_until=p_at+interval '5 minutes',updated_at=p_at
+               lease_until=v_now+interval '5 minutes',updated_at=v_now
           FROM claimed c WHERE a.id=c.id
         RETURNING a.id::text,a.fencing_token
     ) SELECT changed.id,changed.fencing_token FROM changed;
@@ -56,19 +58,21 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 SET timezone = 'UTC'
 AS $$
+DECLARE
+    v_now timestamptz := pg_catalog.clock_timestamp();
 BEGIN
     IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
         RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
     END IF;
-    IF p_at IS NULL THEN
-        RAISE EXCEPTION 'cleanup completion time is required' USING ERRCODE = '22004';
+    IF p_at IS NULL OR p_at > v_now THEN
+        RAISE EXCEPTION 'cleanup completion time must not be in the future' USING ERRCODE = '22023';
     END IF;
     PERFORM 1 FROM public.media_asset
      WHERE id=p_id AND estado='deleting' AND fencing_token=p_token FOR UPDATE;
     IF NOT FOUND THEN RETURN false; END IF;
     DELETE FROM public.media_variant WHERE media_id=p_id;
     DELETE FROM public.media_variant_intent WHERE media_id=p_id;
-    UPDATE public.media_asset SET estado='deleted',deleted_at=p_at,lease_until=NULL,updated_at=p_at
+    UPDATE public.media_asset SET estado='deleted',deleted_at=v_now,lease_until=NULL,updated_at=v_now
      WHERE id=p_id AND estado='deleting' AND fencing_token=p_token;
     RETURN FOUND;
 END
@@ -81,14 +85,16 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 SET timezone = 'UTC'
 AS $$
+DECLARE
+    v_now timestamptz := pg_catalog.clock_timestamp();
 BEGIN
     IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
         RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
     END IF;
-    IF p_at IS NULL THEN
-        RAISE EXCEPTION 'cleanup retry time is required' USING ERRCODE = '22004';
+    IF p_at IS NULL OR p_at > v_now THEN
+        RAISE EXCEPTION 'cleanup retry time must not be in the future' USING ERRCODE = '22023';
     END IF;
-    UPDATE public.media_asset SET lease_until=p_at+interval '1 minute',updated_at=p_at
+    UPDATE public.media_asset SET lease_until=v_now+interval '1 minute',updated_at=v_now
      WHERE id=p_id AND estado='deleting' AND fencing_token=p_token;
     RETURN FOUND;
 END

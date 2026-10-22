@@ -141,6 +141,21 @@ func assertIMG01EPrivacyWorkerCannotMutateUnclaimedMedia(t *testing.T, h *authHa
 		t.Fatal(err)
 	}
 	defer worker.Close()
+	future := time.Date(2099, time.January, 1, 0, 0, 0, 0, time.UTC)
+	var claimedID string
+	var claimedToken int64
+	if err := worker.QueryRow(h.ctx, `SELECT id,fencing_token FROM public.claim_private_media_cleanup(100,$1)`, future).Scan(&claimedID, &claimedToken); err == nil {
+		t.Error("worker claim accepted a future timestamp")
+	}
+	for name, query := range map[string]string{
+		"complete": `SELECT public.complete_private_media_cleanup($1,0,$2)`,
+		"retry":    `SELECT public.fail_private_media_cleanup($1,0,$2)`,
+	} {
+		var result bool
+		if err := worker.QueryRow(h.ctx, query, uploadedID, future).Scan(&result); err == nil {
+			t.Errorf("worker %s accepted a future timestamp", name)
+		}
+	}
 
 	for name, query := range map[string]string{
 		"update unrelated asset":    `UPDATE public.media_asset SET estado='deleted' WHERE id=$1`,
