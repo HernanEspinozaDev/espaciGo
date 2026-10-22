@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"sort"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
@@ -132,8 +133,11 @@ LEFT JOIN LATERAL (
  WHERE g.espacio_id=e.id AND g.propietario_id=e.propietario_id
    AND g.id=e.portada_foto_id AND g.estado='activa' AND g.publicada_en_catalogo
    AND g.archivo_id IS NOT NULL AND g.mime_type='image/png' AND g.size_bytes BETWEEN 1 AND 1048576
- ORDER BY g.creada_en,g.id
- LIMIT 1
+ UNION ALL
+ SELECT sm.id::text AS image_id
+ FROM public.space_media sm JOIN public.media_asset a ON a.id=sm.media_id
+ WHERE sm.espacio_id=e.id AND sm.propietario_id=e.propietario_id
+   AND sm.id=e.portada_media_id AND sm.retired_at IS NULL AND sm.visible AND a.estado='ready'
 ) cover ON true
 WHERE e.estado='activa'
 AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=owner.id)
@@ -353,22 +357,29 @@ WHERE a.espacio_id=$1 AND jsonb_typeof(a.valores->f.codigo)='boolean' ORDER BY f
 	if err != nil {
 		return v, err
 	}
-	rows, err = r.pool.Query(ctx, `SELECT g.id::text,COALESCE(e.portada_foto_id=g.id,false) FROM public.espacio e JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=e.id AND g.propietario_id=e.propietario_id AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL
-WHERE e.id=$1 ORDER BY (e.portada_foto_id=g.id) DESC,g.creada_en,g.id`, id)
+	v.Images, err = r.publicImages(ctx, id)
+	return v, err
+}
+
+func (r *Repository) publicImages(ctx context.Context, id string) ([]publiccatalog.PublicImageRef, error) {
+	rows, err := r.pool.Query(ctx, `SELECT image_id,is_cover,source FROM (
+SELECT g.id::text AS image_id,(e.portada_foto_id=g.id) AS is_cover,o.position,'synthetic'::text AS source FROM public.espacio e JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=e.id AND g.propietario_id=e.propietario_id AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL JOIN public.gallery_item_order o ON o.synthetic_photo_id=g.id WHERE e.id=$1
+UNION ALL
+SELECT sm.id::text,(e.portada_media_id=sm.id),o.position,'media'::text FROM public.espacio e JOIN public.space_media sm ON sm.espacio_id=e.id AND sm.propietario_id=e.propietario_id AND sm.retired_at IS NULL AND sm.visible JOIN public.media_asset a ON a.id=sm.media_id AND a.estado='ready' JOIN public.gallery_item_order o ON o.space_media_id=sm.id WHERE e.id=$1
+) images ORDER BY is_cover DESC,position,image_id`, id)
 	if err != nil {
-		return v, err
+		return nil, err
 	}
+	defer rows.Close()
+	out := []publiccatalog.PublicImageRef{}
 	for rows.Next() {
 		var ref publiccatalog.PublicImageRef
-		if err = rows.Scan(&ref.ImageID, &ref.IsCover); err != nil {
-			rows.Close()
-			return v, err
+		if err = rows.Scan(&ref.ImageID, &ref.IsCover, &ref.Source); err != nil {
+			return nil, err
 		}
-		v.Images = append(v.Images, ref)
+		out = append(out, ref)
 	}
-	err = rows.Err()
-	rows.Close()
-	return v, err
+	return out, rows.Err()
 }
 
 func (r *Repository) PublicImage(ctx context.Context, spaceID, imageID string) (publiccatalog.PublicImage, error) {
@@ -380,6 +391,20 @@ WHERE g.id=$2
 AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL
 AND g.mime_type='image/png' AND g.size_bytes BETWEEN 1 AND 1048576`, spaceID, imageID).Scan(&item.MIME, &item.SHA256, &item.FileID, &item.Size)
 	if err == pgx.ErrNoRows {
+		return publiccatalog.PublicImage{}, publiccatalog.ErrNotFound
+	}
+	return item, err
+}
+
+func (r *Repository) PublicMediaVariant(ctx context.Context, spaceID, imageID, variant string) (publiccatalog.PublicImage, error) {
+	var item publiccatalog.PublicImage
+	err := r.pool.QueryRow(ctx, `WITH eligible AS (SELECT e.id,e.propietario_id`+eligiblePublicSQL+` AND e.id=$1)
+SELECT v.mime_type,v.sha256,v.size_bytes,v.object_key,v.bucket_name,v.generation
+FROM public.space_media sm JOIN public.media_asset a ON a.id=sm.media_id JOIN public.media_variant v ON v.media_id=a.id
+JOIN eligible e ON e.id=sm.espacio_id AND e.propietario_id=sm.propietario_id
+WHERE sm.id=$2 AND sm.retired_at IS NULL AND sm.visible AND a.estado='ready' AND v.variant=$3 AND v.variant IN ('display','thumbnail')`, spaceID, imageID, variant).
+		Scan(&item.MIME, &item.SHA256, &item.Size, &item.ObjectKey, &item.Bucket, &item.Generation)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return publiccatalog.PublicImage{}, publiccatalog.ErrNotFound
 	}
 	return item, err

@@ -449,6 +449,19 @@ paths:
       responses:
         '200': {description: PNG público, no cacheable, content: {image/png: {schema: {type: string, format: binary}}}}
         '404': {$ref: '#/components/responses/NotFound'}
+  /public/spaces/{spaceID}/images/{imageID}/variants/{variant}:
+    get:
+      operationId: getPublishedSpaceMediaVariant
+      security: []
+      tags: [Public catalog]
+      description: Revalida elegibilidad pública del espacio, visibilidad explícita de la foto y estado ready. Solo display/thumbnail WebP; responde con caché de 60 segundos para limitar la ventana de revocación y no revela claves internas.
+      parameters:
+      - {in: path, name: spaceID, required: true, schema: {type: string, format: uuid}}
+      - {in: path, name: imageID, required: true, schema: {type: string, format: uuid}}
+      - {in: path, name: variant, required: true, schema: {type: string, enum: [display, thumbnail]}}
+      responses:
+        '200': {description: Variante WebP publicada., headers: {ETag: {schema: {type: string}}, Cache-Control: {schema: {type: string}}}, content: {image/webp: {schema: {type: string, format: binary}}}}
+        '404': {$ref: '#/components/responses/NotFound'}
   /public/space-categories:
     get:
       operationId: listPublicSpaceCategories
@@ -817,14 +830,20 @@ paths:
       tags: [M02 local]
       description: Metadata de la foto PNG fija generada por Backend; nunca acepta bytes del cliente.
       responses:
-        '200': { description: Metadata propia., content: { application/json: { schema: { type: object, required: [id, fixture_code, mime_type, sha256, size_bytes, created_at], properties: { id: {type: string, format: uuid}, fixture_code: {type: string, enum: [synthetic-png-v1]}, mime_type: {type: string, enum: [image/png]}, sha256: {type: string}, size_bytes: {type: integer}, created_at: {type: string, format: date-time} } } } } }
+        '200': { description: Metadata propia., content: { application/json: { schema: { oneOf: [{type: object, required: [id, fixture_code, mime_type, sha256, size_bytes, created_at], properties: {id: {type: string, format: uuid}, fixture_code: {type: string, enum: [synthetic-png-v1]}, mime_type: {type: string, enum: [image/png]}, sha256: {type: string}, size_bytes: {type: integer}, created_at: {type: string, format: date-time}}}, {$ref: '#/components/schemas/SpaceMediaPhoto'}] } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
     put:
       operationId: generateOwnSyntheticProfilePhoto
       tags: [M02 local]
-      description: Genera/reemplaza el fixture fijo en almacenamiento privado. No admite multipart ni imagen arbitraria.
+      description: >-
+        Sin cuerpo conserva el flujo sintético histórico. Con multipart/form-data y campo image admite JPEG, PNG y WebP estático, aplica límites, orientación y normaliza derivados WebP en almacenamiento privado. Requiere Idempotency-Key y Bearer del titular.
       parameters: [{name: Idempotency-Key, in: header, required: true, schema: {type: string, minLength: 8, maxLength: 128}}]
+      requestBody:
+        required: false
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [image], properties: {image: {type: string, format: binary}}, additionalProperties: false}
       responses:
         '200': { description: Foto propia generada., content: { application/json: { schema: { type: object } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -844,7 +863,7 @@ paths:
       tags: [M02 local]
       description: PNG privado del titular autenticado.
       responses:
-        '200': { description: PNG sintético propio., content: { image/png: { schema: { type: string, format: binary } } } }
+        '200': { description: Imagen privada propia (PNG sintético histórico o avatar WebP)., content: { image/png: { schema: { type: string, format: binary } }, image/webp: {schema: {type: string, format: binary}} } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
   /payout-account:
@@ -1651,7 +1670,7 @@ paths:
     get:
       operationId: listOwnSyntheticSpaceGallery
       tags: [M04 local]
-      description: Lista únicamente las imágenes sintéticas activas del espacio propio. No las expone al catálogo general.
+      description: Lista la galería propia compuesta en un orden común; fotos reales permanecen privadas hasta la declaración explícita.
       responses:
         '200':
           description: Galería sintética propia y límite vigente.
@@ -1659,11 +1678,10 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [items, max_photos, synthetic]
+                required: [items, max_photos]
                 properties:
-                  items: { type: array, items: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' } }
+                  items: { type: array, items: { oneOf: [ { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' }, { $ref: '#/components/schemas/SpaceMediaPhoto' } ] } }
                   max_photos: { type: integer, const: 10 }
-                  synthetic: { type: boolean, const: true }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1671,13 +1689,17 @@ paths:
       operationId: createSyntheticOwnSpaceGalleryPhoto
       tags: [M04 local]
       description: >-
-        El Backend genera exclusivamente el PNG fijo synthetic-png-v1 y guarda el objeto fuera del repositorio y rutas públicas.
-        No recibe bytes del cliente. Registra primero un candidato de limpieza durable; la inserción exitosa consume esa reserva en la misma transacción. Requiere rol arrendador, propiedad del espacio y clave de idempotencia; máximo 10 fotos activas.
+        Sin cuerpo conserva la generación del PNG sintético. Con multipart/form-data y campo image admite JPEG, PNG y WebP estático, normaliza derivados WebP y los guarda en el namespace privado media/v1. Requiere rol arrendador, propiedad del espacio, bearer y clave de idempotencia; máximo común de 10 fotos.
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 128 } }
+      requestBody:
+        required: false
+        content:
+          multipart/form-data:
+            schema: {type: object, required: [image], properties: {image: {type: string, format: binary}}, additionalProperties: false}
       responses:
-        '200': { description: Resultado reutilizado de un reintento idempotente., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope' } } } }
-        '201': { description: PNG sintético guardado., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope' } } } }
+        '200': { description: Resultado reutilizado de un reintento idempotente., content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope' }, { $ref: '#/components/schemas/SpaceMediaPhotoEnvelope' }] } } } }
+        '201': { description: Imagen sintética o foto real normalizada a WebP., content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope' }, { $ref: '#/components/schemas/SpaceMediaPhotoEnvelope' }] } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -1716,10 +1738,24 @@ paths:
       operationId: getOwnSyntheticSpaceGalleryPhoto
       tags: [M04 local]
       responses:
-        '200': { description: Metadatos de una imagen activa propia., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' } } } }
+        '200': { description: Metadatos de una imagen activa propia., content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' }, { $ref: '#/components/schemas/SpaceMediaPhoto' }] } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateOwnSpaceMediaPhoto
+      tags: [IMG-01 media]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object, additionalProperties: false, minProperties: 1, properties: {alt_text: {type: string, maxLength: 250}, visible: {type: boolean}, position: {type: integer, minimum: 1, maximum: 10}}}
+      responses:
+        '200': {description: Metadata de imagen real actualizada., content: {application/json: {schema: {$ref: '#/components/schemas/SpaceMediaPhoto'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/UnprocessableEntity'}
     delete:
       operationId: removeOwnSyntheticSpaceGalleryPhoto
       tags: [M04 local]
@@ -1766,6 +1802,21 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { description: Storage privado temporalmente no disponible., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /spaces/{spaceId}/gallery/{photoId}/variants/{variant}:
+    parameters:
+      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+      - { name: variant, in: path, required: true, schema: { type: string, enum: [display, thumbnail] } }
+    get:
+      operationId: getOwnSpaceMediaVariant
+      tags: [IMG-01 media]
+      description: Sirve WebP privado mediante autorización del titular en cada solicitud. Nunca expone bucket, object key ni generación.
+      responses:
+        '200': {description: Variante WebP privada, content: {image/webp: {schema: {type: string, format: binary}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '503': {description: Storage privado temporalmente no disponible.}
   /spaces/{spaceId}/availability:
     parameters:
       - name: spaceId
@@ -3266,10 +3317,11 @@ components:
     PublicSpaceImageRef:
       type: object
       additionalProperties: false
-      required: [image_id, is_cover]
+      required: [image_id, is_cover, source]
       properties:
         image_id: {type: string, format: uuid}
         is_cover: {type: boolean}
+        source: {type: string, enum: [synthetic, media]}
     PublicSpacePage:
       type: object
       additionalProperties: false
@@ -4378,6 +4430,39 @@ components:
         size_bytes: { type: integer, minimum: 1, maximum: 1048576 }
         created_at: { type: string, format: date-time }
         public_in_catalog: { type: boolean }
+        position: {type: integer, minimum: 1, maximum: 10}
+    SpaceMediaPhoto:
+      type: object
+      additionalProperties: false
+      required: [id, space_id, alt_text, visible, cover, position, state, created_at, variants]
+      properties:
+        id: {type: string, format: uuid}
+        space_id: {type: string, format: uuid}
+        alt_text: {type: string, maxLength: 250}
+        visible: {type: boolean}
+        cover: {type: boolean}
+        position: {type: integer, minimum: 1, maximum: 10}
+        state: {type: string, enum: [ready]}
+        created_at: {type: string, format: date-time}
+        variants: {type: array, minItems: 1, maxItems: 2, items: {$ref: '#/components/schemas/SpaceMediaVariant'}}
+    SpaceMediaVariant:
+      type: object
+      additionalProperties: false
+      required: [name, url, mime_type, size_bytes, sha256, width, height]
+      properties:
+        name: {type: string, enum: [display, thumbnail, avatar]}
+        url: {type: string, format: uri-reference}
+        mime_type: {type: string, const: image/webp}
+        size_bytes: {type: integer, minimum: 1, maximum: 10485760}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        width: {type: integer, minimum: 1, maximum: 1600}
+        height: {type: integer, minimum: 1, maximum: 1600}
+    SpaceMediaPhotoEnvelope:
+      type: object
+      required: [photo, reused]
+      properties:
+        photo: {$ref: '#/components/schemas/SpaceMediaPhoto'}
+        reused: {type: boolean}
     SyntheticSpaceGalleryPhotoEnvelope:
       type: object
       required: [photo, reused, synthetic]

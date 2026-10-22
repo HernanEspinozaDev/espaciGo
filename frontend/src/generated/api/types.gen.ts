@@ -161,6 +161,7 @@ export type PublicSpaceFeature = {
 export type PublicSpaceImageRef = {
     image_id: string;
     is_cover: boolean;
+    source: 'synthetic' | 'media';
 };
 
 export type PublicSpacePage = {
@@ -1238,6 +1239,34 @@ export type SyntheticSpaceGalleryPhoto = {
     size_bytes: number;
     created_at: string;
     public_in_catalog: boolean;
+    position?: number;
+};
+
+export type SpaceMediaPhoto = {
+    id: string;
+    space_id: string;
+    alt_text: string;
+    visible: boolean;
+    cover: boolean;
+    position: number;
+    state: 'ready';
+    created_at: string;
+    variants: Array<SpaceMediaVariant>;
+};
+
+export type SpaceMediaVariant = {
+    name: 'display' | 'thumbnail' | 'avatar';
+    url: string;
+    mime_type: 'image/webp';
+    size_bytes: number;
+    sha256: string;
+    width: number;
+    height: number;
+};
+
+export type SpaceMediaPhotoEnvelope = {
+    photo: SpaceMediaPhoto;
+    reused: boolean;
 };
 
 export type SyntheticSpaceGalleryPhotoEnvelope = {
@@ -2120,6 +2149,46 @@ export type SetGlobalAdminMarketplaceRoleResponses = {
     200: unknown;
 };
 
+export type SetGlobalAdminLegacyAdministratorRoleData = {
+    body: {
+        granted: boolean;
+        reason: 'aprovisionamiento_sintetico' | 'revision_administrativa' | 'retirada_acceso';
+    };
+    path: {
+        accountID: string;
+    };
+    query?: never;
+    url: '/admin/global/accounts/{accountID}/legacy-administrator';
+};
+
+export type SetGlobalAdminLegacyAdministratorRoleErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Conflicto con el estado actual, versión o clave de idempotencia.
+     */
+    409: Error;
+    /**
+     * Se requiere sesión reciente
+     */
+    428: unknown;
+};
+
+export type SetGlobalAdminLegacyAdministratorRoleError = SetGlobalAdminLegacyAdministratorRoleErrors[keyof SetGlobalAdminLegacyAdministratorRoleErrors];
+
+export type SetGlobalAdminLegacyAdministratorRoleResponses = {
+    /**
+     * Estado deseado aplicado o ya vigente; evento auditado
+     */
+    200: unknown;
+};
+
 export type RevokeGlobalAdminAccountSessionsData = {
     body: {
         reason: 'correccion_perfil' | 'revision_administrativa' | 'gestion_operativa';
@@ -2783,6 +2852,35 @@ export type GetPublicSpaceImageResponses = {
 };
 
 export type GetPublicSpaceImageResponse = GetPublicSpaceImageResponses[keyof GetPublicSpaceImageResponses];
+
+export type GetPublishedSpaceMediaVariantData = {
+    body?: never;
+    path: {
+        spaceID: string;
+        imageID: string;
+        variant: 'display' | 'thumbnail';
+    };
+    query?: never;
+    url: '/public/spaces/{spaceID}/images/{imageID}/variants/{variant}';
+};
+
+export type GetPublishedSpaceMediaVariantErrors = {
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+};
+
+export type GetPublishedSpaceMediaVariantError = GetPublishedSpaceMediaVariantErrors[keyof GetPublishedSpaceMediaVariantErrors];
+
+export type GetPublishedSpaceMediaVariantResponses = {
+    /**
+     * Variante WebP publicada.
+     */
+    200: Blob | File;
+};
+
+export type GetPublishedSpaceMediaVariantResponse = GetPublishedSpaceMediaVariantResponses[keyof GetPublishedSpaceMediaVariantResponses];
 
 export type ListPublicSpaceCategoriesData = {
     body?: never;
@@ -3555,13 +3653,15 @@ export type GetOwnSyntheticProfilePhotoResponses = {
         sha256: string;
         size_bytes: number;
         created_at: string;
-    };
+    } | SpaceMediaPhoto;
 };
 
 export type GetOwnSyntheticProfilePhotoResponse = GetOwnSyntheticProfilePhotoResponses[keyof GetOwnSyntheticProfilePhotoResponses];
 
 export type GenerateOwnSyntheticProfilePhotoData = {
-    body?: never;
+    body?: {
+        image: Blob | File;
+    };
     headers: {
         'Idempotency-Key': string;
     };
@@ -3620,7 +3720,7 @@ export type GetOwnSyntheticProfilePhotoContentError = GetOwnSyntheticProfilePhot
 
 export type GetOwnSyntheticProfilePhotoContentResponses = {
     /**
-     * PNG sintético propio.
+     * Imagen privada propia (PNG sintético histórico o avatar WebP).
      */
     200: Blob | File;
 };
@@ -5194,16 +5294,17 @@ export type ListOwnSyntheticSpaceGalleryResponses = {
      * Galería sintética propia y límite vigente.
      */
     200: {
-        items: Array<SyntheticSpaceGalleryPhoto>;
+        items: Array<SyntheticSpaceGalleryPhoto | SpaceMediaPhoto>;
         max_photos: 10;
-        synthetic: true;
     };
 };
 
 export type ListOwnSyntheticSpaceGalleryResponse = ListOwnSyntheticSpaceGalleryResponses[keyof ListOwnSyntheticSpaceGalleryResponses];
 
 export type CreateSyntheticOwnSpaceGalleryPhotoData = {
-    body?: never;
+    body?: {
+        image: Blob | File;
+    };
     headers: {
         'Idempotency-Key': string;
     };
@@ -5247,11 +5348,11 @@ export type CreateSyntheticOwnSpaceGalleryPhotoResponses = {
     /**
      * Resultado reutilizado de un reintento idempotente.
      */
-    200: SyntheticSpaceGalleryPhotoEnvelope;
+    200: SyntheticSpaceGalleryPhotoEnvelope | SpaceMediaPhotoEnvelope;
     /**
-     * PNG sintético guardado.
+     * Imagen sintética o foto real normalizada a WebP.
      */
-    201: SyntheticSpaceGalleryPhotoEnvelope;
+    201: SyntheticSpaceGalleryPhotoEnvelope | SpaceMediaPhotoEnvelope;
 };
 
 export type CreateSyntheticOwnSpaceGalleryPhotoResponse = CreateSyntheticOwnSpaceGalleryPhotoResponses[keyof CreateSyntheticOwnSpaceGalleryPhotoResponses];
@@ -5364,10 +5465,54 @@ export type GetOwnSyntheticSpaceGalleryPhotoResponses = {
     /**
      * Metadatos de una imagen activa propia.
      */
-    200: SyntheticSpaceGalleryPhoto;
+    200: SyntheticSpaceGalleryPhoto | SpaceMediaPhoto;
 };
 
 export type GetOwnSyntheticSpaceGalleryPhotoResponse = GetOwnSyntheticSpaceGalleryPhotoResponses[keyof GetOwnSyntheticSpaceGalleryPhotoResponses];
+
+export type UpdateOwnSpaceMediaPhotoData = {
+    body: {
+        alt_text?: string;
+        visible?: boolean;
+        position?: number;
+    };
+    path: {
+        spaceId: string;
+        photoId: string;
+    };
+    query?: never;
+    url: '/spaces/{spaceId}/gallery/{photoId}';
+};
+
+export type UpdateOwnSpaceMediaPhotoErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+    /**
+     * validation_error o invalid_token: regla semántica no satisfecha.
+     */
+    422: Error;
+};
+
+export type UpdateOwnSpaceMediaPhotoError = UpdateOwnSpaceMediaPhotoErrors[keyof UpdateOwnSpaceMediaPhotoErrors];
+
+export type UpdateOwnSpaceMediaPhotoResponses = {
+    /**
+     * Metadata de imagen real actualizada.
+     */
+    200: SpaceMediaPhoto;
+};
+
+export type UpdateOwnSpaceMediaPhotoResponse = UpdateOwnSpaceMediaPhotoResponses[keyof UpdateOwnSpaceMediaPhotoResponses];
 
 export type SetOwnSyntheticSpaceGalleryPhotoPublicationData = {
     body: {
@@ -5446,6 +5591,47 @@ export type GetOwnSyntheticSpaceGalleryPhotoContentResponses = {
 };
 
 export type GetOwnSyntheticSpaceGalleryPhotoContentResponse = GetOwnSyntheticSpaceGalleryPhotoContentResponses[keyof GetOwnSyntheticSpaceGalleryPhotoContentResponses];
+
+export type GetOwnSpaceMediaVariantData = {
+    body?: never;
+    path: {
+        spaceId: string;
+        photoId: string;
+        variant: 'display' | 'thumbnail';
+    };
+    query?: never;
+    url: '/spaces/{spaceId}/gallery/{photoId}/variants/{variant}';
+};
+
+export type GetOwnSpaceMediaVariantErrors = {
+    /**
+     * Credencial ausente, inválida o expirada; se envía un desafío aplicable.
+     */
+    401: Error;
+    /**
+     * Identidad autenticada sin permiso para la acción o recurso.
+     */
+    403: Error;
+    /**
+     * Recurso inexistente o no visible para esta identidad.
+     */
+    404: Error;
+    /**
+     * Storage privado temporalmente no disponible.
+     */
+    503: unknown;
+};
+
+export type GetOwnSpaceMediaVariantError = GetOwnSpaceMediaVariantErrors[keyof GetOwnSpaceMediaVariantErrors];
+
+export type GetOwnSpaceMediaVariantResponses = {
+    /**
+     * Variante WebP privada
+     */
+    200: Blob | File;
+};
+
+export type GetOwnSpaceMediaVariantResponse = GetOwnSpaceMediaVariantResponses[keyof GetOwnSpaceMediaVariantResponses];
 
 export type QueryOwnDraftAvailabilityData = {
     body?: never;

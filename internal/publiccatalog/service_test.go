@@ -2,9 +2,12 @@ package publiccatalog
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"strings"
 	"testing"
 )
@@ -161,3 +164,64 @@ func TestTypedPredicatesAreProfileValidatedAndCursorVersioned(t *testing.T) {
 }
 
 func stringPointer(value string) *string { return &value }
+
+type publicMediaRepository struct {
+	memoryRepository
+	item PublicImage
+}
+
+func (r publicMediaRepository) PublicImage(context.Context, string, string) (PublicImage, error) {
+	return PublicImage{}, ErrNotFound
+}
+func (r publicMediaRepository) PublicMediaVariant(context.Context, string, string, string) (PublicImage, error) {
+	return r.item, nil
+}
+
+type publicMediaStore struct {
+	body       []byte
+	key        string
+	generation int64
+}
+
+func (s *publicMediaStore) Put(context.Context, string, []byte, string) (media.StoredObject, error) {
+	return media.StoredObject{}, nil
+}
+func (s *publicMediaStore) Get(_ context.Context, key string, generation int64) ([]byte, error) {
+	if key != s.key || generation != s.generation {
+		return nil, media.ErrNotFound
+	}
+	return append([]byte(nil), s.body...), nil
+}
+func (s *publicMediaStore) Generation(context.Context, string) (int64, error) {
+	return s.generation, nil
+}
+func (s *publicMediaStore) Delete(context.Context, string, int64) error { return nil }
+
+func TestMediaImageContentRevalidatesVariantAndChecksDigest(t *testing.T) {
+	body := []byte("normalized-webp-fixture")
+	digest := sha256.Sum256(body)
+	store := &publicMediaStore{body: body, key: "media/v1/spaces/a/photo/display.webp", generation: 7}
+	repo := publicMediaRepository{item: PublicImage{MIME: "image/webp", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), ObjectKey: store.key, Generation: 7}}
+	svc, err := NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), nil, store)
+	if err == nil {
+		t.Fatal("constructor accepted nil legacy private image store")
+	}
+	legacy := PublicImageStoreFunc(func(context.Context, string) ([]byte, error) { return nil, ErrNotFound })
+	svc, err = NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), legacy, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, got, err := svc.MediaImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "display")
+	if err != nil || string(got) != string(body) || item.ObjectKey != "media/v1/spaces/a/photo/display.webp" {
+		t.Fatalf("item=%+v body=%q err=%v", item, got, err)
+	}
+	if _, _, err = svc.MediaImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "avatar"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("avatar became public: %v", err)
+	}
+}
+
+type PublicImageStoreFunc func(context.Context, string) ([]byte, error)
+
+func (f PublicImageStoreFunc) Get(ctx context.Context, key string) ([]byte, error) {
+	return f(ctx, key)
+}

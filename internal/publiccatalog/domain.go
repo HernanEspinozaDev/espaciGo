@@ -90,6 +90,7 @@ type PublicFeature struct {
 type PublicImageRef struct {
 	ImageID string `json:"image_id"`
 	IsCover bool   `json:"is_cover"`
+	Source  string `json:"source"`
 }
 
 type Filters struct {
@@ -145,6 +146,7 @@ type Repository interface {
 
 type PublicImageRepository interface {
 	PublicImage(context.Context, string, string) (PublicImage, error)
+	PublicMediaVariant(context.Context, string, string, string) (PublicImage, error)
 }
 type PublicImageStore interface {
 	Get(context.Context, string) ([]byte, error)
@@ -152,4 +154,6 @@ type PublicImageStore interface {
 type PublicImage struct {
 	MIME, SHA256, FileID string
 	Size                 int64
+	ObjectKey, Bucket    string
+	Generation           int64
 }

@@ -17,6 +17,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -29,6 +30,7 @@ type Service struct {
 	repo       Repository
 	key        []byte
 	imageStore PublicImageStore
+	mediaStore media.ObjectStore
 }
 
 // New derives a purpose-specific cursor key from a stable local application
@@ -56,6 +58,44 @@ func NewWithImageStore(repo Repository, masterKey []byte, files PublicImageStore
 	}
 	s.imageStore = files
 	return s, nil
+}
+
+func NewWithImageAndMediaStore(repo Repository, masterKey []byte, files PublicImageStore, mediaStore media.ObjectStore) (*Service, error) {
+	s, err := NewWithImageStore(repo, masterKey, files)
+	if err != nil {
+		return nil, err
+	}
+	if mediaStore == nil {
+		return nil, ErrInvalid
+	}
+	s.mediaStore = mediaStore
+	return s, nil
+}
+
+func (s *Service) MediaImageContent(ctx context.Context, spaceID, imageID, variant string) (PublicImage, []byte, error) {
+	if !validUUID(spaceID) || !validUUID(imageID) || (variant != "display" && variant != "thumbnail") || s.mediaStore == nil {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	repo, ok := s.repo.(PublicImageRepository)
+	if !ok {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	item, err := repo.PublicMediaVariant(ctx, strings.ToLower(spaceID), strings.ToLower(imageID), variant)
+	if err != nil {
+		return PublicImage{}, nil, err
+	}
+	if item.MIME != "image/webp" || item.Size < 1 || item.Size > 10<<20 || item.Generation <= 0 || item.ObjectKey == "" {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	b, err := s.mediaStore.Get(ctx, item.ObjectKey, item.Generation)
+	if err != nil || int64(len(b)) != item.Size {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	digest := sha256.Sum256(b)
+	if hex.EncodeToString(digest[:]) != item.SHA256 {
+		return PublicImage{}, nil, ErrNotFound
+	}
+	return item, b, nil
 }
 
 func (s *Service) ImageContent(ctx context.Context, spaceID, imageID string) (PublicImage, []byte, error) {
