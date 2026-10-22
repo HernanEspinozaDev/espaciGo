@@ -2,11 +2,14 @@ package publiccataloghttp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 )
 
@@ -143,5 +146,83 @@ func TestPublicCORSOriginPolicy(t *testing.T) {
 				t.Fatalf("preflight methods=%q", response.Header().Get("Access-Control-Allow-Methods"))
 			}
 		})
+	}
+}
+
+type revocableMediaRepository struct {
+	pageSizeRepository
+	item    publiccatalog.PublicImage
+	visible bool
+}
+
+func (r *revocableMediaRepository) PublicImage(context.Context, string, string) (publiccatalog.PublicImage, error) {
+	return publiccatalog.PublicImage{}, publiccatalog.ErrNotFound
+}
+
+func (r *revocableMediaRepository) PublicMediaVariant(context.Context, string, string, string) (publiccatalog.PublicImage, error) {
+	if !r.visible {
+		return publiccatalog.PublicImage{}, publiccatalog.ErrNotFound
+	}
+	return r.item, nil
+}
+
+type publicMediaObjectStore struct {
+	body       []byte
+	key        string
+	generation int64
+}
+
+func (s *publicMediaObjectStore) Put(context.Context, string, []byte, string) (media.StoredObject, error) {
+	return media.StoredObject{}, nil
+}
+
+func (s *publicMediaObjectStore) Get(_ context.Context, key string, generation int64) ([]byte, error) {
+	if key != s.key || generation != s.generation {
+		return nil, media.ErrNotFound
+	}
+	return append([]byte(nil), s.body...), nil
+}
+
+func (s *publicMediaObjectStore) Generation(context.Context, string) (int64, error) {
+	return s.generation, nil
+}
+
+func (s *publicMediaObjectStore) Delete(context.Context, string, int64) error { return nil }
+
+type publicImageFileStore struct{}
+
+func (publicImageFileStore) Get(context.Context, string) ([]byte, error) {
+	return nil, publiccatalog.ErrNotFound
+}
+
+func TestPublicMediaImageIsNotCachedAndRevocationTakesEffect(t *testing.T) {
+	spaceID := "00000000-0000-4000-8000-000000000001"
+	imageID := "00000000-0000-4000-8000-000000000002"
+	body := []byte("webp-fixture")
+	digest := sha256.Sum256(body)
+	key := "media/v1/spaces/00000000-0000-4000-8000-000000000001/00000000-0000-4000-8000-000000000003/1/display.webp"
+	repo := &revocableMediaRepository{
+		item:    publiccatalog.PublicImage{MIME: "image/webp", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), ObjectKey: key, Generation: 7},
+		visible: true,
+	}
+	store := &publicMediaObjectStore{body: body, key: key, generation: 7}
+	service, err := publiccatalog.NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), publicImageFileStore{}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := New(service)
+	path := "/api/v1/public/spaces/" + spaceID + "/images/" + imageID + "/variants/display"
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" || response.Header().Get("Content-Type") != "image/webp" || response.Body.String() != string(body) {
+		t.Fatalf("first public image response status=%d cache=%q mime=%q body=%q", response.Code, response.Header().Get("Cache-Control"), response.Header().Get("Content-Type"), response.Body.String())
+	}
+
+	repo.visible = false
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+	if response.Code != http.StatusNotFound || response.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("revoked public image response status=%d cache=%q body=%q", response.Code, response.Header().Get("Cache-Control"), response.Body.String())
 	}
 }
