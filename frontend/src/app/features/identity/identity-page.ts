@@ -25,6 +25,9 @@ export class IdentityPage {
   get successMessage() {
     return this.facade.successMessage;
   }
+  get loginConfirmed() {
+    return this.facade.loginConfirmed;
+  }
   get terms() {
     return this.facade.terms;
   }
@@ -79,6 +82,7 @@ export class IdentityPage {
   readonly identityQueryParams = this.facade.identityQueryParams.bind(this.facade);
   readonly contextualCancelUrl = this.facade.contextualCancelUrl.bind(this.facade);
   readonly onLogin = this.facade.onLogin.bind(this.facade);
+  readonly onLoginInput = this.facade.onLoginInput.bind(this.facade);
   readonly onRegister = this.facade.onRegister.bind(this.facade);
   readonly onReissue = this.facade.onReissue.bind(this.facade);
   readonly onVerify = this.facade.onVerify.bind(this.facade);

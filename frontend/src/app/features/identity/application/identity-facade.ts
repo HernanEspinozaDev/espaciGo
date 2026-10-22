@@ -32,6 +32,7 @@ export class IdentityFacade {
   readonly busy = signal(false);
   readonly errorMessage = signal('');
   readonly successMessage = signal('');
+  readonly loginConfirmed = signal(false);
   readonly terms = signal<TermsResponse['items']>([]);
   readonly termVersions = computed(() => this.terms().filter((item) => item.type === 'terminos'));
   readonly privacyVersions = computed(() =>
@@ -147,23 +148,45 @@ export class IdentityFacade {
 
   async onLogin(event: SubmitEvent): Promise<void> {
     event.preventDefault();
+    this.loginConfirmed.set(false);
+    this.errorMessage.set('');
+    this.successMessage.set('');
     await submit(this.loginForm, async () => {
       const { email: address, password } = this.loginModel();
       await this.performRequest(
         () => this.identity.signIn(address, password),
         async () => {
-          this.successMessage.set('Sesión confirmada por Go.');
+          this.loginConfirmed.set(true);
           const safeReturn = parseIdentityReturn(
             this.route.snapshot.queryParamMap?.getAll('returnUrl') ?? [],
           );
-          await this.router.navigateByUrl(
-            typeof safeReturn === 'string' ? safeReturn : safeReturn?.detailUrl ?? '/mi-cuenta',
-          );
+          try {
+            const navigated = await this.router.navigateByUrl(
+              typeof safeReturn === 'string' ? safeReturn : safeReturn?.detailUrl ?? '/mi-cuenta',
+            );
+            if (!navigated && !this.destroyed) {
+              this.errorMessage.set(
+                'Go confirmó tu sesión, pero no pudimos abrir tu cuenta. Inténtalo de nuevo.',
+              );
+            }
+          } catch {
+            if (!this.destroyed) {
+              this.errorMessage.set(
+                'Go confirmó tu sesión, pero no pudimos abrir tu cuenta. Recarga e inténtalo de nuevo.',
+              );
+            }
+          }
         },
         (session) =>
           this.identity.session() === session && this.identity.status() === 'authenticated',
       );
     });
+  }
+
+  onLoginInput(): void {
+    this.loginConfirmed.set(false);
+    this.errorMessage.set('');
+    this.successMessage.set('');
   }
 
   async onRegister(event: SubmitEvent): Promise<void> {
