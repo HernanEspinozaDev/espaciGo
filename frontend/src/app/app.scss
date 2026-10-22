@@ -1,5 +1,95 @@
 @use '../styles/metrics';
 @use '../styles/breakpoints' as bp;
+.application-shell[inert] {
+  user-select: none;
+}
+.preview-access-backdrop {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  overflow-y: auto;
+  place-items: center;
+  padding: metrics.$space-1-25rem;
+  background: rgb(4 6 10 / 88%);
+  backdrop-filter: blur(8px);
+}
+.preview-access-dialog {
+  width: min(100%, 27rem);
+  border: 1px solid var(--color-border-control);
+  border-radius: 1.25rem;
+  padding: var(--space-8);
+  background: var(--color-text);
+  color: var(--color-canvas);
+  box-shadow: 0 1.5rem 5rem rgb(0 0 0 / 45%);
+}
+.preview-access-mark {
+  display: grid;
+  width: 2.6rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border-radius: 50% 50% 50% 0;
+  background: var(--brand-primary);
+  color: white;
+  font-family: metrics.$font-family-variant-1;
+  font-size: metrics.$font-size-1-5rem;
+  font-style: italic;
+  transform: rotate(-15deg);
+}
+.preview-access-eyebrow {
+  margin: metrics.$space-1-5rem 0 metrics.$space-0-5rem;
+  color: var(--color-border);
+  font-size: metrics.$font-size-0-75rem;
+  font-weight: metrics.$font-weight-700;
+  letter-spacing: metrics.$letter-spacing-0-12em;
+}
+.preview-access-dialog h1 {
+  margin: 0;
+  color: var(--color-surface);
+  font-size: metrics.$font-size-variant-43;
+  line-height: metrics.$line-height-1-08;
+}
+.preview-access-description,
+.preview-access-session {
+  color: var(--color-border);
+  line-height: metrics.$line-height-1-5;
+}
+.preview-access-description {
+  margin: metrics.$space-0-85rem 0 metrics.$space-1-5rem;
+}
+.preview-access-form {
+  display: grid;
+  gap: metrics.$space-0-65rem;
+}
+.preview-access-form label {
+  color: var(--color-canvas);
+  font-weight: metrics.$font-weight-650;
+}
+.preview-access-form input {
+  width: 100%;
+  min-height: 3rem;
+  border: 1px solid var(--color-border-control);
+  border-radius: 0.6rem;
+  padding: 0 metrics.$space-0-9rem;
+  background: rgb(0 0 0 / 28%);
+  color: var(--color-surface);
+}
+.preview-access-form input:focus-visible {
+  outline-color: var(--color-focus);
+}
+.preview-access-submit {
+  width: 100%;
+  min-height: 3rem;
+  margin-top: metrics.$space-0-4rem;
+}
+.preview-access-error {
+  color: var(--color-error-soft);
+  font-size: metrics.$font-size-0-9rem;
+}
+.preview-access-session {
+  margin: metrics.$space-1rem 0 0;
+  font-size: metrics.$font-size-0-8rem;
+}
 .skip-link {
   position: fixed;
   z-index: 10;
