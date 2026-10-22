@@ -45,13 +45,14 @@ locals {
     local.api_secret_access_keys,
     # Preserve the legacy API credential only for the GCP-06 candidate rollback.
     local.api_gcp06_candidate_enabled ? toset(["database-password"]) : toset([]),
-    var.enable_database ? toset(["database-migrator-password"]) : toset([]),
+    # These existing secret containers are retained independently of the
+    # deprecated database-creation gate and optional job gates.
+    toset(["database-migrator-password", "gcp06-sql-inspector-credential"]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_admin_bootstrap_job) ? toset(["gcp06-admin-bootstrap-password"]) : toset([]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_test_access_job) ? toset(["gcp06-test-access-db-password"]) : toset([]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_test_access_job && var.gcp06_test_access_mode == "apply") ? toset(["gcp06-test-account-password"]) : toset([]),
-    (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job) ? toset(["gcp06-sql-inspector-credential"]) : toset([]),
   ) : toset([])
-  migrator_database_secret_id   = var.enable_database ? "database-migrator-password" : null
+  migrator_database_secret_id   = "database-migrator-password"
   gcp06_candidate_instance_name = "espacigo-gcp06-${local.gcp06_candidate_run_id}-pg"
   gcp06_candidate_database_name = "espacigo_gcp06_candidate_${local.gcp06_candidate_run_id}"
   project_enabled_apis = toset([
@@ -569,6 +570,13 @@ resource "google_compute_instance" "mailpit" {
     google_compute_firewall.mailpit_ui_iap,
     google_project_service.required,
   ]
+
+  lifecycle {
+    # COS family/self-link normalization is immutable on the boot disk. Keep
+    # the existing VM image; upgrades must be a separate, explicit change.
+    ignore_changes  = [boot_disk[0].initialize_params[0].image]
+    prevent_destroy = true
+  }
 }
 
 resource "google_iap_tunnel_instance_iam_member" "mailpit_ui" {
@@ -688,7 +696,9 @@ resource "google_secret_manager_secret_iam_member" "v67_api_secret_access" {
 }
 
 resource "google_secret_manager_secret_iam_member" "migrator_db_access" {
-  count     = var.enable_foundation && var.enable_database ? 1 : 0
+  # Keep the existing migrator credential grant even though enable_database is
+  # now a deprecated gate for Cloud SQL creation (which this root no longer does).
+  count     = var.enable_foundation ? 1 : 0
   project   = var.project_id
   secret_id = google_secret_manager_secret.runtime[local.migrator_database_secret_id].secret_id
   role      = "roles/secretmanager.secretAccessor"
