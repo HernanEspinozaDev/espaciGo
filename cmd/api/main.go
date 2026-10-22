@@ -75,6 +75,26 @@ import (
 
 const readyURL = "http://127.0.0.1:8080/health/ready"
 
+const (
+	apiReadHeaderTimeout = 5 * time.Second
+	// 11 MiB multipart payloads get a two-minute body window (~96 KiB/s).
+	apiReadTimeout = 2 * time.Minute
+	// WriteTimeout starts with request processing; four minutes allows the
+	// full body window plus two minutes for conversion, storage, and response.
+	apiWriteTimeout = 4 * time.Minute
+)
+
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: apiReadHeaderTimeout,
+		ReadTimeout:       apiReadTimeout,
+		WriteTimeout:      apiWriteTimeout,
+		IdleTimeout:       60 * time.Second,
+	}
+}
+
 func main() {
 	if len(os.Args) >= 2 && (os.Args[1] == "local-privacy-retention-purge" || os.Args[1] == "local-privacy-replay-export" || os.Args[1] == "local-privacy-replay-apply") {
 		if err := runLocalPrivacyCommand(os.Args[1], os.Args[2:]); err != nil {
@@ -412,14 +432,7 @@ func run() error {
 			http.ServeFile(w, r, "/openapi.yaml")
 		})
 	}
-	server := &http.Server{
-		Addr:              cfg.httpAddr,
-		Handler:           identityhttp.RestrictedAccountMiddleware(localIdentityService, mux, cfg.allowedOrigins...),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(localIdentityService, mux, cfg.allowedOrigins...))
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- server.ListenAndServe()
