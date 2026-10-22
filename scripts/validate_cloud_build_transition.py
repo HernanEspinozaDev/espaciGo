@@ -122,9 +122,16 @@ def main() -> int:
         "google_cloud_run_v2_service_iam_member.public_web_invoker",
         "google_cloud_run_v2_service_iam_member.private_iap_invoker",
         "google_iap_web_cloud_run_service_iam_member.private_evaluators",
+        "google_sql_database_instance.postgres",
+        "google_sql_database.application",
     )
-    if any(f"from = {address}" not in terraform for address in expected_state_forgets):
-        errors.append("known Cloud Run and IAP state bindings must use non-destroying removed blocks")
+    for address in expected_state_forgets:
+        removed_block = re.search(
+            rf"removed \{{\s*from = {re.escape(address)}\s*lifecycle \{{\s*destroy = false\s*\}}\s*\}}",
+            terraform,
+        )
+        if not removed_block:
+            errors.append(f"state address {address} must use a removed block with destroy=false")
     if any(item not in terraform for item in (
         'resource "google_service_account" "cloud_build_deployer"',
         'resource "google_project_iam_custom_role" "cloud_build_deployer"',

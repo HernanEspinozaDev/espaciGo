@@ -126,6 +126,14 @@ removed {
   lifecycle { destroy = false }
 }
 removed {
+  from = google_sql_database_instance.postgres
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_sql_database.application
+  lifecycle { destroy = false }
+}
+removed {
   from = google_project_service_identity.iap
   lifecycle { destroy = false }
 }
