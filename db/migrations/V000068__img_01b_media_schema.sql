@@ -163,30 +163,85 @@ FROM (
     WHERE g.estado='activa'
 ) AS ranked;
 
--- New real-space reservations serialize on the space row and reserve from the
--- same ten slots as active historical gallery entries and in-flight candidates.
-CREATE FUNCTION public.img01b_reserve_media_slot() RETURNS trigger
+-- Every path that occupies a gallery slot uses the same space-row lock and
+-- counter. A synthetic candidate is excluded only while its matching active
+-- synthetic row replaces it in the same transaction.
+CREATE FUNCTION public.img01b_enforce_gallery_slot() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 DECLARE
+    target_space uuid;
+    target_owner uuid;
+    candidate_exclusion uuid;
+    gallery_exclusion uuid;
+    asset_exclusion uuid;
     occupied bigint;
+    claims_slot boolean;
 BEGIN
-    IF NEW.proposito <> 'espacio' OR NEW.estado NOT IN ('pending','ready') THEN
-        RETURN NEW;
+    candidate_exclusion := NULL;
+    gallery_exclusion := NULL;
+    asset_exclusion := NULL;
+
+    IF TG_TABLE_NAME='media_asset' THEN
+        IF TG_OP='UPDATE' AND (NEW.id,NEW.propietario_id,NEW.espacio_id,NEW.proposito)
+             IS DISTINCT FROM (OLD.id,OLD.propietario_id,OLD.espacio_id,OLD.proposito) THEN
+            RAISE EXCEPTION 'media asset scope is immutable' USING ERRCODE='23514';
+        END IF;
+        IF NEW.proposito<>'espacio' OR NEW.estado NOT IN ('pending','ready') THEN RETURN NEW; END IF;
+        IF TG_OP='UPDATE' AND OLD.estado IN ('pending','ready') THEN RETURN NEW; END IF;
+        target_space := NEW.espacio_id;
+        target_owner := NEW.propietario_id;
+        asset_exclusion := NEW.id;
+        claims_slot := true;
+    ELSIF TG_TABLE_NAME='espacio_galeria_archivo_candidato_local' THEN
+        IF TG_OP='UPDATE' AND (NEW.archivo_id,NEW.propietario_id,NEW.espacio_id)
+             IS DISTINCT FROM (OLD.archivo_id,OLD.propietario_id,OLD.espacio_id) THEN
+            RAISE EXCEPTION 'synthetic candidate scope is immutable' USING ERRCODE='23514';
+        END IF;
+        IF NEW.estado<>'reservado' THEN RETURN NEW; END IF;
+        IF TG_OP='UPDATE' AND OLD.estado='reservado' THEN RETURN NEW; END IF;
+        target_space := NEW.espacio_id;
+        target_owner := NEW.propietario_id;
+        candidate_exclusion := NEW.archivo_id;
+        claims_slot := true;
+    ELSE
+        IF TG_OP='UPDATE' AND (NEW.id,NEW.espacio_id,NEW.propietario_id)
+             IS DISTINCT FROM (OLD.id,OLD.espacio_id,OLD.propietario_id) THEN
+            RAISE EXCEPTION 'synthetic gallery scope is immutable' USING ERRCODE='23514';
+        END IF;
+        IF NEW.estado<>'activa' THEN RETURN NEW; END IF;
+        IF TG_OP='UPDATE' AND OLD.estado='activa' THEN RETURN NEW; END IF;
+        target_space := NEW.espacio_id;
+        target_owner := NEW.propietario_id;
+        candidate_exclusion := NEW.archivo_id;
+        gallery_exclusion := NEW.id;
+        claims_slot := true;
     END IF;
-    PERFORM 1 FROM public.espacio WHERE id=NEW.espacio_id AND propietario_id=NEW.propietario_id FOR UPDATE;
+
+    IF NOT claims_slot THEN RETURN NEW; END IF;
+    PERFORM 1 FROM public.espacio WHERE id=target_space AND propietario_id=target_owner FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'space owner mismatch' USING ERRCODE='23503'; END IF;
     SELECT
-      (SELECT count(*) FROM public.espacio_galeria_sintetica_local g WHERE g.espacio_id=NEW.espacio_id AND g.estado='activa') +
-      (SELECT count(*) FROM public.espacio_galeria_archivo_candidato_local c WHERE c.espacio_id=NEW.espacio_id AND c.estado='reservado') +
-      (SELECT count(*) FROM public.media_asset a WHERE a.espacio_id=NEW.espacio_id AND a.proposito='espacio' AND a.estado IN ('pending','ready'))
+      (SELECT count(*) FROM public.espacio_galeria_sintetica_local g
+       WHERE g.espacio_id=target_space AND g.estado='activa' AND g.id IS DISTINCT FROM gallery_exclusion) +
+      (SELECT count(*) FROM public.espacio_galeria_archivo_candidato_local c
+       WHERE c.espacio_id=target_space AND c.estado='reservado' AND c.archivo_id IS DISTINCT FROM candidate_exclusion) +
+      (SELECT count(*) FROM public.media_asset a
+       WHERE a.espacio_id=target_space AND a.proposito='espacio' AND a.estado IN ('pending','ready')
+         AND a.id IS DISTINCT FROM asset_exclusion)
     INTO occupied;
     IF occupied >= 10 THEN RAISE EXCEPTION 'space media limit of 10 reached' USING ERRCODE='23514'; END IF;
     RETURN NEW;
 END
 $$;
 CREATE TRIGGER media_asset_slot_reservation
-    BEFORE INSERT ON public.media_asset
-    FOR EACH ROW EXECUTE FUNCTION public.img01b_reserve_media_slot();
+    BEFORE INSERT OR UPDATE ON public.media_asset
+    FOR EACH ROW EXECUTE FUNCTION public.img01b_enforce_gallery_slot();
+CREATE TRIGGER synthetic_candidate_slot_reservation
+    BEFORE INSERT OR UPDATE ON public.espacio_galeria_archivo_candidato_local
+    FOR EACH ROW EXECUTE FUNCTION public.img01b_enforce_gallery_slot();
+CREATE TRIGGER synthetic_gallery_slot_reservation
+    BEFORE INSERT OR UPDATE ON public.espacio_galeria_sintetica_local
+    FOR EACH ROW EXECUTE FUNCTION public.img01b_enforce_gallery_slot();
 
 -- Explicit application grants for the existing restricted runtime role. No
 -- role is created here and no PUBLIC/default grants are introduced.
@@ -199,5 +254,5 @@ BEGIN
     END IF;
 END
 $runtime_grants$;
-REVOKE EXECUTE ON FUNCTION public.img01b_reserve_media_slot() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.img01b_enforce_gallery_slot() FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.img01b_check_media_relation_scope() FROM PUBLIC;
