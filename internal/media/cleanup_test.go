@@ -45,6 +45,34 @@ func (r *cleanupRepo) FinishVariantWrite(_ context.Context, _ string, name Varia
 	return nil
 }
 
+func TestFinishVariantWriteSurvivesRequestCancellation(t *testing.T) {
+	repo := &cancellationFinisher{}
+	requestCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := finishVariantWrite(requestCtx, repo, "asset", VariantDisplay, "key"); err != nil {
+		t.Fatal(err)
+	}
+	if !repo.called {
+		t.Fatal("write completion was not persisted after request cancellation")
+	}
+}
+
+type cancellationFinisher struct {
+	Repository
+	called bool
+}
+
+func (r *cancellationFinisher) FinishVariantWrite(ctx context.Context, _ string, _ VariantName, _ string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		return context.DeadlineExceeded
+	}
+	r.called = true
+	return nil
+}
+
 type cleanupStore struct {
 	ObjectStore
 	started     chan struct{}

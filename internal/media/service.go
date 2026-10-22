@@ -26,6 +26,14 @@ type Service struct {
 	convertSlots chan struct{}
 }
 
+const writeCompletionTimeout = 5 * time.Second
+
+func finishVariantWrite(ctx context.Context, repo Repository, id string, name VariantName, key string) error {
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writeCompletionTimeout)
+	defer cancel()
+	return repo.FinishVariantWrite(writeCtx, id, name, key)
+}
+
 func NewService(repo Repository, store ObjectStore, ids IDGenerator, now func() time.Time) (*Service, error) {
 	if repo == nil || store == nil || ids == nil || now == nil {
 		return nil, ErrInvalid
@@ -98,11 +106,11 @@ func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Pur
 		if putErr != nil {
 			// Mark this exact write terminal even if cleanup already fenced the
 			// asset. Cleanup still resolves Generation to catch ambiguous writes.
-			_ = s.repo.FinishVariantWrite(context.Background(), reservation.ID, variants[i].Name, key)
+			_ = finishVariantWrite(ctx, s.repo, reservation.ID, variants[i].Name, key)
 			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
 			return UploadResult{}, ErrUnavailable
 		}
-		if err = s.repo.FinishVariantWrite(ctx, reservation.ID, variants[i].Name, key); err != nil {
+		if err = finishVariantWrite(ctx, s.repo, reservation.ID, variants[i].Name, key); err != nil {
 			_ = s.store.Delete(context.Background(), stored.ObjectKey, stored.Generation)
 			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
 			return UploadResult{}, ErrUnavailable
