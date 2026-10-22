@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -151,7 +152,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, 405, "method_not_allowed", "Método no permitido.")
 		return
 	}
-	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
+	clientIP, err := clientIPFromRequest(r)
 	if err != nil {
 		h.fail(w, 400, "invalid_request", "Dirección de cliente inválida.")
 		return
@@ -552,6 +553,33 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(204)
 	}
+}
+
+// The public SSR adds this sanitized value only after extracting the client
+// address from the trusted load-balancer suffix of X-Forwarded-For. The API is
+// invoker-protected, and the SSR never forwards a browser-supplied copy.
+// Direct/local callers continue to use the socket peer; X-Forwarded-For is
+// intentionally ignored here.
+func clientIPFromRequest(r *http.Request) (string, error) {
+	values := r.Header.Values("X-Espacigo-Client-IP")
+	if len(values) > 1 {
+		return "", errors.New("multiple internal client IP headers")
+	}
+	var raw string
+	if len(values) == 1 {
+		raw = strings.TrimSpace(values[0])
+	} else {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			return "", err
+		}
+		raw = host
+	}
+	address, err := netip.ParseAddr(raw)
+	if err != nil {
+		return "", err
+	}
+	return address.Unmap().String(), nil
 }
 func (h *Handler) decode(w http.ResponseWriter, r *http.Request, target any) bool {
 	media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))

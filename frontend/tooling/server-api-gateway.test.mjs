@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, publicIdentityPostLimit, requestUrlWithinLimit, serviceAudienceMatches } from '../src/server-api-gateway.mjs';
+import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, publicIdentityNeedsClientIp, publicIdentityPostLimit, publicRequestClientIp, requestUrlWithinLimit, serviceAudienceMatches } from '../src/server-api-gateway.mjs';
 import { clearCloudRunIdentityCacheForTests, cloudRunIdentityHeaders } from '../src/cloud-run-identity.mjs';
 
 const spaceId = '5e7d9f2a-631a-4c82-9d26-791225d19412';
@@ -128,10 +128,35 @@ test('gateway keeps application bearer separate and never forwards client IAM or
     'X-Serverless-Authorization': 'Bearer attacker-token',
   }, `/api/v1/spaces/${spaceId}`);
   assert.equal(spoofedHeaders.has('authorization'), false);
+  assert.equal(spoofedHeaders.has('x-espacigo-client-ip'), false);
+  assert.equal(spoofedHeaders.has('x-forwarded-for'), false);
   assert.equal(apiRequestAllowed('public', 'GET', `/api/v1/spaces/${spaceId}`, {
     Authorization: 'Bearer espacigo-application-token-123',
   }), true);
   assert.equal(apiRequestAllowed('public', 'GET', `/api/v1/spaces/${spaceId}`, {}), false);
+});
+
+test('public identity requests derive independent client IPs from the trusted load-balancer suffix', () => {
+  const registration = '/api/v1/auth/register';
+  assert.equal(publicIdentityNeedsClientIp('POST', registration), true);
+  assert.equal(publicIdentityNeedsClientIp('POST', '/api/v1/auth/login'), false);
+  const first = publicRequestClientIp(
+    { 'X-Forwarded-For': '198.51.100.99, 203.0.113.10, 192.0.2.1' },
+    '10.0.0.9',
+    true,
+  );
+  const second = publicRequestClientIp(
+    { 'X-Forwarded-For': '203.0.113.11, 192.0.2.1' },
+    '10.0.0.9',
+    true,
+  );
+  assert.equal(first, '203.0.113.10');
+  assert.equal(second, '203.0.113.11');
+  assert.notEqual(first, second);
+  assert.equal(publicRequestClientIp({ 'X-Forwarded-For': '198.51.100.99' }, '10.0.0.9', true), null);
+  assert.equal(publicRequestClientIp({ 'X-Forwarded-For': '198.51.100.99, invalid' }, '10.0.0.9', true), null);
+  // In local/direct mode, even a forged forwarded chain cannot select the quota key.
+  assert.equal(publicRequestClientIp({ 'X-Forwarded-For': '198.51.100.99, 192.0.2.1' }, '127.0.0.1'), '127.0.0.1');
 });
 
 test('shared cache is allowed only for explicitly public responses with a short bounded TTL', () => {

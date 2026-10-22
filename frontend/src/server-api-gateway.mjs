@@ -1,4 +1,5 @@
 import { verifyIapAssertion } from './iap-assertion.mjs';
+import { isIP } from 'node:net';
 
 const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const publicPaths = [
@@ -18,6 +19,39 @@ const unauthenticatedIdentityPaths = new Map([
   ['/api/v1/auth/password/recovery/consume', { method: 'POST', maxBytes: 8192 }],
 ]);
 const publicIdentityTermsPath = '/api/v1/auth/terms';
+const identityIpLimitedPaths = new Set([
+  '/api/v1/auth/register',
+  '/api/v1/auth/verification/reissue',
+  '/api/v1/auth/verification',
+  '/api/v1/auth/password/recovery',
+  '/api/v1/auth/password/recovery/consume',
+]);
+
+export function publicIdentityNeedsClientIp(method, requestUrl) {
+  try {
+    return method.toUpperCase() === 'POST' &&
+      identityIpLimitedPaths.has(new URL(requestUrl, 'http://frontend.invalid').pathname);
+  } catch {
+    return false;
+  }
+}
+
+// The external Application Load Balancer appends the network peer and its
+// forwarding-rule IP to X-Forwarded-For. Earlier values are client supplied,
+// so only use the second-to-last value when Cloud Run ingress is load-balanced.
+// Outside Cloud Run, use the direct socket peer and ignore forwarded headers.
+export function publicRequestClientIp(headers = {}, remoteAddress, behindTrustedLoadBalancer = false) {
+  if (behindTrustedLoadBalancer) {
+    const forwarded = getHeader(headers, 'x-forwarded-for');
+    if (typeof forwarded !== 'string') return null;
+    const chain = forwarded.split(',').map((value) => value.trim());
+    if (chain.length < 2 || !isIP(chain.at(-1)) || !isIP(chain.at(-2))) return null;
+    return chain.at(-2);
+  }
+  if (typeof remoteAddress !== 'string') return null;
+  const peer = remoteAddress.startsWith('::ffff:') ? remoteAddress.slice(7) : remoteAddress;
+  return isIP(peer) ? peer : null;
+}
 
 export function apiRequestAllowed(mode, method, requestUrl, headers = {}, expectedOrigin = null) {
   if (!['public', 'private', 'local'].includes(mode)) return false;

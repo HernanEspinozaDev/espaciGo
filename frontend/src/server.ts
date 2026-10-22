@@ -11,7 +11,7 @@ import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
 import { readBoundedRequestBody } from './bounded-request-body.mjs';
 import { configuredApiBase, configuredPublicApiBase, configuredPublicOrigin } from './app/core/public-runtime-config';
-import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, publicIdentityPostLimit, requestUrlWithinLimit, serviceAudienceMatches } from './server-api-gateway.mjs';
+import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, publicIdentityNeedsClientIp, publicIdentityPostLimit, publicRequestClientIp, requestUrlWithinLimit, serviceAudienceMatches } from './server-api-gateway.mjs';
 import { cloudRunIdentityHeaders } from './cloud-run-identity.mjs';
 
 const apiServerBase = configuredApiBase(process.env['API_INTERNAL_BASE_URL']);
@@ -99,6 +99,20 @@ app.use('/api/v1', async (request, response) => {
     target.search = incoming.search;
     const headers = clientApiHeaders(entryMode, request.headers, request.originalUrl);
     if (entryMode === 'public') headers.set('accept', 'application/json');
+    if (entryMode === 'public' && publicIdentityNeedsClientIp(request.method, request.originalUrl)) {
+      const clientIp = publicRequestClientIp(
+        request.headers,
+        request.socket.remoteAddress,
+        Boolean(process.env['K_SERVICE']),
+      );
+      if (!clientIp) {
+        response.status(400).end();
+        return;
+      }
+      // Internal service-to-service context only; browser-provided values are
+      // never copied by clientApiHeaders and Cloud Run IAM gates the API.
+      headers.set('X-Espacigo-Client-IP', clientIp);
+    }
     const serverIdentity = await serverIdentityHeaders();
     for (const [name, value] of Object.entries(serverIdentity)) headers.set(name, value);
     const method = request.method.toUpperCase();

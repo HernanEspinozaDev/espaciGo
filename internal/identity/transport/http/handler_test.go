@@ -1,10 +1,48 @@
 package identityhttp
 
 import (
+	"context"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 )
+
+func TestInternalClientIPSeparatesQuotaAndIgnoresUntrustedForwardedFor(t *testing.T) {
+	limiter := devauth.NewIPLimiter(1)
+	at := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	allow := func(ip string) bool {
+		req := httptest.NewRequest("POST", "/api/v1/auth/verification/reissue", strings.NewReader("{}"))
+		req.RemoteAddr = "10.0.0.9:8080"
+		if ip != "" {
+			req.Header.Set("X-Espacigo-Client-IP", ip)
+		}
+		// This is untrusted at the API boundary and must not affect the quota key.
+		req.Header.Set("X-Forwarded-For", "198.51.100.77")
+		clientIP, err := clientIPFromRequest(req)
+		if err != nil {
+			t.Fatalf("derive client IP: %v", err)
+		}
+		allowed, err := limiter.AllowVerification(context.Background(), clientIP, at)
+		if err != nil {
+			t.Fatalf("apply quota: %v", err)
+		}
+		return allowed
+	}
+	if !allow("203.0.113.10") || !allow("203.0.113.11") {
+		t.Fatal("distinct visitor IPs unexpectedly shared the rate-limit quota")
+	}
+	if allow("203.0.113.10") {
+		t.Fatal("repeated request from one visitor bypassed its rate-limit quota")
+	}
+	// Without the internal SSR context, a forged XFF value cannot change the
+	// direct peer key or create a fresh quota bucket.
+	if !allow("") || allow("") {
+		t.Fatal("untrusted X-Forwarded-For changed the direct peer quota")
+	}
+}
 
 func TestTransportRejectsUnsafeRequestsBeforeCallingService(t *testing.T) {
 	handler := NewHandler(nil, nil, []string{"http://localhost:4200"})
