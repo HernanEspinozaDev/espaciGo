@@ -64,7 +64,7 @@ run "foundation_plan_is_gated_and_scoped" {
   }
 
   assert {
-    condition     = length(google_project_service.required) == 13
+    condition     = length(google_project_service.required) == 15
     error_message = "Foundation should plan only its explicit minimum API set."
   }
   assert {
@@ -82,6 +82,37 @@ run "foundation_plan_is_gated_and_scoped" {
   assert {
     condition     = google_storage_managed_folder.terraform_state[0].name == "espacigo/testprod/gcp/" && google_storage_managed_folder_iam_member.deployer_terraform_state[0].managed_folder == "espacigo/testprod/gcp/"
     error_message = "The deployer state grant must be scoped to the managed folder for the canonical Terraform state and lock prefix."
+  }
+  assert {
+    condition = (
+      length(google_service_account.cloud_build_deployer) == 1 &&
+      google_service_account.cloud_build_deployer[0].account_id == "espacigo-cloud-build-deployer" &&
+      length(google_project_iam_member.cloud_build_deployer) == 1 &&
+      google_project_iam_custom_role.cloud_build_deployer[0].role_id == "espacigoCloudBuildDeployer" &&
+      google_artifact_registry_repository_iam_member.cloud_build_writer[0].role == "roles/artifactregistry.writer" &&
+      google_project_iam_member.cloud_build_log_writer[0].role == "roles/logging.logWriter" &&
+      length(google_service_account_iam_member.cloud_build_runtime_act_as) == 3 &&
+      google_service_account_iam_member.cloud_build_self_act_as[0].role == "roles/iam.serviceAccountUser" &&
+      !contains(google_project_iam_custom_role.cloud_build_deployer[0].permissions, "run.services.delete") &&
+      !contains(google_project_iam_custom_role.cloud_build_deployer[0].permissions, "run.jobs.run") &&
+      !contains(google_project_iam_custom_role.cloud_build_deployer[0].permissions, "secretmanager.versions.access") &&
+      !contains(google_project_iam_custom_role.cloud_build_deployer[0].permissions, "cloudsql.instances.connect")
+    )
+    error_message = "The Cloud Build identity must be dedicated and minimally scoped without SQL, secret reads, deletes, or Jobs."
+  }
+  assert {
+    condition = (
+      google_storage_bucket.cloud_build[0].name == "espacigo-testprod-cloud-build-123456789012" &&
+      google_storage_bucket.cloud_build[0].uniform_bucket_level_access &&
+      google_storage_bucket.cloud_build[0].public_access_prevention == "enforced" &&
+      google_storage_bucket.cloud_build[0].force_destroy == false &&
+      one(one(google_storage_bucket.cloud_build[0].lifecycle_rule).condition).age == 30 &&
+      contains(one(one(google_storage_bucket.cloud_build[0].lifecycle_rule).condition).matches_prefix, "source/") &&
+      google_storage_bucket_iam_member.cloud_build_bucket_operator[0].bucket == google_storage_bucket.cloud_build[0].name &&
+      google_project_iam_custom_role.cloud_build_bucket_operator[0].role_id == "espacigoCloudBuildBucketOperator" &&
+      length(google_project_iam_custom_role.cloud_build_bucket_operator[0].permissions) == 5
+    )
+    error_message = "The dedicated Cloud Build bucket must be private, project-unique, source-expiring, protected from force deletion, and use its narrow bucket-scoped role."
   }
 }
 

@@ -56,7 +56,9 @@ locals {
   gcp06_candidate_database_name = "espacigo_gcp06_candidate_${local.gcp06_candidate_run_id}"
   project_enabled_apis = toset([
     "artifactregistry.googleapis.com",
+    "cloudbuild.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "containeranalysis.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
@@ -208,6 +210,99 @@ resource "google_service_account" "runtime" {
   display_name = "EspaciGo testprod ${each.key} runtime"
 
   depends_on = [google_project_service.required]
+}
+
+resource "google_service_account" "cloud_build_deployer" {
+  count        = var.enable_foundation ? 1 : 0
+  project      = var.project_id
+  account_id   = "espacigo-cloud-build-deployer"
+  display_name = "EspaciGo Cloud Build deployer"
+  description  = "Dedicated identity for building/publishing images and deploying the three testprod Cloud Run services. No SQL or application secret access."
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_project_iam_custom_role" "cloud_build_deployer" {
+  count       = var.enable_foundation ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoCloudBuildDeployer"
+  title       = "EspaciGo Cloud Build deployer"
+  description = "Create/update/list/get the application Cloud Run services, their IAM and revisions, and submit/read the child image build."
+  stage       = "GA"
+  permissions = [
+    "cloudbuild.builds.create",
+    "cloudbuild.builds.get",
+    "run.operations.get",
+    "run.revisions.get",
+    "run.revisions.list",
+    "run.services.create",
+    "run.services.get",
+    "run.services.getIamPolicy",
+    "run.services.list",
+    "run.services.setIamPolicy",
+    "run.services.update",
+    "serviceusage.services.use",
+  ]
+}
+
+resource "google_project_iam_member" "cloud_build_deployer" {
+  count   = var.enable_foundation ? 1 : 0
+  project = var.project_id
+  role    = google_project_iam_custom_role.cloud_build_deployer[0].name
+  member  = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_project_iam_custom_role" "cloud_build_bucket_operator" {
+  count       = var.enable_foundation ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoCloudBuildBucketOperator"
+  title       = "EspaciGo Cloud Build bucket operator"
+  description = "Access only to the dedicated Cloud Build staging/lock bucket."
+  stage       = "GA"
+  permissions = [
+    "storage.buckets.get",
+    "storage.objects.create",
+    "storage.objects.delete",
+    "storage.objects.get",
+    "storage.objects.list",
+  ]
+}
+
+resource "google_project_iam_member" "cloud_build_log_writer" {
+  count   = var.enable_foundation ? 1 : 0
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_storage_bucket_iam_member" "cloud_build_bucket_operator" {
+  count  = var.enable_foundation ? 1 : 0
+  bucket = google_storage_bucket.cloud_build[0].name
+  role   = google_project_iam_custom_role.cloud_build_bucket_operator[0].name
+  member = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "cloud_build_writer" {
+  count      = var.enable_foundation ? 1 : 0
+  location   = google_artifact_registry_repository.containers[0].location
+  repository = google_artifact_registry_repository.containers[0].name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_service_account_iam_member" "cloud_build_self_act_as" {
+  count              = var.enable_foundation ? 1 : 0
+  service_account_id = google_service_account.cloud_build_deployer[0].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_service_account_iam_member" "cloud_build_runtime_act_as" {
+  for_each = var.enable_foundation ? toset(["api", "public-web", "private-web"]) : toset([])
+
+  service_account_id = google_service_account.runtime[each.key].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
 }
 
 resource "google_service_account" "gcp06_job" {
@@ -505,6 +600,33 @@ resource "google_storage_bucket" "private_files" {
 
   versioning {
     enabled = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+# Build source staging and rollout coordination are isolated from application
+# files and Terraform state in one short-lived, private bucket.
+resource "google_storage_bucket" "cloud_build" {
+  count                       = var.enable_foundation ? 1 : 0
+  project                     = var.project_id
+  name                        = "espacigo-testprod-cloud-build-${var.project_number}"
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+
+  lifecycle_rule {
+    action { type = "Delete" }
+    condition {
+      age            = 30
+      matches_prefix = ["source/"]
+    }
   }
 
   lifecycle {

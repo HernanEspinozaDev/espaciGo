@@ -1,6 +1,7 @@
 serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com
 options:
   logging: CLOUD_LOGGING_ONLY
+  substitutionOption: MUST_MATCH
   requestedVerifyOption: VERIFIED
 substitutions:
   _REGION: southamerica-west1
