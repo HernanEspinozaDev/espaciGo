@@ -69,7 +69,8 @@ steps:
         watermark="gs://${_LOCK_BUCKET}/last-successful-main.json"
         if gcloud storage objects describe "$$watermark" >/dev/null 2>&1; then
           gcloud storage cat "$$watermark" > /workspace/last-successful-main.json
-          prior_epoch=$$(python3 -c 'import json; print(json.load(open("/workspace/last-successful-main.json"))["created_epoch"])')
+          prior_epoch=$$(sed -nE 's/.*"created_epoch"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p' /workspace/last-successful-main.json)
+          [[ "$$prior_epoch" =~ ^[0-9]+$$ ]]
           if (( created_epoch <= prior_epoch )); then
             echo "This build is older than or equal to the last successful main deployment; refusing stale rollout." >&2
             exit 1
