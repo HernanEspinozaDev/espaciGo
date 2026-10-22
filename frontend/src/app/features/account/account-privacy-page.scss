@@ -169,9 +169,21 @@
   color: white;
 }
 .secondary-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
   border: 1px solid var(--brand-primary);
   background: var(--brand-primary-soft);
   color: var(--brand-primary-hover);
+}
+.secondary-button input[type='file'] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 .quiet-button {
   border: 1px solid var(--color-border-control);

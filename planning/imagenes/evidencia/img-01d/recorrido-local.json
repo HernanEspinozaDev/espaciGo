@@ -1,0 +1,43 @@
+{
+  "cut": "IMG-01D",
+  "date": "2026-10-22",
+  "browser": "Chromium 155.0.8059.84 (Snap), headless",
+  "environment": {
+    "compose_project": "espacigo_fe15_20261022214721_223779",
+    "database": "disposable espacigo_local, recreated empty before this run",
+    "migration_range": "V000001–V000072 (72 entries)",
+    "api_port": 18680,
+    "mailpit_port": 18681,
+    "angular_port": 18682,
+    "storage": "private local filesystem adapter"
+  },
+  "identity_setup": "One synthetic account registered and verified through the normal local flow. The existing explicit host-role fixture was applied only to that new account in the disposable database.",
+  "flow": [
+    {"step": "login", "result": "success; authenticated account route"},
+    {"step": "avatar upload", "method": "PUT", "endpoint": "/api/v1/profile/photo", "http": 201},
+    {"step": "avatar metadata read", "method": "GET", "endpoint": "/api/v1/profile/photo", "http": 200},
+    {"step": "avatar private bytes read", "method": "GET", "endpoint": "/api/v1/profile/photo/content", "http": 200, "decoded_in_browser": true},
+    {"step": "create draft", "method": "POST", "endpoint": "/api/v1/spaces", "http": 201},
+    {"step": "list gallery", "method": "GET", "endpoint": "/api/v1/spaces/{space_id}/gallery", "http": 200},
+    {"step": "gallery upload", "method": "POST", "endpoint": "/api/v1/spaces/{space_id}/gallery", "http": 201},
+    {"step": "private display variant read", "method": "GET", "endpoint": "/api/v1/spaces/{space_id}/gallery/{photo_id}/variants/display", "http": 200, "decoded_in_browser": true}
+  ],
+  "javascript_errors": 0,
+  "http_smoke": "scripts/local-docker-stack.sh verify-frontend passed health, runtime config, API reachability and browser CORS checks.",
+  "ancillary_responses": [
+    {"method": "GET", "endpoint": "/api/v1/spaces/{space_id}/availability/timezone", "http": 409, "code": "time_zone_required", "reason": "The synthetic draft has no calendar time zone; unrelated to image flows."},
+    {"method": "GET", "endpoint": "/api/v1/spaces/{space_id}/availability/blocks", "http": 409, "code": "time_zone_required", "reason": "The synthetic draft has no calendar time zone; unrelated to image flows."},
+    {"method": "GET", "endpoint": "/api/v1/local/booking-trial/catalog/{space_id}/weekly-hours", "http": 404, "code": "not_found", "reason": "No local booking-trial fixture was configured."},
+    {"method": "GET", "endpoint": "/api/v1/profile", "http": 404, "code": "not_found", "reason": "No profile details resource exists in this local setup; avatar uses the separate endpoints above."},
+    {"method": "GET", "endpoint": "/api/v1/payout-account", "http": 404, "code": "not_found", "reason": "No payout-account resource exists for the synthetic account."}
+  ],
+  "screenshots": {
+    "avatar": "avatar-profile.png",
+    "gallery": "gallery-private-display.png"
+  },
+  "limits": [
+    "Filesystem local runtime only; this does not demonstrate GCS, Cloud SQL, Cloud Run, or production storage.",
+    "No public publication, public photo access, revocation, export, suppression, quota/concurrency race, or GCS lifecycle was exercised; these remain outside IMG-01D or for IMG-01E after D merges.",
+    "The initial avatar metadata GET returned 404 because the newly registered account had no avatar before upload; the subsequent metadata and content reads returned 200."
+  ]
+}

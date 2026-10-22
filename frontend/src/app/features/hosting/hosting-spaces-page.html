@@ -766,68 +766,122 @@
           <section class="panel-card">
             <div class="card-heading">
               <div>
-                <p class="eyebrow">ARCHIVOS PRIVADOS</p>
-                <h3>Galería sintética</h3>
+                <p class="eyebrow">FOTOS DEL ESPACIO</p>
+                <h3>Galería</h3>
               </div>
               <p>
-                Las imágenes son privadas hasta que declares cada fixture PNG público. No se cargan archivos locales.
+                Sube JPEG, PNG o WebP estáticos de hasta 10 MiB. Go valida y prepara las imágenes; cada foto es privada hasta que la hagas visible.
               </p>
             </div>
             <div class="gallery-summary">
-              <span>{{ gallery().length }} de {{ maxPhotos() }} imágenes</span
-              ><button
+              <span>{{ gallery().length }} de {{ maxPhotos() }} imágenes · {{ uploadSlotsAvailable() }} cupos disponibles</span>
+              <label class="upload-picker">
+                <span>Seleccionar imágenes</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+                  multiple
+                  [disabled]="uploadSlotsAvailable() === 0"
+                  aria-label="Seleccionar imágenes JPEG, PNG o WebP para la galería"
+                  (change)="queuePhotoFiles($event)"
+                />
+              </label>
+              <button
                 appButton="primary"
                 class="button button--primary"
                 type="button"
-                (click)="addSyntheticPhoto()"
-                [disabled]="saving() || gallery().length >= maxPhotos()"
+                (click)="startPhotoUploads()"
+                [disabled]="uploadRunning() || queuedUploadCount() === 0"
               >
-                Generar imagen sintética
+                Subir {{ queuedUploadCount() }} imágenes
               </button>
             </div>
+            <p class="upload-hint">Cada archivo se envía por separado; Go procesa hasta dos en paralelo. La vista previa local desaparece cuando termina el envío.</p>
+            @if (uploadMessage()) {
+              <p class="alert" role="status" aria-live="polite">{{ uploadMessage() }}</p>
+            }
+            @if (uploadQueue().length) {
+              <ul class="upload-queue" aria-label="Archivos seleccionados para subir">
+                @for (task of uploadQueue(); track task.id) {
+                  <li class="upload-task">
+                    @if (task.previewUrl) {
+                      <img class="upload-thumb" [src]="task.previewUrl" alt="Vista previa local de {{ task.file.name }}" />
+                    } @else {
+                      <span class="upload-thumb upload-thumb--empty" aria-hidden="true">▧</span>
+                    }
+                    <div class="upload-task__details">
+                      <strong>{{ task.file.name }}</strong>
+                      <span>{{ uploadFileSize(task.file.size) }}</span>
+                      @if (task.status === 'queued') {
+                        <span role="status">Lista para subir</span>
+                      } @else if (task.status === 'uploading') {
+                        <progress max="100" [attr.value]="task.progress === null ? null : task.progress" [attr.aria-label]="'Carga de ' + task.file.name"></progress>
+                        <span role="status">Subiendo{{ task.progress === null ? '…' : ' · ' + task.progress + '%' }}</span>
+                      } @else {
+                        <span class="upload-error" role="alert">{{ task.error }}</span>
+                        <button type="button" class="text-button" [disabled]="uploadRunning()" (click)="retryQueuedPhoto(task.id)">Reintentar esta imagen</button>
+                      }
+                    </div>
+                    <button type="button" class="text-button" [disabled]="task.status === 'uploading'" [attr.aria-label]="'Quitar ' + task.file.name + ' de la selección'" (click)="removeQueuedPhoto(task.id)">Quitar</button>
+                  </li>
+                }
+              </ul>
+            }
             @if (gallery().length) {
               <div class="gallery-grid">
                 @for (photo of gallery(); track photo.id) {
                   <article
                     class="photo-card"
-                    [class.photo-card--cover]="selectedSpace()?.cover_photo_id === photo.id"
+                    [class.photo-card--cover]="photoIsCover(photo)"
                   >
                     <button
                       appButton="primary"
                       class="photo-preview"
                       type="button"
                       (click)="showPhoto(photo.id)"
-                      [attr.aria-label]="'Ver imagen sintética ' + photo.id"
+                      [attr.aria-label]="'Ver imagen ' + photo.id"
                     >
                       @if (photoUrl() && previewPhotoId() === photo.id) {
-                        <img [src]="photoUrl()" alt="Vista temporal de imagen sintética propia" />
+                        <img [src]="photoUrl()" [alt]="isMediaPhoto(photo) ? (photo.alt_text || 'Vista privada de la imagen del espacio') : 'Vista privada de imagen sintética propia'" />
+                      } @else if (isMediaPhoto(photo)) {
+                        <span>WebP listo para ver</span>
                       } @else {
-                        <span>PNG sintético</span>
+                        <span>PNG de fixture</span>
                       }</button
                     ><strong>{{
-                      selectedSpace()?.cover_photo_id === photo.id ? 'Portada' : 'Imagen de galería'
+                      photoIsCover(photo) ? 'Portada' : 'Imagen de galería'
                     }}</strong
-                    ><small
-                      >{{ photo.created_at | date: 'medium' }} · {{ photo.size_bytes }} bytes</small
                     >
-                    <small>{{photo.public_in_catalog ? 'Visible en ficha pública' : 'Privada'}}</small>
-                    <div>
+                    @if (isMediaPhoto(photo)) {
+                      <small>{{ photo.position }} · {{ photo.variants[0]?.mime_type }} · {{ photo.variants[0]?.size_bytes }} bytes</small>
+                      <label class="photo-field">Texto alternativo
+                        <input type="text" maxlength="250" [value]="photo.alt_text" [attr.aria-label]="'Texto alternativo para ' + photo.id" (change)="saveAltText(photo, $event)" />
+                      </label>
+                      <label class="photo-field">Posición
+                        <input type="number" min="1" [max]="gallery().length" [value]="photo.position" [attr.aria-label]="'Posición de ' + photo.id" (change)="savePosition(photo, $event)" />
+                      </label>
+                    } @else {
+                      <small>{{ photo.position || '—' }} · {{ photo.created_at | date: 'medium' }} · {{ photo.size_bytes }} bytes</small>
+                      <small>Fixture histórico PNG</small>
+                    }
+                    <small>{{ photoIsVisible(photo) ? 'Visible en ficha pública si el espacio está publicado' : 'Privada' }}</small>
+                    <div class="photo-actions">
                       <button
                         appButton="text"
                         class="text-button"
                         type="button"
                         (click)="showPhoto(photo.id)"
                       >
-                        Ver archivo privado</button
-                      ><button appButton="text" class="text-button" type="button" (click)="setPhotoPublic(photo.id,!photo.public_in_catalog)" [disabled]="saving()">
-                        {{photo.public_in_catalog ? 'Retirar de ficha pública' : 'Mostrar en ficha pública'}}
+                        Ver imagen guardada</button
+                      ><button appButton="text" class="text-button" type="button" (click)="setPhotoVisible(photo.id,!photoIsVisible(photo))" [disabled]="saving()">
+                        {{ photoIsVisible(photo) ? 'Hacer privada' : 'Hacer visible' }}
                       </button
                       ><button
                         appButton="text"
                         class="text-button"
                         type="button"
                         (click)="selectCover(photo.id)"
-                        [disabled]="selectedSpace()?.cover_photo_id === photo.id"
+                        [disabled]="photoIsCover(photo) || saving()"
                       >
                         Usar como portada</button
                       ><button
@@ -846,7 +900,7 @@
               <div class="empty-gallery">
                 <span aria-hidden="true">▧</span>
                 <h3>La galería está vacía</h3>
-                <p>Genera un PNG de fixture permitido por Go para probar portada y galería.</p>
+                <p>Selecciona fotos para añadirlas a este espacio. Go revisará formato y dimensiones.</p>
               </div>
             }
             @if (photoUrl()) {
@@ -861,6 +915,11 @@
                 </button>
               </div>
             }
+            <details class="synthetic-gallery-tools">
+              <summary>Herramienta de fixture sintético para ensayo</summary>
+              <p>Genera el PNG local histórico de prueba. No es una foto cargada desde tu dispositivo.</p>
+              <button appButton="secondary" class="button button--quiet" type="button" (click)="addSyntheticPhoto()" [disabled]="saving() || uploadSlotsAvailable() === 0">Generar PNG sintético</button>
+            </details>
           </section>
         }
       }

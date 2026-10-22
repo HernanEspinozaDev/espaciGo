@@ -606,6 +606,37 @@ export type SyntheticSpaceGalleryPhoto = {
   size_bytes: number;
   created_at: string;
   public_in_catalog: boolean;
+  position?: number;
+};
+
+export type SpaceMediaVariant = {
+  name: 'display' | 'thumbnail' | 'avatar';
+  url: string;
+  mime_type: 'image/webp';
+  size_bytes: number;
+  sha256: string;
+  width: number;
+  height: number;
+};
+
+export type SpaceMediaPhoto = {
+  id: string;
+  space_id: string;
+  alt_text: string;
+  visible: boolean;
+  cover: boolean;
+  position: number;
+  state: 'ready';
+  created_at: string;
+  variants: SpaceMediaVariant[];
+};
+
+export type SpaceGalleryPhoto = SyntheticSpaceGalleryPhoto | SpaceMediaPhoto;
+
+export type SpaceMediaPhotoUpdate = {
+  alt_text?: string;
+  visible?: boolean;
+  position?: number;
 };
 
 export type SyntheticSpaceGalleryRemoval = {

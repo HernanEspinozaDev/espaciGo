@@ -297,6 +297,10 @@ export type SyntheticSpaceGalleryPhotoToWire = Compatible<
   Projection.SyntheticSpaceGalleryPhoto,
   Wire.SyntheticSpaceGalleryPhoto
 >;
+export type SpaceMediaPhotoFromWire = Compatible<Wire.SpaceMediaPhoto, Projection.SpaceMediaPhoto>;
+export type SpaceMediaPhotoToWire = Compatible<Projection.SpaceMediaPhoto, Wire.SpaceMediaPhoto>;
+export type SpaceMediaVariantFromWire = Compatible<Wire.SpaceMediaVariant, Projection.SpaceMediaVariant>;
+export type SpaceMediaVariantToWire = Compatible<Projection.SpaceMediaVariant, Wire.SpaceMediaVariant>;
 export type SyntheticSpaceGalleryRemovalFromWire = Compatible<
   Wire.SyntheticSpaceGalleryRemoval,
   Projection.SyntheticSpaceGalleryRemoval

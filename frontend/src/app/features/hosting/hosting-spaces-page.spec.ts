@@ -103,6 +103,18 @@ function apiFor(base = space()) {
       removed: true as const,
       reused: false,
     })),
+    uploadPhoto: vi.fn(async (_token: string, _spaceId: string, _file: File, _key: string, progress: (value: number | null) => void) => {
+      progress(65);
+      return {
+        id: 'media-photo-1', space_id: base.id, alt_text: '', visible: false, cover: false,
+        position: 1, state: 'ready' as const, created_at: '2026-10-22T00:00:00Z', variants: [],
+      };
+    }),
+    updateMediaPhoto: vi.fn(async (_token: string, _spaceId: string, photoId: string, update: object) => ({
+      id: photoId, space_id: base.id, alt_text: '', visible: false, cover: false,
+      position: 1, state: 'ready' as const, created_at: '2026-10-22T00:00:00Z', variants: [], ...update,
+    })),
+    mediaVariant: vi.fn(async () => new Blob(['webp'], { type: 'image/webp' })),
     photoContent: vi.fn(async () => new Blob(['png'], { type: 'image/png' })),
     timeZone: vi.fn(async () => ({ space_id: base.id, time_zone: 'America/Santiago' })),
     configureTimeZone: vi.fn(async (_token: string, space_id: string, time_zone: string) => ({
@@ -705,6 +717,25 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
+  it('queues a real image, uploads it through Go and releases the local preview task', async () => {
+    const api = apiFor();
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    const file = new File(['synthetic test bytes'], 'room.png', { type: 'image/png' });
+    component.queuePhotoFiles({ target: { files: [file], value: 'selected' } } as unknown as Event);
+    expect(component.queuedUploadCount()).toBe(1);
+    expect(component.uploadSlotsAvailable()).toBe(9);
+    await component.startPhotoUploads();
+    expect(api.uploadPhoto).toHaveBeenCalledWith(expect.any(String), 'space-a', file, expect.any(String), expect.any(Function));
+    expect(component.uploadQueue()).toEqual([]);
+    expect(component.gallery().map((photo) => photo.id)).toContain('media-photo-1');
+    fixture.destroy();
+  });
+
   it('revokes private gallery Blob URLs on logout and shows Go calendar conflicts', async () => {
     const api = apiFor();
     const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:private-photo');
@@ -1050,7 +1081,7 @@ describe('FE-06 HostingSpacesPage', () => {
     const old=deferred<never>();const current=deferred<never>();api.setPhotoPublic.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise);
     const oldWrite=component.setPhotoPublic('photo-1',true);await flush();const currentWrite=component.setPhotoPublic('photo-1',false);await flush();
     old.resolve({id:'photo-1',public_in_catalog:true} as never);await oldWrite;
-    expect(component.saving()).toBe(true);expect(component.gallery().find(photo=>photo.id==='photo-1')?.public_in_catalog).not.toBe(true);
+    expect(component.saving()).toBe(true);const photo=component.gallery().find(item=>item.id==='photo-1');expect(photo && component.photoIsVisible(photo)).not.toBe(true);
     current.reject(new HostingApiError('current failure',503));await currentWrite;fixture.destroy();
   });
 });

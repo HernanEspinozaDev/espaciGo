@@ -20,6 +20,9 @@ import type {
   SyntheticSpaceCover,
   SyntheticSpaceGalleryPhoto,
   SyntheticSpaceGalleryRemoval,
+  SpaceGalleryPhoto,
+  SpaceMediaPhoto,
+  SpaceMediaPhotoUpdate,
 } from '../../../../core/contracts/models';
 
 export class HostingApiError extends Error {
@@ -58,14 +61,28 @@ export abstract class HostingPort {
   abstract gallery(
     token: string,
     spaceId: string,
-  ): Promise<{ items: SyntheticSpaceGalleryPhoto[]; max_photos: number; synthetic: true }>;
+  ): Promise<{ items: SpaceGalleryPhoto[]; max_photos: number }>;
+  abstract uploadPhoto(
+    token: string,
+    spaceId: string,
+    file: File,
+    key: string,
+    onProgress: (percent: number | null) => void,
+  ): Promise<SpaceMediaPhoto>;
+  abstract updateMediaPhoto(
+    token: string,
+    spaceId: string,
+    photoId: string,
+    update: SpaceMediaPhotoUpdate,
+  ): Promise<SpaceMediaPhoto>;
+  abstract mediaVariant(token: string, spaceId: string, photoId: string, variant: 'display' | 'thumbnail'): Promise<Blob>;
   abstract addPhoto(
     token: string,
     spaceId: string,
     key: string,
   ): Promise<SyntheticSpaceGalleryPhoto>;
   abstract cover(token: string, spaceId: string, photoId: string): Promise<SyntheticSpaceCover>;
-  abstract setPhotoPublic(token:string,spaceId:string,photoId:string,publicInCatalog:boolean):Promise<SyntheticSpaceGalleryPhoto>;
+  abstract setPhotoPublic(token: string, spaceId: string, photoId: string, publicInCatalog: boolean): Promise<SyntheticSpaceGalleryPhoto>;
   abstract removePhoto(
     token: string,
     spaceId: string,

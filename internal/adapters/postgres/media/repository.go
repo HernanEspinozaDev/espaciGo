@@ -274,7 +274,7 @@ func (r *Repository) FailReservation(ctx context.Context, id string, token int64
 }
 
 func (r *Repository) ListSpace(ctx context.Context, owner, spaceID string) ([]media.Photo, error) {
-	rows, err := r.pool.Query(ctx, `SELECT a.id::text,o.position,sm.alt_text,sm.visible,(e.portada_media_id=sm.id) AS cover,a.created_at,a.estado
+	rows, err := r.pool.Query(ctx, `SELECT a.id::text,o.position,sm.alt_text,sm.visible,COALESCE(e.portada_media_id=sm.id,false) AS cover,a.created_at,a.estado
 		FROM public.space_media sm JOIN public.media_asset a ON a.id=sm.media_id JOIN public.espacio e ON e.id=sm.espacio_id
 		LEFT JOIN public.gallery_item_order o ON o.space_media_id=sm.id
 		WHERE sm.espacio_id=$1 AND sm.propietario_id=$2 AND sm.retired_at IS NULL AND a.estado='ready'
@@ -304,7 +304,7 @@ func (r *Repository) GetSpace(ctx context.Context, owner, spaceID, id string) (m
 	var p media.Photo
 	p.OwnerID = owner
 	p.SpaceID = spaceID
-	err := r.pool.QueryRow(ctx, `SELECT a.id::text,o.position,sm.alt_text,sm.visible,(e.portada_media_id=sm.id),a.created_at,a.estado
+	err := r.pool.QueryRow(ctx, `SELECT a.id::text,o.position,sm.alt_text,sm.visible,COALESCE(e.portada_media_id=sm.id,false),a.created_at,a.estado
 		FROM public.space_media sm JOIN public.media_asset a ON a.id=sm.media_id JOIN public.espacio e ON e.id=sm.espacio_id
 		JOIN public.gallery_item_order o ON o.space_media_id=sm.id
 		WHERE sm.id=$1 AND sm.espacio_id=$2 AND sm.propietario_id=$3 AND sm.retired_at IS NULL AND a.estado='ready'`, id, spaceID, owner).

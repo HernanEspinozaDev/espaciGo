@@ -10,4 +10,13 @@ describe('application routes', () => {
     expect(destination?.canActivate).toBeDefined();
     expect(destination?.data?.['requiredRole']).toBe('arrendador');
   });
+
+  it('serves the private profile and photo controls from the authenticated account route', () => {
+    const account = routes.find((route) => route.path === 'mi-cuenta/privacidad');
+
+    expect(account?.loadComponent).toBeDefined();
+    expect(account?.canActivate).toBeDefined();
+    expect(account?.data?.['requiredRole']).toBeUndefined();
+    expect(account?.title).toBe('Privacidad de la cuenta | EspaciGo');
+  });
 });

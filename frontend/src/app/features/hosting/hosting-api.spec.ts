@@ -1,11 +1,11 @@
-import { provideHttpClient } from '@angular/common/http';
+import { HttpEventType, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { M04Local, M04M06Local, M06Local } from '../../../generated/api/sdk.gen';
+import { Img01Media, M04Local, M04M06Local, M06Local } from '../../../generated/api/sdk.gen';
 import { ApiRuntimeConfig } from '../../core/api-runtime-config';
 import { provideFrontendPorts } from '../../frontend.providers';
-import { HostingApi } from './infrastructure/hosting-api';
+import { HOSTING_UPLOAD_BACKEND, HostingApi } from './infrastructure/hosting-api';
 
 describe('HostingApi', () => {
   afterEach(() => TestBed.resetTestingModule());
@@ -17,9 +17,11 @@ describe('HostingApi', () => {
         ...provideFrontendPorts(),
         provideHttpClient(),
         provideHttpClientTesting(),
+        { provide: HOSTING_UPLOAD_BACKEND, useExisting: HttpTestingController },
         { provide: M04Local, useValue: catalog },
         { provide: M04M06Local, useValue: {} },
         { provide: M06Local, useValue: {} },
+        { provide: Img01Media, useValue: {} },
         { provide: ApiRuntimeConfig, useValue: { apiBaseUrl: () => 'http://go.test/api/v1' } },
       ],
     });
@@ -73,5 +75,23 @@ describe('HostingApi', () => {
     expect(request.request.responseType).toBe('blob');
     request.flush(new Blob(['synthetic png'], { type: 'image/png' }));
     expect(await pending).toBeInstanceOf(Blob);
+  });
+
+  it('uploads each image as authenticated multipart with idempotency and reports progress', async () => {
+    const { api, http } = setup();
+    const file = new File(['image bytes'], 'room.png', { type: 'image/png' });
+    const progress: Array<number | null> = [];
+    const pending = api.uploadPhoto('bearer-private', 'space-a', file, 'idem-key-123', (value) => progress.push(value));
+    const request = http.expectOne('http://go.test/api/v1/spaces/space-a/gallery');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('Authorization')).toBe('Bearer bearer-private');
+    expect(request.request.headers.get('Idempotency-Key')).toBe('idem-key-123');
+    expect(request.request.headers.has('Content-Type')).toBe(false);
+    expect(request.request.body).toBeInstanceOf(FormData);
+    expect((request.request.body as FormData).get('image')).toMatchObject({ name: file.name, type: file.type });
+    request.event({ type: HttpEventType.UploadProgress, loaded: 5, total: 10 } as never);
+    request.flush('{"photo":{"id":"photo-a","space_id":"space-a","alt_text":"","visible":false,"cover":false,"position":1,"state":"ready","created_at":"2026-10-22T00:00:00Z","variants":[]}}');
+    expect(await pending).toMatchObject({ id: 'photo-a', position: 1 });
+    expect(progress).toEqual([50, 100]);
   });
 });

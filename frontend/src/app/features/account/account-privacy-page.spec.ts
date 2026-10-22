@@ -56,6 +56,14 @@ const accountApiDefaults = () => ({
   photoContent: vi
     .fn()
     .mockResolvedValue(new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' })),
+  uploadPhoto: vi.fn(
+    (
+      _token: string,
+      _file: File,
+      _key: string,
+      _onProgress: (percent: number | null) => void,
+    ): Promise<void> => Promise.resolve(),
+  ),
   generatePhoto: vi.fn().mockResolvedValue(undefined),
   removePhoto: vi.fn().mockResolvedValue(undefined),
   payoutAccount: vi.fn().mockResolvedValue(null),
@@ -125,6 +133,65 @@ describe('AccountPrivacyPage', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     TestBed.resetTestingModule();
+  });
+
+  it('uploads a private profile image from the labeled file input and renders Go progress and confirmation', async () => {
+    let finishUpload!: () => void;
+    const upload = new Promise<void>((resolve) => (finishUpload = resolve));
+    const api = accountApiDefaults();
+    api.photoMetadata
+      .mockRejectedValueOnce(new AccountPrivacyApiError('not found', 404))
+      .mockResolvedValueOnce({
+        id: 'uploaded-photo-a',
+        variants: [
+          { name: 'avatar', mime_type: 'image/webp', size_bytes: 128 },
+          { name: 'display', mime_type: 'image/webp', size_bytes: 256 },
+          { name: 'thumbnail', mime_type: 'image/webp', size_bytes: 64 },
+        ],
+        created_at: '2026-10-01T12:00:00Z',
+      });
+    api.uploadPhoto.mockImplementation(async (_token, _file, _key, onProgress) => {
+      onProgress(50);
+      return upload;
+    });
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:uploaded-private-photo');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    setup(
+      {
+        login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+        session: vi.fn().mockResolvedValue(sessionA),
+        logout: vi.fn(),
+      },
+      api,
+    );
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AccountPrivacyPage);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(api.profile).toHaveBeenCalledWith('bearer-a'));
+
+    const input = fixture.nativeElement.querySelector(
+      'input[aria-label="Seleccionar o reemplazar foto de perfil"]',
+    ) as HTMLInputElement;
+    const file = new File(['synthetic avatar'], 'avatar.png', { type: 'image/png' });
+    const files = { 0: file, length: 1, item: (index: number) => index === 0 ? file : null };
+    Object.defineProperty(input, 'files', { configurable: true, value: files as unknown as FileList });
+    input.dispatchEvent(new Event('change'));
+    await vi.waitFor(() => expect(api.uploadPhoto).toHaveBeenCalledWith(
+      'bearer-a', file, expect.any(String), expect.any(Function),
+    ));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('progress')?.value).toBe(50);
+    expect(api.photoContent).not.toHaveBeenCalled();
+
+    finishUpload();
+    await vi.waitFor(() => expect(pageAccess(fixture).notice()).toBe('Foto de perfil guardada por Go.'));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('img[alt="Foto privada de la cuenta"]')).not.toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Imagen cargada y normalizada por Go');
+    expect(api.photoContent).toHaveBeenCalledWith('bearer-a');
+    expect(createUrl).toHaveBeenCalledOnce();
+    fixture.destroy();
   });
 
   it('discards A data after logout/login as B and uses only B data in the JSON export', async () => {
