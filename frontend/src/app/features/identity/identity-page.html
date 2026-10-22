@@ -14,10 +14,15 @@
             autocomplete="username"
             inputmode="email"
             [formField]="loginForm.email"
+            (input)="onLoginInput()"
             [attr.aria-invalid]="
-              loginForm.email().touched() && loginForm.email().errors().length > 0
+              loginForm.email().touched() && loginForm.email().errors().length > 0 ? 'true' : null
             "
-            aria-describedby="login-email-error"
+            [attr.aria-describedby]="
+              loginForm.email().touched() && loginForm.email().errors().length > 0
+                ? 'login-email-error'
+                : null
+            "
           />
           @if (loginForm.email().touched() && loginForm.email().errors().length) {
             <span class="field-error" id="login-email-error">{{
@@ -32,22 +37,28 @@
             type="password"
             autocomplete="current-password"
             [formField]="loginForm.password"
+            (input)="onLoginInput()"
             [attr.aria-invalid]="
-              loginForm.password().touched() && loginForm.password().errors().length > 0
+              !loginConfirmed() && loginForm.password().touched() && loginForm.password().errors().length > 0
+                ? 'true'
+                : null
             "
-            aria-describedby="login-password-error"
+            [attr.aria-describedby]="
+              !loginConfirmed() && loginForm.password().touched() && loginForm.password().errors().length > 0
+                ? 'login-password-error'
+                : null
+            "
           />
           @if (loginForm.password().touched() && loginForm.password().errors().length) {
-            <span class="field-error" id="login-password-error">{{
-              loginForm.password().errors()[0].message
-            }}</span>
+            @if (!loginConfirmed()) {
+              <span class="field-error" id="login-password-error">{{
+                loginForm.password().errors()[0].message
+              }}</span>
+            }
           }
         </div>
         @if (errorMessage()) {
           <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
-        }
-        @if (successMessage()) {
-          <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
         }
         <button appButton="primary" class="primary-button" type="submit" [disabled]="busy()">
           {{ busy() ? 'Verificando…' : 'Iniciar sesión' }}

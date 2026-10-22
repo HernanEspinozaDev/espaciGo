@@ -66,6 +66,100 @@ describe('IdentityPage private forms', () => {
     fixture.destroy();
   });
 
+  it('does not mix a confirmed session with navigation failure or stale password validation', async () => {
+    const api = {
+      login: vi.fn().mockResolvedValue({
+        account_id: 'account-login',
+        roles: ['arrendatario'],
+        access_token: 'login-bearer',
+        token_type: 'Bearer',
+        expires_at: '2026-10-12T00:00:00Z',
+        capabilities: [],
+        restricted_mode: false,
+      }),
+      session: vi.fn().mockResolvedValue({
+        account_id: 'account-login',
+        roles: ['arrendatario'],
+        capabilities: [],
+        restricted_mode: false,
+      }),
+      logout: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'login' } } } },
+        { provide: IdentityApi, useValue: api },
+        PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    const router = TestBed.inject(Router);
+    vi.spyOn(router, 'navigateByUrl').mockRejectedValue(new Error('route loading failed'));
+    const page = fixture.componentInstance as unknown as {
+      loginModel: { set(value: { email: string; password: string }): void };
+      onLogin(event: SubmitEvent): Promise<void>;
+      loginConfirmed(): boolean;
+      errorMessage(): string;
+      successMessage(): string;
+    };
+    page.loginModel.set({ email: 'person@example.invalid', password: 'Synthetic#123' });
+
+    await page.onLogin(new Event('submit') as SubmitEvent);
+    fixture.detectChanges();
+
+    expect(api.login).toHaveBeenCalledOnce();
+    expect(page.loginConfirmed()).toBe(true);
+    expect(page.errorMessage()).toContain('Go confirmó tu sesión');
+    expect(page.successMessage()).toBe('');
+    expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
+    expect(fixture.nativeElement.querySelector('#login-password-error')).toBeNull();
+    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain(
+      'Go confirmó tu sesión',
+    );
+    fixture.destroy();
+  });
+
+  it('validates email and password before sending a login request', async () => {
+    const api = { login: vi.fn(), session: vi.fn(), logout: vi.fn() };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'login' } } } },
+        { provide: IdentityApi, useValue: api },
+        PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    const page = fixture.componentInstance as unknown as {
+      loginModel: { set(value: { email: string; password: string }): void };
+      onLogin(event: SubmitEvent): Promise<void>;
+    };
+    page.loginModel.set({ email: 'correo-invalido', password: '' });
+
+    await page.onLogin(new Event('submit') as SubmitEvent);
+    fixture.detectChanges();
+
+    expect(api.login).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.querySelector('#login-email-error')?.textContent).toContain(
+      'Escribe un correo válido.',
+    );
+    expect(fixture.nativeElement.querySelector('#login-password-error')?.textContent).toContain(
+      'Escribe tu contraseña.',
+    );
+    expect(fixture.nativeElement.querySelector('#login-email')?.getAttribute('aria-invalid')).toBe('true');
+    expect(fixture.nativeElement.querySelector('#login-password')?.getAttribute('aria-invalid')).toBe('true');
+    fixture.destroy();
+  });
+
   it('returns to the same public space after contextual login without starting a write', async () => {
     const spaceId = '550e8400-e29b-41d4-a716-446655440000';
     const listing = '/explorar?q=oficina+centro&category_code=oficina&sort=relevance';
