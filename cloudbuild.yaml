@@ -64,7 +64,7 @@ steps:
         printf '%s\n' "$COMMIT_SHA" > /workspace/deploy-lock
         gcloud storage cp --if-generation-match=0 /workspace/deploy-lock "$$object"
         printf '%s\n' "$$object" > /workspace/deploy-lock-uri
-        created=$$(gcloud builds describe "$BUILD_ID" --project="${_PROJECT}" --format='value(createTime)')
+        created=$$(gcloud builds describe "$BUILD_ID" --project="${_PROJECT}" --region="${_REGION}" --format='value(createTime)')
         created_epoch=$$(date -u -d "$$created" +%s)
         watermark="gs://${_LOCK_BUCKET}/last-successful-main.json"
         if gcloud storage objects describe "$$watermark" >/dev/null 2>&1; then

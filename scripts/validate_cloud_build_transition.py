@@ -169,6 +169,8 @@ def main() -> int:
         errors.append("builds must serialize on a GCS lock")
     if "created_epoch <= prior_epoch" not in script:
         errors.append("deployments must reject builds older than the successful main watermark")
+    if 'gcloud builds describe "$BUILD_ID" --project="${_PROJECT}" --region="${_REGION}"' not in script:
+        errors.append("the regional parent build lookup must include its configured Cloud Build region")
     if '--if-generation-match="$$generation"' not in script:
         errors.append("the lock must be released conditionally")
     required_deploys = {
