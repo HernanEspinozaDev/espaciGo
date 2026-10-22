@@ -514,6 +514,8 @@ def safe_provider_credentials_context(environ=None):
     """Identify the Google provider credential source without exposing its value."""
     environment = os.environ if environ is None else environ
     adc_path = environment.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+    access_token = environment.get("GOOGLE_OAUTH_ACCESS_TOKEN", "")
+    impersonation = environment.get("GOOGLE_IMPERSONATE_SERVICE_ACCOUNT", "")
     selected_override = next(
         (name for name in PROVIDER_CREDENTIAL_OVERRIDES if environment.get(name)),
         None,
@@ -522,7 +524,9 @@ def safe_provider_credentials_context(environ=None):
         selected_override and adc_path
         and environment[selected_override] == adc_path
     )
-    if selected_override:
+    if access_token:
+        provider_source = "GOOGLE_OAUTH_ACCESS_TOKEN"
+    elif selected_override:
         provider_source = selected_override
     elif adc_path:
         provider_source = "GOOGLE_APPLICATION_CREDENTIALS"
@@ -531,10 +535,14 @@ def safe_provider_credentials_context(environ=None):
     return {
         **{name.lower(): "present" if environment.get(name) else "absent"
            for name in PROVIDER_CREDENTIAL_OVERRIDES},
+        "google_oauth_access_token": "present" if access_token else "absent",
         "google_application_credentials": "present" if adc_path else "absent",
         "provider_source": provider_source,
         "override_matches_adc": "yes" if override_matches_adc else "no",
-        "override_conflict": "yes" if selected_override and not override_matches_adc else "no",
+        "google_impersonate_service_account": "present" if impersonation else "absent",
+        "override_conflict": "yes" if (
+            access_token or impersonation or (selected_override and not override_matches_adc)
+        ) else "no",
     }
 
 

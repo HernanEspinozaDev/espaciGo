@@ -32,14 +32,21 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
             "GOOGLE_CREDENTIALS": marker,
             "GOOGLE_CLOUD_KEYFILE_JSON": "second-secret-marker",
             "GCLOUD_KEYFILE_JSON": "third-secret-marker",
+            "GOOGLE_OAUTH_ACCESS_TOKEN": "oauth-token-marker",
+            "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT": "impersonated@example.invalid",
         })
-        self.assertEqual(context["provider_source"], "GOOGLE_CREDENTIALS")
+        self.assertEqual(context["provider_source"], "GOOGLE_OAUTH_ACCESS_TOKEN")
         self.assertEqual(context["override_conflict"], "yes")
         self.assertEqual(context["google_credentials"], "present")
         self.assertEqual(context["google_cloud_keyfile_json"], "present")
         self.assertEqual(context["gcloud_keyfile_json"], "present")
+        self.assertEqual(context["google_oauth_access_token"], "present")
+        self.assertEqual(context["google_impersonate_service_account"], "present")
         rendered = " ".join(context.values())
-        for secret in (marker, "second-secret-marker", "third-secret-marker", "/private/wif.json"):
+        for secret in (
+            marker, "second-secret-marker", "third-secret-marker", "oauth-token-marker",
+            "impersonated@example.invalid", "/private/wif.json",
+        ):
             self.assertNotIn(secret, rendered)
 
     def test_provider_credential_source_allows_adc_and_matching_override(self):
@@ -69,6 +76,23 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertIn("override_conflict=yes", output.getvalue())
         self.assertNotIn(marker, output.getvalue())
         self.assertNotIn("/private/wif.json", output.getvalue())
+
+    def test_provider_credential_check_fails_closed_for_oauth_token_and_impersonation(self):
+        for variable, marker in (
+            ("GOOGLE_OAUTH_ACCESS_TOKEN", "oauth-token-marker"),
+            ("GOOGLE_IMPERSONATE_SERVICE_ACCOUNT", "impersonated@example.invalid"),
+        ):
+            with self.subTest(variable=variable):
+                output = io.StringIO()
+                with patch.dict(os.environ, {
+                    "GOOGLE_APPLICATION_CREDENTIALS": "/private/wif.json",
+                    variable: marker,
+                }, clear=True), patch("sys.argv", ["probe", "--check-provider-credentials"]), redirect_stdout(output):
+                    result = cloud_run_probes.main()
+                self.assertEqual(result, 2)
+                self.assertIn("override_conflict=yes", output.getvalue())
+                self.assertNotIn(marker, output.getvalue())
+                self.assertNotIn("/private/wif.json", output.getvalue())
 
     def test_auth_context_reports_only_shared_credential_file_and_impersonation_flags(self):
         private_path = "/runner/private/wif-credentials.json"
