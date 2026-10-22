@@ -61,8 +61,8 @@ variable "enable_edge" {
   description = "Separate explicit apply gate for load balancer, managed certificate and Cloud Armor."
   default     = false
   validation {
-    condition     = !var.enable_edge || (var.confirm_external_cloud_run_services && var.confirm_pga_iap_key_preflight)
-    error_message = "The edge requires confirmation that externally managed Cloud Run services and the IAP-key egress preflight are verified."
+    condition     = !var.enable_edge || (var.enable_foundation && var.confirm_external_cloud_run_services && var.confirm_pga_iap_key_preflight)
+    error_message = "The edge requires the reviewed foundation/cost gate, confirmed external Cloud Run services, and the IAP-key egress preflight."
   }
 }
 
@@ -100,7 +100,7 @@ variable "confirm_cost_policy_review" {
 
 variable "confirm_pga_iap_key_preflight" {
   type        = bool
-  description = "Required only when enable_edge routes all SSR egress through Direct VPC; set after verifying access to the IAP key endpoint through Private Google Access."
+  description = "Legacy input name retained for protected tfvars compatibility. Set only after verifying the IAP public-key endpoint from the deployed SSR image/network path. Current private-ranges-only egress sends public gstatic traffic outside the VPC; this does not prove PGA. If egress changes to all-traffic, run a separate PGA-specific preflight first."
   default     = false
 }
 
