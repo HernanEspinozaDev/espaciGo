@@ -32,7 +32,7 @@ BEGIN
     IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
         RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
     END IF;
-    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_at IS NULL OR p_at > v_now THEN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_at IS NULL OR p_at > v_now + interval '1 minute' THEN
         RAISE EXCEPTION 'valid cleanup limit and timestamp are required' USING ERRCODE = '22023';
     END IF;
     RETURN QUERY
@@ -64,8 +64,8 @@ BEGIN
     IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
         RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
     END IF;
-    IF p_at IS NULL OR p_at > v_now THEN
-        RAISE EXCEPTION 'cleanup completion time must not be in the future' USING ERRCODE = '22023';
+    IF p_at IS NULL OR p_at > v_now + interval '1 minute' THEN
+        RAISE EXCEPTION 'cleanup completion time exceeds allowed clock skew' USING ERRCODE = '22023';
     END IF;
     PERFORM 1 FROM public.media_asset
      WHERE id=p_id AND estado='deleting' AND fencing_token=p_token FOR UPDATE;
@@ -91,8 +91,8 @@ BEGIN
     IF pg_catalog.current_setting('role', true) IS DISTINCT FROM 'espacigo_privacy_cleanup_worker' THEN
         RAISE EXCEPTION 'privacy cleanup worker role is required' USING ERRCODE = '42501';
     END IF;
-    IF p_at IS NULL OR p_at > v_now THEN
-        RAISE EXCEPTION 'cleanup retry time must not be in the future' USING ERRCODE = '22023';
+    IF p_at IS NULL OR p_at > v_now + interval '1 minute' THEN
+        RAISE EXCEPTION 'cleanup retry time exceeds allowed clock skew' USING ERRCODE = '22023';
     END IF;
     UPDATE public.media_asset SET lease_until=v_now+interval '1 minute',updated_at=v_now
      WHERE id=p_id AND estado='deleting' AND fencing_token=p_token;
