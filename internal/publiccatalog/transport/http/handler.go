@@ -91,7 +91,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Length", strconv.Itoa(len(blob)))
 			w.Header().Set("Content-Disposition", "inline; filename=space-image.webp")
 			w.Header().Set("ETag", `"`+item.SHA256+`"`)
-			w.Header().Set("Cache-Control", "public, max-age=60, must-revalidate")
 			w.WriteHeader(200)
 			_, _ = w.Write(blob)
 			return
