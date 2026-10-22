@@ -6,6 +6,8 @@ package ownerexport
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -22,6 +24,7 @@ import (
 	contractdomain "github.com/HernanEspinozaDev/espaciGo/internal/contract"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
@@ -41,6 +44,7 @@ type Repository struct {
 	pool         *pgxpool.Pool
 	verification *verificationpg.Repository
 	files        verification.EvidenceStorage
+	mediaStore   media.ObjectStore
 	spaces       sectionReader
 	pricing      sectionReader
 	bookings     sectionReader
@@ -60,6 +64,15 @@ func New(pool *pgxpool.Pool, files verification.EvidenceStorage, contractReaders
 	if len(contractReaders) > 0 {
 		r.contracts = contractReaders[0]
 	}
+	return r
+}
+
+// NewWithMediaStore exports real media variants from the same private object
+// store used by the upload service. The legacy constructor remains available
+// for tests and callers that do not configure real-media storage.
+func NewWithMediaStore(pool *pgxpool.Pool, files verification.EvidenceStorage, store media.ObjectStore, contractReaders ...contractReader) *Repository {
+	r := New(pool, files, contractReaders...)
+	r.mediaStore = store
 	return r
 }
 
@@ -203,6 +216,11 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 	photoRows.Close()
 	photoJSON, _ := json.Marshal(map[string]any{"photos": photos})
 	sections["synthetic_profile_photo"] = photoJSON
+	mediaSection, mediaFiles, mediaExclusions, err := r.exportRealMedia(ctx, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	sections["media_assets"] = mediaSection
 	rows, e := r.pool.Query(ctx, `SELECT id::text,adaptador,referencia_ficticia,estado,creada_en,actualizada_en,revocada_en FROM public.cuenta_cobro_sintetica_local WHERE usuario_id=$1 ORDER BY creada_en,id`, owner)
 	if e != nil {
 		return nil, nil, nil, e
@@ -357,10 +375,12 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 	}
 	sections["verification_history"] = historyJSON
 	files := append([]privacy.ExportFile{}, photoFiles...)
+	files = append(files, mediaFiles...)
 	files = append(files, contractFiles...)
 	files = append(files, galleryFiles...)
 	files = append(files, defenseFiles...)
 	photoExclusions = append(photoExclusions, galleryExclusions...)
+	photoExclusions = append(photoExclusions, mediaExclusions...)
 	photoExclusions = append(photoExclusions, defenseExclusions...)
 	photoExclusions = append(photoExclusions, contractExclusions...)
 	exclusionCounts := 0
@@ -398,6 +418,113 @@ func (r *Repository) ExportAdditionalOwnData(ctx context.Context, owner string) 
 		exclusions = append(exclusions, fmt.Sprintf("%d evidencia(s) propia(s) referenciada(s) sin archivo disponible; omitidas del ZIP", exclusionCounts))
 	}
 	return sections, files, exclusions, nil
+}
+
+type mediaAssetExport struct {
+	ID        string               `json:"id"`
+	Purpose   string               `json:"purpose"`
+	State     string               `json:"state"`
+	SpaceID   string               `json:"space_id,omitempty"`
+	CreatedAt time.Time            `json:"created_at"`
+	DeletedAt *time.Time           `json:"deleted_at,omitempty"`
+	Variants  []mediaVariantExport `json:"variants"`
+}
+
+type mediaVariantExport struct {
+	Name          string `json:"name"`
+	MIME          string `json:"mime_type"`
+	Size          int64  `json:"size_bytes"`
+	SHA256        string `json:"sha256"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
+	FileAvailable bool   `json:"file_available"`
+	ArchiveFile   string `json:"archive_file,omitempty"`
+}
+
+// exportRealMedia includes the owner's media metadata and each available
+// derived variant. Object keys, bucket names and storage generations remain
+// internal; archive paths are generated from validated database identifiers.
+func (r *Repository) exportRealMedia(ctx context.Context, owner string) (json.RawMessage, []privacy.ExportFile, []string, error) {
+	rows, err := r.pool.Query(ctx, `SELECT a.id::text,a.proposito,a.estado,COALESCE(a.espacio_id::text,''),a.created_at,a.deleted_at,
+		v.variant,v.mime_type,v.size_bytes,v.sha256,v.width,v.height,v.object_key,v.generation
+		FROM public.media_asset a
+		LEFT JOIN public.media_variant v ON v.media_id=a.id
+		WHERE a.propietario_id=$1
+		ORDER BY a.created_at,a.id,v.variant`, owner)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	defer rows.Close()
+	type storedVariant struct {
+		public     mediaVariantExport
+		key        string
+		generation int64
+	}
+	type assetGroup struct {
+		public   mediaAssetExport
+		variants []storedVariant
+	}
+	groups := make([]assetGroup, 0)
+	byID := make(map[string]int)
+	for rows.Next() {
+		var id, purpose, state, spaceID string
+		var created time.Time
+		var deleted *time.Time
+		var name, mime, digest, objectKey *string
+		var size, width, height, generation *int64
+		if err := rows.Scan(&id, &purpose, &state, &spaceID, &created, &deleted, &name, &mime, &size, &digest, &width, &height, &objectKey, &generation); err != nil {
+			return nil, nil, nil, err
+		}
+		index, ok := byID[id]
+		if !ok {
+			index = len(groups)
+			byID[id] = index
+			groups = append(groups, assetGroup{public: mediaAssetExport{ID: id, Purpose: purpose, State: state, SpaceID: spaceID, CreatedAt: created, DeletedAt: deleted, Variants: []mediaVariantExport{}}})
+		}
+		if name == nil {
+			continue
+		}
+		v := mediaVariantExport{Name: *name, MIME: *mime, Size: *size, SHA256: *digest, Width: int(*width), Height: int(*height)}
+		g := &groups[index]
+		g.variants = append(g.variants, storedVariant{public: v, key: *objectKey, generation: *generation})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, nil, err
+	}
+	files := []privacy.ExportFile{}
+	exclusions := []string{}
+	for i := range groups {
+		for j := range groups[i].variants {
+			v := &groups[i].variants[j]
+			if r.mediaStore == nil {
+				exclusions = append(exclusions, "storage privado de medios no disponible; variante "+v.public.Name+" omitida del ZIP")
+				continue
+			}
+			content, readErr := r.mediaStore.Get(ctx, v.key, v.generation)
+			if readErr != nil || int64(len(content)) != v.public.Size {
+				exclusions = append(exclusions, "variante "+v.public.Name+" de imagen propia sin objeto verificable; omitida del ZIP")
+				continue
+			}
+			sum := sha256.Sum256(content)
+			if hex.EncodeToString(sum[:]) != v.public.SHA256 {
+				exclusions = append(exclusions, "variante "+v.public.Name+" de imagen propia no coincide con su checksum; omitida del ZIP")
+				continue
+			}
+			name := "files/media/" + groups[i].public.Purpose + "/" + groups[i].public.ID + "/" + v.public.Name + ".webp"
+			v.public.FileAvailable = true
+			v.public.ArchiveFile = name
+			files = append(files, privacy.ExportFile{Name: name, MediaType: v.public.MIME, Description: "Variante WebP de imagen propia", Content: content})
+		}
+		for _, variant := range groups[i].variants {
+			groups[i].public.Variants = append(groups[i].public.Variants, variant.public)
+		}
+	}
+	assets := make([]mediaAssetExport, len(groups))
+	for i := range groups {
+		assets[i] = groups[i].public
+	}
+	body, err := json.Marshal(map[string]any{"assets": assets})
+	return body, files, exclusions, err
 }
 
 type exportedContract struct {

@@ -533,13 +533,7 @@ func (r *Repository) ClaimCleanup(ctx context.Context, limit int, at time.Time) 
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	rows, err := tx.Query(ctx, `WITH claimed AS (
-		SELECT id FROM public.media_asset WHERE (estado='deleting' AND (lease_until IS NULL OR lease_until <= $2)) OR (estado='pending' AND lease_until <= $2)
-		ORDER BY updated_at,id FOR UPDATE SKIP LOCKED LIMIT $1
-	), changed AS (
-		UPDATE public.media_asset a SET estado='deleting',fencing_token=a.fencing_token+1,lease_until=$2+interval '5 minutes',updated_at=$2
-		FROM claimed c WHERE a.id=c.id RETURNING a.id::text,a.fencing_token
-	) SELECT id,fencing_token FROM changed`, limit, at)
+	rows, err := tx.Query(ctx, `SELECT id,fencing_token FROM public.claim_private_media_cleanup($1,$2)`, limit, at)
 	if err != nil {
 		return nil, err
 	}
@@ -579,33 +573,25 @@ func (r *Repository) ClaimCleanup(ctx context.Context, limit int, at time.Time) 
 }
 
 func (r *Repository) CompleteCleanup(ctx context.Context, id string, token int64, at time.Time) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
+	var completed bool
+	if err := r.pool.QueryRow(ctx, `SELECT public.complete_private_media_cleanup($1,$2,$3)`, id, token, at).Scan(&completed); err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
-	var ok bool
-	if err = tx.QueryRow(ctx, `SELECT true FROM public.media_asset WHERE id=$1 AND estado='deleting' AND fencing_token=$2 FOR UPDATE`, id, token).Scan(&ok); errors.Is(err, pgx.ErrNoRows) {
+	if !completed {
 		return media.ErrConflict
 	}
-	if err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `DELETE FROM public.media_variant WHERE media_id=$1`, id); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `DELETE FROM public.media_variant_intent WHERE media_id=$1`, id); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(ctx, `UPDATE public.media_asset SET estado='deleted',deleted_at=$3,lease_until=NULL,updated_at=$3 WHERE id=$1 AND fencing_token=$2`, id, token, at); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (r *Repository) FailCleanup(ctx context.Context, id string, token int64, at time.Time) error {
-	_, err := r.pool.Exec(ctx, `UPDATE public.media_asset SET lease_until=$3+interval '1 minute',updated_at=$3 WHERE id=$1 AND estado='deleting' AND fencing_token=$2`, id, token, at)
-	return err
+	var failed bool
+	if err := r.pool.QueryRow(ctx, `SELECT public.fail_private_media_cleanup($1,$2,$3)`, id, token, at).Scan(&failed); err != nil {
+		return err
+	}
+	if !failed {
+		return media.ErrConflict
+	}
+	return nil
 }
 
 func (r *Repository) variants(ctx context.Context, id string) ([]media.Variant, error) {

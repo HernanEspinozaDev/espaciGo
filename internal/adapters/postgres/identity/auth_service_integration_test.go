@@ -40,6 +40,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/operation"
 	operationhttp "github.com/HernanEspinozaDev/espaciGo/internal/operation/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
@@ -2575,6 +2576,8 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria) VALUES($1,$2,'oficina','Espacio sintético',repeat('Contenido libre de ensayo ',5),20,2,'Reglas sintéticas','hora',12000,'Dirección sintética','borrador','UTC')`, spaceID, targetID); err != nil {
 		t.Fatal(err)
 	}
+	mediaCleanupService, mediaStorage, profileMedia, spaceMedia := seedIMG01EMediaForSuppression(t, h, targetID, spaceID)
+	seedIMG01EHistoricalMediaStates(t, h, targetID, spaceID)
 	if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores,actualizado_en) VALUES($1,'oficina',1,'{}'::jsonb,$2)`, spaceID, h.now); err != nil {
 		t.Fatal(err)
 	}
@@ -2645,7 +2648,7 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if err != nil || reused {
 		t.Fatalf("create synthetic space gallery photo reused=%v err=%v", reused, err)
 	}
-	exportService, err := privacy.NewService(h.repo, ownerexport.New(h.pool, store))
+	exportService, err := privacy.NewService(h.repo, ownerexport.NewWithMediaStore(h.pool, store, mediaStorage))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2677,6 +2680,21 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	if !galleryArchived {
 		t.Fatalf("owner ZIP omitted own synthetic gallery image %s", galleryArchivePath)
 	}
+	mediaArchivePaths := map[string]bool{
+		"files/media/perfil/" + profileMedia.ID + "/avatar.webp":   false,
+		"files/media/espacio/" + spaceMedia.ID + "/display.webp":   false,
+		"files/media/espacio/" + spaceMedia.ID + "/thumbnail.webp": false,
+	}
+	for _, file := range archiveReader.File {
+		if _, ok := mediaArchivePaths[file.Name]; ok {
+			mediaArchivePaths[file.Name] = true
+		}
+	}
+	for path, present := range mediaArchivePaths {
+		if !present {
+			t.Fatalf("owner ZIP omitted own real media variant %s", path)
+		}
+	}
 	runtimeRepo := newRuntimeIdentityRepository(t, h)
 	privacyService, err := privacy.NewService(runtimeRepo)
 	if err != nil {
@@ -2700,8 +2718,15 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 		t.Fatalf("owner execution status=%d body=%s", denied.Code, denied.Body.String())
 	}
 	pending, err := privacyService.ExecuteSuppression(h.ctx, adminID, request.ID, "local-suppression-1", "suppression-correlation", func() time.Time { return executionNow }, cleaner)
-	if err != nil || pending.Status != "limpieza_pendiente" || pending.PendingFiles != 1 || pending.CompletedAt != nil {
+	if err != nil || pending.Status != "limpieza_pendiente" || pending.PendingFiles != 4 || pending.CompletedAt != nil {
 		t.Fatalf("file failure was not left recoverable: err=%v result=%+v", err, pending)
+	}
+	assertIMG01EPrivacyMediaMetadataRedacted(t, h, targetID)
+	if _, _, _, err := mediaCleanupService.ProfileContent(h.ctx, targetID); !errors.Is(err, media.ErrNotFound) {
+		t.Fatalf("suppressed real avatar remains readable: %v", err)
+	}
+	if _, _, _, err := mediaCleanupService.ContentSpace(h.ctx, targetID, spaceID, spaceMedia.ID, media.VariantDisplay); !errors.Is(err, media.ErrNotFound) {
+		t.Fatalf("suppressed real gallery image remains readable: %v", err)
 	}
 	eligibility, err := verificationRepo.ListEligibility(h.ctx, targetID)
 	if err != nil || len(eligibility) != 2 || eligibility[0].Eligible || eligibility[1].Eligible {
@@ -2747,7 +2772,16 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	clock := h.now.Add(6 * time.Second)
 	h.now = clock
 	executionNow = clock
-	if err := privacyService.RunSuppressionCleanupOnce(h.ctx, func() time.Time { return time.Now().UTC().Add(6 * time.Second) }, cleaner); err != nil {
+	workerMediaService, workerPrivacyService := newIMG01EPrivacyWorker(t, h, mediaStorage)
+	workerID := "82000000-0000-4000-8000-000000000099"
+	workerNow := func() time.Time { return time.Now().UTC().Add(6 * time.Second) }
+	if err := workerPrivacyService.RunSuppressionCleanupOnceWithWorker(h.ctx, workerID, workerNow, cleaner); err != nil {
+		t.Fatalf("restricted worker did not clean synthetic evidence: %v", err)
+	}
+	if err := workerMediaService.CleanOnce(h.ctx, 50); err != nil {
+		t.Fatalf("media cleanup did not drain suppressed variants: %v", err)
+	}
+	if err := workerPrivacyService.RunSuppressionCleanupOnceWithWorker(h.ctx, workerID, workerNow, cleaner); err != nil {
 		t.Fatalf("cleanup worker did not recover pending file work: %v", err)
 	}
 	completedResponse := call(adminSession, "local-suppression-1")
@@ -2783,6 +2817,13 @@ func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *t
 	}
 	if photoFile != nil || photoCleaned == nil {
 		t.Fatalf("suppressed photo cleanup state file=%v cleaned=%v", photoFile, photoCleaned)
+	}
+	var deletedAssets, retainedVariants int
+	if err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.media_asset WHERE propietario_id=$1 AND estado='deleted'),(SELECT count(*) FROM public.media_variant v JOIN public.media_asset a ON a.id=v.media_id WHERE a.propietario_id=$1)`, targetID).Scan(&deletedAssets, &retainedVariants); err != nil {
+		t.Fatal(err)
+	}
+	if deletedAssets != 4 || retainedVariants != 0 {
+		t.Fatalf("suppressed real media cleanup state deleted=%d remaining variants=%d", deletedAssets, retainedVariants)
 	}
 	var galleryFile *string
 	var galleryCleaned *time.Time
