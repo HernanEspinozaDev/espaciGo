@@ -209,6 +209,13 @@ func run() error {
 		if closer, ok := evidenceStore.(interface{ Close() error }); ok {
 			defer closer.Close()
 		}
+		mediaStore, err := newRuntimeMediaStore(context.Background(), os.Getenv, evidenceRoot)
+		if err != nil {
+			return errors.New("private media storage is unavailable")
+		}
+		if closer, ok := mediaStore.(interface{ Close() error }); ok {
+			defer closer.Close()
+		}
 		if keyPath := strings.TrimSpace(os.Getenv("LOCAL_CONTRACT_ENCRYPTION_KEY_FILE")); keyPath != "" {
 			contractKeyText, readErr := os.ReadFile(keyPath)
 			if readErr != nil {
@@ -226,9 +233,9 @@ func run() error {
 		}
 		var archiveRepository *ownerexport.Repository
 		if localContractRepository != nil {
-			archiveRepository = ownerexport.New(pool, evidenceStore, localContractRepository)
+			archiveRepository = ownerexport.NewWithMediaStore(pool, evidenceStore, mediaStore, localContractRepository)
 		} else {
-			archiveRepository = ownerexport.New(pool, evidenceStore)
+			archiveRepository = ownerexport.NewWithMediaStore(pool, evidenceStore, mediaStore)
 		}
 		privacyService, err := privacy.NewService(repo, archiveRepository)
 		if err != nil {
@@ -296,13 +303,6 @@ func run() error {
 		}
 		localGalleryService = galleryService
 		globalAdminService.SetPublicationGallery(galleryService)
-		mediaStore, err := newRuntimeMediaStore(context.Background(), os.Getenv, evidenceRoot)
-		if err != nil {
-			return errors.New("private media storage is unavailable")
-		}
-		if closer, ok := mediaStore.(interface{ Close() error }); ok {
-			defer closer.Close()
-		}
 		mediaService, err := media.NewService(mediapg.New(pool), mediaStore, credentials.Generator{}, time.Now)
 		if err != nil {
 			return errors.New("media service initialization failed")

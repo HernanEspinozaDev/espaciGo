@@ -1,6 +1,6 @@
 # IMG-01 — carga y CRUD de fotografías en EspaciGo
 Fecha: 2026-10-22. Base: `origin/main` en `dc58d732a7e2883c3fe2f6dc1c365cb5026cf5f6`.
-Estado: planificación autorizada para desarrollo y revisión; este documento no demuestra implementación. Diseño registrado en [ADR IMG-01](adr_img_01_imagenes_webp.md) y [matriz de capacidades/pruebas/cortes](matriz_capacidades_pruebas_cortes.md).
+Estado: IMG-01A–D fusionados; IMG-01E está en desarrollo local. El recorrido E2E aislado de DB/filesystem está documentado en la [matriz de capacidades/pruebas/cortes](matriz_capacidades_pruebas_cortes.md); faltan GCS real, catálogo anónimo, caché/revocación HTTP y carrera de cuota. Diseño registrado en [ADR IMG-01](adr_img_01_imagenes_webp.md).
 
 ## Encargo y aceptación
 El usuario probó y declaró funcionando el deploy. Esto registra su aceptación del funcionamiento del deploy observado, sin inventar aceptación de todo el producto.

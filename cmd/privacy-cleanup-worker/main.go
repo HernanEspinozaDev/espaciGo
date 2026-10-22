@@ -15,9 +15,13 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/cloudstorage"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/mediafs"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	mediapg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
+	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -79,6 +83,17 @@ func run() error {
 	if closer, ok := cleaner.(interface{ Close() error }); ok {
 		defer closer.Close()
 	}
+	mediaStore, err := newMediaStore(ctx, cfg)
+	if err != nil {
+		return errors.New("private media store initialization failed")
+	}
+	if closer, ok := mediaStore.(interface{ Close() error }); ok {
+		defer closer.Close()
+	}
+	mediaService, err := media.NewService(mediapg.New(pool), mediaStore, credentials.Generator{}, time.Now)
+	if err != nil {
+		return errors.New("private media cleanup initialization failed")
+	}
 	var repository privacy.Repository = identitypg.NewIdentityRepository(pool)
 	if cfg.databaseSetRole != "" {
 		repository = identitypg.NewSuppressionCleanupWorkerRepository(pool)
@@ -95,6 +110,9 @@ func run() error {
 	process := func() {
 		if err := service.RunSuppressionCleanupOnceWithWorker(ctx, workerID, time.Now, timedCleaner{store: cleaner}); err != nil {
 			log.Print("privacy cleanup cycle failed; pending work remains durable")
+		}
+		if err := mediaService.CleanOnce(ctx, 50); err != nil {
+			log.Print("private media cleanup cycle failed; pending work remains durable")
 		}
 	}
 	process()
@@ -259,6 +277,21 @@ func newCleaner(ctx context.Context, cfg workerConfig) (privacy.SyntheticEvidenc
 		return evidencefs.New(root)
 	default:
 		return nil, errors.New("invalid private evidence store backend")
+	}
+}
+
+func newMediaStore(ctx context.Context, cfg workerConfig) (media.ObjectStore, error) {
+	switch cfg.storageBackend {
+	case "gcs":
+		return cloudstorage.NewMediaStore(ctx, cfg.storageBucket)
+	case "filesystem":
+		root, err := filepath.Abs(filepath.Join(cfg.evidenceRoot, "private-media"))
+		if err != nil {
+			return nil, err
+		}
+		return mediafs.New(root)
+	default:
+		return nil, errors.New("invalid private media store backend")
 	}
 }
 

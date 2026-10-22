@@ -273,8 +273,8 @@ func verifyScratchRuntimePermissions(ctx context.Context, conn ScratchPermission
 	if aclErr != nil {
 		return aclErr
 	}
-	var checks [16]bool
-	err := conn.QueryRow(ctx, `SELECT
+	var checks [46]bool
+	query := `SELECT
 		has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'CONNECT'),
 		not has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'CREATE'),
 		not has_database_privilege('espacigo_runtime', 'espacigo_scratch', 'TEMP'),
@@ -290,11 +290,42 @@ func verifyScratchRuntimePermissions(ctx context.Context, conn ScratchPermission
 		not has_table_privilege('espacigo_runtime', 'public.administrador_global', 'DELETE'),
 		not has_table_privilege('espacigo_runtime', 'public.tarifa_espacio', 'UPDATE'),
 		not has_table_privilege('espacigo_runtime', 'public.tarifa_espacio', 'DELETE'),
-		not has_table_privilege('espacigo_runtime', 'public.schema_migrations', 'SELECT')`).Scan(
-		&checks[0], &checks[1], &checks[2], &checks[3], &checks[4], &checks[5],
-		&checks[6], &checks[7], &checks[8], &checks[9], &checks[10], &checks[11],
-		&checks[12], &checks[13], &checks[14], &checks[15],
-	)
+		not has_table_privilege('espacigo_runtime', 'public.schema_migrations', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.media_asset', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.media_asset', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.media_asset', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_asset', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_asset', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant', 'INSERT'),
+		not has_table_privilege('espacigo_runtime', 'public.media_variant', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_variant', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_variant', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.space_media', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.space_media', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.space_media', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.space_media', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.space_media', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.profile_media', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.profile_media', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.profile_media', 'UPDATE'),
+		has_table_privilege('espacigo_runtime', 'public.profile_media', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.profile_media', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'UPDATE'),
+		has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'UPDATE'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'TRUNCATE')`
+	destinations := make([]any, len(checks))
+	for i := range checks {
+		destinations[i] = &checks[i]
+	}
+	err := conn.QueryRow(ctx, query).Scan(destinations...)
 	if err != nil {
 		return fmt.Errorf("could not verify scratch runtime grants: %w", err)
 	}
@@ -398,6 +429,11 @@ GRANT USAGE ON SCHEMA public TO espacigo_db_observer`); err != nil {
  GRANT SELECT ON public.categoria_espacio, public.categoria_perfil_atributos TO espacigo_runtime;
  GRANT SELECT ON public.catalogo_ubicacion_publica, public.region_publica, public.comuna_publica, public.atributo_filtro_publico TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.espacio TO espacigo_runtime;
+	REVOKE ALL PRIVILEGES ON public.media_asset, public.media_variant, public.space_media, public.profile_media, public.gallery_item_order, public.media_variant_intent FROM espacigo_runtime;
+	GRANT SELECT, INSERT, UPDATE ON public.media_asset TO espacigo_runtime;
+	GRANT SELECT, INSERT ON public.media_variant TO espacigo_runtime;
+	GRANT SELECT, INSERT, UPDATE ON public.space_media TO espacigo_runtime;
+	GRANT SELECT, INSERT, UPDATE, DELETE ON public.profile_media, public.gallery_item_order, public.media_variant_intent TO espacigo_runtime;
 	GRANT SELECT, INSERT ON public.espacio_eliminacion_historial_local TO espacigo_runtime;
 	GRANT USAGE, SELECT ON SEQUENCE public.espacio_eliminacion_historial_local_id_seq TO espacigo_runtime;
 	GRANT SELECT, INSERT ON public.espacio_publicacion_historial_local TO espacigo_runtime;

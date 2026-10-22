@@ -149,6 +149,11 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.baja_archivo_pendiente_local WHERE ejecucion_id=$1 AND completada_en IS NULL`, priorID).Scan(&prior.PendingFiles); err != nil {
 			return privacy.SuppressionExecution{}, suppressionError(err)
 		}
+		var pendingMedia int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.media_asset WHERE propietario_id=$1 AND estado NOT IN ('deleted','failed')`, subjectID).Scan(&pendingMedia); err != nil {
+			return privacy.SuppressionExecution{}, suppressionError(err)
+		}
+		prior.PendingFiles += pendingMedia
 		if err := tx.Commit(ctx); err != nil {
 			return privacy.SuppressionExecution{}, suppressionError(err)
 		}
@@ -270,8 +275,8 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		}
 	}
 	evidenceIDs = uniqueEvidenceIDs
-	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02", "texto_libre_reclamo_descargo_y_operaciones_sinteticas", "blobs_evidencia_operativa_sintetica_con_limpieza_recuperable", "estado_vigente_bloqueo_administrativo_del_titular"}
-	retained := []string{"ancla_tecnica_usuario", "metadata_minima_de_galeria_sintetica_sin_binario", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_reclamos_24_meses_desde_ultimo_cierre", "historiales_transaccionales_minimizados", "historial_bloqueo_cuenta_motivo_fecha_sin_actor_personal_plazo_pendiente_de_ratificacion", "auditoria_5_anios", "copias_locales_no_eliminadas"}
+	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "medios_reales_con_revocacion_y_limpieza_por_generacion", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02", "texto_libre_reclamo_descargo_y_operaciones_sinteticas", "blobs_evidencia_operativa_sintetica_con_limpieza_recuperable", "estado_vigente_bloqueo_administrativo_del_titular"}
+	retained := []string{"ancla_tecnica_usuario", "metadata_minima_de_galeria_sintetica_sin_binario", "metadata_minima_de_medios_retirados_sin_hash_de_entrada", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_reclamos_24_meses_desde_ultimo_cierre", "historiales_transaccionales_minimizados", "historial_bloqueo_cuenta_motivo_fecha_sin_actor_personal_plazo_pendiente_de_ratificacion", "auditoria_5_anios", "copias_locales_no_eliminadas"}
 	detail := suppressionDetail{Obligations: []string{}, Removed: removed, Retained: retained, Decision: "baja_elegible_privacidad_local_v1"}
 	encoded, err := json.Marshal(detail)
 	if err != nil {
@@ -288,10 +293,28 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 	if _, err = tx.Exec(ctx, `UPDATE public.foto_perfil_sintetica_local SET estado='retirada_baja',retirada_en=COALESCE(retirada_en,$2),proximo_intento_en=CASE WHEN archivo_id IS NULL THEN NULL ELSE $2 END WHERE usuario_id=$1 AND estado<>'retirada_baja'`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL WHERE propietario_id=$1`, subjectID); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET portada_foto_id=NULL,portada_media_id=NULL WHERE propietario_id=$1`, subjectID); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE public.espacio_galeria_sintetica_local SET estado='retirada_baja',retirada_en=COALESCE(retirada_en,$2),proximo_intento_en=CASE WHEN archivo_id IS NULL THEN NULL ELSE $2 END WHERE propietario_id=$1 AND estado<>'retirada_baja'`, subjectID, checkedAt); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.gallery_item_order WHERE propietario_id=$1 AND space_media_id IS NOT NULL`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.space_media SET visible=false,alt_text='',retired_at=COALESCE(retired_at,$2) WHERE propietario_id=$1 AND retired_at IS NULL`, subjectID, checkedAt); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.profile_media WHERE propietario_id=$1`, subjectID); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.media_asset SET
+		estado=CASE WHEN estado IN ('pending','ready') THEN 'deleting' ELSE estado END,
+		fencing_token=CASE WHEN estado IN ('pending','ready') THEN fencing_token+1 ELSE fencing_token END,
+		lease_until=CASE WHEN estado IN ('pending','ready') THEN $2 ELSE lease_until END,
+		updated_at=CASE WHEN estado IN ('pending','ready') THEN $2 ELSE updated_at END,
+		idempotency_key='suppressed:'||id::text,input_sha256=repeat('0',64)
+		WHERE propietario_id=$1`, subjectID, checkedAt); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if _, err = tx.Exec(ctx, `UPDATE public.cuenta_cobro_sintetica_local SET estado='retirada_baja',referencia_ficticia=NULL,revocada_en=COALESCE(revocada_en,$2),actualizada_en=$2 WHERE usuario_id=$1 AND estado IN ('activa','reemplazada','revocada')`, subjectID, checkedAt); err != nil {
@@ -462,10 +485,14 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 	if _, err = tx.Exec(ctx, `UPDATE public.ejecucion_baja_local SET detalle=detalle || jsonb_build_object('accepted_terms_retain_until',$2::timestamptz,'outbox_cancel_reason','baja_local_sin_finalidad') WHERE id=$1`, executionID, termExpiry); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
+	var pendingMedia int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM public.media_asset WHERE propietario_id=$1 AND estado NOT IN ('deleted','failed')`, subjectID).Scan(&pendingMedia); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
-	return privacy.SuppressionExecution{RequestID: requestID, Status: "limpieza_pendiente", Outcome: "limpieza_pendiente", DecisionCode: detail.Decision, Obligations: []string{}, Removed: removed, Retained: retained, PendingFiles: len(evidenceIDs), StartedAt: checkedAt}, nil
+	return privacy.SuppressionExecution{RequestID: requestID, Status: "limpieza_pendiente", Outcome: "limpieza_pendiente", DecisionCode: detail.Decision, Obligations: []string{}, Removed: removed, Retained: retained, PendingFiles: len(evidenceIDs) + pendingMedia, StartedAt: checkedAt}, nil
 }
 
 func protectLastGlobalAdministratorFromSuppression(ctx context.Context, tx pgx.Tx, target string, at time.Time) error {
@@ -688,6 +715,11 @@ func (r *IdentityRepository) FinishSuppression(ctx context.Context, requestID st
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.baja_archivo_pendiente_local WHERE ejecucion_id=$1 AND completada_en IS NULL`, execID).Scan(&exec.PendingFiles); err != nil {
 			return exec, mapError(err)
 		}
+		var pendingMedia int
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.media_asset WHERE propietario_id=$1 AND estado NOT IN ('deleted','failed')`, subjectID).Scan(&pendingMedia); err != nil {
+			return exec, mapError(err)
+		}
+		exec.PendingFiles += pendingMedia
 		if err := ensureSuppressionReplayRegistry(ctx, tx, execID); err != nil {
 			return exec, err
 		}
@@ -699,6 +731,11 @@ func (r *IdentityRepository) FinishSuppression(ctx context.Context, requestID st
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.baja_archivo_pendiente_local WHERE ejecucion_id=$1 AND completada_en IS NULL`, execID).Scan(&exec.PendingFiles); err != nil {
 		return exec, mapError(err)
 	}
+	var pendingMedia int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM public.media_asset WHERE propietario_id=$1 AND estado NOT IN ('deleted','failed')`, subjectID).Scan(&pendingMedia); err != nil {
+		return exec, mapError(err)
+	}
+	exec.PendingFiles += pendingMedia
 	if exec.PendingFiles > 0 {
 		exec.RequestID = requestID
 		exec.Outcome = "limpieza_pendiente"
