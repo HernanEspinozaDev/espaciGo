@@ -35,7 +35,11 @@ func TestMediaStoreGCSCreateReadGenerationAndCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Errorf("close GCS media store: %v", err)
+		}
+	})
 
 	spaceID, err := (credentials.Generator{}).ID()
 	if err != nil {
@@ -74,7 +78,13 @@ func TestMediaStoreGCSCreateReadGenerationAndCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create-only GCS write: %v", err)
 	}
-	t.Cleanup(func() { _ = store.Delete(context.Background(), key, stored.Generation) })
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		if err := store.Delete(cleanupCtx, key, stored.Generation); err != nil {
+			t.Errorf("cleanup exact GCS media generation: %v", err)
+		}
+	})
 	if stored.Provider != "gcs" || stored.Bucket != bucket || stored.ObjectKey != key || stored.Generation <= 0 || stored.Size != int64(len(display)) {
 		t.Fatalf("unexpected GCS object result: %+v", stored)
 	}
