@@ -26,19 +26,18 @@ provider "google-beta" {
 }
 
 locals {
-  api_v67_target_enabled      = var.api_v67_database_instance_name != ""
   api_gcp06_candidate_enabled = var.api_gcp06_candidate_run_id != ""
   gcp06_candidate_run_id      = local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_run_id : (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job ? "20261020-gcp06a" : "")
   # V67 uses an externally provisioned password secret and must never recreate
   # the retired generic database-password secret. Candidate mode retains its
   # scoped secret and the prior generic secret only for the rollback revision.
-  api_database_secret_key = local.api_v67_target_enabled ? null : (local.api_gcp06_candidate_enabled ? "database-password-gcp06" : "database-password")
+  api_database_secret_key = local.api_gcp06_candidate_enabled ? "database-password-gcp06" : null
   api_secret_access_keys = setunion(
     toset([
       "contract-encryption-key",
       "payment-webhook-secret",
     ]),
-    local.api_v67_target_enabled ? toset([]) : toset([local.api_database_secret_key]),
+    local.api_gcp06_candidate_enabled ? toset([local.api_database_secret_key]) : toset([]),
     # Keep the stable DB credential available to the retained rollback revision.
     local.api_gcp06_candidate_enabled ? toset(["database-password"]) : toset([]),
   )
@@ -52,16 +51,14 @@ locals {
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_test_access_job && var.gcp06_test_access_mode == "apply") ? toset(["gcp06-test-account-password"]) : toset([]),
     (var.enable_gcp06_jobs_reviewed && var.enable_gcp06_sql_inspector_job) ? toset(["gcp06-sql-inspector-credential"]) : toset([]),
   ) : toset([])
-  migrator_database_secret_id   = var.enable_database ? "database-migrator-password" : local.api_database_secret_key
-  api_sql_connection_name       = try(local.api_v67_target_enabled ? data.google_sql_database_instance.v67_target[0].connection_name : (local.api_gcp06_candidate_enabled ? data.google_sql_database_instance.gcp06_candidate[0].connection_name : google_sql_database_instance.postgres[0].connection_name), "")
-  api_database_name             = local.api_v67_target_enabled ? var.api_v67_database_name : (local.api_gcp06_candidate_enabled ? local.gcp06_candidate_database_name : try(google_sql_database.application[0].name, ""))
-  api_database_password_version = local.api_v67_target_enabled ? var.api_v67_database_password_version : (local.api_gcp06_candidate_enabled ? var.api_gcp06_candidate_password_version : "latest")
-  api_database_secret_id        = local.api_v67_target_enabled ? data.google_secret_manager_secret.v67_database_password[0].secret_id : google_secret_manager_secret.runtime[local.api_database_secret_key].secret_id
+  migrator_database_secret_id   = var.enable_database ? "database-migrator-password" : null
   gcp06_candidate_instance_name = "espacigo-gcp06-${local.gcp06_candidate_run_id}-pg"
   gcp06_candidate_database_name = "espacigo_gcp06_candidate_${local.gcp06_candidate_run_id}"
   project_enabled_apis = toset([
     "artifactregistry.googleapis.com",
+    "cloudbuild.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "containeranalysis.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "iamcredentials.googleapis.com",
@@ -74,7 +71,7 @@ locals {
     "storage.googleapis.com",
     "serviceusage.googleapis.com",
   ])
-  web_services = var.enable_services ? {
+  web_services = {
     public = {
       name         = var.public_service_name
       entry_mode   = "public"
@@ -89,9 +86,56 @@ locals {
       private_host = ""
       iap_enabled  = true
     }
-  } : {}
+  }
   mailpit_image           = "${var.region}-docker.pkg.dev/${var.project_id}/espacigo-testprod-dockerhub/axllent/mailpit@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48"
   runtime_mailpit_address = var.enable_mailpit ? "${google_compute_address.mailpit[0].address}:1025" : var.mailpit_private_address
+}
+
+# Cloud Run app services and their service/IAP bindings move to Cloud Build.
+# Forget the known Terraform bindings without deleting cloud resources.
+removed {
+  from = google_cloud_run_v2_service.api
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_cloud_run_v2_service.web
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_cloud_run_v2_service_iam_member.api_invoker
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_cloud_run_v2_service_iam_member.deployer_service_updater
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_cloud_run_v2_service_iam_member.public_web_invoker
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_cloud_run_v2_service_iam_member.private_iap_invoker
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_iap_web_cloud_run_service_iam_member.private_evaluators
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_service_account_iam_member.deployer_act_as_runtime
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_sql_database_instance.postgres
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_sql_database.application
+  lifecycle { destroy = false }
+}
+removed {
+  from = google_project_service_identity.iap
+  lifecycle { destroy = false }
 }
 
 data "google_sql_database_instance" "gcp06_candidate" {
@@ -100,35 +144,12 @@ data "google_sql_database_instance" "gcp06_candidate" {
   name    = local.gcp06_candidate_instance_name
 }
 
-data "google_sql_database_instance" "v67_target" {
-  count   = local.api_v67_target_enabled ? 1 : 0
-  project = var.project_id
-  name    = var.api_v67_database_instance_name
-}
-
-# Read only. The V67 runtime credential and its IAM grant are provisioned and
-# verified outside this root; Terraform never reads the secret payload.
-data "google_secret_manager_secret" "v67_database_password" {
-  count     = local.api_v67_target_enabled ? 1 : 0
-  project   = var.project_id
-  secret_id = "espacigo-test-database-password-v67"
-}
-
 resource "google_project_service" "required" {
   for_each                   = var.enable_foundation ? local.project_enabled_apis : toset([])
   project                    = var.project_id
   service                    = each.value
   disable_dependent_services = false
   disable_on_destroy         = false
-}
-
-resource "google_project_service_identity" "iap" {
-  provider = google-beta
-  count    = var.enable_services ? 1 : 0
-  project  = var.project_id
-  service  = "iap.googleapis.com"
-
-  depends_on = [google_project_service.required]
 }
 
 resource "google_compute_network" "testprod" {
@@ -197,6 +218,99 @@ resource "google_service_account" "runtime" {
   display_name = "EspaciGo testprod ${each.key} runtime"
 
   depends_on = [google_project_service.required]
+}
+
+resource "google_service_account" "cloud_build_deployer" {
+  count        = var.enable_foundation ? 1 : 0
+  project      = var.project_id
+  account_id   = "espacigo-cloud-build-deployer"
+  display_name = "EspaciGo Cloud Build deployer"
+  description  = "Dedicated identity for building/publishing images and deploying the three testprod Cloud Run services. No SQL or application secret access."
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_project_iam_custom_role" "cloud_build_deployer" {
+  count       = var.enable_foundation ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoCloudBuildDeployer"
+  title       = "EspaciGo Cloud Build deployer"
+  description = "Create/update/list/get the application Cloud Run services, their IAM and revisions, and submit/read the child image build."
+  stage       = "GA"
+  permissions = [
+    "cloudbuild.builds.create",
+    "cloudbuild.builds.get",
+    "run.operations.get",
+    "run.revisions.get",
+    "run.revisions.list",
+    "run.services.create",
+    "run.services.get",
+    "run.services.getIamPolicy",
+    "run.services.list",
+    "run.services.setIamPolicy",
+    "run.services.update",
+    "serviceusage.services.use",
+  ]
+}
+
+resource "google_project_iam_member" "cloud_build_deployer" {
+  count   = var.enable_foundation ? 1 : 0
+  project = var.project_id
+  role    = google_project_iam_custom_role.cloud_build_deployer[0].name
+  member  = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_project_iam_custom_role" "cloud_build_bucket_operator" {
+  count       = var.enable_foundation ? 1 : 0
+  project     = var.project_id
+  role_id     = "espacigoCloudBuildBucketOperator"
+  title       = "EspaciGo Cloud Build bucket operator"
+  description = "Access only to the dedicated Cloud Build staging/lock bucket."
+  stage       = "GA"
+  permissions = [
+    "storage.buckets.get",
+    "storage.objects.create",
+    "storage.objects.delete",
+    "storage.objects.get",
+    "storage.objects.list",
+  ]
+}
+
+resource "google_project_iam_member" "cloud_build_log_writer" {
+  count   = var.enable_foundation ? 1 : 0
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_storage_bucket_iam_member" "cloud_build_bucket_operator" {
+  count  = var.enable_foundation ? 1 : 0
+  bucket = google_storage_bucket.cloud_build[0].name
+  role   = google_project_iam_custom_role.cloud_build_bucket_operator[0].name
+  member = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_artifact_registry_repository_iam_member" "cloud_build_writer" {
+  count      = var.enable_foundation ? 1 : 0
+  location   = google_artifact_registry_repository.containers[0].location
+  repository = google_artifact_registry_repository.containers[0].name
+  role       = "roles/artifactregistry.writer"
+  member     = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_service_account_iam_member" "cloud_build_self_act_as" {
+  count              = var.enable_foundation ? 1 : 0
+  service_account_id = google_service_account.cloud_build_deployer[0].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+}
+
+resource "google_service_account_iam_member" "cloud_build_runtime_act_as" {
+  for_each = var.enable_foundation ? toset(["api", "public-web", "private-web"]) : toset([])
+
+  service_account_id = google_service_account.runtime[each.key].name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
 }
 
 resource "google_service_account" "gcp06_job" {
@@ -272,17 +386,6 @@ resource "google_project_iam_custom_role" "deployer_cloud_run_service_updater" {
     "run.services.update",
     "run.operations.get",
   ]
-}
-
-resource "google_cloud_run_v2_service_iam_member" "deployer_service_updater" {
-  for_each = var.enable_services ? toset(["api", "public", "private"]) : toset([])
-  project  = var.project_id
-  location = var.region
-  name     = each.value == "api" ? var.api_service_name : (each.value == "public" ? var.public_service_name : var.private_service_name)
-  role     = "projects/${var.project_id}/roles/${google_project_iam_custom_role.deployer_cloud_run_service_updater[0].role_id}"
-  member   = "serviceAccount:${google_service_account.runtime["deployer"].email}"
-
-  depends_on = [google_project_service.required]
 }
 
 resource "google_project_iam_custom_role" "terraform_state_object_access" {
@@ -514,6 +617,33 @@ resource "google_storage_bucket" "private_files" {
   depends_on = [google_project_service.required]
 }
 
+# Build source staging and rollout coordination are isolated from application
+# files and Terraform state in one short-lived, private bucket.
+resource "google_storage_bucket" "cloud_build" {
+  count                       = var.enable_foundation ? 1 : 0
+  project                     = var.project_id
+  name                        = "espacigo-testprod-cloud-build-${var.project_number}"
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+
+  lifecycle_rule {
+    action { type = "Delete" }
+    condition {
+      age            = 30
+      matches_prefix = ["source/"]
+    }
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  depends_on = [google_project_service.required]
+}
+
 resource "google_storage_bucket_iam_member" "api_files" {
   count  = var.enable_foundation ? 1 : 0
   bucket = google_storage_bucket.private_files[0].name
@@ -548,9 +678,9 @@ resource "google_secret_manager_secret_iam_member" "api_secret_access" {
 # The V67 runtime password is managed outside this Terraform root. Grant only
 # the API runtime identity access to its existing, version-pinned secret.
 resource "google_secret_manager_secret_iam_member" "v67_api_secret_access" {
-  count     = var.enable_foundation && local.api_v67_target_enabled ? 1 : 0
+  count     = var.enable_foundation && !local.api_gcp06_candidate_enabled ? 1 : 0
   project   = var.project_id
-  secret_id = data.google_secret_manager_secret.v67_database_password[0].secret_id
+  secret_id = "espacigo-test-database-password-v67"
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.runtime["api"].email}"
 
@@ -558,7 +688,7 @@ resource "google_secret_manager_secret_iam_member" "v67_api_secret_access" {
 }
 
 resource "google_secret_manager_secret_iam_member" "migrator_db_access" {
-  count     = var.enable_foundation && !local.api_v67_target_enabled ? 1 : 0
+  count     = var.enable_foundation && var.enable_database ? 1 : 0
   project   = var.project_id
   secret_id = google_secret_manager_secret.runtime[local.migrator_database_secret_id].secret_id
   role      = "roles/secretmanager.secretAccessor"
@@ -620,270 +750,6 @@ resource "google_artifact_registry_repository_iam_member" "gcp06_job_image_reade
   repository = "espacigo-testprod"
   role       = "roles/artifactregistry.reader"
   member     = "serviceAccount:${google_service_account.gcp06_job[each.key].email}"
-}
-
-resource "google_sql_database_instance" "postgres" {
-  count               = var.enable_database ? 1 : 0
-  project             = var.project_id
-  name                = "espacigo-testprod-pg"
-  region              = var.region
-  database_version    = "POSTGRES_18"
-  deletion_protection = true
-  deletion_policy     = "PREVENT"
-
-  settings {
-    edition                     = "ENTERPRISE"
-    deletion_protection_enabled = true
-    tier                        = var.cloudsql_tier
-    connector_enforcement       = "REQUIRED"
-    disk_type                   = "HYPERDISK_BALANCED"
-    disk_size                   = var.cloudsql_disk_gib
-    disk_autoresize             = true
-    disk_autoresize_limit       = var.cloudsql_disk_limit_gib
-    availability_type           = "ZONAL"
-    user_labels = {
-      application = "espacigo"
-      environment = "testprod"
-      managed-by  = "terraform"
-    }
-
-    ip_configuration {
-      ipv4_enabled    = false
-      private_network = google_compute_network.testprod[0].id
-      ssl_mode        = "ENCRYPTED_ONLY"
-    }
-
-    backup_configuration {
-      enabled                        = true
-      point_in_time_recovery_enabled = true
-      transaction_log_retention_days = 7
-      backup_retention_settings {
-        retained_backups = 7
-        retention_unit   = "COUNT"
-      }
-    }
-  }
-
-  depends_on = [google_service_networking_connection.private_services]
-}
-
-resource "google_sql_database" "application" {
-  count           = var.enable_database ? 1 : 0
-  project         = var.project_id
-  name            = "espacigo"
-  instance        = google_sql_database_instance.postgres[0].name
-  charset         = "UTF8"
-  collation       = "en_US.UTF8"
-  deletion_policy = "PREVENT"
-}
-
-resource "google_cloud_run_v2_service" "api" {
-  count    = var.enable_services ? 1 : 0
-  project  = var.project_id
-  name     = var.api_service_name
-  location = var.region
-  # The public run.app URL is the first test endpoint. Cloud Run IAM remains
-  # the authentication boundary; only the public/private SSR service accounts
-  # receive roles/run.invoker below.
-  ingress             = "INGRESS_TRAFFIC_ALL"
-  deletion_protection = true
-
-  template {
-    service_account                  = google_service_account.runtime["api"].email
-    max_instance_request_concurrency = 80
-    scaling {
-      min_instance_count = 1
-      max_instance_count = var.api_max_instances
-    }
-    vpc_access {
-      egress = "PRIVATE_RANGES_ONLY"
-      network_interfaces {
-        network    = google_compute_network.testprod[0].name
-        subnetwork = var.enable_mailpit ? google_compute_subnetwork.api_serverless[0].name : google_compute_subnetwork.serverless[0].name
-      }
-    }
-    volumes {
-      name = "database-secret"
-      secret {
-        secret = local.api_database_secret_id
-        items {
-          version = local.api_database_password_version
-          path    = "password"
-        }
-      }
-    }
-    volumes {
-      name = "contract-secret"
-      secret {
-        secret = google_secret_manager_secret.runtime["contract-encryption-key"].secret_id
-        items {
-          version = var.api_contract_encryption_key_version
-          path    = "key"
-        }
-      }
-    }
-    volumes {
-      name = "payment-secret"
-      secret {
-        secret = google_secret_manager_secret.runtime["payment-webhook-secret"].secret_id
-        items {
-          version = "latest"
-          path    = "webhook"
-        }
-      }
-    }
-    containers {
-      image = var.api_image
-      resources {
-        cpu_idle = false
-        limits   = { cpu = "1", memory = "1Gi" }
-      }
-      volume_mounts {
-        name       = "database-secret"
-        mount_path = "/var/secrets/database"
-      }
-      volume_mounts {
-        name       = "contract-secret"
-        mount_path = "/var/secrets/contract"
-      }
-      volume_mounts {
-        name       = "payment-secret"
-        mount_path = "/var/secrets/payment"
-      }
-      env {
-        name  = "APP_PROFILE"
-        value = "cloud-test"
-      }
-      env {
-        name  = "LOCAL_VERIFICATION_IP_LIMIT"
-        value = "20"
-      }
-      env {
-        name  = "DATABASE_CONNECTION_MODE"
-        value = "cloudsql"
-      }
-      env {
-        name  = "CLOUD_SQL_INSTANCE_CONNECTION_NAME"
-        value = local.api_sql_connection_name
-      }
-      env {
-        name  = "DATABASE_NAME"
-        value = local.api_database_name
-      }
-      env {
-        name  = "DATABASE_PASSWORD_FILE"
-        value = "/var/secrets/database/password"
-      }
-      env {
-        name  = "LOCAL_CONTRACT_ENCRYPTION_KEY_FILE"
-        value = "/var/secrets/contract/key"
-      }
-      env {
-        name  = "LOCAL_PAYMENT_WEBHOOK_SECRET_FILE"
-        value = "/var/secrets/payment/webhook"
-      }
-      env {
-        name  = "DATABASE_USER"
-        value = "espacigo_api_login"
-      }
-      env {
-        name  = "CORS_ALLOWED_ORIGINS"
-        value = join(",", ["https://${var.public_hostname}", "https://${var.private_hostname}"])
-      }
-      env {
-        name  = "DATABASE_SET_ROLE"
-        value = "espacigo_runtime"
-      }
-      env {
-        name  = "FRONTEND_PUBLIC_ORIGIN"
-        value = var.private_demo_origin_override != "" ? var.private_demo_origin_override : "https://${var.private_hostname}"
-      }
-      env {
-        name  = "DATABASE_POOL_MAX_CONNS"
-        value = "4"
-      }
-      env {
-        name  = "CLOUD_SQL_PRIVATE_IP"
-        value = "true"
-      }
-      env {
-        name  = "LOCAL_BOOKING_TRIAL"
-        value = "1"
-      }
-      env {
-        name  = "LOCAL_SMTP_ADDR"
-        value = local.runtime_mailpit_address
-      }
-      env {
-        name  = "M03_EVIDENCE_DIR"
-        value = "/var/lib/espacigo/evidence"
-      }
-      env {
-        name  = "CLOUD_STORAGE_BUCKET"
-        value = google_storage_bucket.private_files[0].name
-      }
-      env {
-        name  = "CLOUD_STORAGE_OBJECT_PREFIX"
-        value = var.api_private_object_prefix
-      }
-      env {
-        name  = "BLOB_STORE_BACKEND"
-        value = "gcs"
-      }
-      env {
-        name  = "LOCAL_PRIVACY_REPLAY_BACKEND"
-        value = "gcs"
-      }
-      env {
-        name  = "LOCAL_PRIVACY_REPLAY_BUCKET"
-        value = google_storage_bucket.private_files[0].name
-      }
-      env {
-        name  = "LOCAL_PRIVACY_REPLAY_PREFIX"
-        value = var.api_privacy_replay_prefix
-      }
-    }
-  }
-
-  lifecycle {
-    precondition {
-      condition = !var.enable_services || (
-        google_secret_manager_secret.runtime["contract-encryption-key"].secret_id == "espacigo-test-contract-encryption-key" &&
-        can(regex("^[1-9][0-9]*$", var.api_contract_encryption_key_version)) &&
-        ((var.api_private_object_prefix == "" && var.api_privacy_replay_prefix == "") ||
-        (var.api_private_object_prefix == "g03o-1017" && var.api_privacy_replay_prefix == "g03o-1017/privacy-replay"))
-      )
-      error_message = "The API contract key must use an explicit numeric version of the existing Secret Manager secret. Verify that exact version is ENABLED using metadata only before planning."
-    }
-    precondition {
-      condition = !local.api_gcp06_candidate_enabled || (
-        data.google_sql_database_instance.gcp06_candidate[0].database_version == "POSTGRES_18" &&
-        data.google_sql_database_instance.gcp06_candidate[0].connection_name == "espacigo-testprod:southamerica-west1:espacigo-gcp06-${var.api_gcp06_candidate_run_id}-pg" &&
-        data.google_sql_database_instance.gcp06_candidate[0].private_ip_address == "10.189.0.13"
-      )
-      error_message = "The API candidate target must be the exact run-scoped private PostgreSQL 18 GCP-06 instance in the testprod Santiago project."
-    }
-    precondition {
-      condition = !local.api_v67_target_enabled || (
-        !local.api_gcp06_candidate_enabled &&
-        data.google_sql_database_instance.v67_target[0].database_version == "POSTGRES_18" &&
-        data.google_sql_database_instance.v67_target[0].connection_name == "espacigo-testprod:southamerica-west1:espacigo-testprod-db" &&
-        data.google_sql_database_instance.v67_target[0].private_ip_address != "" &&
-        var.api_v67_database_name == "espacigo_dms_stage_20261020" &&
-        data.google_secret_manager_secret.v67_database_password[0].secret_id == "espacigo-test-database-password-v67" &&
-        can(regex("^[1-9][0-9]*$", var.api_v67_database_password_version))
-      )
-      error_message = "V67 runtime requires the exact private PostgreSQL 18 testprod database and an externally provisioned numeric database-secret version."
-    }
-  }
-
-  depends_on = [
-    google_project_service.required,
-    google_storage_bucket_iam_member.api_files,
-    google_secret_manager_secret_iam_member.api_secret_access,
-    google_secret_manager_secret_iam_member.v67_api_secret_access,
-    google_project_iam_member.cloudsql_clients,
-  ]
 }
 
 resource "google_cloud_run_v2_job" "gcp06_admin_bootstrap" {
@@ -1232,135 +1098,18 @@ resource "google_cloud_run_v2_job_iam_member" "gcp06_sql_inspector_invoker" {
   member   = var.gcp06_sql_inspector_operator_member
 }
 
-resource "google_cloud_run_v2_service" "web" {
-  for_each = local.web_services
-  project  = var.project_id
-  name     = each.value.name
-  location = var.region
-  # Direct run.app access is needed for the no-LB test stage. Native Cloud Run
-  # IAP still protects the private entry on every ingress path.
-  ingress             = var.enable_edge ? "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER" : "INGRESS_TRAFFIC_ALL"
-  iap_enabled         = each.value.iap_enabled
-  deletion_protection = true
-
-  template {
-    service_account                  = google_service_account.runtime[each.key == "public" ? "public-web" : "private-web"].email
-    max_instance_request_concurrency = 40
-    scaling {
-      min_instance_count = 0
-      max_instance_count = var.web_max_instances
-    }
-    vpc_access {
-      egress = var.enable_edge ? "ALL_TRAFFIC" : "PRIVATE_RANGES_ONLY"
-      network_interfaces {
-        network    = google_compute_network.testprod[0].name
-        subnetwork = google_compute_subnetwork.serverless[0].name
-      }
-    }
-    containers {
-      image = var.frontend_image
-      resources {
-        cpu_idle = true
-        limits   = { cpu = "1", memory = "1Gi" }
-      }
-      env {
-        name  = "FRONTEND_ENTRY_MODE"
-        value = each.value.entry_mode
-      }
-      env {
-        name  = "NG_ALLOWED_HOSTS"
-        value = each.key == "public" ? var.public_hostname : var.private_hostname
-      }
-      env {
-        name  = "API_INTERNAL_BASE_URL"
-        value = "${google_cloud_run_v2_service.api[0].uri}/api/v1"
-      }
-      env {
-        name  = "API_PUBLIC_BASE_URL"
-        value = "/api/v1"
-      }
-      env {
-        name  = "API_SERVICE_AUDIENCE"
-        value = google_cloud_run_v2_service.api[0].uri
-      }
-      env {
-        name  = "FRONTEND_PUBLIC_ORIGIN"
-        value = each.value.public_host
-      }
-      env {
-        name  = "PRIVATE_DEMO_ORIGIN"
-        value = (var.enable_edge || var.private_demo_origin_override == "") ? "https://${var.private_hostname}" : var.private_demo_origin_override
-      }
-      env {
-        name  = "IAP_JWT_AUDIENCE"
-        value = each.key == "private" ? "/projects/${var.project_number}/locations/${var.region}/services/${var.private_service_name}" : ""
-      }
-    }
-  }
-
-  depends_on = [
-    google_project_service.required,
-    google_cloud_run_v2_service_iam_member.api_invoker,
-  ]
-}
-
-resource "google_cloud_run_v2_service_iam_member" "api_invoker" {
-  for_each = var.enable_services ? toset(["public", "private"]) : toset([])
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.api[0].name
-  role     = "roles/run.invoker"
-  member   = "serviceAccount:${google_service_account.runtime[each.key == "public" ? "public-web" : "private-web"].email}"
-}
-
-resource "google_cloud_run_v2_service_iam_member" "public_web_invoker" {
-  count    = var.enable_services ? 1 : 0
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.web["public"].name
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
-
-resource "google_cloud_run_v2_service_iam_member" "private_iap_invoker" {
-  count    = var.enable_services ? 1 : 0
-  project  = var.project_id
-  location = var.region
-  name     = google_cloud_run_v2_service.web["private"].name
-  role     = "roles/run.invoker"
-  member   = google_project_service_identity.iap[0].member
-}
-
-resource "google_service_account_iam_member" "deployer_act_as_runtime" {
-  for_each           = var.enable_foundation ? toset(["api", "public-web", "private-web"]) : toset([])
-  service_account_id = google_service_account.runtime[each.value].name
-  role               = "roles/iam.serviceAccountUser"
-  member             = "serviceAccount:${google_service_account.runtime["deployer"].email}"
-
-  depends_on = [google_project_service.required]
-}
-
-resource "google_iap_web_cloud_run_service_iam_member" "private_evaluators" {
-  for_each               = var.enable_services ? toset(var.private_web_iap_evaluator_members) : toset([])
-  project                = var.project_id
-  location               = var.region
-  cloud_run_service_name = google_cloud_run_v2_service.web["private"].name
-  role                   = "roles/iap.httpsResourceAccessor"
-  member                 = each.value
-}
-
 resource "google_compute_region_network_endpoint_group" "web" {
-  for_each              = var.enable_edge && var.enable_services ? local.web_services : {}
+  for_each              = var.enable_edge ? local.web_services : {}
   name                  = "${each.key}-web-serverless"
   region                = var.region
   network_endpoint_type = "SERVERLESS"
   cloud_run {
-    service = google_cloud_run_v2_service.web[each.key].name
+    service = each.value.name
   }
 }
 
 resource "google_compute_backend_service" "web" {
-  for_each              = var.enable_edge && var.enable_services ? local.web_services : {}
+  for_each              = var.enable_edge ? local.web_services : {}
   name                  = "espacigo-testprod-${each.key}-web"
   protocol              = "HTTP"
   load_balancing_scheme = "EXTERNAL_MANAGED"
@@ -1371,7 +1120,7 @@ resource "google_compute_backend_service" "web" {
 }
 
 resource "google_compute_security_policy" "public_edge" {
-  count = var.enable_edge && var.enable_services ? 1 : 0
+  count = var.enable_edge ? 1 : 0
   name  = "espacigo-testprod-public-edge"
   type  = "CLOUD_ARMOR"
 
@@ -1428,14 +1177,14 @@ resource "google_compute_security_policy" "public_edge" {
 }
 
 resource "google_compute_global_address" "edge" {
-  count = var.enable_edge && var.enable_services ? 1 : 0
+  count = var.enable_edge ? 1 : 0
   name  = "espacigo-testprod-edge-ipv4"
 
   depends_on = [google_project_service.required]
 }
 
 resource "google_compute_managed_ssl_certificate" "edge" {
-  count = var.enable_edge && var.enable_services ? 1 : 0
+  count = var.enable_edge ? 1 : 0
   name  = "espacigo-testprod-edge-cert"
   managed {
     domains = [var.public_hostname, var.private_hostname]
@@ -1445,7 +1194,7 @@ resource "google_compute_managed_ssl_certificate" "edge" {
 }
 
 resource "google_compute_url_map" "edge" {
-  count           = var.enable_edge && var.enable_services ? 1 : 0
+  count           = var.enable_edge ? 1 : 0
   name            = "espacigo-testprod-edge"
   default_service = google_compute_backend_service.web["public"].id
 
@@ -1468,14 +1217,14 @@ resource "google_compute_url_map" "edge" {
 }
 
 resource "google_compute_target_https_proxy" "edge" {
-  count            = var.enable_edge && var.enable_services ? 1 : 0
+  count            = var.enable_edge ? 1 : 0
   name             = "espacigo-testprod-edge-https"
   url_map          = google_compute_url_map.edge[0].id
   ssl_certificates = [google_compute_managed_ssl_certificate.edge[0].id]
 }
 
 resource "google_compute_global_forwarding_rule" "https" {
-  count                 = var.enable_edge && var.enable_services ? 1 : 0
+  count                 = var.enable_edge ? 1 : 0
   name                  = "espacigo-testprod-edge-https"
   ip_address            = google_compute_global_address.edge[0].address
   target                = google_compute_target_https_proxy.edge[0].id
@@ -1483,9 +1232,5 @@ resource "google_compute_global_forwarding_rule" "https" {
   ip_protocol           = "TCP"
   load_balancing_scheme = "EXTERNAL_MANAGED"
 
-  depends_on = [
-    google_project_service.required,
-    google_cloud_run_v2_service_iam_member.public_web_invoker,
-    google_cloud_run_v2_service_iam_member.private_iap_invoker,
-  ]
+  depends_on = [google_project_service.required]
 }

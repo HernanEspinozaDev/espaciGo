@@ -40,10 +40,18 @@ jobs:
           persist-credentials: false
       - name: Test BuildKit attestation verifier
         run: python3 -m unittest discover -s scripts -p 'test_verify_gcp07_attestations.py'
-      - name: Test GCP-07D environment and Terraform plan policy
-        run: python3 -m unittest discover -s scripts -p 'test_gcp07d_policy.py' && python3 -m unittest discover -s scripts -p 'test_gcp08_preview_summary.py'
-      - name: Test GCP-08 bootstrap WIF workflow boundaries
-        run: python3 -m unittest discover -s scripts -p 'test_gcp08_bootstrap_*.py' && PYTHONPATH=scripts python3 -m unittest scripts.test_gcp08_legacy_state_reconcile && python3 -m unittest discover -s scripts -p 'test_classify_gcp08_terraform_failure.py'
+      # GCP-07D preview/apply policy targeted the retired Actions-to-Terraform
+      # rollout. Its tests remain in-tree as historical coverage; the active
+      # deployment boundary is checked by validate_cloud_build_transition.py.
+      - name: Test retained GCP-08 bootstrap helpers
+        run: >-
+          python3 -m unittest discover -s scripts -p 'test_gcp08_bootstrap_expiry.py' &&
+          python3 -m unittest discover -s scripts -p 'test_gcp08_bootstrap_refresh_diagnostics.py' &&
+          python3 -m unittest discover -s scripts -p 'test_gcp08_bootstrap_state_inventory.py' &&
+          PYTHONPATH=scripts python3 -m unittest scripts.test_gcp08_legacy_state_reconcile &&
+          python3 -m unittest discover -s scripts -p 'test_classify_gcp08_terraform_failure.py'
+      - name: Validate Cloud Build application deployment config
+        run: python3 scripts/validate_cloud_build_transition.py
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
         with:
           terraform_version: 1.16.6

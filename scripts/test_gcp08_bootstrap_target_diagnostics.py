@@ -14,6 +14,10 @@ from gcp08_bootstrap_target_diagnostics import TARGETS, diagnose
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@unittest.skipUnless(
+    (ROOT / ".github/workflows/application-rollout.yml").exists(),
+    "legacy Actions rollout target diagnostics are superseded by Cloud Build",
+)
 class BootstrapTargetDiagnosticsTests(unittest.TestCase):
     def test_fixed_diagnostic_targets_match_the_bootstrap_plan_scope(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")

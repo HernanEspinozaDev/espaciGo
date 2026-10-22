@@ -17,6 +17,10 @@ def bootstrap_actor_is_allowed(actor_id: str) -> bool:
     return actor_id == pinned_actor.group(1)
 
 
+@unittest.skipUnless(
+    (ROOT / ".github/workflows/application-rollout.yml").exists(),
+    "legacy Actions rollout workflow is superseded by Cloud Build",
+)
 class Gcp08BootstrapWorkflowTests(unittest.TestCase):
     def test_bootstrap_auth_is_direct_and_only_manual_initial_restore_uses_it(self):
         workflow = (ROOT / ".github/workflows/application-rollout.yml").read_text(encoding="utf-8")

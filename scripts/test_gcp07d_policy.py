@@ -3,6 +3,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from verify_gcp07_environment import (
@@ -111,6 +112,10 @@ def bootstrap_iam_resource(address, expected):
     return {"address": address, "change": {"actions": ["create"], "before": None, "after": after}}
 
 
+@unittest.skipUnless(
+    (Path(__file__).resolve().parents[1] / ".github/workflows/application-rollout.yml").exists(),
+    "legacy Actions-to-Terraform rollout policy is superseded by Cloud Build",
+)
 class Gcp07dPolicyTests(unittest.TestCase):
     def test_environment_allows_continuous_rollout_without_reviewer_gate(self):
         self.assertTrue(is_ready(environment(), {"branch_policies": [{"name": "main"}]}))

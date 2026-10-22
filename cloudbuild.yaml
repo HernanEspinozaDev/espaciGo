@@ -1,0 +1,182 @@
+options:
+  logging: CLOUD_LOGGING_ONLY
+  dynamicSubstitutions: true
+  substitutionOption: MUST_MATCH
+serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com
+timeout: 1800s
+substitutions:
+  _REGION: southamerica-west1
+  _PROJECT: espacigo-testprod
+  _AR_REPOSITORY: espacigo-testprod
+  _API_SERVICE: espacigo-test-api
+  _PUBLIC_SERVICE: espacigo-test-public
+  _PRIVATE_SERVICE: espacigo-test-private
+  _API_RUNTIME_SA: espacigo-test-api@espacigo-testprod.iam.gserviceaccount.com
+  _PUBLIC_RUNTIME_SA: espacigo-test-public-web@espacigo-testprod.iam.gserviceaccount.com
+  _PRIVATE_RUNTIME_SA: espacigo-test-private-web@espacigo-testprod.iam.gserviceaccount.com
+  _LOCK_BUCKET: espacigo-testprod-cloud-build-447373903153
+  _SOURCE_STAGING_BUCKET: espacigo-testprod-cloud-build-447373903153
+  _DATABASE_INSTANCE: espacigo-testprod-db
+  _DATABASE_NAME: espacigo_dms_stage_20261020
+  _DATABASE_SECRET: espacigo-test-database-password-v67
+  _DATABASE_SECRET_VERSION: "1"
+  _CONTRACT_SECRET: espacigo-test-contract-encryption-key
+  _CONTRACT_SECRET_VERSION: "1"
+  _PAYMENT_SECRET: espacigo-test-payment-webhook-secret
+  _PAYMENT_SECRET_VERSION: "1"
+  _PUBLIC_HOST: espacigo.testingpage.store
+  _PRIVATE_HOST: espacigo-demo.testingpage.store
+  _MAILPIT_ADDRESS: "10.81.1.2:1025"
+  _FILES_BUCKET: espacigo-test-files-447373903153-gcp02
+  _FILES_PREFIX: g03o-1017
+  _REPLAY_PREFIX: g03o-1017/privacy-replay
+  _MIN_API: "1"
+  _MAX_API: "1"
+  _MIN_WEB: "0"
+  _MAX_WEB: "1"
+  _API_CONCURRENCY: "80"
+  _WEB_CONCURRENCY: "40"
+  _REQUEST_TIMEOUT: 300s
+  _VPC: espacigo-testprod
+  _API_SUBNET: espacigo-testprod-api-serverless
+  _WEB_SUBNET: espacigo-testprod-serverless
+
+steps:
+  - id: acquire-and-validate-deploy-lock
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
+        [[ "${_REGION}" == southamerica-west1 && "${_PROJECT}" == espacigo-testprod ]]
+        [[ "${_DATABASE_INSTANCE}" == espacigo-testprod-db && "${_DATABASE_NAME}" == espacigo_dms_stage_20261020 ]]
+        [[ "${_DATABASE_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]]
+        [[ "${_CONTRACT_SECRET_VERSION}" =~ ^[1-9][0-9]*$ && "${_PAYMENT_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]]
+        [[ "${_PUBLIC_HOST}" == espacigo.testingpage.store && "${_PRIVATE_HOST}" == espacigo-demo.testingpage.store ]]
+        [[ "${_MAILPIT_ADDRESS}" == 10.81.1.2:1025 ]]
+        [[ "${_FILES_BUCKET}" == espacigo-test-files-447373903153-gcp02 ]]
+        [[ "${_LOCK_BUCKET}" == espacigo-testprod-cloud-build-447373903153 ]]
+        [[ "${_SOURCE_STAGING_BUCKET}" == espacigo-testprod-cloud-build-447373903153 ]]
+        gcloud storage buckets describe "gs://${_LOCK_BUCKET}" --project="${_PROJECT}" >/dev/null
+        gcloud storage buckets describe "gs://${_SOURCE_STAGING_BUCKET}" --project="${_PROJECT}" >/dev/null
+        object="gs://${_LOCK_BUCKET}/cloudrun-main.lock"
+        printf '%s\n' "$COMMIT_SHA" > /workspace/deploy-lock
+        gcloud storage cp --if-generation-match=0 /workspace/deploy-lock "$$object"
+        printf '%s\n' "$$object" > /workspace/deploy-lock-uri
+        created=$$(gcloud builds describe "$BUILD_ID" --project="${_PROJECT}" --region="${_REGION}" --format='value(createTime)')
+        created_epoch=$$(date -u -d "$$created" +%s)
+        watermark="gs://${_LOCK_BUCKET}/last-successful-main.json"
+        if gcloud storage objects describe "$$watermark" >/dev/null 2>&1; then
+          gcloud storage cat "$$watermark" > /workspace/last-successful-main.json
+          prior_epoch=$$(python3 -c 'import json; print(json.load(open("/workspace/last-successful-main.json"))["created_epoch"])')
+          if (( created_epoch <= prior_epoch )); then
+            echo "This build is older than or equal to the last successful main deployment; refusing stale rollout." >&2
+            exit 1
+          fi
+          prior_generation=$$(gcloud storage objects describe "$$watermark" --format='value(generation)')
+        else
+          prior_generation=0
+        fi
+        printf '%s\n' "$$created_epoch" > /workspace/build-created-epoch
+        printf '%s\n' "$$prior_generation" > /workspace/watermark-generation
+    env:
+      - PROJECT_ID=${_PROJECT}
+
+  - id: build-and-publish-with-provenance
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        child_build_id=$$(gcloud builds submit /workspace --project="${_PROJECT}" --region="${_REGION}" \
+          --config=cloudbuild-images.yaml --gcs-source-staging-dir="gs://${_SOURCE_STAGING_BUCKET}/source" \
+          --service-account="projects/${_PROJECT}/serviceAccounts/espacigo-cloud-build-deployer@${_PROJECT}.iam.gserviceaccount.com" \
+          --substitutions="_COMMIT_SHA=${COMMIT_SHA}" --format='value(id)')
+        [[ "$$child_build_id" =~ ^[0-9a-f-]{36}$ ]]
+        child_sha=$$(gcloud builds describe "$$child_build_id" --project="${_PROJECT}" --region="${_REGION}" --format='value(substitutions._COMMIT_SHA)')
+        status=$$(gcloud builds describe "$$child_build_id" --project="${_PROJECT}" --region="${_REGION}" --format='value(status)')
+        [[ "$$child_sha" == "$COMMIT_SHA" && "$$status" == SUCCESS ]]
+        printf '%s\n' "$$child_build_id" > /workspace/image-build-id
+
+  - id: verify-image-provenance
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        for name in espacigo-api espacigo-web; do
+          image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/$${name}:sha-${COMMIT_SHA}"
+          gcloud artifacts docker images describe "$$image" --project="${_PROJECT}" --show-provenance --format=json > "/workspace/$${name}-provenance.json"
+          python3 -c 'import json,sys; doc=json.load(open(sys.argv[1])); p=doc.get("provenance_summary",{}).get("provenance",[]); sys.exit(0 if p else 1)' "/workspace/$${name}-provenance.json"
+        done
+
+  - id: deploy-api-by-digest
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        api="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-api:sha-${COMMIT_SHA}"
+        digest=$$(gcloud artifacts docker images describe "$$api" --format='value(image_summary.digest)')
+        [[ "$$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+        image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-api@$${digest}"
+        gcloud run deploy "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --image="$$image" \
+          --service-account="${_API_RUNTIME_SA}" --port=8080 --cpu=1 --memory=1Gi --no-cpu-throttling \
+          --min="${_MIN_API}" --max="${_MAX_API}" --concurrency="${_API_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
+          --ingress=all --network="${_VPC}" --subnet="${_API_SUBNET}" --vpc-egress=private-ranges-only \
+          --no-allow-unauthenticated --startup-probe="httpGet.path=/health/ready,httpGet.port=8080,periodSeconds=10,timeoutSeconds=5,failureThreshold=12" \
+          --set-env-vars="^@^APP_PROFILE=cloud-test@LOCAL_VERIFICATION_IP_LIMIT=20@DATABASE_CONNECTION_MODE=cloudsql@CLOUD_SQL_PRIVATE_IP=true@CLOUD_SQL_INSTANCE_CONNECTION_NAME=${_PROJECT}:${_REGION}:${_DATABASE_INSTANCE}@DATABASE_NAME=${_DATABASE_NAME}@DATABASE_USER=espacigo_api_login@DATABASE_SET_ROLE=espacigo_runtime@DATABASE_POOL_MAX_CONNS=4@DATABASE_PASSWORD_FILE=/var/secrets/database/password@LOCAL_CONTRACT_ENCRYPTION_KEY_FILE=/var/secrets/contract/key@LOCAL_PAYMENT_WEBHOOK_SECRET_FILE=/var/secrets/payment/webhook@CORS_ALLOWED_ORIGINS=https://${_PUBLIC_HOST},https://${_PRIVATE_HOST}@FRONTEND_PUBLIC_ORIGIN=https://${_PRIVATE_HOST}@LOCAL_BOOKING_TRIAL=1@LOCAL_SMTP_ADDR=${_MAILPIT_ADDRESS}@M03_EVIDENCE_DIR=/var/lib/espacigo/evidence@CLOUD_STORAGE_BUCKET=${_FILES_BUCKET}@CLOUD_STORAGE_OBJECT_PREFIX=${_FILES_PREFIX}@BLOB_STORE_BACKEND=gcs@LOCAL_PRIVACY_REPLAY_BACKEND=gcs@LOCAL_PRIVACY_REPLAY_BUCKET=${_FILES_BUCKET}@LOCAL_PRIVACY_REPLAY_PREFIX=${_REPLAY_PREFIX}@PORT=8080" \
+          --set-secrets="/var/secrets/database/password=${_DATABASE_SECRET}:${_DATABASE_SECRET_VERSION},/var/secrets/contract/key=${_CONTRACT_SECRET}:${_CONTRACT_SECRET_VERSION},/var/secrets/payment/webhook=${_PAYMENT_SECRET}:${_PAYMENT_SECRET_VERSION}"
+        gcloud run services add-iam-policy-binding "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --member="serviceAccount:${_PUBLIC_RUNTIME_SA}" --role=roles/run.invoker --quiet
+        gcloud run services add-iam-policy-binding "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --member="serviceAccount:${_PRIVATE_RUNTIME_SA}" --role=roles/run.invoker --quiet
+
+  - id: deploy-public-web-by-digest
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        web="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web:sha-${COMMIT_SHA}"
+        digest=$$(gcloud artifacts docker images describe "$$web" --format='value(image_summary.digest)')
+        [[ "$$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+        image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web@$${digest}"
+        api_url=$$(gcloud run services describe "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --format='value(status.url)')
+        gcloud run deploy "${_PUBLIC_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --image="$$image" \
+          --service-account="${_PUBLIC_RUNTIME_SA}" --port=4000 --cpu=1 --memory=1Gi --cpu-throttling \
+          --min="${_MIN_WEB}" --max="${_MAX_WEB}" --concurrency="${_WEB_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
+          --startup-probe="httpGet.path=/healthz,httpGet.port=4000,periodSeconds=10,timeoutSeconds=5,failureThreshold=12" \
+          --ingress=internal-and-cloud-load-balancing --network="${_VPC}" --subnet="${_WEB_SUBNET}" --vpc-egress=private-ranges-only \
+          --allow-unauthenticated --set-env-vars="PORT=4000,FRONTEND_ENTRY_MODE=public,NG_ALLOWED_HOSTS=${_PUBLIC_HOST},API_INTERNAL_BASE_URL=$${api_url}/api/v1,API_PUBLIC_BASE_URL=/api/v1,API_SERVICE_AUDIENCE=$${api_url},FRONTEND_PUBLIC_ORIGIN=https://${_PUBLIC_HOST},PRIVATE_DEMO_ORIGIN=https://${_PRIVATE_HOST}"
+
+  - id: deploy-private-web-by-digest
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        web="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web:sha-${COMMIT_SHA}"
+        digest=$$(gcloud artifacts docker images describe "$$web" --format='value(image_summary.digest)')
+        [[ "$$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+        image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web@$${digest}"
+        api_url=$$(gcloud run services describe "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --format='value(status.url)')
+        gcloud run deploy "${_PRIVATE_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --image="$$image" \
+          --service-account="${_PRIVATE_RUNTIME_SA}" --port=4000 --cpu=1 --memory=1Gi --cpu-throttling \
+          --min="${_MIN_WEB}" --max="${_MAX_WEB}" --concurrency="${_WEB_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
+          --startup-probe="httpGet.path=/healthz,httpGet.port=4000,periodSeconds=10,timeoutSeconds=5,failureThreshold=12" \
+          --ingress=internal-and-cloud-load-balancing --network="${_VPC}" --subnet="${_WEB_SUBNET}" --vpc-egress=private-ranges-only \
+          --no-allow-unauthenticated --iap --set-env-vars="PORT=4000,FRONTEND_ENTRY_MODE=private,NG_ALLOWED_HOSTS=${_PRIVATE_HOST},API_INTERNAL_BASE_URL=$${api_url}/api/v1,API_PUBLIC_BASE_URL=/api/v1,API_SERVICE_AUDIENCE=$${api_url},FRONTEND_PUBLIC_ORIGIN=https://${_PRIVATE_HOST},IAP_JWT_AUDIENCE=/projects/447373903153/locations/${_REGION}/services/${_PRIVATE_SERVICE}"
+        gcloud run services add-iam-policy-binding "${_PRIVATE_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --member="serviceAccount:service-447373903153@gcp-sa-iap.iam.gserviceaccount.com" --role=roles/run.invoker --quiet
+  - id: release-deploy-lock
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        object=$$(cat /workspace/deploy-lock-uri)
+        watermark="gs://${_LOCK_BUCKET}/last-successful-main.json"
+        generation=$$(cat /workspace/watermark-generation)
+        printf '{"source_sha":"%s","created_epoch":%s}\n' "$COMMIT_SHA" "$$(cat /workspace/build-created-epoch)" > /workspace/last-successful-main.json
+        gcloud storage cp --if-generation-match="$$generation" /workspace/last-successful-main.json "$$watermark"
+        generation=$$(gcloud storage objects describe "$$object" --format='value(generation)')
+        gcloud storage rm --if-generation-match="$$generation" "$$object"
