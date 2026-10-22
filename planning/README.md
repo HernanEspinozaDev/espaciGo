@@ -74,3 +74,7 @@ La planificación incluye los once módulos académicos y considera el producto 
 
 
 - Marketplace público V2: [plan de desarrollo local](marketplace_publico_v2/plan_desarrollo_local_v2.md), [matriz de aceptación](marketplace_publico_v2/matriz_aceptacion.md), [guía MPV2-13](marketplace_publico_v2/aceptacion_mpv2_13.md) y [evidencia MPV2-13](marketplace_publico_v2/evidencia/mpv2_13/README.md).
+
+## IMG-01 — carga y CRUD de fotografías
+
+Plan autorizado para revisión/desarrollo desde `origin/main` `dc58d732a7e2883c3fe2f6dc1c365cb5026cf5f6`: [plan](imagenes/plan_img_01_carga_crud.md), [ADR de WebP/galería/ownership](imagenes/adr_img_01_imagenes_webp.md) y [matriz de capacidades, pruebas y cortes](imagenes/matriz_capacidades_pruebas_cortes.md). Los documentos registran decisiones propuestas y gates, no funcionalidad implementada. V68 es la siguiente migración libre según esa base; verificar nuevamente en el corte DB. Sin escrituras a SQL persistente ni cambios Cloud.
