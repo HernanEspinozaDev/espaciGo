@@ -9,14 +9,14 @@ import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { pipeline } from 'node:stream/promises';
 import { join } from 'node:path';
+import { readBoundedRequestBody } from './bounded-request-body.mjs';
 import { configuredApiBase, configuredPublicApiBase, configuredPublicOrigin } from './app/core/public-runtime-config';
-import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, requestUrlWithinLimit, serviceAudienceMatches } from './server-api-gateway.mjs';
+import { apiRequestAllowed, clientApiHeaders, iapAssertionRequired, iapRequestValid, privateEntryAudienceConfigured, publicCacheControl, publicIdentityPostLimit, requestUrlWithinLimit, serviceAudienceMatches } from './server-api-gateway.mjs';
 import { cloudRunIdentityHeaders } from './cloud-run-identity.mjs';
 
 const apiServerBase = configuredApiBase(process.env['API_INTERNAL_BASE_URL']);
 const apiPublicBase = configuredPublicApiBase(process.env['API_PUBLIC_BASE_URL']);
 const publicOrigin = configuredPublicOrigin(process.env['FRONTEND_PUBLIC_ORIGIN']);
-const privateDemoOrigin = configuredPublicOrigin(process.env['PRIVATE_DEMO_ORIGIN']);
 const entryMode = process.env['FRONTEND_ENTRY_MODE'] ?? 'local';
 const apiServiceAudience = process.env['API_SERVICE_AUDIENCE']?.trim() ?? '';
 const iapJwtAudience = process.env['IAP_JWT_AUDIENCE']?.trim() ?? '';
@@ -26,9 +26,6 @@ if (process.env['K_SERVICE'] && !apiServiceAudience && apiServerBase) {
 }
 if (process.env['K_SERVICE'] && !['public', 'private'].includes(entryMode)) {
   throw new Error('FRONTEND_ENTRY_MODE must be public or private on Cloud Run');
-}
-if (entryMode === 'public' && process.env['K_SERVICE'] && !privateDemoOrigin) {
-  throw new Error('PRIVATE_DEMO_ORIGIN is required for the public entry');
 }
 if (!privateEntryAudienceConfigured(entryMode, iapJwtAudience)) {
   throw new Error('IAP_JWT_AUDIENCE must be the signed-header audience for the private Cloud Run service');
@@ -52,7 +49,6 @@ app.get('/config.json', (_request, response) => {
   response.json({
     apiBaseUrl: apiPublicBase,
     siteOrigin: publicOrigin,
-    privateDemoOrigin,
   });
 });
 
@@ -65,14 +61,7 @@ app.use(async (request, response, next) => {
       return;
     }
   }
-  if (entryMode !== 'public' || !privateDemoOrigin) return next();
-  const path = new URL(request.originalUrl, 'http://server.invalid').pathname;
-  if (!/^\/(acceso|registro|verificar-correo|recuperar-acceso|mi-cuenta|reservas|panel|panel-anfitrion|administracion)(\/|$)/.test(path)) {
-    return next();
-  }
-  response.status(307).setHeader('Cache-Control', 'no-store');
-  response.setHeader('Location', `${privateDemoOrigin}${request.originalUrl}`);
-  return response.end();
+  return next();
 });
 
 app.get('/health/ready', async (_request, response) => {
@@ -98,7 +87,7 @@ app.use('/api/v1', async (request, response) => {
     response.status(414).end();
     return;
   }
-  if (!apiServerBase || !apiRequestAllowed(entryMode, request.method, request.originalUrl, request.headers)) {
+  if (!apiServerBase || !apiRequestAllowed(entryMode, request.method, request.originalUrl, request.headers, publicOrigin)) {
     response.status(entryMode === 'public' ? 404 : 503).end();
     return;
   }
@@ -108,7 +97,7 @@ app.use('/api/v1', async (request, response) => {
     const basePath = target.pathname.replace(/\/$/, '');
     target.pathname = `${basePath}${incoming.pathname.slice('/api/v1'.length)}`;
     target.search = incoming.search;
-    const headers = clientApiHeaders(entryMode, request.headers);
+    const headers = clientApiHeaders(entryMode, request.headers, request.originalUrl);
     if (entryMode === 'public') headers.set('accept', 'application/json');
     const serverIdentity = await serverIdentityHeaders();
     for (const [name, value] of Object.entries(serverIdentity)) headers.set(name, value);
@@ -120,8 +109,20 @@ app.use('/api/v1', async (request, response) => {
       signal: AbortSignal.timeout(entryMode === 'public' ? 10_000 : 120_000),
     };
     if (!['GET', 'HEAD'].includes(method)) {
-      init.body = request as unknown as BodyInit;
-      init.duplex = 'half';
+      const publicBodyLimit = entryMode === 'public'
+        ? publicIdentityPostLimit(method, request.originalUrl)
+        : null;
+      if (publicBodyLimit !== null) {
+        const body = await readBoundedRequestBody(request, publicBodyLimit);
+        if (!body) {
+          response.status(413).end();
+          return;
+        }
+        init.body = Uint8Array.from(body).buffer;
+      } else {
+        init.body = request as unknown as BodyInit;
+        init.duplex = 'half';
+      }
     }
     const upstream = await fetch(target, init);
     response.status(upstream.status);

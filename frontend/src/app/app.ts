@@ -30,8 +30,6 @@ import { Readiness } from './core/readiness';
 export class App {
   protected readonly menuOpen = signal(false);
   protected readonly offline = signal(false);
-  protected readonly previewUnlocked = signal(false);
-  protected readonly previewPasswordInvalid = signal(false);
   protected readonly readiness = inject(Readiness);
   protected readonly identity = inject(IdentitySession);
   private readonly focusMonitor = inject(FocusMonitor);
@@ -52,30 +50,7 @@ export class App {
     afterNextRender(() => {
       this.offline.set(!navigator.onLine);
       void this.readiness.refresh();
-      try {
-        this.previewUnlocked.set(sessionStorage.getItem('espacigo-preview-access') === 'granted');
-      } catch {
-        this.previewUnlocked.set(false);
-      }
-      if (!this.previewUnlocked()) {
-        this.document.getElementById('preview-password')?.focus();
-      }
     });
-  }
-
-  protected unlockPreview(password: string): void {
-    if (password !== 'Espacio 2026') {
-      this.previewPasswordInvalid.set(true);
-      return;
-    }
-
-    try {
-      sessionStorage.setItem('espacigo-preview-access', 'granted');
-    } catch {
-      // The current tab can still continue if browser storage is unavailable.
-    }
-    this.previewPasswordInvalid.set(false);
-    this.previewUnlocked.set(true);
   }
 
   protected toggleMenu(): void {

@@ -3,12 +3,11 @@ import { isPlatformBrowser } from '@angular/common';
 import { Injectable, inject, PLATFORM_ID, signal } from '@angular/core';
 import { firstValueFrom, timeout } from 'rxjs';
 import { client } from '../../generated/api/client.gen';
-import { API_PUBLIC_BASE_URL, API_SERVER_BASE_URL, FRONTEND_PUBLIC_ORIGIN, PRIVATE_DEMO_ORIGIN, configuredPublicApiBase, configuredPublicOrigin } from './public-runtime-config';
+import { API_PUBLIC_BASE_URL, API_SERVER_BASE_URL, FRONTEND_PUBLIC_ORIGIN, configuredPublicApiBase, configuredPublicOrigin } from './public-runtime-config';
 
 interface PublicConfig {
   apiBaseUrl: string;
   siteOrigin: string;
-  privateDemoOrigin?: string | null;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -18,11 +17,9 @@ export class ApiRuntimeConfig {
   private readonly serverApiBase = inject(API_SERVER_BASE_URL, { optional: true });
   private readonly serverPublicApiBase = inject(API_PUBLIC_BASE_URL, { optional: true });
   private readonly serverSiteOrigin = inject(FRONTEND_PUBLIC_ORIGIN, { optional: true });
-  private readonly configuredPrivateDemoOrigin = inject(PRIVATE_DEMO_ORIGIN, { optional: true });
   readonly apiBaseUrl = signal<string | null>(this.serverApiBase ?? null);
   readonly publicApiBaseUrl = signal<string | null>(this.serverPublicApiBase ?? null);
   readonly publicSiteOrigin = signal<string | null>(this.serverSiteOrigin ?? null);
-  readonly privateDemoOrigin = signal<string | null>(this.configuredPrivateDemoOrigin ?? null);
 
   async load(): Promise<void> {
     const config = await firstValueFrom(
@@ -38,7 +35,6 @@ export class ApiRuntimeConfig {
     this.apiBaseUrl.set(apiUrl);
     this.publicApiBaseUrl.set(normalizedUrl);
     this.publicSiteOrigin.set(siteOrigin);
-    this.privateDemoOrigin.set(configuredPublicOrigin(config.privateDemoOrigin ?? undefined));
     client.setConfig({ baseUrl: apiUrl });
   }
 

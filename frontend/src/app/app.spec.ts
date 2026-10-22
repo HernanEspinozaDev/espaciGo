@@ -113,6 +113,8 @@ describe('App logout navigation', () => {
     expect(brand?.getAttribute('aria-label')).toBe('EspaciGo, ir a la portada');
     expect(brandParts).toEqual(['espaci', '/espacigo-mark.svg', 'o']);
     expect(compiled.querySelector('nav')?.textContent).toContain('Categorías');
+    expect(compiled.querySelector('.nav-sign-in')?.textContent).toContain('Iniciar sesión');
+    expect(compiled.querySelector('[role="dialog"]')).toBeNull();
     fixture.destroy();
   });
 
