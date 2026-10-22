@@ -105,10 +105,18 @@ steps:
     args:
       - -ceu
       - |
+        child_build_id=$$(cat /workspace/image-build-id)
+        [[ "$$child_build_id" =~ ^[0-9a-f-]{36}$ ]]
+        expected_invocation="https://cloudbuild.googleapis.com/v1/projects/${_PROJECT}/locations/${_REGION}/builds/$${child_build_id}"
         for name in espacigo-api espacigo-web; do
           image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/$${name}:sha-${COMMIT_SHA}"
-          gcloud artifacts docker images describe "$$image" --project="${_PROJECT}" --show-provenance --format=json > "/workspace/$${name}-provenance.json"
-          python3 -c 'import json,sys; doc=json.load(open(sys.argv[1])); p=doc.get("provenance_summary",{}).get("provenance",[]); sys.exit(0 if p else 1)' "/workspace/$${name}-provenance.json"
+          provenance_invocations=$$(gcloud artifacts docker images describe "$$image" --project="${_PROJECT}" \
+            --show-provenance \
+            --format='value(provenance_summary.provenance[].build.inTotoSlsaProvenanceV1.predicate.runDetails.metadata.invocationId)')
+          case ";$${provenance_invocations};" in
+            *";$${expected_invocation};"*) ;;
+            *) printf 'Missing Cloud Build provenance for %s from %s\n' "$$image" "$$expected_invocation" >&2; exit 1 ;;
+          esac
         done
 
   - id: deploy-api-by-digest

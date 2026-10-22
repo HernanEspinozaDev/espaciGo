@@ -102,6 +102,10 @@ run "foundation_plan_is_gated_and_scoped" {
       google_service_account.cloud_build_deployer[0].account_id == "espacigo-cloud-build-deployer" &&
       length(google_project_iam_member.cloud_build_deployer) == 1 &&
       google_project_iam_custom_role.cloud_build_deployer[0].role_id == "espacigoCloudBuildDeployer" &&
+      contains(google_project_iam_custom_role.cloud_build_deployer[0].permissions, "containeranalysis.occurrences.list") &&
+      !contains(google_project_iam_custom_role.cloud_build_deployer[0].permissions, "containeranalysis.occurrences.create") &&
+      !contains(google_project_iam_custom_role.cloud_build_deployer[0].permissions, "containeranalysis.occurrences.delete") &&
+      !contains(google_project_iam_custom_role.cloud_build_deployer[0].permissions, "containeranalysis.occurrences.update") &&
       google_artifact_registry_repository_iam_member.cloud_build_writer[0].role == "roles/artifactregistry.writer" &&
       google_project_iam_member.cloud_build_log_writer[0].role == "roles/logging.logWriter" &&
       length(google_service_account_iam_member.cloud_build_runtime_act_as) == 3 &&

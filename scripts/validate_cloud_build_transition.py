@@ -167,6 +167,9 @@ def main() -> int:
         "run.jobs.",
     )):
         errors.append("Cloud Build deployer role must not read secrets/SQL, delete services, or run Jobs")
+    container_analysis_permissions = set(re.findall(r'"(containeranalysis\.[^"]+)"', cloud_build_role.group(1))) if cloud_build_role else set()
+    if container_analysis_permissions != {"containeranalysis.occurrences.list"}:
+        errors.append("Cloud Build deployer may only list Container Analysis occurrences to verify image provenance")
     if 'toset(["database-migrator-password", "gcp06-sql-inspector-credential"])' not in terraform:
         errors.append("the existing migrator and SQL inspector secret containers must remain in Terraform state with their optional gates off")
     migrator_grant = re.search(
@@ -213,8 +216,25 @@ def main() -> int:
         errors.append("the SSR image must use the frontend build context")
     if image_build.get("options", {}).get("requestedVerifyOption") != "VERIFIED":
         errors.append("the child image build must require Cloud Build provenance")
-    if "--show-provenance" not in script or "docker push" in script:
-        errors.append("the orchestrator must verify native provenance without explicit docker push")
+    provenance_step = next((step for step in steps if step.get("id") == "verify-image-provenance"), {})
+    provenance_script = "\n".join(provenance_step.get("args", []))
+    expected_provenance_invocation = (
+        "provenance_summary.provenance[].build.inTotoSlsaProvenanceV1."
+        "predicate.runDetails.metadata.invocationId"
+    )
+    if (
+        "--show-provenance" not in provenance_script
+        or expected_provenance_invocation not in provenance_script
+        or 'cat /workspace/image-build-id' not in provenance_script
+        or "for name in espacigo-api espacigo-web; do" not in provenance_script
+        or 'case ";$${provenance_invocations};" in' not in provenance_script
+        or '";$${expected_invocation};"' not in provenance_script
+        or "Missing Cloud Build provenance" not in provenance_script
+        or "python3" in provenance_script
+        or "jq" in provenance_script
+        or "docker push" in script
+    ):
+        errors.append("the orchestrator must verify SLSA provenance from the child build for each image using gcloud and bash")
     if "--port=8080" not in script or "--port=4000" not in script:
         errors.append("API and web ports must stay explicit")
     if "httpGet.path=/health/ready" not in script or "httpGet.path=/healthz" not in script:

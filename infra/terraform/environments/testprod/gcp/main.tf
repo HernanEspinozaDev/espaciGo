@@ -241,6 +241,7 @@ resource "google_project_iam_custom_role" "cloud_build_deployer" {
   permissions = [
     "cloudbuild.builds.create",
     "cloudbuild.builds.get",
+    "containeranalysis.occurrences.list",
     "run.operations.get",
     "run.revisions.get",
     "run.revisions.list",
