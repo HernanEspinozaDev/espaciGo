@@ -331,7 +331,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
                 self.assertEqual(
                     build_rest_url(target),
                     f"https://run.googleapis.com/v2/projects/espacigo-testprod/locations/"
-                    f"southamerica-west1/services/espacigo-test-{service}:getIamPolicy",
+                    f"southamerica-west1/services/espacigo-test-{service}:getIamPolicy"
+                    "?options.requestedPolicyVersion=3",
                 )
             elif operation in {
                 "iap-get-iam-policy", "iap-test-iam", "project-get", "project-test-iam",
@@ -1282,7 +1283,8 @@ class BootstrapCloudRunProbeTests(unittest.TestCase):
         self.assertEqual(
             observed["url"],
             "https://run.googleapis.com/v2/projects/espacigo-testprod/locations/"
-            "southamerica-west1/services/espacigo-test-public:getIamPolicy",
+            "southamerica-west1/services/espacigo-test-public:getIamPolicy"
+            "?options.requestedPolicyVersion=3",
         )
         self.assertEqual(observed["method"], "GET")
         self.assertEqual(observed["authorization"], "Bearer private-token")

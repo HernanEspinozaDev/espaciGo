@@ -190,7 +190,7 @@ def build_rest_url(target):
         resource = "/".join(urllib.parse.quote(part, safe="") for part in (
             "projects", PROJECT, "locations", REGION, "services", SERVICE_NAMES[service],
         ))
-        return f"{API_ROOT}/{resource}:getIamPolicy"
+        return f"{API_ROOT}/{resource}:getIamPolicy?options.requestedPolicyVersion=3"
     if operation == "list":
         resource = "/".join(urllib.parse.quote(part, safe="") for part in (
             "projects", PROJECT, "locations", REGION, "services",
