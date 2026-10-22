@@ -772,8 +772,12 @@ def main():
     os.chmod(private_root, 0o700)
     auth_fields = " ".join(f"{key}={value}" for key, value in safe_auth_context().items())
     print(f"GCP08_AUTH_CONTEXT stage=bootstrap {auth_fields}", flush=True)
+    probe_configuration = {
+        key: config[key]
+        for key in ("project_number", "private_service_name", "sql_instance_name")
+    }
     for target, _, _ in PROBES:
-        run_probe(target, private_root, **config)
+        run_probe(target, private_root, **probe_configuration)
     return 0
 
 
