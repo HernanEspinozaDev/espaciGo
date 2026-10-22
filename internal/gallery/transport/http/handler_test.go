@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +17,39 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 )
+
+func TestMissingImageFieldRemovesMultipartTempFile(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	part, err := w.CreateFormFile("other", "large.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(bytes.Repeat([]byte("x"), 2<<20)); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/upload", &body)
+	r.Header.Set("Content-Type", w.FormDataContentType())
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.FormFile("image"); err == nil {
+		t.Fatal("expected missing image field")
+	}
+	removeMultipartTempFiles(r)
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("multipart temp files remain: %s", filepath.Join(tmp, entries[0].Name()))
+	}
+}
 
 const testOwner = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 const testSpace = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"

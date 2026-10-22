@@ -102,7 +102,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, media.MaxInputBytes+(1<<20))
-		if err := r.ParseMultipartForm(1 << 20); err != nil {
+		parseErr := r.ParseMultipartForm(1 << 20)
+		// Register cleanup before handling parse errors or looking up the
+		// expected field: malformed and missing-field uploads can spill files.
+		defer removeMultipartTempFiles(r)
+		if parseErr != nil {
 			failure(w, 413, "upload_too_large", "La imagen supera el tamaño permitido.")
 			return
 		}
@@ -112,11 +116,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer file.Close()
-		defer func() {
-			if r.MultipartForm != nil {
-				_ = r.MultipartForm.RemoveAll()
-			}
-		}()
 		body, err := io.ReadAll(io.LimitReader(file, media.MaxInputBytes+1))
 		if err != nil || len(body) > media.MaxInputBytes {
 			failure(w, 413, "upload_too_large", "La imagen supera el tamaño permitido.")
@@ -322,6 +321,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, 200, result)
 	default:
 		failure(w, 405, "method_not_allowed", "Método no permitido.")
+	}
+}
+
+func removeMultipartTempFiles(r *http.Request) {
+	if r.MultipartForm != nil {
+		_ = r.MultipartForm.RemoveAll()
 	}
 }
 

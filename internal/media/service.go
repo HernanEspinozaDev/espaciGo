@@ -259,6 +259,10 @@ func (s *Service) CleanOnce(ctx context.Context, limit int) error {
 				var resolveErr error
 				generation, resolveErr = s.store.Generation(ctx, intent.ObjectKey)
 				if errors.Is(resolveErr, ErrNotFound) {
+					// The writer may still be completing its create-only Put. Keep
+					// the durable intent and retry cleanup; treating absence as
+					// success here can orphan an object written just afterward.
+					failed = true
 					continue
 				}
 				if resolveErr != nil {
