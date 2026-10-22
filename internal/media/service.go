@@ -96,9 +96,9 @@ func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Pur
 		}
 		stored, putErr := s.store.Put(ctx, key, variants[i].Bytes, variants[i].MIME)
 		if putErr != nil {
-			// FailReservation marks all planned writes terminal only after Put
-			// has returned. Cleanup still resolves Generation to catch ambiguous
-			// outcomes that did leave an object.
+			// Mark this exact write terminal even if cleanup already fenced the
+			// asset. Cleanup still resolves Generation to catch ambiguous writes.
+			_ = s.repo.FinishVariantWrite(context.Background(), reservation.ID, variants[i].Name, key)
 			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
 			return UploadResult{}, ErrUnavailable
 		}

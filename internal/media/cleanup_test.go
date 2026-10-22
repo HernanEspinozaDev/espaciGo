@@ -38,6 +38,12 @@ func (r *cleanupRepo) FailCleanup(context.Context, string, int64, time.Time) err
 	r.failed++
 	return nil
 }
+func (r *cleanupRepo) FinishVariantWrite(_ context.Context, _ string, name VariantName, key string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.intent = ObjectIntent{Name: name, ObjectKey: key, WriteComplete: true}
+	return nil
+}
 
 type cleanupStore struct {
 	ObjectStore
@@ -90,7 +96,9 @@ func TestCleanOnceRetainsUnknownIntentAcrossConcurrentPut(t *testing.T) {
 	if repo.failed != 1 || repo.completed != 0 {
 		t.Fatalf("first cleanup failed=%d completed=%d", repo.failed, repo.completed)
 	}
-	repo.intent.WriteComplete = true
+	if err := repo.FinishVariantWrite(context.Background(), "asset", VariantDisplay, "key"); err != nil {
+		t.Fatal(err)
+	}
 
 	store.started = make(chan struct{})
 	store.release = make(chan struct{})

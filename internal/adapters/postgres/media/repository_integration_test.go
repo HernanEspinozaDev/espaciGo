@@ -36,7 +36,7 @@ func TestIMG01CMigrationBackedRepositoryQueries(t *testing.T) {
 	}
 }
 
-func TestFailReservationMarksFinishedWriterIntentForCleanup(t *testing.T) {
+func TestFinishVariantWriteSurvivesCleanupFence(t *testing.T) {
 	url := os.Getenv("IMG01C_TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("set IMG01C_TEST_DATABASE_URL to a disposable V71 database")
@@ -55,7 +55,7 @@ func TestFailReservationMarksFinishedWriterIntentForCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = pool.Exec(ctx, `INSERT INTO public.media_asset(id,propietario_id,proposito,estado,idempotency_key,input_sha256,lease_until)
-		VALUES($1,$2,'perfil','pending','img01c-fail-01',repeat('0',64),clock_timestamp()+interval '1 minute')`, asset, owner)
+		VALUES($1,$2,'perfil','pending','img01c-fail-01',repeat('0',64),clock_timestamp()-interval '1 minute')`, asset, owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,13 @@ func TestFailReservationMarksFinishedWriterIntentForCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := New(pool)
-	if err = r.FailReservation(ctx, asset, 1, time.Now().UTC()); err != nil {
+	// Simulate the worker claiming first: it increments the fencing token and
+	// marks the asset deleting while Put is still in flight.
+	claimed, err := r.ClaimCleanup(ctx, 1, time.Now().UTC())
+	if err != nil || len(claimed) != 1 || claimed[0].Intents[0].WriteComplete {
+		t.Fatalf("initial cleanup claim=%+v err=%v", claimed, err)
+	}
+	if err = r.FinishVariantWrite(ctx, asset, media.VariantAvatar, key); err != nil {
 		t.Fatal(err)
 	}
 	var state string
