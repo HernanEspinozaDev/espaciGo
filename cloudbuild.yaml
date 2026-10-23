@@ -50,7 +50,7 @@ substitutions:
 
 steps:
   - id: acquire-and-validate-deploy-lock
-    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:1855ee6031f03bb7d4b251cfd0e5b88a18fd9a2552a742cf86d269810832c80b
     entrypoint: bash
     args:
       - -ceu
@@ -75,7 +75,9 @@ steps:
         gcloud storage cp "$$schema_evidence_uri" /workspace/img01-schema-evidence.json >/dev/null
         schema_evidence_sha256=$$(sha256sum /workspace/img01-schema-evidence.json | awk '{print $$1}')
         [[ "$$schema_evidence_sha256" == "${_APP_SCHEMA_EVIDENCE_SHA256}" ]]
-        python3 scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json --migrations db/migrations --query db/query/img01_schema_release_evidence.sql
+        schema_python=$$(gcloud info --format='value(basic.python_location)')
+        [[ "$$schema_python" == /* && -x "$$schema_python" ]]
+        "$$schema_python" scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json --migrations db/migrations --query db/query/img01_schema_release_evidence.sql
         gcloud secrets describe "${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" >/dev/null
         smtp_version_state=$$(gcloud secrets versions describe "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" --secret="${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" --format='value(state)')
         [[ "$$smtp_version_state" == ENABLED ]]

@@ -52,6 +52,8 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_classify_gcp08_terraform_failure.py'
       - name: Validate Cloud Build application deployment config
         run: python3 scripts/validate_cloud_build_transition.py
+      - name: Test schema gate in its pinned Cloud SDK image
+        run: bash scripts/test-cloudbuild-schema-sdk.sh
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
         with:
           terraform_version: 1.16.6
