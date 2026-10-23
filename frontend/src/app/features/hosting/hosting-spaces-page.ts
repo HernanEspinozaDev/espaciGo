@@ -80,8 +80,6 @@ export class HostingSpacesPage {
     description: this.controls.forProperty(this.facade.publishedForm, 'description'),
     capacity: this.controls.forProperty(this.facade.publishedForm, 'capacity'),
     usage_rules: this.controls.forProperty(this.facade.publishedForm, 'usage_rules'),
-    region_code: this.controls.forProperty(this.facade.form, 'region_code', this.facade.regionChanged.bind(this.facade)),
-    comuna_code: this.controls.forProperty(this.facade.form, 'comuna_code'),
   });
   constructor() {
     this.configureDraftValidation();

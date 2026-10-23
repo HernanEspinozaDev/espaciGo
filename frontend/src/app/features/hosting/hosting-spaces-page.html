@@ -473,7 +473,7 @@
                     >Región pública
                     <select
                       name="publishedRegion"
-                      [formControl]="publishedEditorForm.controls.region_code"
+                      [formControl]="controlFor(form, 'region_code', regionChanged)"
                       [attr.aria-invalid]="fieldError('region_code') ? 'true' : null"
                       [attr.aria-describedby]="fieldError('region_code') ? 'draft-error-summary' : null"
                     >
@@ -486,7 +486,7 @@
                     >Comuna pública
                     <select
                       name="publishedCommune"
-                      [formControl]="publishedEditorForm.controls.comuna_code"
+                      [formControl]="controlFor(form, 'comuna_code')"
                       [attr.aria-invalid]="fieldError('comuna_code') ? 'true' : null"
                       [attr.aria-describedby]="fieldError('comuna_code') ? 'draft-error-summary' : null"
                     >

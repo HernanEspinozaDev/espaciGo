@@ -578,6 +578,13 @@ describe('FE-06 HostingSpacesPage', () => {
     page(fixture).form.comuna_code = '06101';
     page(fixture).regionChanged('13');
     expect(page(fixture).form.comuna_code).toBe('');
+    const regionControl = page(fixture).controlFor(page(fixture).form, 'region_code', page(fixture).regionChanged);
+    const communeControl = page(fixture).controlFor(page(fixture).form, 'comuna_code');
+    communeControl.setValue('13123');
+    regionControl.setValue('06');
+    expect(page(fixture).form.comuna_code).toBe('');
+    fixture.detectChanges();
+    expect(communeControl.value).toBe('');
     fixture.destroy();
   });
 
