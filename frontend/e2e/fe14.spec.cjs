@@ -40,9 +40,11 @@ async function takeScreenshot(page, name, fullPage = false) {
   const measurements = await page.evaluate(() => ({
     viewport: { width: innerWidth, height: innerHeight },
     document: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight },
+    scroll: { x: window.scrollX, y: window.scrollY },
   }));
   measurements.head = process.env.FE14_HEAD || 'unknown';
   expect(measurements.document.width).toBeLessThanOrEqual(measurements.viewport.width);
+  expect(measurements.scroll.y).toBe(0);
   await page.screenshot({ path: path.join(artifactDir, `${name}.jpg`), type: 'jpeg', quality: 86, fullPage });
   fs.writeFileSync(path.join(artifactDir, `${name}.json`), JSON.stringify(measurements, null, 2));
 }
@@ -51,6 +53,8 @@ async function resetScrollForScreenshot(page) {
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     document.documentElement.style.scrollBehavior = 'auto';
+    document.body.style.scrollBehavior = 'auto';
+    if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
     window.scrollTo(0, 0);
   });
 }
