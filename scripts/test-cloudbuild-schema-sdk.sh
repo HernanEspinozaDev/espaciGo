@@ -42,7 +42,11 @@ cp "$TMP_DIR/invalid.json" "$TMP_DIR/report.json"
 if run_gate >"$TMP_DIR/invalid.log" 2>&1; then
   echo 'SDK gate accepted a corrupt migration checksum' >&2; exit 1
 fi
-if ! rg -q 'database migration ledger has a gap, rename, or checksum drift' "$TMP_DIR/invalid.log"; then
-  cat "$TMP_DIR/invalid.log" >&2; exit 1
-fi
+python3 - "$TMP_DIR/invalid.log" <<'PYERROR'
+import pathlib,sys
+message=pathlib.Path(sys.argv[1]).read_text()
+if 'database migration ledger has a gap, rename, or checksum drift' not in message:
+    print(message,file=sys.stderr)
+    raise SystemExit('SDK gate failed for a reason other than the expected ledger drift')
+PYERROR
 printf 'PASS: actual pinned SDK gate accepts valid evidence and rejects ledger drift without network or credentials.\n'
