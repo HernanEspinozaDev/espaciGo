@@ -13,7 +13,7 @@ El usuario eligió **A · Editorial funcional** el 2026-10-23 desde `http://127.
 | Sección/rutas actuales | Feature y tareas que deben mantenerse | Destino UX y corte | Estado de rediseño |
 | --- | --- | --- | --- |
 | `/`, `/categorias`, `/como-funciona` | Portada, búsqueda inicial, ocho categorías, explicación y accesos | UX-03 shell/nav; UX-05 contenido público/descubrimiento | Pendiente |
-| `/explorar`, `/espacios/:id` | Filtros permitidos, cursor/paginación disponible, fichas públicas, cotización/intervalo según capacidades del API | UX-05 catálogo público y detalle; UX-09 consolidación | Pendiente; sin datos ni disponibilidad inventados |
+| `/explorar`, `/espacios/:id` | Filtros permitidos, cursor/paginación disponible, fichas públicas, cotización/intervalo según capacidades del API | UX-05 catálogo público y detalle; UX-09 consolidación | UX-05 en PR #544; evidencia local sintética incluida, integración Go y revisión del corte pendientes |
 | `/terminos-y-condiciones`, `/politica-de-privacidad` | Lectura versionada de documentos/consentimiento y estados de carga/error | UX-04 identidad y consentimiento; UX-09 revisión de lectura | UX-04 implementado en PR #543; validación completa de rutas/estados se conserva para UX-09 |
 | `/acceso`, `/registro`, `/verificar-correo`, `/recuperar-acceso` | Login, creación, verificación/reenvío y recuperación; registro no elige rol/capacidades | UX-04 identidad | UX-04 implementado en PR #543; mantener flujo público y cookie de sesión actual |
 | `/mi-cuenta`, `/mi-cuenta/privacidad` | Perfil propio, privacidad, exportación/solicitud de derechos, baja y confirmaciones existentes | UX-04 cuenta/privacidad; UX-09 revisión cruzada | UX-04 implementado en PR #543; mantener sesión/autorización actuales |
@@ -87,3 +87,11 @@ El baseline y la cobertura no afirman que el rediseño ya exista en producción.
 - 350 pruebas Angular, lint/arquitectura, `api:check`, build, auditoría de producción, gateway SSR e IAP aprobados en local/CI.
 - Inspección local de acceso/registro con backend apagado; consentimiento quedó en estado no disponible y no se probó una cuenta. Las rutas privadas con Go y toda validación online siguen fuera de esa evidencia; online lo comprueba exclusivamente el usuario.
 - El lockfile actualizó `body-parser` 2.3.0→2.4.0 y `qs` 6.16.1 para resolver la auditoría HIGH de producción; `package.json` no cambió.
+
+## Evidencia UX-05 (PR #544; pendiente de revisión)
+
+- Explore corrige la proporción de portada y no muestra el orden predeterminado como filtro aplicado; detalle ofrece galería pública seleccionable, ubicación/datos declarados y reintento ante error de carga. Los flujos de disponibilidad, cotización y sesión conservan el contrato actual.
+- Capturas Playwright local con Chromium 155, frontend estático local y API de vista interceptada con una ficha/oficina sintética `.invalid`; las fotos son SVG sintéticos y el estado de salud fue simulado solo para presentar la vista. No hubo solicitudes a hosts externos. No representa integración Go/PostgreSQL ni datos reales: `planning/frontend/evidencia/UX05_catalogo_publico_local_sintetico.png` (SHA-256 `6b281821800d2ba6d5699364b8aa9531b69d4fa9d35ebec00ade9016744c88e6`) y `UX05_ficha_publica_local_sintetica.png` (SHA-256 `c451b08c283b66e6e710ee840b7e84a9af8b4ef58c14953136b54d8bcce921cf`).
+- Revisión visual local comprobó portada 304.7×228.5 px y presencia de resumen; no aparecen filtro de orden predeterminado ni error de salud simulado. Revisión de la ficha comprobó resumen, reglas, fotos públicas y acceso condicionado por sesión.
+- `CI=true npm test -- --watch=false`: 353 pruebas/44 archivos; `npm run lint`, `npm run api:check`, build, `npm audit --omit=dev` y `git diff --check` pasan. Build mantiene el warning anterior de Hosting (11.49/9.00 kB); Explore queda bajo el presupuesto.
+- Sin recorrido con Go/PostgreSQL, flujo completo de Hosting en navegador ni prueba de la aplicación online; online lo valida exclusivamente el usuario. La revisión técnica y la evidencia del recorrido completo del corte siguen pendientes.

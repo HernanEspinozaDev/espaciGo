@@ -751,6 +751,7 @@ describe('ExplorePage public catalog URL state', () => {
     expect(chips).toContain('Región: Metropolitana');
     expect(chips).toContain('Comuna: Providencia');
     expect(chips).toContain('Búsqueda: 13123');
+    expect(chips).not.toContain('Orden: default');
 
     page.updateFilter('q', 'texto aún sin aplicar');
     expect(page.hasUnappliedChanges()).toBe(true);
