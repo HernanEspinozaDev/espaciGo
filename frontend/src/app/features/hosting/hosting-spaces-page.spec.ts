@@ -337,17 +337,17 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
-  it('refreshes Go roles after the first draft and enters the role-protected editor only after confirmation', async () => {
+  it.each([{ initialRoles: [] }, { initialRoles: ['arrendatario'] }])('refreshes business roles %j after the first draft before entering the editor', async ({ initialRoles }) => {
     const api = apiFor();
     api.list.mockResolvedValue({ items: [] });
     const identityApi = defaultIdentityApi();
     identityApi.session
       .mockReset()
-      .mockResolvedValueOnce({ ...ownerSession, roles: [] })
-      .mockResolvedValueOnce(ownerSession);
+      .mockResolvedValueOnce({ ...ownerSession, roles: initialRoles })
+      .mockResolvedValueOnce({ ...ownerSession, roles: [...initialRoles, 'arrendador'] });
     const { identity } = setup(api, null, identityApi);
     await identity.signIn('owner@example.invalid', 'secret');
-    expect(identity.session()?.roles).toEqual([]);
+    expect(identity.session()?.roles).toEqual(initialRoles);
 
     const fixture = TestBed.createComponent(HostingSpacesPage);
     fixture.detectChanges();
@@ -361,7 +361,7 @@ describe('FE-06 HostingSpacesPage', () => {
     await page(fixture).createDraft();
 
     expect(identityApi.session).toHaveBeenCalledTimes(2);
-    expect(identity.session()?.roles).toEqual(['arrendador']);
+    expect(identity.session()?.roles).toEqual([...initialRoles, 'arrendador']);
     expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith([
       '/panel/espacios',
       'space-a',

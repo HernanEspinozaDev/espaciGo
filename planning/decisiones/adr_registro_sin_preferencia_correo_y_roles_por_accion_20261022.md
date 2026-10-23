@@ -1,6 +1,6 @@
 # ADR: Registro sin preferencia, correo verificable y roles por primera acción
 
-Estado: propuesto para revisión en el corte de onboarding/IMG-01  
+Estado: propuesto para revisión en el corte de onboarding/IMG-01
 Fecha: 2026-10-22
 
 ## Decisión

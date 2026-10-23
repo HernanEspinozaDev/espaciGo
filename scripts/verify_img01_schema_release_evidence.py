@@ -198,6 +198,14 @@ def validate(path: Path, migrations_dir: Path, query_path: Path, now: datetime |
     require(not any(isinstance(item, dict) and item.get("member") in {"espacigo_runtime", "espacigo_privacy_cleanup_worker"} for item in memberships),
             "runtime and cleanup worker must not have role memberships")
 
+    worker_edges = [item for item in memberships if isinstance(item, dict) and item.get("granted_role") == "espacigo_privacy_cleanup_worker"]
+    require(len(worker_edges) <= 1, "cleanup worker has unexpected incoming memberships")
+    for edge in worker_edges:
+        require(edge.get("member") == "postgres" and edge.get("grantor_oid") == 10
+                and edge.get("admin_option") is True and edge.get("inherit_option") is False
+                and edge.get("set_option") is False,
+                "cleanup worker may only have the bootstrap-granted creator ADMIN membership without SET/INHERIT")
+
     runtime_privileges = evidence["runtime_privileges"]
     worker_privileges = evidence["worker_privileges"]
     require(isinstance(runtime_privileges, dict) and isinstance(worker_privileges, dict), "privilege reports must be objects")

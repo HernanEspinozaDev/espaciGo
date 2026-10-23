@@ -126,6 +126,17 @@ class SchemaEvidenceTests(unittest.TestCase):
         report["roles"].append({"name": "espacigo_migrator_login", "can_login": True, "superuser": False, "createdb": False, "createrole": False, "replication": False, "bypassrls": False, "inherit": True})
         self.validate_report(report)
 
+    def test_accepts_only_the_automatic_owner_admin_edge(self):
+        report = valid_report()
+        report["memberships"].append({"granted_role": "espacigo_privacy_cleanup_worker", "member": "postgres", "grantor_oid": 10, "admin_option": True, "inherit_option": False, "set_option": False})
+        self.validate_report(report)
+        for change in ({"member": "espacigo_api_login"}, {"member": "unreviewed_owner"}, {"grantor_oid": 999}, {"admin_option": False}, {"inherit_option": True}, {"set_option": True}):
+            with self.subTest(change=change):
+                invalid = deepcopy(report)
+                invalid["memberships"][-1].update(change)
+                with self.assertRaises(MODULE.EvidenceError):
+                    self.validate_report(invalid)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -66,11 +66,11 @@ describe('identity and role guards', () => {
     expect(TestBed.inject(Router).serializeUrl(result as UrlTree)).toBe('/mi-cuenta');
   });
 
-  it('allows a verified role-free account to start the first landlord action only on the onboarding route', () => {
+  it.each([{ roles: [] }, { roles: ['arrendatario'] }] as const)('allows business roles %j to start the first landlord action only on the onboarding route', ({ roles }) => {
     setup();
     TestBed.inject(IdentitySession).session.set({
       account_id: 'synthetic-account',
-      roles: [],
+      roles: [...roles],
       capabilities: [],
       restricted_mode: false,
     });

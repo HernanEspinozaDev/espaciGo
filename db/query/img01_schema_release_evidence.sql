@@ -1,5 +1,5 @@
--- Read-only release evidence for IMG-01. Run through the reviewed Cloud SQL
--- connector/proxy to the fixed database. This query returns catalog metadata
+-- Read-only release evidence for IMG-01. Run through the canonical local SSH
+-- forward via the existing bastion to the fixed Cloud SQL database. This query returns catalog metadata
 -- and migration checksums only; it never reads application rows or secrets.
 \pset format unaligned
 \pset tuples_only on
@@ -80,6 +80,7 @@ SELECT jsonb_build_object(
         SELECT jsonb_agg(jsonb_build_object(
             'granted_role', granted.rolname,
             'member', member.rolname,
+            'grantor_oid', m.grantor,
             'admin_option', m.admin_option,
             'inherit_option', m.inherit_option,
             'set_option', m.set_option

@@ -175,6 +175,32 @@ describe('App logout navigation', () => {
     fixture.destroy();
   });
 
+  it('offers the first publication to a renter and shows hosting after Go confirms both roles', async () => {
+    const identity = {
+      session: signal<SessionResponse>({ account_id: 'renter-first', roles: ['arrendatario'], capabilities: [], restricted_mode: false }),
+      notice: signal(''), signOut: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        ...provideFrontendPorts(), provideRouter([]),
+        { provide: IdentitySession, useValue: identity },
+        { provide: Readiness, useValue: { status: signal('ready'), refresh: vi.fn() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const link = () => (fixture.nativeElement as HTMLElement).querySelector<HTMLAnchorElement>('a[href="/panel/espacios"]');
+    expect(link()?.textContent?.trim()).toBe('Ofrecer espacio');
+    identity.session.set({ account_id: 'renter-first', roles: ['arrendatario', 'arrendador'], capabilities: [], restricted_mode: false });
+    fixture.detectChanges();
+    expect(link()?.textContent?.trim()).toBe('Anfitrión');
+    identity.session.update((session) => ({ ...session, restricted_mode: true }));
+    fixture.detectChanges();
+    expect(link()).toBeNull();
+    fixture.destroy();
+  });
+
   it('announces offline state and refreshes readiness when connectivity returns', async () => {
     const activeSession = {
       account_id: 'offline-account',

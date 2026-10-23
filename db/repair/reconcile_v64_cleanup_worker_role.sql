@@ -1,6 +1,7 @@
 -- PROPOSAL ONLY. Do not execute without a separately approved DBA change.
 -- Repairs only the missing worker role/grants when V64 is in the ledger and
--- the SECURITY DEFINER routine still exists with its reviewed owner/settings.
+-- any existing SECURITY DEFINER routine has its reviewed owner/settings.
+-- If absent, V73 restores the routine after this repair.
 -- Does not modify schema_migrations, replace the routine, change object owners,
 -- or grant privileges to runtime/migrator logins.
 BEGIN;
@@ -11,7 +12,7 @@ DECLARE
     migration_checksum text;
     routine_owner text;
     routine_is_security_definer boolean;
-    routine_config text;
+    routine_config text[];
 BEGIN
     IF current_database() <> 'espacigo_dms_stage_20261020' THEN
         RAISE EXCEPTION 'unexpected database; refusing V64 role reconciliation';
@@ -52,14 +53,14 @@ BEGIN
 
     IF to_regprocedure('public.finalize_pending_suppression_cleanup(uuid,timestamp with time zone)') IS NOT NULL THEN
         SELECT pg_catalog.pg_get_userbyid(p.proowner), p.prosecdef,
-               COALESCE(array_to_string(p.proconfig, ','), '')
+               COALESCE(p.proconfig, ARRAY[]::text[])
           INTO routine_owner, routine_is_security_definer, routine_config
           FROM pg_catalog.pg_proc p
          WHERE p.oid = to_regprocedure('public.finalize_pending_suppression_cleanup(uuid,timestamp with time zone)');
         IF routine_owner IS DISTINCT FROM 'postgres'
            OR routine_is_security_definer IS DISTINCT FROM true
-           OR routine_config !~* 'search_path=pg_catalog, public'
-           OR routine_config !~* 'timezone=UTC' THEN
+           OR NOT ('search_path=pg_catalog, public' = ANY(routine_config))
+           OR NOT EXISTS (SELECT 1 FROM unnest(routine_config) setting WHERE lower(setting) = 'timezone=utc') THEN
             RAISE EXCEPTION 'existing V64 cleanup routine owner/security settings differ; stop for reviewed repair';
         END IF;
     END IF;
@@ -108,5 +109,27 @@ BEGIN
     END IF;
 END
 $routine_grant$;
+
+-- PostgreSQL 16+ automatically grants a non-superuser CREATEROLE creator
+-- ADMIN TRUE, SET FALSE, INHERIT FALSE, granted by the bootstrap superuser.
+-- The creator cannot revoke that grant. Permit only that exact administrative
+-- edge to the reviewed owner; the worker must not belong to any other role.
+DO $membership_postcheck$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_auth_members m
+        WHERE (m.roleid = 'espacigo_privacy_cleanup_worker'::regrole
+            OR m.member = 'espacigo_privacy_cleanup_worker'::regrole)
+          AND NOT (
+              m.roleid = 'espacigo_privacy_cleanup_worker'::regrole
+              AND m.member = 'postgres'::regrole
+              AND m.grantor = 10 -- PostgreSQL bootstrap superuser OID
+              AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option
+          )
+    ) THEN
+        RAISE EXCEPTION 'unexpected cleanup worker membership after reconciliation';
+    END IF;
+END
+$membership_postcheck$;
 
 COMMIT;

@@ -74,6 +74,9 @@ Soft delete/versionado significa que la baja lógica no borra inmediatamente ver
 Límite 10 se libera al retirar lógicamente según decisión documentada, mientras se acota deuda de limpieza/cuotas para impedir acumulación ilimitada.
 
 ## Entregas, pruebas y activación
+
+Para el delta sobre Cloud SQL existente, seguir el [procedimiento canónico incremental](../gcp/cloudsql_migraciones_incrementales.md) y el [preflight IMG-01](img01_migration_role_preflight.md). El revisor es el único operador SQL; DMS corresponde a la importación inicial.
+
 Secuencia con un PR por corte y sin iniciar sucesor antes de la fusión del anterior: (0) plan/ADR/matriz; (1) DB/ownership/grants y regresión de convivencia (V68); (2) Go/OpenAPI, compatibilidad del flujo sintético, GCS, conversión y cleanup; (3) Angular de espacio/perfil con adaptadores generados; (4) E2E/evidencia integrado y paquete de release. Orden estricto DB → Go/OpenAPI → Angular → evidencia. No reanudar ni mezclar cambios pendientes de deploy/DNS. Cloud Run se mantendrá como límite observado; Cloud SQL, bucket e IAM no se cambian durante estos cortes de planificación/desarrollo. Cualquier aplicación de migración persistente o nueva configuración/release Cloud exige su procedimiento y gate de release aparte.
 Usuario autoriza implementación del flujo; revisión/merge HernanEspinozaDev, desarrollo HernanMEC. No reanudar mecanismo deploy Terraform. Cloud Build entrega API/web; Terraform solo cambios base indispensables y revisados; bucket ya existe.
 Revisar instrucciones frontend y skill Angular al implementar. Proteger checkout sucio, worktree desde origin/main.

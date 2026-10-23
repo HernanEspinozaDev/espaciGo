@@ -25,7 +25,8 @@ export const roleGuard: CanActivateFn = (route): boolean | UrlTree => {
       ? session.capabilities?.includes('legacy.administration') === true || session.roles.includes('administrador')
       : role !== undefined && (
           session.roles.includes(role as (typeof session.roles)[number]) ||
-          (allowFirstBusinessAction && role === 'arrendador' && session.roles.length === 0)
+          (allowFirstBusinessAction && role === 'arrendador' &&
+            (session.roles.length === 0 || session.roles.includes('arrendatario')))
         );
   return allowed
     ? true
