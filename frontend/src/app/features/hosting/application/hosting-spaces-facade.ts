@@ -407,6 +407,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.error.set('');
     this.fieldErrors.set({});
     this.notice.set('');
+    this.conflict.set('');
     try {
       const created = (await this.api.create(context.token, payload)) as unknown as ExactSpace;
       if (!this.writeCurrent(context, revision, null)) return;
@@ -453,6 +454,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     this.error.set('');
     this.fieldErrors.set({});
     this.notice.set('');
+    this.conflict.set('');
     try {
       // The draft PUT is a full replacement. Start from Go's latest record and
       // overlay only fields the user changed since the last confirmed read.
