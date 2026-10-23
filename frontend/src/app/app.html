@@ -1,198 +1,162 @@
-<div class="application-shell">
-<a class="skip-link" href="#contenido">Saltar al contenido</a>
-<header class="site-header">
-<div class="announcement" role="note">
-  <span class="announcement-dot" aria-hidden="true"></span>
-  EspaciGo está creciendo: nuevas funciones llegarán por etapas.
-</div>
-  <div class="page-width header-inner">
-    <a class="brand" routerLink="/" aria-label="EspaciGo, ir a la portada" (click)="closeMenu()">
-      <img class="brand-mark" src="/espacigo-mark.svg" alt="" aria-hidden="true" />
-      <span>EspaciGo</span>
-    </a>
-    <button
-      appButton="primary"
-      id="main-menu-toggle"
-      class="menu-toggle"
-      type="button"
-      [attr.aria-expanded]="menuOpen()"
-      aria-controls="main-navigation"
-      (click)="toggleMenu()"
-    >
-      <span class="sr-only">{{ menuOpen() ? 'Cerrar' : 'Abrir' }} menú</span>
-      <span aria-hidden="true">{{ menuOpen() ? '×' : '☰' }}</span>
-    </button>
-    <nav
-      id="main-navigation"
-      class="main-navigation"
-      [class.is-open]="menuOpen()"
-      aria-label="Navegación principal"
-    >
-      <a
-        routerLink="/categorias"
-        routerLinkActive="is-current"
-        ariaCurrentWhenActive="page"
-        [routerLinkActiveOptions]="{ exact: true }"
-        (click)="closeMenu()"
-        >Categorías</a
+<div class="application-shell" [class.has-session]="identity.session() !== null">
+  <a class="skip-link" href="#contenido">Saltar al contenido</a>
+  <header class="site-header">
+    <div class="announcement" role="note">
+      <span class="announcement-dot" aria-hidden="true"></span>
+      EspaciGo está creciendo: nuevas funciones llegarán por etapas.
+    </div>
+    <div class="page-width header-inner">
+      <button
+        appButton="secondary"
+        id="main-menu-toggle"
+        class="menu-toggle"
+        type="button"
+        [attr.aria-expanded]="menuOpen()"
+        [attr.aria-controls]="identity.session() ? 'workspace-navigation' : 'public-navigation'"
+        (click)="toggleMenu()"
       >
-      <a
-        routerLink="/como-funciona"
-        routerLinkActive="is-current"
-        ariaCurrentWhenActive="page"
-        [routerLinkActiveOptions]="{ exact: true }"
-        (click)="closeMenu()"
-        >Cómo funciona</a
-      >
-      @if (identity.session(); as session) {
-        @if (!session.restricted_mode && session.roles.includes('arrendatario')) {
-          <a
-            routerLink="/explorar"
-            routerLinkActive="is-current"
-            ariaCurrentWhenActive="page"
-            [routerLinkActiveOptions]="{ exact: true }"
-            (click)="closeMenu()"
-            >Explorar</a
-          >
-        }
-        @if (!session.restricted_mode && (session.roles.includes('arrendador') || session.roles.includes('arrendatario') || session.roles.length === 0)) {
-          <a
-            routerLink="/panel/espacios"
-            routerLinkActive="is-current"
-            ariaCurrentWhenActive="page"
-            [routerLinkActiveOptions]="{ exact: true }"
-            (click)="closeMenu()"
-            >{{ session.roles.includes('arrendador') ? 'Anfitrión' : 'Ofrecer espacio' }}</a
-          >
-        }
-        @if (!session.restricted_mode && (session.capabilities.includes('legacy.administration') || session.roles.includes('administrador'))) {
-          <a
-            routerLink="/administracion"
-            routerLinkActive="is-current"
-            ariaCurrentWhenActive="location"
-            [routerLinkActiveOptions]="{ exact: false }"
-            (click)="closeMenu()"
-            >Administración</a
-          >
-          <a
-            routerLink="/administracion/disputas"
-            routerLinkActive="is-current"
-            ariaCurrentWhenActive="page"
-            [routerLinkActiveOptions]="{ exact: true }"
-            (click)="closeMenu()"
-            >Disputas y finanzas</a
-          >
-        }
-        @if (!session.restricted_mode && session.capabilities.includes('accounts.list')) {
-          <a routerLink="/administracion/global" routerLinkActive="is-current" ariaCurrentWhenActive="page" (click)="closeMenu()">Administración global</a>
-        }
-        @if (session.roles.includes('arrendatario') || session.roles.includes('arrendador')) {
-          <a
-            routerLink="/reservas"
-            routerLinkActive="is-current"
-            ariaCurrentWhenActive="page"
-            [routerLinkActiveOptions]="{ exact: true }"
-            (click)="closeMenu()"
-            >Reservas</a
-          >
-        }
-        <a
-          routerLink="/mi-cuenta"
-          routerLinkActive="is-current"
-          ariaCurrentWhenActive="location"
-          [routerLinkActiveOptions]="{ exact: false }"
-          (click)="closeMenu()"
-          >Mi cuenta</a
-        >
-        <button appButton="primary" class="nav-sign-in" type="button" (click)="signOut()">
-          Cerrar sesión
-        </button>
-      } @else {
-        <a
-          class="nav-sign-in"
-          routerLink="/acceso"
-          routerLinkActive="is-current"
-          ariaCurrentWhenActive="page"
-          [routerLinkActiveOptions]="{ exact: true }"
-          (click)="closeMenu()"
-          >Iniciar sesión <span aria-hidden="true">↗</span></a
-        >
-      }
-    </nav>
-  </div>
-</header>
-
-@if (identity.session(); as session) {
-  @if (session.restricted_mode) {
-    <aside class="restricted-banner" role="status">
-      <strong>Acceso restringido</strong>
-      <span>Go confirmó que esta cuenta solo puede operar sobre reservas existentes.</span>
-    </aside>
-  }
-}
-@if (identity.notice()) {
-  <p class="identity-notice" role="status" aria-live="polite">{{ identity.notice() }}</p>
-}
-@if (offline()) {
-  <aside class="offline-banner" role="status" aria-live="polite" aria-atomic="true">
-    <strong>Sin conexión.</strong>
-    <span
-      >Puedes seguir leyendo esta pantalla. Las acciones que necesitan Go requieren conexión;
-      confirma su estado antes de reintentarlas.</span
-    >
-  </aside>
-}
-
-<div id="contenido" tabindex="-1">
-  <router-outlet />
-</div>
-
-<footer class="site-footer">
-  <div class="page-width footer-main">
-    <div>
-      <a
-        class="brand footer-brand"
-        routerLink="/"
-        aria-label="EspaciGo, ir a la portada"
-      >
+        <span class="sr-only">{{ menuOpen() ? 'Cerrar' : 'Abrir' }} menú de navegación</span>
+        <span class="menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+      </button>
+      <a class="brand" routerLink="/" aria-label="EspaciGo, ir a la portada" (click)="closeMenu()">
         <img class="brand-mark" src="/espacigo-mark.svg" alt="" aria-hidden="true" />
         <span>EspaciGo</span>
       </a>
-      <p>Un lugar para cada idea.</p>
-    </div>
-    <div class="footer-links">
-      <a routerLink="/categorias">Categorías</a><a routerLink="/como-funciona">Cómo funciona</a
-      ><a [routerLink]="identity.session() ? '/mi-cuenta' : '/acceso'">Mi cuenta</a>
-    </div>
-    <div class="api-health" aria-live="polite" aria-atomic="true">
-      <span
-        class="health-dot"
-        [class.is-ready]="readiness.status() === 'ready'"
-        [class.is-unavailable]="readiness.status() === 'unavailable'"
-        aria-hidden="true"
-      ></span>
-      <span>{{
-        readiness.status() === 'ready'
-          ? 'Servicio disponible'
-          : readiness.status() === 'checking'
-            ? 'Conectando con EspaciGo…'
-            : 'Servicio no disponible'
-      }}</span>
-      @if (readiness.status() === 'unavailable') {
-        <button
-          appButton="primary"
-          type="button"
-          class="retry-button"
-          (click)="readiness.refresh()"
+      @if (identity.session()) {
+        <nav class="breadcrumb" aria-label="Ubicación actual">
+          <ol>
+            <li>{{ shellLocation().area }}</li>
+            <li><span aria-current="page">{{ shellLocation().resource }}</span></li>
+          </ol>
+        </nav>
+        <a appButton="text" class="account-shortcut" routerLink="/mi-cuenta" (click)="closeMenu()">
+          Mi cuenta
+        </a>
+      } @else {
+        <nav
+          id="public-navigation"
+          class="public-navigation"
+          [class.is-open]="menuOpen()"
+          aria-label="Navegación principal"
         >
-          Reintentar
-        </button>
+          <a routerLink="/explorar" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: false }" (click)="closeMenu()">Explorar</a>
+          <a routerLink="/categorias" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMenu()">Categorías</a>
+          <a routerLink="/como-funciona" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMenu()">Cómo funciona</a>
+          <a class="nav-sign-in" routerLink="/acceso" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMenu()">Iniciar sesión <span aria-hidden="true">↗</span></a>
+        </nav>
       }
     </div>
+  </header>
+
+  @if (identity.session(); as session) {
+    <nav
+      id="workspace-navigation"
+      class="workspace-navigation"
+      [class.is-open]="menuOpen()"
+      aria-label="Área de trabajo"
+    >
+      <div class="workspace-navigation-scroll">
+        <div class="navigation-group" role="group" aria-labelledby="discover-navigation-label">
+          <p id="discover-navigation-label" class="navigation-group-label">Explorar</p>
+          <a routerLink="/explorar" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: false }" (click)="closeMenu()">Catálogo</a>
+          <a routerLink="/categorias" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMenu()">Categorías</a>
+          <a routerLink="/como-funciona" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMenu()">Cómo funciona</a>
+        </div>
+
+        @if (!session.restricted_mode && (session.roles.includes('arrendador') || session.roles.includes('arrendatario') || session.roles.length === 0)) {
+          <div class="navigation-group" role="group" aria-labelledby="personal-navigation-label">
+            <p id="personal-navigation-label" class="navigation-group-label">Área personal</p>
+            <a routerLink="/panel/espacios" routerLinkActive="is-current" ariaCurrentWhenActive="location" [routerLinkActiveOptions]="{ exact: false }" (click)="closeMenu()">{{ session.roles.includes('arrendador') ? 'Mis espacios' : 'Ofrecer espacio' }}</a>
+            @if (session.roles.includes('arrendatario') || session.roles.includes('arrendador')) {
+              <a routerLink="/reservas" routerLinkActive="is-current" ariaCurrentWhenActive="location" [routerLinkActiveOptions]="{ exact: false }" (click)="closeMenu()">Reservas</a>
+            }
+          </div>
+        }
+
+        @if (!session.restricted_mode && (session.capabilities.includes('legacy.administration') || session.roles.includes('administrador'))) {
+          <div class="navigation-group" role="group" aria-labelledby="admin-navigation-label">
+            <p id="admin-navigation-label" class="navigation-group-label">Administración</p>
+            <a routerLink="/administracion" routerLinkActive="is-current" ariaCurrentWhenActive="location" [routerLinkActiveOptions]="{ exact: false }" (click)="closeMenu()">Cola operativa</a>
+            <a routerLink="/administracion/disputas" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMenu()">Disputas y finanzas</a>
+          </div>
+        }
+        @if (!session.restricted_mode && session.capabilities.includes('accounts.list')) {
+          <div class="navigation-group" role="group" aria-labelledby="global-navigation-label">
+            <p id="global-navigation-label" class="navigation-group-label">Administración global</p>
+            <a routerLink="/administracion/global" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: false }" (click)="closeMenu()">Directorio global</a>
+          </div>
+        }
+
+        <div class="navigation-group" role="group" aria-labelledby="account-navigation-label">
+          <p id="account-navigation-label" class="navigation-group-label">Cuenta</p>
+          <a routerLink="/mi-cuenta" routerLinkActive="is-current" ariaCurrentWhenActive="location" [routerLinkActiveOptions]="{ exact: false }" (click)="closeMenu()">Perfil y privacidad</a>
+          <a routerLink="/mi-cuenta/verificaciones" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMenu()">Verificaciones</a>
+          <a routerLink="/mi-cuenta/seguridad" routerLinkActive="is-current" ariaCurrentWhenActive="page" [routerLinkActiveOptions]="{ exact: true }" (click)="closeMenu()">Seguridad</a>
+        </div>
+      </div>
+      <div class="workspace-account">
+        <a routerLink="/mi-cuenta" (click)="closeMenu()">Mi cuenta</a>
+        <button appButton="text" class="sign-out-button" type="button" (click)="signOut()">Cerrar sesión</button>
+      </div>
+    </nav>
+  }
+
+  <div class="shell-content">
+    @if (identity.session(); as session) {
+      @if (session.restricted_mode) {
+        <aside class="restricted-banner" role="status">
+          <strong>Acceso restringido</strong>
+          <span>Go confirmó que esta cuenta solo puede operar sobre reservas existentes.</span>
+        </aside>
+      }
+    }
+    @if (identity.notice()) {
+      <p class="identity-notice" role="status" aria-live="polite">{{ identity.notice() }}</p>
+    }
+    @if (offline()) {
+      <aside class="offline-banner" role="status" aria-live="polite" aria-atomic="true">
+        <strong>Sin conexión.</strong>
+        <span>Puedes seguir leyendo esta pantalla. Las acciones que necesitan Go requieren conexión; confirma su estado antes de reintentarlas.</span>
+      </aside>
+    }
+
+    <main id="contenido" class="route-content" tabindex="-1">
+      <router-outlet />
+    </main>
+
+    <footer class="site-footer">
+      <div class="page-width footer-main">
+        <div>
+          <a class="brand footer-brand" routerLink="/" aria-label="EspaciGo, ir a la portada">
+            <img class="brand-mark" src="/espacigo-mark.svg" alt="" aria-hidden="true" />
+            <span>EspaciGo</span>
+          </a>
+          <p>Un lugar para cada idea.</p>
+        </div>
+        <div class="footer-links">
+          <a routerLink="/explorar">Explorar</a>
+          <a routerLink="/categorias">Categorías</a>
+          <a routerLink="/como-funciona">Cómo funciona</a>
+          <a [routerLink]="identity.session() ? '/mi-cuenta' : '/acceso'">{{ identity.session() ? 'Mi cuenta' : 'Iniciar sesión' }}</a>
+        </div>
+        <div class="api-health" aria-live="polite" aria-atomic="true">
+          <span class="health-dot" [class.is-ready]="readiness.status() === 'ready'" [class.is-unavailable]="readiness.status() === 'unavailable'" aria-hidden="true"></span>
+          <span>{{
+            readiness.status() === 'ready'
+              ? 'Servicio disponible'
+              : readiness.status() === 'checking'
+                ? 'Conectando con EspaciGo…'
+                : 'Servicio no disponible'
+          }}</span>
+          @if (readiness.status() === 'unavailable') {
+            <button appButton="text" type="button" class="retry-button" (click)="readiness.refresh()">Reintentar</button>
+          }
+        </div>
+      </div>
+      <div class="page-width footer-bottom">
+        <span>© 2026 EspaciGo · Prototipo local</span>
+        <span>Espacios flexibles para proyectos reales.</span>
+      </div>
+    </footer>
   </div>
-  <div class="page-width footer-bottom">
-    <span>© 2026 EspaciGo · Prototipo local</span
-    ><span>Espacios flexibles para proyectos reales.</span>
-  </div>
-</footer>
 </div>
