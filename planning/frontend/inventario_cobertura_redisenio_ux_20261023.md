@@ -59,6 +59,10 @@ El usuario eligió **A · Editorial funcional** el 2026-10-23 desde `http://127.
 
 Un corte se considera cubierto cuando registra rutas, fuente→destino de acciones, guard/capacidad, casos de carga/vacío/error/éxito/denegación pertinentes, pruebas y captura/hash. Las pruebas automatizadas no sustituyen la autorización Go, una evaluación con participantes o aceptación del usuario. Mantener fuera del alcance módulos de soporte/tickets no existentes y toda capacidad no presente en el código/contrato vigente.
 
+## Regla de validación online para UX-03P–UX-09
+
+La comprobación de acceso y experiencia en servicios online la realiza exclusivamente el usuario. El agente no inicia sesión ni inspecciona la interfaz, las sesiones o los datos de cuentas online durante estos cortes. La validación del agente se limita a entornos locales desechables con cuentas sintéticas conforme a la política `LOCAL PRIVADA`; sus credenciales permanecen bajo `.local/testing/` y los recursos del ensayo se retiran al terminar. La evidencia que aporte el usuario no equivale por sí sola a aceptación final del producto.
+
 ## Baseline de ejecución
 
 - `ng build`: tres rutas prerenderizadas; bundle inicial 453.64 kB. Baseline supera el warning de `hosting-spaces-page.scss` por 87 bytes (9.09 kB frente a 9.00 kB); no elevar los límites presupuestarios.
