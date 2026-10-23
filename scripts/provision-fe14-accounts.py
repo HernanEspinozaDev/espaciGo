@@ -61,7 +61,6 @@ def main():
         status, _ = request(api, 'POST', '/api/v1/auth/register', {
             'email': email,
             'password': password,
-            'use_preference': 'arrendar',
             'terms_version_ids': ids,
         })
         if status != 201:

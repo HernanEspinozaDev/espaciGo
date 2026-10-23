@@ -66,6 +66,31 @@ describe('identity and role guards', () => {
     expect(TestBed.inject(Router).serializeUrl(result as UrlTree)).toBe('/mi-cuenta');
   });
 
+  it.each([{ roles: [] }, { roles: ['arrendatario'] }] as const)('allows business roles %j to start the first landlord action only on the onboarding route', ({ roles }) => {
+    setup();
+    TestBed.inject(IdentitySession).session.set({
+      account_id: 'synthetic-account',
+      roles: [...roles],
+      capabilities: [],
+      restricted_mode: false,
+    });
+    const firstActionRoute = {
+      data: { requiredRole: 'arrendador', allowFirstBusinessAction: true },
+    } as unknown as ActivatedRouteSnapshot;
+    const firstAction = runInInjectionContext(TestBed.inject(EnvironmentInjector), () =>
+      roleGuard(firstActionRoute, {} as never),
+    );
+    expect(firstAction).toBe(true);
+
+    const laterActionRoute = {
+      data: { requiredRole: 'arrendador' },
+    } as unknown as ActivatedRouteSnapshot;
+    const laterAction = runInInjectionContext(TestBed.inject(EnvironmentInjector), () =>
+      roleGuard(laterActionRoute, {} as never),
+    );
+    expect(TestBed.inject(Router).serializeUrl(laterAction as UrlTree)).toBe('/mi-cuenta');
+  });
+
   it('requires Go-confirmed accounts.list for the global directory', () => {
     setup();
     const identity = TestBed.inject(IdentitySession);

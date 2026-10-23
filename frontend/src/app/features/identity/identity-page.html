@@ -5,6 +5,9 @@
     @if (mode === 'login') {
       <h1 id="identity-title">Inicia sesión</h1>
       <p class="intro">Accede con la cuenta que registraste en EspaciGo.</p>
+      @if (successMessage()) {
+        <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
+      }
       <form (submit)="onLogin($event)" novalidate>
         <div class="field">
           <label for="login-email">Correo electrónico</label>
@@ -74,7 +77,7 @@
     @if (mode === 'register') {
       <h1 id="identity-title">Crea tu cuenta</h1>
       <p class="intro">
-        La preferencia inicial organiza el recorrido; Go asigna los permisos por separado.
+        Verifica tu correo para activar tu cuenta. Podrás arrendar y ofrecer espacios según las acciones que realices.
       </p>
       @if (termsState() === 'loading') {
         <p class="loading-note" role="status">Cargando versiones desde Go…</p>
@@ -153,26 +156,6 @@
             }}</span>
           }
         </div>
-        <fieldset class="preference-fieldset">
-          <legend>¿Qué te interesa hacer primero?</legend>
-          <div class="choice-grid">
-            <label class="choice-card"
-              ><input type="radio" value="arrendar" [formField]="registerForm.usePreference" />
-              <span>Arrendar un espacio</span></label
-            >
-            <label class="choice-card"
-              ><input type="radio" value="ofrecer" [formField]="registerForm.usePreference" />
-              <span>Ofrecer un espacio</span></label
-            >
-          </div>
-          @if (
-            registerForm.usePreference().touched() && registerForm.usePreference().errors().length
-          ) {
-            <span class="field-error">{{ registerForm.usePreference().errors()[0].message }}</span>
-          }
-          <span class="field-hint">Esto no concede ni cambia roles.</span>
-        </fieldset>
-
         @if (termsState() === 'ready') {
           <fieldset class="terms-fieldset">
             <legend>Versiones sintéticas de ensayo</legend>
@@ -216,7 +199,12 @@
           <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
         }
         @if (successMessage()) {
-          <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
+          <p
+            class="form-alert"
+            [class.is-error]="registrationNeedsRetry()"
+            [class.is-success]="!registrationNeedsRetry()"
+            [attr.role]="registrationNeedsRetry() ? 'alert' : 'status'"
+          >{{ successMessage() }}</p>
           <a routerLink="/verificar-correo" [queryParams]="identityQueryParams()">Verificar el correo</a>
         }
         <button
@@ -234,8 +222,7 @@
     @if (mode === 'verify') {
       <h1 id="identity-title">Verifica tu correo</h1>
       <p class="intro">
-        El API envía un código a Mailpit. Copia aquí el identificador y el token del mensaje; no los
-        pongas en una URL.
+        Abre el enlace de verificación que recibiste. Si no tienes el correo, puedes solicitar otro.
       </p>
       <form (submit)="onVerify($event)" novalidate>
         <div class="field">

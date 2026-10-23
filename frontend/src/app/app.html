@@ -56,14 +56,14 @@
             >Explorar</a
           >
         }
-        @if (!session.restricted_mode && session.roles.includes('arrendador')) {
+        @if (!session.restricted_mode && (session.roles.includes('arrendador') || session.roles.includes('arrendatario') || session.roles.length === 0)) {
           <a
             routerLink="/panel/espacios"
             routerLinkActive="is-current"
             ariaCurrentWhenActive="page"
             [routerLinkActiveOptions]="{ exact: true }"
             (click)="closeMenu()"
-            >Anfitrión</a
+            >{{ session.roles.includes('arrendador') ? 'Anfitrión' : 'Ofrecer espacio' }}</a
           >
         }
         @if (!session.restricted_mode && (session.capabilities.includes('legacy.administration') || session.roles.includes('administrador'))) {

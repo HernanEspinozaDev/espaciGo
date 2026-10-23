@@ -356,7 +356,7 @@ func testActionToken(id, accountID, hash, purpose string, createdAt, expiresAt t
 	}
 }
 
-func TestCreateWithTermsCommitsAccountRoleAndAcceptanceTogether(t *testing.T) {
+func TestCreateWithTermsCommitsAccountWithoutRoleAndWithAcceptance(t *testing.T) {
 	ctx, pool := newIdentityTestPool(t)
 	repo := identitypg.NewIdentityRepository(pool)
 	account := testAccount("00000000-0000-4000-8000-000000000060", "registration@ejemplo.invalid")
@@ -386,7 +386,7 @@ func TestCreateWithTermsCommitsAccountRoleAndAcceptanceTogether(t *testing.T) {
 	if err := pool.QueryRow(ctx, "SELECT count(*) FROM public.aceptacion_terminos WHERE usuario_id=$1 AND version_id=$2", account.ID, acceptance.VersionID).Scan(&acceptedTerms); err != nil {
 		t.Fatal(err)
 	}
-	if tenantRoles != 1 || adminRoles != 0 || acceptedTerms != 1 {
+	if tenantRoles != 0 || adminRoles != 0 || acceptedTerms != 1 {
 		t.Fatalf("stored registration rows tenant=%d admin=%d terms=%d", tenantRoles, adminRoles, acceptedTerms)
 	}
 	version, err := repo.TermsVersion(ctx, acceptance.VersionID)

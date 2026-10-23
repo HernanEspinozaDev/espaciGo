@@ -23,9 +23,9 @@ type Migration struct {
 }
 
 type HistoryEntry struct {
-	Version  int64
-	Name     string
-	Checksum string
+	Version  int64  `json:"version"`
+	Name     string `json:"name"`
+	Checksum string `json:"checksum"`
 }
 
 func sha256Hex(data []byte) string {

@@ -25,6 +25,9 @@ export class IdentityPage {
   get successMessage() {
     return this.facade.successMessage;
   }
+  get registrationNeedsRetry() {
+    return this.facade.registrationNeedsRetry;
+  }
   get loginConfirmed() {
     return this.facade.loginConfirmed;
   }

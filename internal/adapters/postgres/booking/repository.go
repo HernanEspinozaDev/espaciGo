@@ -457,6 +457,14 @@ RETURNING `+reservationCols, id, quoteID, renter, key, fingerprint, occupancyID,
 	if err != nil {
 		return booking.Reservation{}, err
 	}
+	if _, err = tx.Exec(ctx, `WITH granted AS (
+  INSERT INTO public.rol_usuario(usuario_id,rol,concedido_por)
+  VALUES($1,'arrendatario',$1) ON CONFLICT(usuario_id,rol) DO NOTHING RETURNING usuario_id
+)
+INSERT INTO public.rol_usuario_evento(usuario_id,rol,accion,recurso_id)
+SELECT usuario_id,'arrendatario','primera_solicitud_reserva',$2 FROM granted`, renter, v.ID); err != nil {
+		return booking.Reservation{}, mapErr(err)
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return booking.Reservation{}, mapErr(err)
 	}

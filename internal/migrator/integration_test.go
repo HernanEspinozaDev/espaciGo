@@ -57,6 +57,57 @@ func TestRunnerAppliesFromEmptyAndRepeatIsNoop(t *testing.T) {
 	})
 }
 
+func TestRunnerRefusesToInitializeLedgerBesideExistingApplicationObjects(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		conn := connectTestDB(t, ctx, databaseURL)
+		if _, err := conn.Exec(ctx, `CREATE TABLE public.existing_application_probe (id integer PRIMARY KEY)`); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.Close(ctx); err != nil {
+			t.Fatal(err)
+		}
+
+		dir := t.TempDir()
+		writeMigration(t, dir, "V000001__probe.sql", "CREATE TABLE public.new_probe (id integer PRIMARY KEY);\n")
+		if _, err := Run(ctx, databaseURL, dir); err == nil || !strings.Contains(err.Error(), "without public.schema_migrations") {
+			t.Fatalf("expected missing-ledger guard, got %v", err)
+		}
+
+		check := connectTestDB(t, ctx, databaseURL)
+		defer check.Close(context.Background())
+		var historyExists bool
+		if err := check.QueryRow(ctx, `SELECT to_regclass('public.schema_migrations') IS NOT NULL`).Scan(&historyExists); err != nil {
+			t.Fatal(err)
+		}
+		if historyExists {
+			t.Fatal("runner initialized migration history beside existing application objects")
+		}
+	})
+}
+
+func TestPlanOnlyDoesNotInitializeLedgerOrExecutePendingMigrations(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		dir := t.TempDir()
+		writeMigration(t, dir, "V000001__plan_probe.sql", "CREATE TABLE public.plan_probe (id integer PRIMARY KEY);\n")
+		plan, err := Plan(ctx, databaseURL, dir, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !plan.ReadOnly || plan.HistoryExists || len(plan.Applied) != 0 || len(plan.Pending) != 1 || plan.Pending[0].Version != 1 {
+			t.Fatalf("unexpected read-only plan: %#v", plan)
+		}
+		conn := connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(context.Background())
+		var historyExists, migrationObjectExists bool
+		if err := conn.QueryRow(ctx, `SELECT to_regclass('public.schema_migrations') IS NOT NULL, to_regclass('public.plan_probe') IS NOT NULL`).Scan(&historyExists, &migrationObjectExists); err != nil {
+			t.Fatal(err)
+		}
+		if historyExists || migrationObjectExists {
+			t.Fatalf("plan-only changed database state: history=%t migration_object=%t", historyExists, migrationObjectExists)
+		}
+	})
+}
+
 func TestRunnerAppliesDDLUnderRestrictedSetRoleMembership(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
 		suffix := fmt.Sprintf("%d", time.Now().UnixNano())
@@ -1393,13 +1444,13 @@ func TestGCP06TestAccessMigrationV66LeastPrivilege(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(migrations) != 67 || migrations[65].Name != "V000066__gcp06_test_access_reset.sql" || migrations[66].Name != "V000067__inmuebles_residential_rentals.sql" {
+	if len(migrations) != 74 || migrations[65].Name != "V000066__gcp06_test_access_reset.sql" || migrations[66].Name != "V000067__inmuebles_residential_rentals.sql" || migrations[73].Name != "V000074__first_business_action_roles.sql" {
 		t.Fatalf("unexpected migration tail around GCP-06/V67: count=%d latest=%q", len(migrations), migrations[len(migrations)-1].Name)
 	}
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
 		result, err := Run(ctx, databaseURL, sourceDir)
-		if err != nil || len(result.Applied) != 67 || result.Applied[65] != 66 || result.Applied[66] != 67 {
-			t.Fatalf("fresh V1-V67 migration: applied=%v err=%v", result.Applied, err)
+		if err != nil || len(result.Applied) != 74 || result.Applied[65] != 66 || result.Applied[66] != 67 || result.Applied[73] != 74 {
+			t.Fatalf("fresh V1-V74 migration: applied=%v err=%v", result.Applied, err)
 		}
 		conn := connectTestDB(t, ctx, databaseURL)
 		defer conn.Close(context.Background())

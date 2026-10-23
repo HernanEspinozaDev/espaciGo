@@ -60,9 +60,6 @@ func (r *IdentityRepository) CreateWithTerms(ctx context.Context, account identi
 	}); err != nil {
 		return mapError(err)
 	}
-	if err := queries.CreateTenantRole(ctx, account.ID); err != nil {
-		return mapError(err)
-	}
 	for _, acceptance := range acceptances {
 		if err := queries.CreateTermsAcceptance(ctx, dbgen.CreateTermsAcceptanceParams{
 			ID: acceptance.ID, AccountID: acceptance.AccountID, VersionID: acceptance.VersionID,

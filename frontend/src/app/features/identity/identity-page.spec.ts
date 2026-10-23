@@ -160,6 +160,51 @@ describe('IdentityPage private forms', () => {
     fixture.destroy();
   });
 
+  it('announces verified email on the login page', async () => {
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(), provideHttpClient(), provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'login' }, queryParamMap: convertToParamMap({ verificado: '1' }) } } },
+        { provide: IdentityApi, useValue: {} }, PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('[role="status"]')?.textContent).toContain('Correo verificado. Ya puedes iniciar sesión.');
+    fixture.destroy();
+  });
+
+  it.each([
+    { returnUrl: '/espacios/550e8400-e29b-41d4-a716-446655440000?action=reserve&returnTo=%2Fexplorar', preserve: true },
+    { returnUrl: 'https://untrusted.example.invalid/', preserve: false },
+  ])('verification preserves only a validated pending return: $preserve', async ({ returnUrl, preserve }) => {
+    const api = { verifyEmail: vi.fn().mockResolvedValue(undefined) };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(), provideHttpClient(), provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'verify' }, queryParamMap: convertToParamMap({ returnUrl }) } } },
+        { provide: IdentityApi, useValue: api }, PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    const page = fixture.componentInstance as unknown as {
+      tokenModel: { set(value: { tokenId: string; token: string }): void };
+      onVerify(event: SubmitEvent): Promise<void>;
+    };
+    page.tokenModel.set({ tokenId: 'synthetic-token-id', token: 'synthetic-verification-token' });
+    await page.onVerify(new Event('submit') as SubmitEvent);
+    expect(api.verifyEmail).toHaveBeenCalledWith('synthetic-token-id', 'synthetic-verification-token');
+    const destination = new URL(navigate.mock.calls[0][0].toString(), 'http://localhost');
+    expect(destination.pathname).toBe('/acceso');
+    expect(destination.searchParams.get('verificado')).toBe('1');
+    expect(destination.searchParams.get('returnUrl')).toBe(preserve ? returnUrl : null);
+    fixture.destroy();
+  });
+
   it('returns to the same public space after contextual login without starting a write', async () => {
     const spaceId = '550e8400-e29b-41d4-a716-446655440000';
     const listing = '/explorar?q=oficina+centro&category_code=oficina&sort=relevance';

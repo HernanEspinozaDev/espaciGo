@@ -80,6 +80,13 @@ func TestPostgresDraftCRUDAndOwnerScope(t *testing.T) {
 	if created.State != "borrador" {
 		t.Fatalf("state=%q", created.State)
 	}
+	var roleCount, eventCount int
+	if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1 AND rol='arrendador'), (SELECT count(*) FROM public.rol_usuario_evento WHERE usuario_id=$1 AND rol='arrendador' AND accion='primer_borrador_espacio' AND recurso_id=$2)`, ownerA, created.ID).Scan(&roleCount, &eventCount); err != nil {
+		t.Fatal(err)
+	}
+	if roleCount != 1 || eventCount != 1 {
+		t.Fatalf("first draft role grant not atomic/audited: roles=%d events=%d", roleCount, eventCount)
+	}
 	if created.AttributeSchemaVersion != 1 || created.Attributes["wifi"] != false || created.Attributes["puestos_trabajo"] != float64(6) || created.Attributes["banos_disponibles"] != float64(0) {
 		t.Fatalf("created attributes not preserved: %+v", created)
 	}

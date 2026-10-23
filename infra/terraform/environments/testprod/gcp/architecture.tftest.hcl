@@ -426,3 +426,49 @@ run "mailpit_vm_uses_explicit_cos_image_pin" {
     error_message = "An explicit COS pin must be used directly without querying the moving cos-stable family."
   }
 }
+
+run "smtp_metadata_disabled_by_default" {
+  command = plan
+  variables {
+    project_id                 = "offline-test-project"
+    project_number             = "123456789012"
+    enable_foundation          = true
+    confirm_project_inventory  = true
+    confirm_cost_policy_review = true
+    bucket_suffix              = "offline-test"
+  }
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.smtp_preflight_viewer) == 0
+    error_message = "SMTP metadata IAM requires explicit review opt-in."
+  }
+}
+
+run "smtp_metadata_viewer_is_scoped_to_existing_secret" {
+  command = plan
+  override_resource {
+    target          = google_service_account.cloud_build_deployer[0]
+    override_during = plan
+    values = {
+      email = "espacigo-cloud-build-deployer@offline-test-project.iam.gserviceaccount.com"
+      name  = "projects/offline-test-project/serviceAccounts/espacigo-cloud-build-deployer@offline-test-project.iam.gserviceaccount.com"
+    }
+  }
+  variables {
+    project_id                     = "offline-test-project"
+    project_number                 = "123456789012"
+    enable_foundation              = true
+    confirm_project_inventory      = true
+    confirm_cost_policy_review     = true
+    bucket_suffix                  = "offline-test"
+    enable_smtp_metadata_preflight = true
+  }
+  assert {
+    condition = (
+      length(google_secret_manager_secret_iam_member.smtp_preflight_viewer) == 1 &&
+      google_secret_manager_secret_iam_member.smtp_preflight_viewer[0].secret_id == "espacigo-test-auth-smtp-password" &&
+      google_secret_manager_secret_iam_member.smtp_preflight_viewer[0].role == "roles/secretmanager.viewer" &&
+      google_secret_manager_secret_iam_member.smtp_preflight_viewer[0].member == "serviceAccount:${google_service_account.cloud_build_deployer[0].email}"
+    )
+    error_message = "Cloud Build may only view metadata on the existing SMTP secret; never payload access or project-wide access."
+  }
+}

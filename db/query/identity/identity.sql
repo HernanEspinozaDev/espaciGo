@@ -7,10 +7,6 @@ INSERT INTO public.usuario (
     sqlc.arg(state), sqlc.arg(created_at), sqlc.arg(updated_at), sqlc.arg(use_preference)
 );
 
--- name: CreateTenantRole :exec
-INSERT INTO public.rol_usuario (usuario_id, rol)
-VALUES (sqlc.arg(account_id), 'arrendatario');
-
 -- name: CreateTermsAcceptance :exec
 INSERT INTO public.aceptacion_terminos (
     id, usuario_id, version_id, aceptada_en, canal

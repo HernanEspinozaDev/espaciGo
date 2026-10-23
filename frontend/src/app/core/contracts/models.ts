@@ -3,7 +3,6 @@
 export type AccountCreated = {
   account_id: string;
   status: 'email_pending' | 'verification_pending';
-  use_preference: 'ofrecer' | 'arrendar';
   message?: string;
 };
 

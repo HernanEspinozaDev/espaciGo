@@ -30,8 +30,7 @@ term_ids = [item["id"] for item in terms["items"] if item["type"] == "terminos"]
 email = f"m02-{uuid.uuid4().hex}@ejemplo.invalid"
 password = "Synthetic#123"
 registration = call("POST", API + "/api/v1/auth/register",
-                    {"email": email, "password": password, "use_preference": "arrendar",
-                     "terms_version_ids": term_ids}, expected=201)
+                    {"email": email, "password": password, "terms_version_ids": term_ids}, expected=201)
 
 deadline = time.monotonic() + 10
 message = None

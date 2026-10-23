@@ -4942,7 +4942,6 @@ components:
       required:
       - email
       - password
-      - use_preference
       - terms_version_ids
       properties:
         email:
@@ -4953,10 +4952,6 @@ components:
           minLength: 8
           writeOnly: true
           description: RQF-003–006; mayúscula, número, especial; máximo bcrypt 72 bytes.
-        use_preference:
-          type: string
-          enum: [ofrecer, arrendar]
-          description: Preferencia inicial de onboarding; no concede roles.
         terms_version_ids:
           type: array
           minItems: 1
@@ -5036,7 +5031,6 @@ components:
       required:
       - account_id
       - status
-      - use_preference
       properties:
         account_id: *id010
         status:
@@ -5044,9 +5038,6 @@ components:
           enum:
           - email_pending
           - verification_pending
-        use_preference:
-          type: string
-          enum: [ofrecer, arrendar]
         message: &id012
           type: string
     LoginResponse:

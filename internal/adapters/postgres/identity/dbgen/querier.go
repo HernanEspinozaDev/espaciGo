@@ -23,7 +23,6 @@ type Querier interface {
 	CreateCredentialNoticeRecoveryCycle(ctx context.Context, arg CreateCredentialNoticeRecoveryCycleParams) error
 	CreateRightsRequest(ctx context.Context, arg CreateRightsRequestParams) (CreateRightsRequestRow, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) error
-	CreateTenantRole(ctx context.Context, accountID string) error
 	CreateTermsAcceptance(ctx context.Context, arg CreateTermsAcceptanceParams) error
 	DeleteExpiredPasswordHistory(ctx context.Context, arg DeleteExpiredPasswordHistoryParams) error
 	EnqueueCredentialChanged(ctx context.Context, arg EnqueueCredentialChangedParams) error

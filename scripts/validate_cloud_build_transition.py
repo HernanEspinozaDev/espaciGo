@@ -195,6 +195,58 @@ def main() -> int:
         errors.append("expected the user-managed deployment service account")
     if ids[0] != "acquire-and-validate-deploy-lock" or "--if-generation-match=0" not in script:
         errors.append("builds must serialize on a GCS lock")
+    schema_gate_step = next((step for step in steps if step.get("id") == "acquire-and-validate-deploy-lock"), {})
+    schema_gate_script = "\n".join(schema_gate_step.get("args", []))
+    schema_evidence_substitutions = (
+        "_APP_SCHEMA_EVIDENCE_URI",
+        "_APP_SCHEMA_EVIDENCE_GENERATION",
+        "_APP_SCHEMA_EVIDENCE_SHA256",
+    )
+    if any(substitutions.get(key) != "" for key in schema_evidence_substitutions):
+        errors.append("schema evidence location/generation/digest must remain empty until a recent live database report is approved")
+    schema_evidence_contract = (
+        '[[ -n "${_APP_SCHEMA_EVIDENCE_URI}" && -n "${_APP_SCHEMA_EVIDENCE_GENERATION}" && -n "${_APP_SCHEMA_EVIDENCE_SHA256}" ]]',
+        '[[ "${_APP_SCHEMA_EVIDENCE_GENERATION}" =~ ^[1-9][0-9]*$ ]]',
+        '[[ "${_APP_SCHEMA_EVIDENCE_SHA256}" =~ ^[a-f0-9]{64}$ ]]',
+        'gcloud storage objects describe "$$schema_evidence_uri"',
+        'gcloud storage cp "$$schema_evidence_uri" /workspace/img01-schema-evidence.json',
+        'sha256sum /workspace/img01-schema-evidence.json',
+        "python3 scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json",
+        "img01-schema-evidence/${_APP_SCHEMA_EVIDENCE_SHA256}.json",
+    )
+    if any(token not in schema_gate_script for token in schema_evidence_contract):
+        errors.append("release must validate a generation-pinned, digest-pinned live schema evidence report before deployment")
+    if schema_gate_script.find("verify_img01_schema_release_evidence.py") > schema_gate_script.find("--if-generation-match=0"):
+        errors.append("live schema evidence must be verified before the deployment lock is created")
+    evidence_validator = Path("scripts/verify_img01_schema_release_evidence.py").read_text(encoding="utf-8")
+    for token in (
+        "schema_migrations", "space_media", "claim_private_media_cleanup",
+        "espacigo_privacy_cleanup_worker", "espacigo_runtime", "ledger_select",
+    ):
+        if token not in evidence_validator:
+            errors.append(f"schema evidence validator must check live database property {token}")
+    required_smtp_settings = (
+        '[[ -n "${_AUTH_SMTP_HOST}" && -n "${_AUTH_SMTP_PORT}" && -n "${_AUTH_SMTP_SECURITY}" && -n "${_AUTH_SMTP_PASSWORD_SECRET}" && -n "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" ]]'
+    )
+    if (
+        required_smtp_settings not in schema_gate_script
+        or schema_gate_script.find(required_smtp_settings) > schema_gate_script.find("gcloud ")
+    ):
+        errors.append("release must fail closed when any Zoho SMTP host, port, security, secret name, or pinned version is missing")
+    expected_smtp_defaults = {
+        "_AUTH_SMTP_HOST": "smtp.zoho.com",
+        "_AUTH_SMTP_PORT": "587",
+        "_AUTH_SMTP_SECURITY": "starttls",
+        "_AUTH_SMTP_PASSWORD_SECRET": "espacigo-test-auth-smtp-password",
+        "_AUTH_SMTP_PASSWORD_SECRET_VERSION": "1",
+    }
+    for key, value in expected_smtp_defaults.items():
+        if str(substitutions.get(key, "")).strip('"') != value:
+            errors.append(f"SMTP release substitution {key} must default to the verified free-organization configuration")
+    api_deploy = next((step for step in steps if step.get("id") == "deploy-api-by-digest"), {})
+    api_deploy_script = "\n".join(api_deploy.get("args", []))
+    if "/var/secrets/auth-smtp/password=${_AUTH_SMTP_PASSWORD_SECRET}:${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" not in api_deploy_script:
+        errors.append("the API release must always mount the pinned SMTP credential version")
     if "created_epoch <= prior_epoch" not in script:
         errors.append("deployments must reject builds older than the successful main watermark")
     lock_step = next((step for step in steps if step.get("id") == "acquire-and-validate-deploy-lock"), {})
@@ -203,10 +255,9 @@ def main() -> int:
         'sed -nE' not in lock_script
         or '"created_epoch"' not in lock_script
         or '[[ "$$prior_epoch" =~ ^[0-9]+$$ ]]' not in lock_script
-        or "python3" in lock_script
         or "jq" in lock_script
     ):
-        errors.append("the deployment watermark must be parsed and validated with tools available in google-cloud-cli:stable")
+        errors.append("the deployment watermark must be parsed without jq and validated with tools available in google-cloud-cli:stable")
     if 'gcloud builds describe "$BUILD_ID" --project="${_PROJECT}" --region="${_REGION}"' not in script:
         errors.append("the regional parent build lookup must include its configured Cloud Build region")
     if '--if-generation-match="$$generation"' not in script:
@@ -283,11 +334,20 @@ def main() -> int:
     if any(substitutions[key] != value for key, value in {
         "_CONTRACT_SECRET_VERSION": "1",
         "_PAYMENT_SECRET_VERSION": "1",
-        "_MAILPIT_ADDRESS": "10.81.1.2:1025",
     }.items()):
-        errors.append("Cloud Build runtime metadata must match the verified secret versions and private Mailpit endpoint")
-    if '[[ "${_MAILPIT_ADDRESS}" == 10.81.1.2:1025 ]]' not in script:
-        errors.append("Mailpit must stay pinned to the inventory-verified private SMTP address")
+        errors.append("Cloud Build runtime metadata must match the verified secret versions")
+    if "_MAILPIT_ADDRESS" in substitutions or "LOCAL_SMTP_ADDR" in script:
+        errors.append("online Cloud Build must not point SMTP traffic at the local Mailpit sink")
+    if any(str(substitutions.get(key, "")).strip('"') != value for key, value in {
+        "_AUTH_SMTP_HOST": "smtp.zoho.com",
+        "_AUTH_SMTP_PORT": "587",
+        "_AUTH_SMTP_SECURITY": "starttls",
+        "_AUTH_SMTP_PASSWORD_SECRET": "espacigo-test-auth-smtp-password",
+        "_AUTH_SMTP_PASSWORD_SECRET_VERSION": "1",
+    }.items()):
+        errors.append("SMTP release defaults must pin the confirmed free-organization host/port/security and existing secret version")
+    if "AUTH_SMTP_PASSWORD_FILE=/var/secrets/auth-smtp/password" not in script or "zohoSubmissionHost" not in Path("internal/adapters/zohoauth/mailer.go").read_text(encoding="utf-8"):
+        errors.append("Cloud Build and the API must use the verified Zoho SMTP credential mount and host validation")
     expected_inputs = {
         "_LOCK_BUCKET": "espacigo-testprod-cloud-build-447373903153",
         "_SOURCE_STAGING_BUCKET": "espacigo-testprod-cloud-build-447373903153",

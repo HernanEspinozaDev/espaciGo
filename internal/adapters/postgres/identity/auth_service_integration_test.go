@@ -296,7 +296,7 @@ func waitForAccountLockWaitCount(t *testing.T, h *authHarness, want int) {
 }
 func (h *authHarness) register(t *testing.T, email string) string {
 	t.Helper()
-	id, err := h.service.Register(h.ctx, identity.RegisterInput{Email: email, Password: "Synthetic#123", UsePreference: "arrendar", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
+	id, err := h.service.Register(h.ctx, identity.RegisterInput{Email: email, Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,9 +326,6 @@ func TestAuthRegistrationTermsDuplicateAndUnverifiedLogin(t *testing.T) {
 	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "bad", Password: "bad"}); !errors.Is(err, identity.ErrInvalid) {
 		t.Fatal("invalid registration accepted")
 	}
-	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "preference@ejemplo.invalid", Password: "Synthetic#123", UsePreference: "administrador", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrInvalid) {
-		t.Fatal("invalid onboarding preference accepted")
-	}
 	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "terms@ejemplo.invalid", Password: "Synthetic#123", Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrInvalid) {
 		t.Fatal("registration without terms accepted")
 	}
@@ -346,10 +343,10 @@ func TestAuthRegistrationTermsDuplicateAndUnverifiedLogin(t *testing.T) {
 	if err := h.pool.QueryRow(h.ctx, "SELECT (SELECT count(*) FROM aceptacion_terminos WHERE usuario_id=$1), (SELECT count(*) FROM rol_usuario WHERE usuario_id=$1 AND rol='arrendatario'), (SELECT count(*) FROM rol_usuario WHERE usuario_id=$1 AND rol='administrador')", id).Scan(&terms, &tenants, &admins); err != nil {
 		t.Fatal(err)
 	}
-	if terms != 1 || tenants != 1 || admins != 0 {
-		t.Fatal("terms/least role invariant broken")
+	if terms != 1 || tenants != 0 || admins != 0 {
+		t.Fatal("terms/registration must not grant a role")
 	}
-	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "STRASSE+alias@example.invalid", Password: "Synthetic#123", UsePreference: "ofrecer", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrEmailRegistered) {
+	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "STRASSE+alias@example.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrEmailRegistered) {
 		t.Fatal("canonical duplicate not explicit")
 	}
 	if _, err := h.service.Login(h.ctx, identity.LoginInput{Email: "strasse+alias@example.invalid", Password: "Synthetic#123"}); !errors.Is(err, identity.ErrEmailUnverified) {
@@ -357,12 +354,12 @@ func TestAuthRegistrationTermsDuplicateAndUnverifiedLogin(t *testing.T) {
 	}
 	h.verify(t)
 	login := h.login(t, "STRASSE+alias@example.invalid")
-	if login.AccountID != id || len(login.Roles) != 1 || login.Roles[0] != identity.RoleTenant || login.ExpiresAt.Sub(h.now) != 8*time.Hour {
+	if login.AccountID != id || len(login.Roles) != 0 || login.ExpiresAt.Sub(h.now) != 8*time.Hour {
 		t.Fatal("login roles/absolute expiry invalid")
 	}
 }
 
-func TestRegistrationAPIPersistsNonExclusiveOnboardingPreference(t *testing.T) {
+func TestRegistrationAPIRequiresNoBusinessPreferenceAndGrantsNoRole(t *testing.T) {
 	h := newAuthHarness(t)
 	api := identityhttp.NewHandler(h.service, h.repo, nil)
 	request := func(body string) *httptest.ResponseRecorder {
@@ -373,24 +370,38 @@ func TestRegistrationAPIPersistsNonExclusiveOnboardingPreference(t *testing.T) {
 		api.ServeHTTP(response, req)
 		return response
 	}
-	missing := request(`{"email":"preference-missing@ejemplo.invalid","password":"Synthetic#123","terms_version_ids":["00000000-0000-4000-8000-000000000001"]}`)
-	if missing.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("missing preference status=%d body=%s", missing.Code, missing.Body.String())
-	}
-	created := request(`{"email":"preference-api@ejemplo.invalid","password":"Synthetic#123","use_preference":"ofrecer","terms_version_ids":["00000000-0000-4000-8000-000000000001"]}`)
+	created := request(`{"email":"preference-api@ejemplo.invalid","password":"Synthetic#123","terms_version_ids":["00000000-0000-4000-8000-000000000001"]}`)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("register status=%d body=%s", created.Code, created.Body.String())
 	}
 	var payload struct {
-		AccountID     string `json:"account_id"`
-		UsePreference string `json:"use_preference"`
+		AccountID string `json:"account_id"`
 	}
 	if err := json.Unmarshal(created.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
 	account, err := h.repo.AccountByID(h.ctx, payload.AccountID)
-	if err != nil || payload.UsePreference != "ofrecer" || account.UsePreference != "ofrecer" {
-		t.Fatalf("API preference response=%q stored=%q err=%v", payload.UsePreference, account.UsePreference, err)
+	if err != nil || account.UsePreference != "" {
+		t.Fatalf("API must not record onboarding preference, stored=%q err=%v", account.UsePreference, err)
+	}
+	if err := h.service.VerifyEmail(h.ctx, h.mail.last().TokenID, h.mail.last().Token, "192.0.2.88"); err != nil {
+		t.Fatal(err)
+	}
+	login, err := h.service.Login(h.ctx, identity.LoginInput{Email: "preference-api@ejemplo.invalid", Password: "Synthetic#123"})
+	if err != nil || len(login.Roles) != 0 {
+		t.Fatalf("new registration received roles=%v err=%v", login.Roles, err)
+	}
+	reissue := func(email string) int {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verification/reissue", strings.NewReader(`{"email":"`+email+`"}`))
+		req.RemoteAddr = "192.0.2.40:8080"
+		req.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		api.ServeHTTP(response, req)
+		return response.Code
+	}
+	h.mail.fail = true
+	if unknownStatus, deliveryFailureStatus := reissue("unknown-api@ejemplo.invalid"), reissue("preference-api@ejemplo.invalid"); unknownStatus != http.StatusNoContent || deliveryFailureStatus != unknownStatus {
+		t.Fatalf("verification reissue disclosed account/delivery outcome: unknown=%d failed-send=%d", unknownStatus, deliveryFailureStatus)
 	}
 }
 
@@ -3240,7 +3251,7 @@ func TestAuthVerificationActivationRollsBackAndDeliveryFailureIsRetryable(t *tes
 	}
 	h2 := newAuthHarness(t)
 	h2.mail.fail = true
-	pending, err := h2.service.Register(h2.ctx, identity.RegisterInput{Email: "delivery@ejemplo.invalid", Password: "Synthetic#123", UsePreference: "arrendar", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
+	pending, err := h2.service.Register(h2.ctx, identity.RegisterInput{Email: "delivery@ejemplo.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
 	if pending == "" || !errors.Is(err, identity.ErrDelivery) {
 		t.Fatal("delivery failure did not expose committed pending account")
 	}

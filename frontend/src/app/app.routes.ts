@@ -42,7 +42,7 @@ const routeDefinitions: Routes = [
       import('./features/hosting/hosting-spaces-page').then((module) => module.HostingSpacesPage),
     canActivate: [roleGuard],
     title: 'Mis espacios | EspaciGo',
-    data: { requiredRole: 'arrendador' },
+    data: { requiredRole: 'arrendador', allowFirstBusinessAction: true },
   },
   {
     path: 'panel/espacios/:spaceId/editar',

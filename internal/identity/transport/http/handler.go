@@ -427,22 +427,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var input struct {
 			Email           string          `json:"email"`
 			Password        identity.Secret `json:"password"`
-			UsePreference   string          `json:"use_preference"`
 			TermsVersionIDs []string        `json:"terms_version_ids"`
 		}
 		if !h.decode(w, r, &input) {
 			return
 		}
-		id, err := h.service.Register(r.Context(), identity.RegisterInput{Email: input.Email, Password: input.Password, UsePreference: input.UsePreference, TermsVersionIDs: input.TermsVersionIDs, Channel: "web", ClientIP: clientIP})
+		id, err := h.service.Register(r.Context(), identity.RegisterInput{Email: input.Email, Password: input.Password, TermsVersionIDs: input.TermsVersionIDs, Channel: "web", ClientIP: clientIP})
 		if err != nil {
 			if id != "" {
-				h.write(w, 202, map[string]any{"account_id": id, "status": "verification_pending", "use_preference": input.UsePreference, "message": "Cuenta creada; solicita el reenvío de verificación cuando el servicio esté disponible."})
+				h.write(w, 202, map[string]any{"account_id": id, "status": "verification_pending", "message": "La cuenta quedó pendiente de verificación. Puedes solicitar otro correo desde esta pantalla."})
 				return
 			}
 			h.serviceError(w, err)
 			return
 		}
-		h.write(w, 201, map[string]any{"account_id": id, "status": "email_pending", "use_preference": input.UsePreference})
+		h.write(w, 201, map[string]any{"account_id": id, "status": "email_pending"})
 	case "/api/v1/auth/verification/reissue":
 		var input struct {
 			Email string `json:"email"`
@@ -450,7 +449,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !h.decode(w, r, &input) {
 			return
 		}
-		if err := h.service.ReissueVerification(r.Context(), input.Email, clientIP); err != nil {
+		if err := h.service.ReissueVerification(r.Context(), input.Email, clientIP); err != nil &&
+			!errors.Is(err, identity.ErrNotFound) && !errors.Is(err, identity.ErrAccountDisabled) &&
+			!errors.Is(err, identity.ErrRateLimited) && !errors.Is(err, identity.ErrDelivery) {
 			h.serviceError(w, err)
 			return
 		}

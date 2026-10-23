@@ -1642,10 +1642,6 @@ export type LocalTrialDisputeTransition = {
 
 export type RegisterRequest = {
     email: string;
-    /**
-     * Preferencia inicial de onboarding; no concede roles.
-     */
-    use_preference: 'ofrecer' | 'arrendar';
     terms_version_ids: Array<string>;
 };
 
@@ -1674,7 +1670,6 @@ export type LoginRequest = {
 export type AccountCreated = {
     account_id: string;
     status: 'email_pending' | 'verification_pending';
-    use_preference: 'ofrecer' | 'arrendar';
     message?: string;
 };
 
@@ -1726,10 +1721,6 @@ export type RegisterRequestWritable = {
      * RQF-003–006; mayúscula, número, especial; máximo bcrypt 72 bytes.
      */
     password: string;
-    /**
-     * Preferencia inicial de onboarding; no concede roles.
-     */
-    use_preference: 'ofrecer' | 'arrendar';
     terms_version_ids: Array<string>;
 };
 
