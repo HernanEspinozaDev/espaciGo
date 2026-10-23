@@ -20,17 +20,18 @@ substitutions:
   _DATABASE_NAME: espacigo_dms_stage_20261020
   _DATABASE_SECRET: espacigo-test-database-password-v67
   _DATABASE_SECRET_VERSION: "1"
-  _APP_SCHEMA_ATTESTATION: ""
-  _APP_SCHEMA_ATTESTATION_REQUIRED: "V000068:5eeda41115017b5ba292db13215304f1e576002e015b6d46352ebd2de98f2626+V000073:ac2bfc0ba17e97ee40297dc75d8aaaa25f8506e5602a2d281d09415158670ada+V000074:a91df632b305468e1389ee72831e77121382e4c467d2cc279ea393e1bdc57bf8"
+  _APP_SCHEMA_EVIDENCE_URI: ""
+  _APP_SCHEMA_EVIDENCE_GENERATION: ""
+  _APP_SCHEMA_EVIDENCE_SHA256: ""
   _CONTRACT_SECRET: espacigo-test-contract-encryption-key
   _CONTRACT_SECRET_VERSION: "1"
   _PAYMENT_SECRET: espacigo-test-payment-webhook-secret
   _PAYMENT_SECRET_VERSION: "1"
-  _AUTH_SMTP_HOST: ""
-  _AUTH_SMTP_PORT: ""
-  _AUTH_SMTP_SECURITY: ""
-  _AUTH_SMTP_PASSWORD_SECRET: ""
-  _AUTH_SMTP_PASSWORD_SECRET_VERSION: ""
+  _AUTH_SMTP_HOST: smtp.zoho.com
+  _AUTH_SMTP_PORT: "587"
+  _AUTH_SMTP_SECURITY: starttls
+  _AUTH_SMTP_PASSWORD_SECRET: espacigo-test-auth-smtp-password
+  _AUTH_SMTP_PASSWORD_SECRET_VERSION: "1"
   _PUBLIC_HOST: espacigo.testingpage.store
   _PRIVATE_HOST: espacigo-demo.testingpage.store
   _FILES_BUCKET: espacigo-test-files-447373903153-gcp02
@@ -54,8 +55,10 @@ steps:
     args:
       - -ceu
       - |
-        [[ "${_APP_SCHEMA_ATTESTATION}" == "${_APP_SCHEMA_ATTESTATION_REQUIRED}" ]]
+        [[ -n "${_APP_SCHEMA_EVIDENCE_URI}" && -n "${_APP_SCHEMA_EVIDENCE_GENERATION}" && -n "${_APP_SCHEMA_EVIDENCE_SHA256}" ]]
         [[ -n "${_AUTH_SMTP_HOST}" && -n "${_AUTH_SMTP_PORT}" && -n "${_AUTH_SMTP_SECURITY}" && -n "${_AUTH_SMTP_PASSWORD_SECRET}" && -n "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" ]]
+        [[ "${_APP_SCHEMA_EVIDENCE_GENERATION}" =~ ^[1-9][0-9]*$ ]]
+        [[ "${_APP_SCHEMA_EVIDENCE_SHA256}" =~ ^[a-f0-9]{64}$ ]]
         [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
         [[ "${_REGION}" == southamerica-west1 && "${_PROJECT}" == espacigo-testprod ]]
         [[ "${_DATABASE_INSTANCE}" == espacigo-testprod-db && "${_DATABASE_NAME}" == espacigo_dms_stage_20261020 ]]
@@ -65,6 +68,14 @@ steps:
         [[ ("${_AUTH_SMTP_PORT}" == "587" && "${_AUTH_SMTP_SECURITY}" == "starttls") || ("${_AUTH_SMTP_PORT}" == "465" && "${_AUTH_SMTP_SECURITY}" == "tls") ]]
         [[ "${_AUTH_SMTP_PASSWORD_SECRET}" =~ ^[a-z][a-z0-9-]{2,62}$ ]]
         [[ "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]]
+        schema_evidence_uri="gs://${_LOCK_BUCKET}/img01-schema-evidence/${_APP_SCHEMA_EVIDENCE_SHA256}.json"
+        [[ "${_APP_SCHEMA_EVIDENCE_URI}" == "$$schema_evidence_uri" ]]
+        schema_evidence_generation=$$(gcloud storage objects describe "$$schema_evidence_uri" --format='value(generation)')
+        [[ "$$schema_evidence_generation" == "${_APP_SCHEMA_EVIDENCE_GENERATION}" ]]
+        gcloud storage cp "$$schema_evidence_uri" /workspace/img01-schema-evidence.json >/dev/null
+        schema_evidence_sha256=$$(sha256sum /workspace/img01-schema-evidence.json | awk '{print $$1}')
+        [[ "$$schema_evidence_sha256" == "${_APP_SCHEMA_EVIDENCE_SHA256}" ]]
+        python3 scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json --migrations db/migrations --query db/query/img01_schema_release_evidence.sql
         gcloud secrets describe "${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" >/dev/null
         smtp_version_state=$$(gcloud secrets versions describe "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" --secret="${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" --format='value(state)')
         [[ "$$smtp_version_state" == ENABLED ]]
@@ -146,10 +157,7 @@ steps:
         digest=$$(gcloud artifacts docker images describe "$$api" --format='value(image_summary.digest)')
         [[ "$$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
         image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-api@$${digest}"
-        api_secrets="/var/secrets/database/password=${_DATABASE_SECRET}:${_DATABASE_SECRET_VERSION},/var/secrets/contract/key=${_CONTRACT_SECRET}:${_CONTRACT_SECRET_VERSION},/var/secrets/payment/webhook=${_PAYMENT_SECRET}:${_PAYMENT_SECRET_VERSION}"
-        if [[ -n "${_AUTH_SMTP_PASSWORD_SECRET}" ]]; then
-          api_secrets="$${api_secrets},/var/secrets/auth-smtp/password=${_AUTH_SMTP_PASSWORD_SECRET}:${_AUTH_SMTP_PASSWORD_SECRET_VERSION}"
-        fi
+        api_secrets="/var/secrets/database/password=${_DATABASE_SECRET}:${_DATABASE_SECRET_VERSION},/var/secrets/contract/key=${_CONTRACT_SECRET}:${_CONTRACT_SECRET_VERSION},/var/secrets/payment/webhook=${_PAYMENT_SECRET}:${_PAYMENT_SECRET_VERSION},/var/secrets/auth-smtp/password=${_AUTH_SMTP_PASSWORD_SECRET}:${_AUTH_SMTP_PASSWORD_SECRET_VERSION}"
         gcloud run deploy "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --image="$$image" \
           --service-account="${_API_RUNTIME_SA}" --port=8080 --cpu=1 --memory=1Gi --no-cpu-throttling \
           --min="${_MIN_API}" --max="${_MAX_API}" --concurrency="${_API_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
