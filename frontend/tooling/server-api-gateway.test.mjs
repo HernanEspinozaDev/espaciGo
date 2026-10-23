@@ -48,6 +48,12 @@ test('public gateway permits anonymous catalog reads and rejects other anonymous
       'Content-Length': '40',
     };
     assert.equal(apiRequestAllowed('public', 'POST', path, headers, 'https://spaces.example.test'), true, path);
+    assert.equal(apiRequestAllowed('public', 'POST', path, {
+      ...headers, Cookie: 'GCP_IAP_UID=synthetic-cookie',
+    }, 'https://spaces.example.test'), true, `${path} ignores the ambient IAP cookie`);
+    assert.equal(apiRequestAllowed('public', 'POST', path, {
+      ...headers, Cookie: 'GCP_IAP_UID=synthetic-cookie; app_session=synthetic-cookie',
+    }, 'https://spaces.example.test'), false, `${path} rejects unrelated cookies`);
     assert.equal(publicIdentityPostLimit('POST', path), maxBytes, path);
     assert.equal(apiRequestAllowed('public', 'POST', path, {
       ...headers, 'Content-Length': String(maxBytes + 1),
@@ -61,6 +67,19 @@ test('public gateway permits anonymous catalog reads and rejects other anonymous
   }
   assert.equal(apiRequestAllowed('public', 'POST', '/api/v1/auth/login?next=https://attacker.test', {
     Origin: 'https://spaces.example.test', 'Content-Type': 'application/json', 'Content-Length': '40',
+  }, 'https://spaces.example.test'), false);
+  assert.equal(apiRequestAllowed('public', 'GET', '/api/v1/auth/terms', {
+    Cookie: 'GCP_IAP_UID=synthetic-cookie',
+  }, 'https://spaces.example.test'), true);
+  assert.equal(apiRequestAllowed('public', 'GET', '/api/v1/auth/session', {
+    Authorization: 'Bearer synthetic-app-token-12345',
+    Cookie: 'GCP_IAP_UID=synthetic-cookie',
+  }, 'https://spaces.example.test'), true);
+  assert.equal(apiRequestAllowed('public', 'GET', '/api/v1/auth/session', {
+    Cookie: 'GCP_IAP_UID=synthetic-cookie',
+  }, 'https://spaces.example.test'), false);
+  assert.equal(apiRequestAllowed('public', 'GET', `/api/v1/public/spaces/${spaceId}`, {
+    Cookie: 'GCP_IAP_UID=synthetic-cookie',
   }, 'https://spaces.example.test'), false);
   for (const headers of [
     { Origin: 'https://attacker.test', 'Content-Type': 'application/json', 'Content-Length': '40' },
@@ -107,6 +126,24 @@ test('gateway keeps application bearer separate and never forwards client IAM or
   assert.equal(headers.get('accept'), 'application/json');
   assert.equal(headers.get('x-request-id'), 'request-1');
   assert.equal(clientApiHeaders('public', client).has('authorization'), false);
+  const ambientCookieHeaders = clientApiHeaders('public', {
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    Cookie: 'GCP_IAP_UID=synthetic-cookie',
+    Origin: 'https://spaces.example.test',
+    'X-Request-Id': 'login-id',
+  }, '/api/v1/auth/login');
+  assert.equal(ambientCookieHeaders.get('accept'), 'application/json');
+  assert.equal(ambientCookieHeaders.get('content-type'), 'application/json');
+  assert.equal(ambientCookieHeaders.has('cookie'), false);
+  assert.equal(ambientCookieHeaders.has('origin'), false);
+  assert.equal(ambientCookieHeaders.has('x-request-id'), false);
+  const sessionHeaders = clientApiHeaders('public', {
+    Authorization: 'Bearer synthetic-app-token-12345',
+    Cookie: 'GCP_IAP_UID=synthetic-cookie',
+  }, '/api/v1/auth/session');
+  assert.equal(sessionHeaders.get('authorization'), 'Bearer synthetic-app-token-12345');
+  assert.equal(sessionHeaders.has('cookie'), false);
   const loginHeaders = clientApiHeaders('public', {
     Accept: 'application/json',
     'Content-Type': 'application/json',
