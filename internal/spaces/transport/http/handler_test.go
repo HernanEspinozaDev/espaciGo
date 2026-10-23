@@ -425,6 +425,62 @@ func TestDraftValidationIsRejectedBeforeRepository(t *testing.T) {
 	}
 }
 
+func TestDraft422ReturnsSafeFieldCodesWithoutSubmittedValues(t *testing.T) {
+	h := testHandler(t)
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(validJSON()), &payload); err != nil {
+		t.Fatal(err)
+	}
+	privateValue := "contenido privado que no debe volver en la respuesta"
+	payload["description"], _ = json.Marshal(privateValue)
+	payload["area_m2"] = json.RawMessage("12.345")
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := invoke(h, http.MethodPost, "/api/v1/spaces", "user", string(body))
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var envelope struct {
+		Error struct {
+			Code    string              `json:"code"`
+			Details []spaces.FieldError `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error.Code != "validation_error" {
+		t.Fatalf("error code=%q", envelope.Error.Code)
+	}
+	want := map[string]string{"description": "min_length", "area_m2": "step"}
+	for _, field := range envelope.Error.Details {
+		if want[field.Field] != field.Code {
+			t.Errorf("unexpected field error %+v", field)
+		}
+		delete(want, field.Field)
+	}
+	if len(want) != 0 {
+		t.Errorf("missing field errors: %v; response=%s", want, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), privateValue) || strings.Contains(response.Body.String(), "no-reflect") || strings.Contains(response.Body.String(), "client_secret") {
+		t.Fatal("field validation response reflected submitted content")
+	}
+	if err := json.Unmarshal([]byte(validJSON()), &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload["attributes"] = json.RawMessage(`{"client_secret":"no-reflect"}`)
+	body, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = invoke(h, http.MethodPost, "/api/v1/spaces", "user", string(body))
+	if response.Code != http.StatusUnprocessableEntity || strings.Contains(response.Body.String(), "no-reflect") || strings.Contains(response.Body.String(), "client_secret") || !strings.Contains(response.Body.String(), `"field":"attributes","code":"unknown_field"`) {
+		t.Fatalf("unknown profile attribute response=%d %s", response.Code, response.Body.String())
+	}
+}
+
 func TestCalendarAPIConfiguresQueriesCreatesAndDeletesWithOwnerChecks(t *testing.T) {
 	h := calendarHandler(t)
 	base := "/api/v1/spaces/" + draftID + "/availability"

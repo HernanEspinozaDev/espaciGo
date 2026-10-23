@@ -128,22 +128,39 @@
             <div class="card-heading">
               <div>
                 <p class="eyebrow">CONFIGURACIÓN</p>
-                <h3>Información del espacio</h3>
+                <h3>{{ selectedSpace() ? 'Completa tu borrador' : 'Completa los datos del borrador' }}</h3>
               </div>
               <p>Los campos obligatorios se validan también en Go.</p>
             </div>
             @if (!selectedSpace() || selectedSpace()!.state === 'borrador') {
+              @if (draftIssues().length) {
+                <div #draftErrorSummary id="draft-error-summary" class="alert field-error-summary" role="alert" tabindex="-1" aria-labelledby="draft-error-heading">
+                  <h4 id="draft-error-heading">Revisa estos campos</h4>
+                  <ul>
+                    @for (issue of draftIssues(); track issue.field) {
+                      <li>
+                        <button type="button" class="field-error-link" (click)="focusDraftField(issue.field)">
+                          {{ issue.label }}: {{ issue.message }}
+                        </button>
+                      </li>
+                    }
+                  </ul>
+                </div>
+              }
               <form
-                (submit)="$event.preventDefault(); selectedSpace() ? saveDraft() : createDraft()"
+                (submit)="submitDraft($event)"
                 [formGroup]="draftForm"
+                novalidate
               >
                 <div class="form-grid">
                   <label
-                    >Categoría
+                    >Categoría <span class="field-required">(obligatorio)</span>
                     <select
                       name="category"
                       [formControl]="controlFor(form, 'category_code', categoryChanged)"
                       required
+                      [attr.aria-invalid]="fieldError('category_code') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('category_code') ? 'draft-error-summary' : null"
                     >
                       <option value="">Selecciona una categoría</option>
                       @for (category of categories(); track category.code) {
@@ -152,77 +169,108 @@
                     </select></label
                   >
                   <label
-                    >Título
+                    >Título <span class="field-required">(obligatorio)</span>
                     <input
                       name="title"
                       [formControl]="controlFor(form, 'title')"
-                      maxlength="120"
+                      maxlength="70"
                       required
+                      [attr.aria-invalid]="fieldError('title') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('title') ? 'draft-error-summary' : null"
                   /></label>
                   <label class="span-2"
-                    >Descripción
+                    >Descripción <span class="field-required">(mínimo 100 caracteres)</span>
                     <textarea
                       name="description"
                       [formControl]="controlFor(form, 'description')"
+                      minlength="100"
+                      required
                       rows="4"
+                      [attr.aria-invalid]="fieldError('description') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('description') ? 'draft-error-summary' : null"
                     ></textarea>
+                    <small>Describe el espacio en al menos 100 caracteres.</small>
                   </label>
                   <label
-                    >Superficie (m²)
+                    >Superficie (m²) <span class="field-required">(obligatorio)</span>
                     <input
                       type="number"
                       name="area"
                       [formControl]="controlFor(form, 'area_m2')"
-                      min="1"
+                      min="0.01"
+                      max="99999999.99"
+                      step="0.01"
                       required
-                  /></label>
+                      [attr.aria-invalid]="fieldError('area_m2') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('area_m2') ? 'draft-error-summary' : null"
+                  />
+                    <small>Desde 0,01 hasta 99.999.999,99 m², en pasos de 0,01.</small>
+                  </label>
                   <label
-                    >Capacidad
+                    >Capacidad <span class="field-required">(obligatorio)</span>
                     <input
                       type="number"
                       name="capacity"
                       [formControl]="controlFor(form, 'capacity')"
                       min="1"
+                      max="2147483647"
+                      step="1"
                       required
+                      [attr.aria-invalid]="fieldError('capacity') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('capacity') ? 'draft-error-summary' : null"
                   /></label>
                   <label
-                    >Modalidad base
-                    <select name="rateUnit" [formControl]="controlFor(form, 'rate_unit')">
+                    >Modalidad base <span class="field-required">(obligatorio)</span>
+                    <select
+                      name="rateUnit"
+                      [formControl]="controlFor(form, 'rate_unit')"
+                      required
+                      [attr.aria-invalid]="fieldError('rate_unit') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('rate_unit') ? 'draft-error-summary' : null"
+                    >
                       <option value="hora">Por hora</option>
                       <option value="dia">Por día</option>
                       <option value="mes">Por mes</option>
                     </select></label
                   >
                   <label
-                    >Tarifa base inicial (CLP)
+                    >Tarifa base inicial (CLP) <span class="field-required">(obligatorio)</span>
                     <input
                       name="basePrice"
                       [formControl]="controlFor(form, 'base_price_clp')"
                       [readonly]="!!selectedSpace()"
                       inputmode="numeric"
                       pattern="[0-9]+"
+                      minlength="4"
+                      maxlength="19"
                       required
+                      [attr.aria-invalid]="fieldError('base_price_clp') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('base_price_clp') ? 'draft-error-summary' : null"
                     /><small
-                      >Se conserva como entero exacto; Go valida el mínimo y rango.</small
+                      >Se conserva como entero exacto. La tarifa inicial debe superar CLP 5.000.</small
                     ></label
                   >
                   <label class="span-2"
-                    >Dirección privada
+                    >Dirección privada <span class="field-required">(obligatorio)</span>
                     <input
                       name="address"
                       [formControl]="controlFor(form, 'address')"
                       autocomplete="street-address"
+                      maxlength="500"
                       required
+                      [attr.aria-invalid]="fieldError('address') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('address') ? 'draft-error-summary' : null"
                     /><small
                       >La dirección se usa para la gestión propia. La visibilidad la controla
-                      Go.</small
+                      Go. Máximo 500 caracteres.</small
                     ></label
                   >
                   <div class="span-2 public-location-note" role="note">
-                    <strong>Ubicación pública</strong>
+                    <strong>Ubicación pública (opcional)</strong>
                     <p>
                       Región y comuna se mostrarán a visitantes para que encuentren tu espacio.
-                      La dirección privada y las coordenadas no se publican.
+                      Elige ambas o deja ambas sin indicar. La dirección privada y las coordenadas
+                      no se publican.
                     </p>
                   </div>
                   <label
@@ -230,6 +278,8 @@
                     <select
                       name="publicRegion"
                       [formControl]="controlFor(form, 'region_code', regionChanged)"
+                      [attr.aria-invalid]="fieldError('region_code') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('region_code') ? 'draft-error-summary' : null"
                     >
                       <option value="">Sin indicar</option>
                       @for (region of publicRegions; track region.code) {
@@ -242,7 +292,8 @@
                     <select
                       name="publicCommune"
                       [formControl]="controlFor(form, 'comuna_code')"
-                      [disabled]="!form.region_code || locationsLoading()"
+                      [attr.aria-invalid]="fieldError('comuna_code') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('comuna_code') ? 'draft-error-summary' : null"
                     >
                       <option value="">Sin indicar</option>
                       @for (commune of publicCommunes; track commune.comuna_code) {
@@ -257,12 +308,17 @@
                     <p class="alert span-2" role="alert">{{ locationsError() }}</p>
                   }
                   <label class="span-2"
-                    >Reglas de uso
+                    >Reglas de uso <span class="field-required">(obligatorio, máximo 250 caracteres)</span>
                     <textarea
                       name="rules"
                       [formControl]="controlFor(form, 'usage_rules')"
+                      maxlength="250"
+                      required
                       rows="3"
+                      [attr.aria-invalid]="fieldError('usage_rules') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('usage_rules') ? 'draft-error-summary' : null"
                     ></textarea>
+                    <small>Indica las reglas necesarias para este espacio.</small>
                   </label>
                 </div>
                 @if (profile(); as attributeProfile) {
@@ -276,6 +332,8 @@
                           >{{ attribute.label }}
                           @if (attribute.required) {
                             <span>(obligatorio)</span>
+                          } @else {
+                            <span>(opcional)</span>
                           }
                           @if (attribute.unit) {
                             <span>({{ attribute.unit }})</span>
@@ -285,6 +343,8 @@
                               [name]="'attr-' + attribute.code"
                               [formControl]="attributeControl(attribute.code, attribute.type)"
                               [required]="attribute.required ?? false"
+                              [attr.aria-invalid]="fieldError('attributes.' + attribute.code) ? 'true' : null"
+                              [attr.aria-describedby]="fieldError('attributes.' + attribute.code) ? 'draft-error-summary' : null"
                             >
                               <option value="">Sin declarar</option>
                               <option value="true">Sí</option>
@@ -295,6 +355,8 @@
                               [name]="'attr-' + attribute.code"
                               [formControl]="attributeControl(attribute.code, attribute.type)"
                               [required]="attribute.required ?? false"
+                              [attr.aria-invalid]="fieldError('attributes.' + attribute.code) ? 'true' : null"
+                              [attr.aria-describedby]="fieldError('attributes.' + attribute.code) ? 'draft-error-summary' : null"
                             >
                               <option value="">Selecciona…</option>
                               @for (option of attribute.options ?? []; track option) {
@@ -314,6 +376,8 @@
                               [max]="attribute.maximum ?? null"
                               [formControl]="attributeControl(attribute.code, attribute.type)"
                               [required]="attribute.required ?? false"
+                              [attr.aria-invalid]="fieldError('attributes.' + attribute.code) ? 'true' : null"
+                              [attr.aria-describedby]="fieldError('attributes.' + attribute.code) ? 'draft-error-summary' : null"
                               [placeholder]="
                                 attribute.type === 'enum_list' ? 'separa con comas' : ''
                               "
@@ -332,13 +396,13 @@
                     appButton="primary"
                     class="button button--primary"
                     type="submit"
-                    [disabled]="saving() || draftForm.invalid"
+                    [disabled]="saving()"
                   >
                     {{
                       saving()
                         ? 'Guardando…'
                         : selectedSpace()
-                          ? 'Guardar cambios del borrador'
+                          ? 'Guardar borrador completo'
                           : 'Crear borrador'
                     }}
                   </button>
@@ -350,9 +414,23 @@
               <form
                 class="published-editor"
                 (submit)="$event.preventDefault(); savePublishedContent()"
-                [formGroup]="draftForm"
+                [formGroup]="publishedEditorForm"
               >
                 <h3>Contenido público versionado</h3>
+                @if (draftIssues().length) {
+                  <div #draftErrorSummary id="draft-error-summary" class="alert field-error-summary" role="alert" tabindex="-1" aria-labelledby="published-error-heading">
+                    <h4 id="published-error-heading">Revisa estos campos antes de guardar</h4>
+                    <ul>
+                      @for (issue of draftIssues(); track issue.field) {
+                        <li>
+                          <button type="button" class="field-error-link" (click)="focusDraftField(issue.field)">
+                            {{ issue.label }}: {{ issue.message }}
+                          </button>
+                        </li>
+                      }
+                    </ul>
+                  </div>
+                }
                 <p>
                   Visitantes verán el título, descripción, reglas y ubicación elegidos aquí. La
                   dirección privada, coordenadas y datos de contacto no se publican. Solo se envían
@@ -363,31 +441,41 @@
                     >Título publicado
                     <input
                       name="publishedTitle"
-                      [formControl]="controlFor(publishedForm, 'title')" /></label
+                      [formControl]="publishedEditorForm.controls.title"
+                      [attr.aria-invalid]="fieldError('title') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('title') ? 'draft-error-summary' : null" /></label
                   ><label
                     >Capacidad publicada
                     <input
                       type="number"
                       name="publishedCapacity"
-                      [formControl]="controlFor(publishedForm, 'capacity')" /></label
+                      [formControl]="publishedEditorForm.controls.capacity"
+                      [attr.aria-invalid]="fieldError('capacity') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('capacity') ? 'draft-error-summary' : null" /></label
                   ><label class="span-2"
                     >Descripción publicada
                     <textarea
                       name="publishedDescription"
-                      [formControl]="controlFor(publishedForm, 'description')"
+                      [formControl]="publishedEditorForm.controls.description"
+                      [attr.aria-invalid]="fieldError('description') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('description') ? 'draft-error-summary' : null"
                     ></textarea></label
                   ><label class="span-2"
                     >Reglas publicadas
                     <textarea
                       name="publishedRules"
-                      [formControl]="controlFor(publishedForm, 'usage_rules')"
+                      [formControl]="publishedEditorForm.controls.usage_rules"
+                      [attr.aria-invalid]="fieldError('usage_rules') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('usage_rules') ? 'draft-error-summary' : null"
                     ></textarea>
                   </label>
                   <label
                     >Región pública
                     <select
                       name="publishedRegion"
-                      [formControl]="controlFor(form, 'region_code', regionChanged)"
+                      [formControl]="publishedEditorForm.controls.region_code"
+                      [attr.aria-invalid]="fieldError('region_code') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('region_code') ? 'draft-error-summary' : null"
                     >
                       <option value="">Sin indicar</option>
                       @for (region of publicRegions; track region.code) {
@@ -398,8 +486,9 @@
                     >Comuna pública
                     <select
                       name="publishedCommune"
-                      [formControl]="controlFor(form, 'comuna_code')"
-                      [disabled]="!form.region_code || locationsLoading()"
+                      [formControl]="publishedEditorForm.controls.comuna_code"
+                      [attr.aria-invalid]="fieldError('comuna_code') ? 'true' : null"
+                      [attr.aria-describedby]="fieldError('comuna_code') ? 'draft-error-summary' : null"
                     >
                       <option value="">Sin indicar</option>
                       @for (commune of publicCommunes; track commune.comuna_code) {
@@ -424,11 +513,19 @@
             @if (selectedSpace()) {
               <div class="publication-actions">
                 <div>
-                  <strong>Estado confirmado:</strong> {{ labelState(selectedSpace()!.state) }}
-                  <p>
-                    Publicar y ocultar cambian visibilidad. Eliminar retira el recurso y no equivale
-                    a ocultarlo.
-                  </p>
+                  <strong>Estado confirmado por Go:</strong> {{ labelState(selectedSpace()!.state) }}
+                  @if (selectedSpace()!.state === 'borrador') {
+                    <p>
+                      Paso 1: completa y guarda el borrador. Paso 2: configura la zona horaria.
+                      Paso 3: solicita publicar; Go verifica la elegibilidad KYC vigente antes de
+                      cambiar la visibilidad.
+                    </p>
+                  } @else {
+                    <p>
+                      Publicar y ocultar cambian visibilidad. Eliminar retira el recurso y no equivale
+                      a ocultarlo.
+                    </p>
+                  }
                 </div>
                 @if (selectedSpace()!.state === 'activa') {
                   <button
@@ -448,7 +545,7 @@
                     (click)="changePublication('activa')"
                     [disabled]="saving()"
                   >
-                    Publicar
+                    {{ selectedSpace()!.state === 'borrador' ? 'Publicar borrador' : 'Publicar' }}
                   </button>
                 }
                 @if (selectedSpace()!.state !== 'borrador') {

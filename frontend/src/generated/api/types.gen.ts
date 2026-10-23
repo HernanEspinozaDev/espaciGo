@@ -1573,7 +1573,7 @@ export type ErrorDetail = {
     message: string;
     request_id: string;
     /**
-     * Detalles seguros, opcionales y específicos del error. Registro/acceso usan email:invalid_email, email:already_registered, password:required, password:password_policy y terms_version_ids:consent_invalid; nunca valores enviados ni errores internos.
+     * Detalles seguros, opcionales y específicos del error. Registro/acceso usan email:invalid_email, email:already_registered, password:required, password:password_policy y terms_version_ids:consent_invalid. Los borradores y el contenido publicado pueden devolver field/code para category_code, title, description, area_m2, capacity, usage_rules, rate_unit, base_price_clp, address, region_code, comuna_code, attribute_schema_version, attributes o attributes.<código de perfil>. Nunca incluye valores enviados ni errores internos.
      */
     details?: Array<FieldError>;
 };
