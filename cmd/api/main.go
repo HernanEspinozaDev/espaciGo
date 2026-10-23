@@ -35,6 +35,7 @@ import (
 	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/zohoauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminglobal"
 	adminglobalhttp "github.com/HernanEspinozaDev/espaciGo/internal/adminglobal/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adminlocal"
@@ -188,6 +189,10 @@ func run() error {
 	var privacyReplayRegistryPath string
 	var privacyReplayStore privacy.SuppressionReplayStore
 	var privacyEvidenceCleaner privacy.SyntheticEvidenceCleaner
+	var authMailer identity.AuthenticationMailer = devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}
+	var localNoticeSender interface {
+		SendLocalBookingNotice(context.Context, string, string, string) error
+	} = devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}
 	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
 	if prototypeEnabled {
 		limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
@@ -195,7 +200,21 @@ func run() error {
 			return errors.New("invalid local quota")
 		}
 		repo := identitypg.NewIdentityRepository(pool)
-		service, err := identity.NewAuthenticationService(repo, password.Hasher{}, devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, devauth.NewIPLimiter(limit), credentials.Generator{}, time.Now)
+		if os.Getenv("APP_PROFILE") == "cloud-test" {
+			zohoMailer, mailErr := zohoauth.New(zohoauth.Config{
+				Host: os.Getenv("AUTH_SMTP_HOST"), Port: os.Getenv("AUTH_SMTP_PORT"), Security: os.Getenv("AUTH_SMTP_SECURITY"),
+				Username: os.Getenv("AUTH_SMTP_USERNAME"), PasswordFile: os.Getenv("AUTH_SMTP_PASSWORD_FILE"),
+				From: os.Getenv("AUTH_SMTP_FROM"), FromName: "EspaciGo (pruebas)", PublicOrigin: cfg.frontendPublicOrigin,
+			})
+			if mailErr != nil {
+				authMailer = zohoauth.UnavailableMailer{}
+				localNoticeSender = zohoauth.UnavailableMailer{}
+			} else {
+				authMailer = zohoMailer
+				localNoticeSender = zohoMailer
+			}
+		}
+		service, err := identity.NewAuthenticationService(repo, password.Hasher{}, authMailer, devauth.NewIPLimiter(limit), credentials.Generator{}, time.Now)
 		if err != nil {
 			return errors.New("local authentication initialization failed")
 		}
@@ -361,7 +380,7 @@ func run() error {
 			globalAdminService.SetWeeklyHoursManager(bookingService)
 			bookingService.SetLocalRefundAdapter(paymentAdapter)
 			bookingService.SetLocalSettlementAdapter(paymentAdapter)
-			bookingService.SetLocalNoticeSender(devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")})
+			bookingService.SetLocalNoticeSender(localNoticeSender)
 			guaranteeOutcome := strings.TrimSpace(os.Getenv("LOCAL_GUARANTEE_FAKE_OUTCOME"))
 			bookingService.SetLocalGuaranteeOutcome(nil) // The mock explicitly starts the independent authorization after rent payment.
 			if guaranteeOutcome != "" && guaranteeOutcome != "exito" && guaranteeOutcome != "rechazo" && guaranteeOutcome != "sin_respuesta" {
@@ -380,7 +399,7 @@ func run() error {
 			mux.Handle("/api/v1/admin/local/review-reports/", reputationHandler)
 			registerReputationReservationRoutes(mux, reputationHandler)
 			mux.Handle("GET /api/v1/local/reputation/me", reputationHandler)
-			localNoticeService, err = localnotice.NewWithFrontendOrigin(localnoticepg.New(pool), devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, time.Now, cfg.frontendPublicOrigin)
+			localNoticeService, err = localnotice.NewWithFrontendOrigin(localnoticepg.New(pool), localNoticeSender, time.Now, cfg.frontendPublicOrigin)
 			if err != nil {
 				return errors.New("local durable notice initialization failed")
 			}

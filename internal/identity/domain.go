@@ -107,7 +107,7 @@ func HasCapability(roles []Role, required Capability) bool {
 }
 
 // Role is deliberately explicit: registration must never grant administrator privileges.
-func RegistrationRoles() []Role { return []Role{RoleTenant} }
+func RegistrationRoles() []Role { return nil }
 
 type Account struct {
 	ID                    string

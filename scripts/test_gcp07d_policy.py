@@ -62,9 +62,9 @@ def initial_resource(address, image):
             "DATABASE_NAME": "espacigo_dms_stage_20261020", "DATABASE_PASSWORD_FILE": "/var/secrets/database/password",
             "LOCAL_CONTRACT_ENCRYPTION_KEY_FILE": "/var/secrets/contract/key", "LOCAL_PAYMENT_WEBHOOK_SECRET_FILE": "/var/secrets/payment/webhook",
             "DATABASE_USER": "espacigo_api_login", "CORS_ALLOWED_ORIGINS": "https://espacigo.testingpage.store,https://espacigo-demo.testingpage.store",
-            "DATABASE_SET_ROLE": "espacigo_runtime", "FRONTEND_PUBLIC_ORIGIN": "https://espacigo-demo.testingpage.store",
+            "DATABASE_SET_ROLE": "espacigo_runtime", "FRONTEND_PUBLIC_ORIGIN": "https://espacigo.testingpage.store",
             "DATABASE_POOL_MAX_CONNS": "4", "CLOUD_SQL_PRIVATE_IP": "true", "LOCAL_BOOKING_TRIAL": "1",
-            "LOCAL_SMTP_ADDR": "10.80.0.10:1025", "M03_EVIDENCE_DIR": "/var/lib/espacigo/evidence",
+            "M03_EVIDENCE_DIR": "/var/lib/espacigo/evidence",
             "CLOUD_STORAGE_BUCKET": "espacigo-test-files-testprod", "CLOUD_STORAGE_OBJECT_PREFIX": "", "BLOB_STORE_BACKEND": "gcs",
             "LOCAL_PRIVACY_REPLAY_BACKEND": "gcs", "LOCAL_PRIVACY_REPLAY_BUCKET": "espacigo-test-files-testprod", "LOCAL_PRIVACY_REPLAY_PREFIX": "",
         }

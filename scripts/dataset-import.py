@@ -440,12 +440,11 @@ class Importer:
                 raise RuntimeError("registration provenance checkpoint is invalid")
             self.state.setdefault("pending_users", {})[ref] = {"attempt": attempt["checked_at"]}
             self.save()
-            preference = "ofrecer" if user["roles"][0] == ROLE_LANDLORD else "arrendar"
             try:
                 response = API(self.api.bases).request(
                     "POST",
                     "/api/v1/auth/register",
-                    {"email": email, "password": self.password, "use_preference": preference, "terms_version_ids": self.terms_ids},
+                    {"email": email, "password": self.password, "terms_version_ids": self.terms_ids},
                     expect=(201, 202),
                 )
                 account_id = object_data(response, "account_id")
@@ -490,15 +489,7 @@ class Importer:
         if not profile_matches:
             user_api.request("PUT", "/api/v1/profile", {"display_name": profile["display_name"], "phone": ""}, expect=(200,))
         role = user["roles"][0]
-        if role == ROLE_LANDLORD:
-            admin_api = self.admin()
-            admin_api.request(
-                "PUT",
-                f"/api/v1/admin/global/accounts/{quote(account_id, safe='')}/roles/{quote(role, safe='')}",
-                {"granted": True, "reason": "revision_administrativa"},
-                expect=(200,),
-            )
-        elif role == ROLE_ADMIN:
+        if role == ROLE_ADMIN:
             admin_api = self.admin()
             admin_api.request(
                 "PUT",

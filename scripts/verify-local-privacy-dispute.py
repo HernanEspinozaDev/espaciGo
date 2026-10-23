@@ -203,11 +203,10 @@ def password_for_test() -> str:
 def new_state() -> dict:
     suffix = uuid.uuid4().hex[:12]
     actors = {}
-    for kind, preference in (("host", "ofrecer"), ("renter", "arrendar"), ("admin", "arrendar")):
+    for kind in ("host", "renter", "admin"):
         actors[kind] = {
             "email": f"local-priv189-{suffix}-{kind}@example.test",
             "password": password_for_test(),
-            "preference": preference,
         }
     return {"version": 1, "actors": actors, "fixture": {}}
 
@@ -244,7 +243,7 @@ def ensure_account(state: dict, kind: str, terms_ids: list[str]) -> dict:
         before = mail_ids()
         status, registered = request("POST", API + "/api/v1/auth/register", {
             "email": actor["email"], "password": actor["password"],
-            "use_preference": actor["preference"], "terms_version_ids": terms_ids,
+            "terms_version_ids": terms_ids,
         })
         if status == 201:
             actor["id"] = registered["account_id"]

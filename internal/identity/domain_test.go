@@ -27,10 +27,8 @@ func TestSecretRedactedAcrossFormattingAndJSON(t *testing.T) {
 	}
 }
 func TestRegistrationRolesNeverAdmin(t *testing.T) {
-	for _, r := range RegistrationRoles() {
-		if r == RoleAdministrator {
-			t.Fatal("registration grants administrator")
-		}
+	if roles := RegistrationRoles(); len(roles) != 0 {
+		t.Fatalf("registration must not grant a business role, got %v", roles)
 	}
 }
 

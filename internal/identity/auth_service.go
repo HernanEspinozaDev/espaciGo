@@ -97,15 +97,15 @@ func CredentialHash(raw Secret) string {
 type RegisterInput struct {
 	Email             string
 	Password          Secret
-	UsePreference     string
 	TermsVersionIDs   []string
 	Channel, ClientIP string
 }
 
-// Registration persists account/tenant role/terms atomically. Token issuance and
-// mail follow commit: a delivery failure leaves a pending account that can reissue.
+// Registration persists the account and terms atomically without assigning a
+// business role. Token issuance and mail follow commit; delivery failure leaves
+// a pending account that can reissue verification.
 func (s *AuthenticationService) Register(ctx context.Context, input RegisterInput) (string, error) {
-	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil || len(input.TermsVersionIDs) == 0 || (input.UsePreference != "ofrecer" && input.UsePreference != "arrendar") {
+	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil || len(input.TermsVersionIDs) == 0 {
 		return "", ErrInvalid
 	}
 	if input.Channel != "web" && input.Channel != "api" {
@@ -142,7 +142,7 @@ func (s *AuthenticationService) Register(ctx context.Context, input RegisterInpu
 	if err != nil {
 		return "", err
 	}
-	account := Account{ID: id, Email: input.Email, NormalizedEmail: NormalizeEmail(input.Email), PasswordHash: hash, UsePreference: input.UsePreference, State: AccountEmailPending, CreatedAt: now, UpdatedAt: now}
+	account := Account{ID: id, Email: input.Email, NormalizedEmail: NormalizeEmail(input.Email), PasswordHash: hash, State: AccountEmailPending, CreatedAt: now, UpdatedAt: now}
 	acceptances := make([]TermsAcceptance, 0, len(versions))
 	for _, version := range input.TermsVersionIDs {
 		acceptanceID, err := s.credentials.ID()

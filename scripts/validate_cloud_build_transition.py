@@ -283,11 +283,14 @@ def main() -> int:
     if any(substitutions[key] != value for key, value in {
         "_CONTRACT_SECRET_VERSION": "1",
         "_PAYMENT_SECRET_VERSION": "1",
-        "_MAILPIT_ADDRESS": "10.81.1.2:1025",
     }.items()):
-        errors.append("Cloud Build runtime metadata must match the verified secret versions and private Mailpit endpoint")
-    if '[[ "${_MAILPIT_ADDRESS}" == 10.81.1.2:1025 ]]' not in script:
-        errors.append("Mailpit must stay pinned to the inventory-verified private SMTP address")
+        errors.append("Cloud Build runtime metadata must match the verified secret versions")
+    if "_MAILPIT_ADDRESS" in substitutions or "LOCAL_SMTP_ADDR" in script:
+        errors.append("online Cloud Build must not point SMTP traffic at the local Mailpit sink")
+    if any(substitutions.get(key) != "" for key in ("_AUTH_SMTP_HOST", "_AUTH_SMTP_PORT", "_AUTH_SMTP_SECURITY", "_AUTH_SMTP_PASSWORD_SECRET", "_AUTH_SMTP_PASSWORD_SECRET_VERSION")):
+        errors.append("SMTP values and password secret must remain unset until verified and provisioned")
+    if "AUTH_SMTP_PASSWORD_FILE=/var/secrets/auth-smtp/password" not in script or "zohoSubmissionHost" not in Path("internal/adapters/zohoauth/mailer.go").read_text(encoding="utf-8"):
+        errors.append("Cloud Build and the API must use the verified Zoho SMTP credential mount and host validation")
     expected_inputs = {
         "_LOCK_BUCKET": "espacigo-testprod-cloud-build-447373903153",
         "_SOURCE_STAGING_BUCKET": "espacigo-testprod-cloud-build-447373903153",

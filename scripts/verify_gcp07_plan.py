@@ -47,7 +47,7 @@ API_ENV_NAMES = {
     "LOCAL_CONTRACT_ENCRYPTION_KEY_FILE", "LOCAL_PAYMENT_WEBHOOK_SECRET_FILE",
     "DATABASE_USER", "CORS_ALLOWED_ORIGINS", "DATABASE_SET_ROLE",
     "FRONTEND_PUBLIC_ORIGIN", "DATABASE_POOL_MAX_CONNS", "CLOUD_SQL_PRIVATE_IP",
-    "LOCAL_BOOKING_TRIAL", "LOCAL_SMTP_ADDR", "M03_EVIDENCE_DIR",
+    "LOCAL_BOOKING_TRIAL", "M03_EVIDENCE_DIR",
     "CLOUD_STORAGE_BUCKET", "CLOUD_STORAGE_OBJECT_PREFIX", "BLOB_STORE_BACKEND",
     "LOCAL_PRIVACY_REPLAY_BACKEND", "LOCAL_PRIVACY_REPLAY_BUCKET", "LOCAL_PRIVACY_REPLAY_PREFIX",
 }
@@ -238,14 +238,14 @@ def _template_config_matches(change, api, database_password_version):
                 or env.get("LOCAL_BOOKING_TRIAL") != "1"
                 or env.get("M03_EVIDENCE_DIR") != "/var/lib/espacigo/evidence"
                 or env.get("BLOB_STORE_BACKEND") != "gcs"
-                or env.get("LOCAL_PRIVACY_REPLAY_BACKEND") != "gcs"):
+                or env.get("LOCAL_PRIVACY_REPLAY_BACKEND") != "gcs"
+                or "LOCAL_SMTP_ADDR" in env):
             return False
         if (env.get("CORS_ALLOWED_ORIGINS") != "https://espacigo.testingpage.store,https://espacigo-demo.testingpage.store"
-                or env.get("FRONTEND_PUBLIC_ORIGIN") != "https://espacigo-demo.testingpage.store"
+                or env.get("FRONTEND_PUBLIC_ORIGIN") != "https://espacigo.testingpage.store"
                 or not re.fullmatch(r"espacigo-test-files-[a-z0-9][a-z0-9-]{2,20}", env.get("CLOUD_STORAGE_BUCKET", ""))
                 or env.get("CLOUD_STORAGE_OBJECT_PREFIX") not in {"", "g03o-1017"}
-                or env.get("LOCAL_PRIVACY_REPLAY_PREFIX") not in {"", "g03o-1017/privacy-replay"}
-                or not re.fullmatch(r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}:1025", env.get("LOCAL_SMTP_ADDR", ""))):
+                or env.get("LOCAL_PRIVACY_REPLAY_PREFIX") not in {"", "g03o-1017/privacy-replay"}):
             return False
         volumes = template.get("volumes")
         if not isinstance(volumes, list) or {v.get("name") for v in volumes if isinstance(v, dict)} != API_VOLUMES or len(volumes) != 3:

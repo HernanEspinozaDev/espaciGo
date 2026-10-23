@@ -129,6 +129,14 @@ func (r *Repository) Create(ctx context.Context, owner string, in spaces.Input) 
 	if err != nil {
 		return spaces.Draft{}, err
 	}
+	if _, err = tx.Exec(ctx, `WITH granted AS (
+  INSERT INTO public.rol_usuario(usuario_id,rol,concedido_por)
+  VALUES($1,'arrendador',$1) ON CONFLICT(usuario_id,rol) DO NOTHING RETURNING usuario_id
+)
+INSERT INTO public.rol_usuario_evento(usuario_id,rol,accion,recurso_id)
+SELECT usuario_id,'arrendador','primer_borrador_espacio',$2 FROM granted`, owner, id); err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
 	if err = tx.Commit(ctx); err != nil {
 		return spaces.Draft{}, err
 	}

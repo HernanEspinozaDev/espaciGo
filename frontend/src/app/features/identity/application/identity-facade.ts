@@ -32,6 +32,7 @@ export class IdentityFacade {
   readonly busy = signal(false);
   readonly errorMessage = signal('');
   readonly successMessage = signal('');
+  readonly registrationNeedsRetry = signal(false);
   readonly loginConfirmed = signal(false);
   readonly terms = signal<TermsResponse['items']>([]);
   readonly termVersions = computed(() => this.terms().filter((item) => item.type === 'terminos'));
@@ -55,7 +56,6 @@ export class IdentityFacade {
     email: '',
     password: '',
     confirmPassword: '',
-    usePreference: '' as '' | 'ofrecer' | 'arrendar',
     acceptTerms: false,
     acceptPrivacy: false,
   });
@@ -67,11 +67,6 @@ export class IdentityFacade {
     validate(path.confirmPassword, ({ value, valueOf }) =>
       value() !== valueOf(path.password)
         ? { kind: 'password-mismatch', message: 'Las contraseñas no coinciden.' }
-        : undefined,
-    );
-    validate(path.usePreference, ({ value }) =>
-      value() !== 'ofrecer' && value() !== 'arrendar'
-        ? { kind: 'preference-required', message: 'Elige una preferencia inicial.' }
         : undefined,
     );
     required(path.acceptTerms, { message: 'Confirma la versión sintética de términos.' });
@@ -137,6 +132,19 @@ export class IdentityFacade {
       this.busy.set(false);
     });
     this.meta.updateTag({ name: 'robots', content: 'noindex, nofollow' });
+    if (this.mode === 'login' && this.route.snapshot.queryParamMap?.get('verificado') === '1') {
+      this.successMessage.set('Correo verificado. Ya puedes iniciar sesión.');
+    }
+    if (this.mode === 'verify') {
+      const fragment = this.route.snapshot.fragment ?? null;
+      if (fragment) {
+        const values = new URLSearchParams(fragment);
+        const tokenId = values.get('token_id') ?? '';
+        const token = values.get('token') ?? '';
+        if (tokenId && token) this.tokenModel.set({ tokenId, token });
+        void this.router.navigate([], { relativeTo: this.route, fragment: undefined, replaceUrl: true });
+      }
+    }
     this.destroyRef.onDestroy(() => {
       this.destroyed = true;
       this.requestGeneration++;
@@ -215,10 +223,10 @@ export class IdentityFacade {
           this.api.register({
             email: model.email,
             password: model.password,
-            use_preference: model.usePreference as 'ofrecer' | 'arrendar',
             terms_version_ids: versionIds,
           }),
         (result) => {
+          this.registrationNeedsRetry.set(result.status === 'verification_pending');
           this.emailModel.set({ email: model.email });
           this.registerModel.update((current) => ({
             ...current,
@@ -227,8 +235,8 @@ export class IdentityFacade {
           }));
           this.successMessage.set(
             result.status === 'verification_pending'
-              ? 'Go creó la cuenta; el correo no pudo confirmarse. Solicita la verificación de nuevo.'
-              : 'Go creó la cuenta. Revisa el buzón local para verificar tu correo antes de iniciar sesión.',
+              ? 'La cuenta está pendiente de verificación. No pudimos confirmar la entrega del correo; puedes solicitar otro desde aquí.'
+              : 'La solicitud de registro fue aceptada para envío. Revisa tu correo para verificar la cuenta; la llegada puede tardar.',
           );
         },
       );
@@ -243,7 +251,7 @@ export class IdentityFacade {
         () => this.api.reissueVerification(address),
         () =>
           this.successMessage.set(
-            'Go aceptó la solicitud. Si corresponde, Mailpit recibirá un nuevo correo de verificación.',
+            'Solicitud procesada. Si la cuenta necesita verificación, puedes intentarlo más tarde; no podemos confirmar la entrega.',
           ),
       );
     });
@@ -255,9 +263,12 @@ export class IdentityFacade {
       const model = this.tokenModel();
       await this.performRequest(
         () => this.api.verifyEmail(model.tokenId, model.token),
-        () => {
+        async () => {
           this.tokenModel.set({ tokenId: '', token: '' });
-          this.successMessage.set('Correo verificado por Go. Ya puedes iniciar sesión.');
+          const navigated = await this.router.navigateByUrl('/acceso?verificado=1');
+          if (!navigated && !this.destroyed) {
+            this.successMessage.set('Correo verificado. Ya puedes iniciar sesión desde Acceso.');
+          }
         },
       );
     });

@@ -411,16 +411,6 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 	return err
 }
 
-const createTenantRole = `-- name: CreateTenantRole :exec
-INSERT INTO public.rol_usuario (usuario_id, rol)
-VALUES ($1, 'arrendatario')
-`
-
-func (q *Queries) CreateTenantRole(ctx context.Context, accountID string) error {
-	_, err := q.db.Exec(ctx, createTenantRole, accountID)
-	return err
-}
-
 const createTermsAcceptance = `-- name: CreateTermsAcceptance :exec
 INSERT INTO public.aceptacion_terminos (
     id, usuario_id, version_id, aceptada_en, canal

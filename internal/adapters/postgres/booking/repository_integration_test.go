@@ -3219,6 +3219,13 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if activeReservation.SpaceID != activeSpace || activeReservation.State != "pendiente_de_pago" || activeReservation.UnitPrice != 9000 || activeReservation.CancellationPolicyVersion != booking.LocalCancellationPolicyVersion {
 		t.Fatalf("published-space reservation snapshot=%+v", activeReservation)
 	}
+	var renterRole, renterRoleEvent int
+	if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1 AND rol='arrendatario'), (SELECT count(*) FROM public.rol_usuario_evento WHERE usuario_id=$1 AND rol='arrendatario' AND accion='primera_solicitud_reserva' AND recurso_id=$2)`, renter, activeReservation.ID).Scan(&renterRole, &renterRoleEvent); err != nil {
+		t.Fatal(err)
+	}
+	if renterRole != 1 || renterRoleEvent != 1 {
+		t.Fatalf("first reservation role grant not atomic/audited: roles=%d events=%d", renterRole, renterRoleEvent)
+	}
 	// The normal published-offer path (its fixture row is explicitly disabled)
 	// must preserve the same actor/state/history contract as the original booking
 	// path. The renter pays once; the host approves; both participants can read
