@@ -3,9 +3,27 @@
     <aside class="auth-story" aria-label="Una cuenta, muchas posibilidades">
       <a routerLink="/" class="auth-wordmark">EspaciGo<span aria-hidden="true">↗</span></a>
       <div class="story-main">
-        <span class="eyebrow">HAZ LUGAR A LO QUE VIENE</span>
-        <h2>Tu próxima idea<br />empieza con<br /><em>un espacio.</em></h2>
-        <p>Encuentra dónde hacerla realidad. O comparte ese lugar que alguien está buscando.</p>
+        @if (mode === 'login') {
+          <span class="eyebrow">QUÉ BUENO VERTE</span>
+          <h2>Tu próxima idea<br />empieza con<br /><em>un espacio.</em></h2>
+          <p>Inicia sesión para continuar donde lo dejaste.</p>
+        } @else if (mode === 'register') {
+          <span class="eyebrow">UNA CUENTA, DOS CAMINOS</span>
+          <h2>Haz lugar<br />a lo que<br /><em>viene.</em></h2>
+          <p>Crea tu cuenta. Después podrás explorar o compartir un espacio.</p>
+        } @else if (mode === 'verify') {
+          <span class="eyebrow">CONFIRMA TU CORREO</span>
+          <h2>Un paso para<br />cuidar tu<br /><em>cuenta.</em></h2>
+          <p>Usa el enlace que recibiste para confirmar que esta dirección te pertenece.</p>
+        } @else if (mode === 'recovery') {
+          <span class="eyebrow">RECUPERA EL ACCESO</span>
+          <h2>Vuelve a<br />entrar a tu<br /><em>cuenta.</em></h2>
+          <p>Te guiaremos para crear una contraseña nueva con un enlace temporal.</p>
+        } @else {
+          <span class="eyebrow">SEGURIDAD DE LA CUENTA</span>
+          <h2>Elige una<br />contraseña<br /><em>segura.</em></h2>
+          <p>El cambio se confirma con tu sesión actual y las reglas vigentes del servicio.</p>
+        }
         <div class="space-illustration" aria-hidden="true"><span></span><i></i></div>
       </div>
       <div class="story-footer">
