@@ -214,6 +214,14 @@ def main() -> int:
         or schema_gate_script.find('[[ "${_APP_SCHEMA_ATTESTATION}"') > schema_gate_script.find("gcloud ")
     ):
         errors.append("release must fail closed until an operator supplies the reviewed schema version and exact V68/V73/V74 SHA-256 values")
+    required_smtp_settings = (
+        '[[ -n "${_AUTH_SMTP_HOST}" && -n "${_AUTH_SMTP_PORT}" && -n "${_AUTH_SMTP_SECURITY}" && -n "${_AUTH_SMTP_PASSWORD_SECRET}" && -n "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" ]]'
+    )
+    if (
+        required_smtp_settings not in schema_gate_script
+        or schema_gate_script.find(required_smtp_settings) > schema_gate_script.find("gcloud ")
+    ):
+        errors.append("release must fail closed when any Zoho SMTP host, port, security, secret name, or pinned version is missing")
     if "created_epoch <= prior_epoch" not in script:
         errors.append("deployments must reject builds older than the successful main watermark")
     lock_step = next((step for step in steps if step.get("id") == "acquire-and-validate-deploy-lock"), {})

@@ -55,22 +55,21 @@ steps:
       - -ceu
       - |
         [[ "${_APP_SCHEMA_ATTESTATION}" == "${_APP_SCHEMA_ATTESTATION_REQUIRED}" ]]
+        [[ -n "${_AUTH_SMTP_HOST}" && -n "${_AUTH_SMTP_PORT}" && -n "${_AUTH_SMTP_SECURITY}" && -n "${_AUTH_SMTP_PASSWORD_SECRET}" && -n "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" ]]
         [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
         [[ "${_REGION}" == southamerica-west1 && "${_PROJECT}" == espacigo-testprod ]]
         [[ "${_DATABASE_INSTANCE}" == espacigo-testprod-db && "${_DATABASE_NAME}" == espacigo_dms_stage_20261020 ]]
         [[ "${_DATABASE_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]]
         [[ "${_CONTRACT_SECRET_VERSION}" =~ ^[1-9][0-9]*$ && "${_PAYMENT_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]]
-        if [[ -n "${_AUTH_SMTP_HOST}${_AUTH_SMTP_PORT}${_AUTH_SMTP_SECURITY}${_AUTH_SMTP_PASSWORD_SECRET}${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" ]]; then
-          [[ "${_AUTH_SMTP_HOST}" =~ ^(smtp|smtppro)\.zoho\.(com|eu|in|com\.au|jp|com\.cn)$ ]]
-          [[ ("${_AUTH_SMTP_PORT}" == "587" && "${_AUTH_SMTP_SECURITY}" == "starttls") || ("${_AUTH_SMTP_PORT}" == "465" && "${_AUTH_SMTP_SECURITY}" == "tls") ]]
-          [[ "${_AUTH_SMTP_PASSWORD_SECRET}" =~ ^[a-z][a-z0-9-]{2,62}$ ]]
-          [[ "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]]
-          gcloud secrets describe "${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" >/dev/null
-          smtp_version_state=$$(gcloud secrets versions describe "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" --secret="${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" --format='value(state)')
-          [[ "$$smtp_version_state" == ENABLED ]]
-          smtp_policy_member=$$(gcloud secrets get-iam-policy "${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" --flatten="bindings[].members" --filter="bindings.role=roles/secretmanager.secretAccessor AND bindings.members=serviceAccount:${_API_RUNTIME_SA}" --format='value(bindings.members)')
-          [[ "$$smtp_policy_member" == "serviceAccount:${_API_RUNTIME_SA}" ]]
-        fi
+        [[ "${_AUTH_SMTP_HOST}" =~ ^(smtp|smtppro)\.zoho\.(com|eu|in|com\.au|jp|com\.cn)$ ]]
+        [[ ("${_AUTH_SMTP_PORT}" == "587" && "${_AUTH_SMTP_SECURITY}" == "starttls") || ("${_AUTH_SMTP_PORT}" == "465" && "${_AUTH_SMTP_SECURITY}" == "tls") ]]
+        [[ "${_AUTH_SMTP_PASSWORD_SECRET}" =~ ^[a-z][a-z0-9-]{2,62}$ ]]
+        [[ "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]]
+        gcloud secrets describe "${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" >/dev/null
+        smtp_version_state=$$(gcloud secrets versions describe "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" --secret="${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" --format='value(state)')
+        [[ "$$smtp_version_state" == ENABLED ]]
+        smtp_policy_member=$$(gcloud secrets get-iam-policy "${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" --flatten="bindings[].members" --filter="bindings.role=roles/secretmanager.secretAccessor AND bindings.members=serviceAccount:${_API_RUNTIME_SA}" --format='value(bindings.members)')
+        [[ "$$smtp_policy_member" == "serviceAccount:${_API_RUNTIME_SA}" ]]
         [[ "${_PUBLIC_HOST}" == espacigo.testingpage.store && "${_PRIVATE_HOST}" == espacigo-demo.testingpage.store ]]
         [[ "${_FILES_BUCKET}" == espacigo-test-files-447373903153-gcp02 ]]
         [[ "${_LOCK_BUCKET}" == espacigo-testprod-cloud-build-447373903153 ]]
