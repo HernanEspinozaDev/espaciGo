@@ -135,6 +135,32 @@ describe('AccountPrivacyPage', () => {
     TestBed.resetTestingModule();
   });
 
+  it('offers direct navigation to the account sections without changing their routes', async () => {
+    const api = accountApiDefaults();
+    setup(
+      {
+        login: vi.fn().mockResolvedValue(login('account-a', 'bearer-a')),
+        session: vi.fn().mockResolvedValue(sessionA),
+        logout: vi.fn(),
+      },
+      api,
+    );
+    await TestBed.inject(IdentitySession).signIn('a@example.invalid', 'Synthetic#123');
+    const fixture = TestBed.createComponent(AccountPrivacyPage);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(api.profile).toHaveBeenCalledWith('bearer-a'));
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect([...root.querySelectorAll('.account-index a')].map((link) => link.getAttribute('href'))).toEqual([
+      '#profile-heading',
+      '#photo-heading',
+      '#payout-heading',
+      '#rights-heading',
+      '#export-heading',
+    ]);
+    fixture.destroy();
+  });
+
   it('uploads a private profile image from the labeled file input and renders Go progress and confirmation', async () => {
     let finishUpload!: () => void;
     const upload = new Promise<void>((resolve) => (finishUpload = resolve));

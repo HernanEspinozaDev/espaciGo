@@ -4,6 +4,7 @@ import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angul
 import type { UrlTree } from '@angular/router';
 import axe from 'axe-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { TermsResponse } from '../../core/contracts/models';
 import { IdentitySession } from '../../core/identity/application/identity-session';
 import { IdentityApi } from '../../core/identity/infrastructure/identity-api';
 import { PrivateSessionState } from '../../core/identity/private-session-state';
@@ -12,6 +13,62 @@ import { IdentityPage } from './identity-page';
 
 describe('IdentityPage private forms', () => {
   afterEach(() => TestBed.resetTestingModule());
+
+  it('matches the identity story to registration and shows current consent links', async () => {
+    const item = (id: string, type: 'terminos' | 'privacidad'): TermsResponse['items'][number] => ({
+      id,
+      code: id,
+      type,
+      sha256: 'synthetic-sha',
+      published_at: '2026-10-01T00:00:00Z',
+      synthetic: true,
+      document: {
+        id,
+        code: id,
+        type,
+        title: type === 'terminos' ? 'Términos de ensayo' : 'Privacidad de ensayo',
+        scope: 'Cuenta local',
+        status: 'vigente',
+        sections: [{ heading: 'Contenido sintético', body: 'Texto disponible en ensayo.' }],
+      },
+    });
+    const api = { terms: vi.fn().mockResolvedValue({
+      items: [item('terms-current', 'terminos'), item('privacy-current', 'privacidad')],
+    }) };
+    TestBed.configureTestingModule({
+      imports: [IdentityPage],
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([]),
+        {
+          provide: ActivatedRoute,
+          useValue: {
+            snapshot: {
+              data: { identityMode: 'register' },
+              queryParamMap: convertToParamMap({}),
+            },
+          },
+        },
+        { provide: IdentityApi, useValue: api },
+        PrivateSessionState,
+      ],
+    });
+    const fixture = TestBed.createComponent(IdentityPage);
+    fixture.detectChanges();
+    await vi.waitFor(() => expect(api.terms).toHaveBeenCalledOnce());
+    await vi.waitFor(() => {
+      fixture.detectChanges();
+      expect(fixture.nativeElement.querySelector('.terms-fieldset')).not.toBeNull();
+    });
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.story-main h2')?.textContent).toContain('Haz lugar');
+    expect(root.querySelector('a[href^="/terminos-y-condiciones"]')?.getAttribute('target')).toBe('_blank');
+    expect(root.querySelector('a[href^="/politica-de-privacidad"]')?.getAttribute('target')).toBe('_blank');
+    expect(root.querySelectorAll('.consent-row input[type="checkbox"]')).toHaveLength(2);
+    fixture.destroy();
+  });
 
   it('confirms login through the real IdentitySession and navigates to the account page', async () => {
     const api = {
