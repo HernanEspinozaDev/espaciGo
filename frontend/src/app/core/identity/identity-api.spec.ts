@@ -7,6 +7,8 @@ import { provideHeyApiClient } from '../../../generated/api/client/client.gen';
 import { provideFrontendPorts } from '../../frontend.providers';
 import type { LoginResponse, SessionResponse } from '../contracts/models';
 import { IdentitySession } from './application/identity-session';
+import { IdentityApi } from './infrastructure/identity-api';
+import { identityFieldMessages } from './identity-errors';
 import { PrivateSessionState } from './private-session-state';
 
 describe('IdentityApi generated SDK integration', () => {
@@ -70,6 +72,55 @@ describe('IdentityApi generated SDK integration', () => {
     });
     expect(identity.session()?.roles).toEqual(['arrendador']);
     expect(identity.session()?.restricted_mode).toBe(true);
+    http.verify();
+  });
+
+  it('projects safe field codes from the generated error contract and ignores external messages', async () => {
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideHeyApiClient(client),
+        PrivateSessionState,
+      ],
+    });
+    client.setConfig({
+      baseUrl: 'http://localhost:8080/api/v1',
+      httpClient: TestBed.inject(HttpClient),
+    });
+    const http = TestBed.inject(HttpTestingController);
+    const request = TestBed.inject(IdentityApi)
+      .register({
+        email: 'fixture@example.invalid',
+        password: 'Synthetic#123',
+        terms_version_ids: [
+          '11111111-1111-4111-8111-111111111111',
+          '22222222-2222-4222-8222-222222222222',
+        ],
+      })
+      .catch((error) => error);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    http.expectOne('http://localhost:8080/api/v1/auth/register').flush(
+      {
+        error: {
+          code: 'invalid_value',
+          message: 'untrusted diagnostic',
+          request_id: '11111111-1111-4111-8111-111111111111',
+          details: [
+            { field: 'email', code: 'invalid_email', message: '<script>untrusted</script>' },
+            { field: 'password', code: 'password_policy' },
+            { field: 'internal_table', code: 'sql_error' },
+            { field: 'email', code: 'unknown_code' },
+          ],
+        },
+      },
+      { status: 422, statusText: 'Unprocessable Entity' },
+    );
+    expect(identityFieldMessages(await request)).toEqual({
+      email: 'Escribe un correo válido.',
+      password: 'Usa al menos 8 caracteres, una mayúscula, un número y un símbolo.',
+    });
     http.verify();
   });
 

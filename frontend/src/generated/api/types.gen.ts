@@ -1573,7 +1573,7 @@ export type ErrorDetail = {
     message: string;
     request_id: string;
     /**
-     * Detalles seguros, opcionales y específicos del error.
+     * Detalles seguros, opcionales y específicos del error. Registro/acceso usan email:invalid_email, email:already_registered, password:required, password:password_policy y terms_version_ids:consent_invalid; nunca valores enviados ni errores internos.
      */
     details?: Array<FieldError>;
 };
@@ -1642,7 +1642,13 @@ export type LocalTrialDisputeTransition = {
 
 export type RegisterRequest = {
     email: string;
-    terms_version_ids: Array<string>;
+    /**
+     * Debe contener exactamente una versión vigente de Términos y condiciones y una de Política de privacidad.
+     */
+    terms_version_ids: [
+        string,
+        string
+    ];
 };
 
 export type EmailRequest = {
@@ -1707,6 +1713,18 @@ export type TermsResponse = {
         sha256: string;
         published_at: UtcTimestamp;
         synthetic: true;
+        document: {
+            id: string;
+            code: string;
+            type: string;
+            title: string;
+            scope: string;
+            status: string;
+            sections: Array<{
+                heading: string;
+                body: string;
+            }>;
+        };
     }>;
 };
 
@@ -1721,7 +1739,13 @@ export type RegisterRequestWritable = {
      * RQF-003–006; mayúscula, número, especial; máximo bcrypt 72 bytes.
      */
     password: string;
-    terms_version_ids: Array<string>;
+    /**
+     * Debe contener exactamente una versión vigente de Términos y condiciones y una de Política de privacidad.
+     */
+    terms_version_ids: [
+        string,
+        string
+    ];
 };
 
 export type VerificationRequestWritable = {

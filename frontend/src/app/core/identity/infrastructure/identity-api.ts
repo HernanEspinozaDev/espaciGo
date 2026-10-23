@@ -7,7 +7,7 @@ import type {
   TermsResponse,
 } from '../../contracts/models';
 import { GeneratedResult, IdentityPort } from '../domain/ports/identity-port';
-import { IdentityApiError } from '../identity-errors';
+import { IdentityApiError, type IdentityFieldError } from '../identity-errors';
 
 @Injectable({ providedIn: 'root' })
 export class IdentityApi extends IdentityPort {
@@ -20,7 +20,7 @@ export class IdentityApi extends IdentityPort {
   async register(body: {
     email: string;
     password: string;
-    terms_version_ids: string[];
+    terms_version_ids: [string, string];
   }): Promise<AccountCreated> {
     return unwrap(await this.api.registerAccount({ body }), 'body');
   }
@@ -104,7 +104,35 @@ export class IdentityApi extends IdentityPort {
 }
 
 function unwrap<T>(result: GeneratedResult, kind: 'body' | 'empty'): T {
-  if (result.error) throw new IdentityApiError(result.response?.status ?? 0);
+  if (result.error) {
+    const body =
+      typeof result.error === 'object' && result.error !== null && 'error' in result.error
+        ? result.error.error
+        : null;
+    const code =
+      typeof body === 'object' && body !== null && 'code' in body && typeof body.code === 'string'
+        ? body.code
+        : undefined;
+    const details: IdentityFieldError[] = [];
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'details' in body &&
+      Array.isArray(body.details)
+    ) {
+      for (const detail of body.details.slice(0, 10)) {
+        if (
+          typeof detail === 'object' &&
+          detail !== null &&
+          typeof detail.field === 'string' &&
+          typeof detail.code === 'string'
+        ) {
+          details.push({ field: detail.field, code: detail.code });
+        }
+      }
+    }
+    throw new IdentityApiError(result.response?.status ?? 0, code, details);
+  }
   if (kind === 'body' && result.data === undefined) throw new IdentityApiError(0);
   return result.data as T;
 }

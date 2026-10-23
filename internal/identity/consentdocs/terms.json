@@ -1,0 +1,34 @@
+{
+  "scope": "Entorno de evaluación de EspaciGo",
+  "status": "Documento para evaluación con datos ficticios de ejemplo. No son condiciones aprobadas para un servicio comercial.",
+  "id": "00000000-0000-4000-8000-000000000075",
+  "code": "evaluacion-terminos-20261023-v1",
+  "type": "terminos",
+  "title": "Términos y condiciones",
+  "sections": [
+    {
+      "heading": "Un espacio para explorar",
+      "body": "EspaciGo permite explorar espacios y ensayar la creación de una cuenta, publicaciones y reservas. Esta versión está destinada a una evaluación controlada. El catálogo y las operaciones de prueba no constituyen ofertas ni contratos con personas reales."
+    },
+    {
+      "heading": "Tu cuenta",
+      "body": "Usa únicamente una cuenta y un correo cuyo uso esté autorizado para esta evaluación. Verifica el correo y conserva tu contraseña de forma privada. No compartas enlaces de verificación o recuperación."
+    },
+    {
+      "heading": "Arrendar y ofrecer espacios",
+      "body": "Una misma cuenta puede explorar y ofrecer espacios. Los permisos se confirman al realizar cada acción y dependen de los controles de la aplicación. Crear una cuenta no garantiza la aprobación de una publicación."
+    },
+    {
+      "heading": "Contenido y uso permitido",
+      "body": "Carga solo imágenes recreables para la prueba y sin datos de otras personas. No publiques documentos de identidad, información financiera ni contenido confidencial. No realices pagos ni celebres acuerdos reales mediante este entorno."
+    },
+    {
+      "heading": "Cambios y disponibilidad",
+      "body": "Las funciones pueden cambiar durante la evaluación. No se garantiza disponibilidad continua ni conservación indefinida del contenido de prueba. Las nuevas versiones de estos documentos se identificarán y registrarán sin alterar aceptaciones anteriores."
+    },
+    {
+      "heading": "Información de referencia y contacto",
+      "body": "Para esta evaluación se utiliza el nombre ficticio Espacio Go SpA, en Chile. contacto@espaciogo.cl es un ejemplo no operativo: no se presenta como un canal de atención ni de ejercicio de derechos. Estos datos no identifican a un responsable legal real. La identidad y el contacto efectivos, así como el texto definitivo, deberán confirmarse antes de abrir el servicio a público real."
+    }
+  ]
+}

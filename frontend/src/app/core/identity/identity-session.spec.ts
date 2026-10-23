@@ -124,6 +124,27 @@ describe('IdentitySession', () => {
     expect(identity.accessToken()).toBe('new-token');
   });
 
+  it('rejects a late failure as stale without clearing the newer account', async () => {
+    let failFirst!: (error: unknown) => void;
+    const first = new Promise<LoginResponse>((_, reject) => (failFirst = reject));
+    const api = {
+      login: vi.fn((email: string) =>
+        email === 'first@example.invalid'
+          ? first
+          : Promise.resolve(makeLogin('account-2', 'new-token')),
+      ),
+      session: vi.fn().mockResolvedValue(makeSession('account-2')),
+      logout: vi.fn(),
+    };
+    const identity = createIdentity(api);
+    const stale = identity.signIn('first@example.invalid', 'Synthetic#123');
+    await identity.signIn('second@example.invalid', 'Synthetic#456');
+    failFirst(new HttpErrorResponse({ status: 401 }));
+    await expect(stale).rejects.toBeInstanceOf(StaleIdentityRequest);
+    expect(identity.session()?.account_id).toBe('account-2');
+    expect(identity.accessToken()).toBe('new-token');
+  });
+
   it('clears session state and private state before requesting Go logout', async () => {
     const api = {
       login: vi.fn().mockResolvedValue(makeLogin('account-1', 'logout-token')),
@@ -205,7 +226,7 @@ describe('IdentitySession', () => {
     const sessionB = identity.session();
     const tokenB = identity.accessToken();
     finishRecovery();
-    await recovery;
+    expect(await recovery).toBe(false);
 
     expect(api.session).toHaveBeenCalledTimes(3);
     expect(identity.accessToken()).toBe(tokenB);

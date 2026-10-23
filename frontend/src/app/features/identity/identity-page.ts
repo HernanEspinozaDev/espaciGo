@@ -1,5 +1,5 @@
 import { UiButton } from '../../shared/ui/button/button';
-import { Component, inject } from '@angular/core';
+import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { FormField } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
 import { IdentityFacade } from './application/identity-facade';
@@ -13,6 +13,22 @@ import { IdentityFacade } from './application/identity-facade';
 })
 export class IdentityPage {
   private readonly facade = inject(IdentityFacade);
+  readonly showPassword = signal(false);
+  readonly fieldErrors = this.facade.fieldErrors;
+  clearFieldError(field: string): void {
+    this.fieldErrors.update((errors) =>
+      Object.fromEntries(Object.entries(errors).filter(([key]) => key !== field)),
+    );
+  }
+  readonly registrationSubmitted = this.facade.registrationSubmitted;
+  readonly recoveryRequested = this.facade.recoveryRequested;
+  readonly reissueRequested = this.facade.reissueRequested;
+  readonly recoveryComplete = this.facade.recoveryComplete;
+  readonly linkState = this.facade.linkState;
+  readonly verificationSuggested = this.facade.verificationSuggested;
+  readonly reloadTerms = this.facade.loadTerms.bind(this.facade);
+  readonly onLoginReissue = this.facade.onLoginReissue.bind(this.facade);
+
   get mode() {
     return this.facade.mode;
   }
@@ -84,13 +100,49 @@ export class IdentityPage {
   }
   readonly identityQueryParams = this.facade.identityQueryParams.bind(this.facade);
   readonly contextualCancelUrl = this.facade.contextualCancelUrl.bind(this.facade);
-  readonly onLogin = this.facade.onLogin.bind(this.facade);
+  readonly onLogin = async (event: SubmitEvent): Promise<void> => {
+    if (this.busy()) {
+      event.preventDefault();
+      return;
+    }
+    // Password managers can fill native inputs without dispatching input/change.
+    // Read only this submitted form at the presentation boundary before validation.
+    const formElement = event.target instanceof HTMLFormElement ? event.target : null;
+    const email = formElement?.querySelector<HTMLInputElement>('#login-email');
+    const password = formElement?.querySelector<HTMLInputElement>('#login-password');
+    if (email && password) this.loginModel.set({ email: email.value, password: password.value });
+    await this.facade.onLogin(event);
+    setTimeout(() => {
+      const invalid =
+        this.element.nativeElement.querySelector<HTMLElement>('[aria-invalid="true"]');
+      const summary = this.element.nativeElement.querySelector<HTMLElement>('[role="alert"]');
+      (invalid ?? summary)?.focus();
+    });
+  };
   readonly onLoginInput = this.facade.onLoginInput.bind(this.facade);
-  readonly onRegister = this.facade.onRegister.bind(this.facade);
+  private readonly heading = viewChild<ElementRef<HTMLHeadingElement>>('identityHeading');
+  private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
+  readonly onRegister = async (event: SubmitEvent): Promise<void> => {
+    await this.facade.onRegister(event);
+    setTimeout(() => {
+      if (this.registrationSubmitted()) this.heading()?.nativeElement.focus();
+      else
+        (
+          this.element.nativeElement.querySelector<HTMLElement>('[aria-invalid="true"]') ??
+          this.element.nativeElement.querySelector<HTMLElement>('[role="alert"]')
+        )?.focus();
+    });
+  };
   readonly onReissue = this.facade.onReissue.bind(this.facade);
   readonly onVerify = this.facade.onVerify.bind(this.facade);
   readonly onRecover = this.facade.onRecover.bind(this.facade);
-  readonly onConsumeRecovery = this.facade.onConsumeRecovery.bind(this.facade);
+  readonly onConsumeRecovery = async (event: SubmitEvent): Promise<void> => {
+    await this.facade.onConsumeRecovery(event);
+    setTimeout(() => {
+      if (this.recoveryComplete()) this.heading()?.nativeElement.focus();
+      else this.element.nativeElement.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+    });
+  };
   readonly onChangePassword = this.facade.onChangePassword.bind(this.facade);
   readonly getRoleLabel = this.facade.getRoleLabel.bind(this.facade);
 }

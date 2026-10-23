@@ -652,6 +652,10 @@ export type TermsResponse = {
     sha256: string;
     published_at: UtcTimestamp;
     synthetic: true;
+    document: {
+      id: string; code: string; type: string; title: string; scope: string; status: string;
+      sections: Array<{ heading: string; body: string }>;
+    };
   }>;
 };
 

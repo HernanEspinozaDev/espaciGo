@@ -111,7 +111,7 @@ describe('App logout navigation', () => {
       part instanceof HTMLImageElement ? part.getAttribute('src') : part.textContent?.trim(),
     );
     expect(brand?.getAttribute('aria-label')).toBe('EspaciGo, ir a la portada');
-    expect(brandParts).toEqual(['espaci', '/espacigo-mark.svg', 'o']);
+    expect(brandParts).toEqual(['/espacigo-mark.svg', 'EspaciGo']);
     expect(compiled.querySelector('nav')?.textContent).toContain('Categorías');
     expect(compiled.querySelector('.nav-sign-in')?.textContent).toContain('Iniciar sesión');
     expect(compiled.querySelector('[role="dialog"]')).toBeNull();

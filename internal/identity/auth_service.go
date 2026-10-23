@@ -6,6 +6,8 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"log/slog"
 	"net/mail"
 	"net/netip"
 	"strings"
@@ -101,11 +103,13 @@ type RegisterInput struct {
 	Channel, ClientIP string
 }
 
+var ErrConsentInvalid = fmt.Errorf("%w: current consent versions required", ErrInvalid)
+
 // Registration persists the account and terms atomically without assigning a
 // business role. Token issuance and mail follow commit; delivery failure leaves
 // a pending account that can reissue verification.
 func (s *AuthenticationService) Register(ctx context.Context, input RegisterInput) (string, error) {
-	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil || len(input.TermsVersionIDs) == 0 {
+	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil {
 		return "", ErrInvalid
 	}
 	if input.Channel != "web" && input.Channel != "api" {
@@ -115,25 +119,27 @@ func (s *AuthenticationService) Register(ctx context.Context, input RegisterInpu
 		return "", ErrInvalid
 	}
 	now := s.now()
+	documents, err := PublicConsentDocuments()
+	if err != nil || len(input.TermsVersionIDs) != len(documents) {
+		return "", ErrConsentInvalid
+	}
+	expected := make(map[string]ConsentDocument)
+	for _, document := range documents {
+		expected[document.ID] = document
+	}
 	versions := make(map[string]bool)
-	hasTerms := false
 	for _, id := range input.TermsVersionIDs {
-		if versions[id] {
-			return "", ErrInvalid
+		document, allowed := expected[id]
+		if !allowed || versions[id] {
+			return "", ErrConsentInvalid
 		}
 		versions[id] = true
 		version, err := s.repo.TermsVersion(ctx, id)
-		if err != nil {
-			return "", err
+		if err != nil || version.PublishedAt.After(now) || version.Code != document.Code || version.Type != document.Type || version.SHA256 != document.SHA256 {
+			return "", ErrConsentInvalid
 		}
-		if version.PublishedAt.After(now) {
-			return "", ErrInvalid
-		}
-		hasTerms = hasTerms || version.Type == "terminos"
 	}
-	if !hasTerms {
-		return "", ErrInvalid
-	}
+
 	hash, err := s.passwords.Hash(input.Password)
 	if err != nil {
 		return "", err
@@ -213,6 +219,7 @@ func (s *AuthenticationService) ReissueVerification(ctx context.Context, email, 
 		return denied
 	}
 	if s.mailer.SendVerification(ctx, delivery) != nil {
+		slog.WarnContext(ctx, "Credential email delivery failed", "event", "identity.mail_delivery_failed", "purpose", verificationPurpose)
 		return ErrDelivery
 	}
 	return nil
@@ -331,7 +338,9 @@ func (s *AuthenticationService) RequestPasswordRecovery(ctx context.Context, ema
 	if delivery.TokenID != "" {
 		// Delivery failure is deliberately hidden from the requester to preserve
 		// the same public result as an unknown address. No token is logged.
-		_ = s.mailer.SendRecovery(ctx, delivery)
+		if s.mailer.SendRecovery(ctx, delivery) != nil {
+			slog.WarnContext(ctx, "Credential email delivery failed", "event", "identity.mail_delivery_failed", "purpose", recoveryPurpose)
+		}
 	}
 	return nil
 }

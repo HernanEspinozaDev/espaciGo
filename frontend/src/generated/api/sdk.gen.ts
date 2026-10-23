@@ -515,7 +515,7 @@ export class M01Local {
     }
 
     /**
-     * CU-01/RQF-001–007/186–187/213; cuenta, arrendatario, preferencia inicial no excluyente y términos atómicos. Duplicado CU-01 A1 explícito. Si emisión/correo falla después del commit, 202 con ID pendiente: reemitir, no repetir alta. La preferencia no concede rol ni restringe actividades futuras.
+     * CU-01/RQF-001–007/186–187/213: crea una cuenta sin asignar roles comerciales ni una preferencia de actividad. Registra de forma atómica las versiones actuales de Términos y condiciones y Política de privacidad. Si falla la entrega del correo tras guardar la cuenta, devuelve 202 y permite reemitir la verificación sin repetir el registro.
      */
     public registerAccount<ThrowOnError extends boolean = false>(options: Options<RegisterAccountData, ThrowOnError>): RequestResult<RegisterAccountResponses, RegisterAccountErrors, ThrowOnError> {
         return (options.client ?? client).post<RegisterAccountResponses, RegisterAccountErrors, ThrowOnError>({
@@ -630,7 +630,7 @@ export class M01Local {
     }
 
     /**
-     * CU-03/04: credencial incorrecta genérica 401, no verificada 403, bloqueo 429. Sesión 8 h absoluta, idle 30 min.
+     * CU-03/04: credencial incorrecta genérica 401, no verificada 403, bloqueo 429. Sesión 8 h absoluta, idle 30 min. Entrada inválida 422 con error.details field/code (email:invalid_email, password:required), sin valores enviados.
      */
     public login<ThrowOnError extends boolean = false>(options: Options<LoginData, ThrowOnError>): RequestResult<LoginResponses, LoginErrors, ThrowOnError> {
         return (options.client ?? client).post<LoginResponses, LoginErrors, ThrowOnError>({

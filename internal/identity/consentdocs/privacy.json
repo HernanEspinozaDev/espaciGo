@@ -1,0 +1,34 @@
+{
+  "scope": "Entorno de evaluación de EspaciGo",
+  "status": "Documento para evaluación con datos ficticios de ejemplo. No son condiciones aprobadas para un servicio comercial.",
+  "id": "00000000-0000-4000-8000-000000000076",
+  "code": "evaluacion-privacidad-20261023-v1",
+  "type": "privacidad",
+  "title": "Política de privacidad",
+  "sections": [
+    {
+      "heading": "Alcance de esta política",
+      "body": "Describe el tratamiento previsto para la evaluación controlada de EspaciGo. No autoriza cargar datos de terceros ni sustituye una política definitiva para operar con público real."
+    },
+    {
+      "heading": "Información que utiliza la cuenta",
+      "body": "La aplicación utiliza el correo autorizado para registrar, verificar y recuperar el acceso. La contraseña se guarda mediante un hash; los enlaces de acceso utilizan tokens de un solo uso con vencimiento. Las sesiones y eventos técnicos permiten proteger la cuenta."
+    },
+    {
+      "heading": "Correo y almacenamiento",
+      "body": "El correo de la cuenta se utiliza para solicitar envíos de verificación, recuperación y avisos mediante Zoho. La aplicación utiliza infraestructura de Google Cloud para sus servicios y almacenamiento privado. La aceptación del envío por el proveedor no garantiza su llegada al buzón."
+    },
+    {
+      "heading": "Publicaciones e imágenes",
+      "body": "Solo debes cargar contenido sintético o recreable permitido para la prueba. La publicación puede hacer visibles los datos y las imágenes que selecciones para el catálogo. Retirar una imagen revoca su acceso en la aplicación; las políticas de versiones y respaldo pueden conservar copias durante su período de retención."
+    },
+    {
+      "heading": "Acceso, corrección y eliminación",
+      "body": "La cuenta dispone de controles de perfil y solicitudes sobre sus datos. Algunas operaciones pueden conservar registros mínimos o quedar pendientes por relaciones y obligaciones del ensayo. No se promete eliminación inmediata de respaldos ni anonimización completa."
+    },
+    {
+      "heading": "Información de referencia y contacto",
+      "body": "Para esta evaluación se utiliza el nombre ficticio Espacio Go SpA, en Chile. contacto@espaciogo.cl es un ejemplo no operativo: no se presenta como un canal de atención ni de ejercicio de derechos. Estos datos no identifican a un responsable legal real. La identidad y el contacto efectivos, así como el texto definitivo, deberán confirmarse antes de abrir el servicio a público real."
+    }
+  ]
+}

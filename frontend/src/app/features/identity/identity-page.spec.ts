@@ -114,12 +114,12 @@ describe('IdentityPage private forms', () => {
 
     expect(api.login).toHaveBeenCalledOnce();
     expect(page.loginConfirmed()).toBe(true);
-    expect(page.errorMessage()).toContain('Go confirmó tu sesión');
+    expect(page.errorMessage()).toContain('Iniciaste sesión');
     expect(page.successMessage()).toBe('');
     expect(fixture.nativeElement.querySelector('[role="status"]')).toBeNull();
     expect(fixture.nativeElement.querySelector('#login-password-error')).toBeNull();
     expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain(
-      'Go confirmó tu sesión',
+      'Iniciaste sesión',
     );
     fixture.destroy();
   });
@@ -202,6 +202,58 @@ describe('IdentityPage private forms', () => {
     expect(destination.pathname).toBe('/acceso');
     expect(destination.searchParams.get('verificado')).toBe('1');
     expect(destination.searchParams.get('returnUrl')).toBe(preserve ? returnUrl : null);
+    fixture.destroy();
+  });
+
+  it.each([
+    { mode: 'recovery', fragment: 'token_id=id&token=synthetic-secret', expected: 'ready', external: false },
+    { mode: 'verify', fragment: 'token_id=id&token=synthetic-secret', expected: 'ready', external: true },
+    { mode: 'recovery', fragment: 'token_id=id&token=one&token=two', expected: 'invalid', external: true },
+  ])('consumes and scrubs $mode fragment with state $expected', ({ mode, fragment, expected, external }) => {
+    const safeReturn = '/espacios/550e8400-e29b-41d4-a716-446655440000?action=reserve&returnTo=%2Fexplorar';
+    TestBed.configureTestingModule({ imports: [IdentityPage], providers: [
+      ...provideFrontendPorts(), provideHttpClient(), provideRouter([]),
+      { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: mode }, fragment, queryParamMap: convertToParamMap({ returnUrl: external ? 'https://external.invalid/' : safeReturn, token: 'must-not-copy' }) } } },
+      { provide: IdentityApi, useValue: {} }, PrivateSessionState,
+    ] });
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(IdentityPage); fixture.detectChanges();
+    const page = fixture.componentInstance as unknown as { linkState(): string };
+    expect(page.linkState()).toBe(expected);
+    expect(navigate).toHaveBeenCalledWith([], expect.objectContaining({ fragment: undefined, replaceUrl: true, queryParams: external ? {} : { returnUrl: safeReturn } }));
+    const destination = navigate.mock.calls[0][1];
+    const destinationData = JSON.stringify({ queryParams: destination?.queryParams, fragment: destination?.fragment });
+    expect(destinationData).not.toContain('synthetic-secret');
+    expect(destinationData).not.toContain('must-not-copy');
+    expect(fixture.nativeElement.querySelector('#verify-token, #recovery-id, #recovery-token')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('confirms recovery after the same account bearer is revoked and private forms are cleared', async () => {
+    const api = {
+      login: vi.fn().mockResolvedValue({ account_id: 'recover-current', roles: [], capabilities: [], restricted_mode: false, access_token: 'current-bearer', token_type: 'Bearer', expires_at: '2027-01-01T00:00:00Z' }),
+      session: vi.fn().mockResolvedValueOnce({ account_id: 'recover-current', roles: [], capabilities: [], restricted_mode: false }).mockRejectedValueOnce(new HttpErrorResponse({ status: 401 })),
+      consumeRecovery: vi.fn().mockResolvedValue(undefined),
+    };
+    TestBed.configureTestingModule({ imports: [IdentityPage], providers: [
+      ...provideFrontendPorts(), provideHttpClient(), provideRouter([]),
+      { provide: ActivatedRoute, useValue: { snapshot: { data: { identityMode: 'recovery' }, queryParamMap: convertToParamMap({}), fragment: 'token_id=synthetic-id&token=synthetic-token' } } },
+      { provide: IdentityApi, useValue: api }, PrivateSessionState,
+    ] });
+    const identity = TestBed.inject(IdentitySession);
+    await identity.signIn('recovery@example.invalid', 'Synthetic#123');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    const fixture = TestBed.createComponent(IdentityPage); fixture.detectChanges();
+    const page = fixture.componentInstance as unknown as {
+      recoveryModel: { set(value: { tokenId: string; token: string; newPassword: string; confirmPassword: string }): void };
+      onConsumeRecovery(event: SubmitEvent): Promise<void>;
+      recoveryComplete(): boolean;
+    };
+    page.recoveryModel.set({ tokenId: 'synthetic-id', token: 'synthetic-token', newPassword: 'Changed#234', confirmPassword: 'Changed#234' });
+    await page.onConsumeRecovery(new Event('submit') as SubmitEvent); fixture.detectChanges();
+    expect(identity.session()).toBeNull(); expect(page.recoveryComplete()).toBe(true);
+    expect(fixture.nativeElement.querySelector('h1')?.textContent).toContain('está actualizada');
+    expect(fixture.nativeElement.querySelector('#recovery-password')).toBeNull();
     fixture.destroy();
   });
 

@@ -15,7 +15,7 @@ export abstract class IdentityPort {
   abstract register(body: {
     email: string;
     password: string;
-    terms_version_ids: string[];
+    terms_version_ids: [string, string];
   }): Promise<AccountCreated>;
   abstract reissueVerification(email: string): Promise<void>;
   abstract verifyEmail(tokenId: string, token: string): Promise<void>;

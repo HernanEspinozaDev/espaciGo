@@ -654,19 +654,16 @@ test('Contextual registration and verification preserve the pending return until
 
   const email = `mpv2-06-${Date.now()}@ejemplo.invalid`;
   const password = 'Context#12345';
-  await expect(page.getByRole('heading', { name: 'Crea tu cuenta' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Haz espacio/ })).toBeVisible();
   await page.getByLabel('Correo electrónico').fill(email);
   await page.getByLabel('Contraseña', { exact: true }).fill(password);
   await page.getByLabel('Repite la contraseña').fill(password);
   await expect(page.getByRole('radio')).toHaveCount(0);
   for (const checkbox of await page.getByRole('checkbox').all()) await checkbox.check();
   await page.getByRole('button', { name: 'Crear cuenta' }).click();
-  await expect(page.getByRole('status')).toContainText('La solicitud de registro fue aceptada para envío');
+  await expect(page.getByRole('heading',{name:'Revisa tu correo',exact:true})).toBeVisible();
   await expect(page).toHaveURL(/\/registro\?returnUrl=/);
 
-  await page.getByRole('link', { name: 'Verificar el correo' }).click();
-  await expect(page).toHaveURL(/\/verificar-correo\?returnUrl=/);
-  expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(pendingReturn);
   const mailListResponse = await page.request.get('http://mailpit:8025/api/v1/messages');
   expect(mailListResponse.ok()).toBeTruthy();
   const messages = (await mailListResponse.json()).messages || [];
@@ -679,8 +676,7 @@ test('Contextual registration and verification preserve the pending return until
   const token = /^Token: ([A-Za-z0-9_-]+)$/m.exec(messageBody)?.[1];
   expect(tokenId).toBeTruthy();
   expect(token).toBeTruthy();
-  await page.getByLabel('Identificador del correo').fill(tokenId);
-  await page.getByLabel('Código de verificación').fill(token);
+  await page.goto('/verificar-correo?'+new URLSearchParams({returnUrl:pendingReturn})+'#'+new URLSearchParams({token_id:tokenId,token}));
   await page.getByRole('button', { name: 'Verificar correo' }).click();
   await expect(page).toHaveURL(/\/acceso\?returnUrl=/);
   expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(pendingReturn);

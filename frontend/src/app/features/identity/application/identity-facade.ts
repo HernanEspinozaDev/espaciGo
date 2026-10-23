@@ -12,8 +12,14 @@ import { Meta } from '@angular/platform-browser';
 import { ActivatedRoute, Router, UrlTree } from '@angular/router';
 import type { TermsResponse } from '../../../core/contracts/models';
 import { IdentityPort } from '../../../core/identity/domain/ports/identity-port';
-import { identityErrorMessage } from '../../../core/identity/identity-errors';
-import { IdentitySession } from '../../../core/identity/application/identity-session';
+import {
+  identityErrorMessage,
+  identityFieldMessages,
+} from '../../../core/identity/identity-errors';
+import {
+  IdentitySession,
+  StaleIdentityRequest,
+} from '../../../core/identity/application/identity-session';
 import { PrivateSessionState } from '../../../core/identity/private-session-state';
 import { parseIdentityReturn } from '../../../core/identity/contextual-return';
 
@@ -31,8 +37,15 @@ export class IdentityFacade {
   readonly mode = inject(ActivatedRoute).snapshot.data['identityMode'] as IdentityMode;
   readonly busy = signal(false);
   readonly errorMessage = signal('');
+  readonly fieldErrors = signal<Record<string, string>>({});
   readonly successMessage = signal('');
   readonly registrationNeedsRetry = signal(false);
+  readonly registrationSubmitted = signal(false);
+  readonly recoveryRequested = signal(false);
+  readonly reissueRequested = signal(false);
+  readonly recoveryComplete = signal(false);
+  readonly linkState = signal<'missing' | 'ready' | 'invalid'>('missing');
+  readonly verificationSuggested = signal(false);
   readonly loginConfirmed = signal(false);
   readonly terms = signal<TermsResponse['items']>([]);
   readonly termVersions = computed(() => this.terms().filter((item) => item.type === 'terminos'));
@@ -43,6 +56,7 @@ export class IdentityFacade {
   readonly session = this.identity.session;
   private unregisterSensitiveState!: () => void;
   private requestGeneration = 0;
+  private actionSerial = 0;
   private destroyed = false;
 
   readonly loginModel = signal({ email: '', password: '' });
@@ -69,8 +83,10 @@ export class IdentityFacade {
         ? { kind: 'password-mismatch', message: 'Las contraseñas no coinciden.' }
         : undefined,
     );
-    required(path.acceptTerms, { message: 'Confirma la versión sintética de términos.' });
-    required(path.acceptPrivacy, { message: 'Confirma la versión sintética de privacidad.' });
+    required(path.acceptTerms, {
+      message: 'Debes aceptar los Términos y condiciones para continuar.',
+    });
+    required(path.acceptPrivacy, { message: 'Debes leer y aceptar la Política de privacidad.' });
   });
 
   readonly emailModel = signal({ email: '' });
@@ -135,14 +151,36 @@ export class IdentityFacade {
     if (this.mode === 'login' && this.route.snapshot.queryParamMap?.get('verificado') === '1') {
       this.successMessage.set('Correo verificado. Ya puedes iniciar sesión.');
     }
-    if (this.mode === 'verify') {
-      const fragment = this.route.snapshot.fragment ?? null;
+    if (this.mode === 'verify' || this.mode === 'recovery') {
+      const fragment = this.route.snapshot.fragment;
       if (fragment) {
         const values = new URLSearchParams(fragment);
-        const tokenId = values.get('token_id') ?? '';
-        const token = values.get('token') ?? '';
-        if (tokenId && token) this.tokenModel.set({ tokenId, token });
-        void this.router.navigate([], { relativeTo: this.route, fragment: undefined, replaceUrl: true });
+        const tokenIds = values.getAll('token_id');
+        const tokens = values.getAll('token');
+        const valid =
+          fragment.length <= 4096 &&
+          values.size === 2 &&
+          tokenIds.length === 1 &&
+          tokens.length === 1 &&
+          !!tokenIds[0] &&
+          !!tokens[0];
+        if (valid) {
+          if (this.mode === 'verify')
+            this.tokenModel.set({ tokenId: tokenIds[0], token: tokens[0] });
+          else
+            this.recoveryModel.update((model) => ({
+              ...model,
+              tokenId: tokenIds[0],
+              token: tokens[0],
+            }));
+          this.linkState.set('ready');
+        } else this.linkState.set('invalid');
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: this.identityQueryParams(),
+          fragment: undefined,
+          replaceUrl: true,
+        });
       }
     }
     this.destroyRef.onDestroy(() => {
@@ -156,6 +194,7 @@ export class IdentityFacade {
 
   async onLogin(event: SubmitEvent): Promise<void> {
     event.preventDefault();
+    if (this.busy()) return;
     this.loginConfirmed.set(false);
     this.errorMessage.set('');
     this.successMessage.set('');
@@ -170,17 +209,17 @@ export class IdentityFacade {
           );
           try {
             const navigated = await this.router.navigateByUrl(
-              typeof safeReturn === 'string' ? safeReturn : safeReturn?.detailUrl ?? '/mi-cuenta',
+              typeof safeReturn === 'string' ? safeReturn : (safeReturn?.detailUrl ?? '/mi-cuenta'),
             );
             if (!navigated && !this.destroyed) {
               this.errorMessage.set(
-                'Go confirmó tu sesión, pero no pudimos abrir tu cuenta. Inténtalo de nuevo.',
+                'Iniciaste sesión, pero no pudimos abrir tu cuenta. Inténtalo de nuevo.',
               );
             }
           } catch {
             if (!this.destroyed) {
               this.errorMessage.set(
-                'Go confirmó tu sesión, pero no pudimos abrir tu cuenta. Recarga e inténtalo de nuevo.',
+                'Iniciaste sesión, pero no pudimos abrir tu cuenta. Recarga e inténtalo de nuevo.',
               );
             }
           }
@@ -192,6 +231,7 @@ export class IdentityFacade {
   }
 
   onLoginInput(): void {
+    this.fieldErrors.set({});
     this.loginConfirmed.set(false);
     this.errorMessage.set('');
     this.successMessage.set('');
@@ -201,23 +241,15 @@ export class IdentityFacade {
     event.preventDefault();
     await submit(this.registerForm, async () => {
       const model = this.registerModel();
-      const versionIds = this.terms()
-        .filter(
-          (item) =>
-            (item.type === 'terminos' && model.acceptTerms) ||
-            (item.type === 'privacidad' && model.acceptPrivacy),
-        )
-        .map((item) => item.id);
-      if (
-        !versionIds.some((id) =>
-          this.terms().some((term) => term.id === id && term.type === 'terminos'),
-        )
-      ) {
+      const termsVersionId = model.acceptTerms ? this.termVersions()[0]?.id : undefined;
+      const privacyVersionId = model.acceptPrivacy ? this.privacyVersions()[0]?.id : undefined;
+      if (this.termsState() !== 'ready' || !termsVersionId || !privacyVersionId) {
         this.errorMessage.set(
-          'Go no publicó una versión sintética de términos; no es posible crear la cuenta.',
+          'Los documentos todavía no están disponibles. Vuelve a cargarlos antes de crear tu cuenta.',
         );
         return;
       }
+      const versionIds: [string, string] = [termsVersionId, privacyVersionId];
       await this.performRequest(
         () =>
           this.api.register({
@@ -227,6 +259,7 @@ export class IdentityFacade {
           }),
         (result) => {
           this.registrationNeedsRetry.set(result.status === 'verification_pending');
+          this.registrationSubmitted.set(true);
           this.emailModel.set({ email: model.email });
           this.registerModel.update((current) => ({
             ...current,
@@ -249,10 +282,12 @@ export class IdentityFacade {
       const address = this.emailModel().email;
       await this.performRequest(
         () => this.api.reissueVerification(address),
-        () =>
+        () => {
+          this.reissueRequested.set(true);
           this.successMessage.set(
-            'Solicitud procesada. Si la cuenta necesita verificación, puedes intentarlo más tarde; no podemos confirmar la entrega.',
-          ),
+            'Solicitud recibida. Si tu cuenta necesita verificación, recibirás un nuevo enlace. Revisa también spam; no podemos confirmar la entrega.',
+          );
+        },
       );
     });
   }
@@ -281,7 +316,10 @@ export class IdentityFacade {
       const address = this.emailModel().email;
       await this.performRequest(
         () => this.api.recover(address),
-        (accepted) => this.successMessage.set(accepted.message),
+        (accepted) => {
+          this.recoveryRequested.set(true);
+          this.successMessage.set(accepted.message);
+        },
       );
     });
   }
@@ -298,13 +336,17 @@ export class IdentityFacade {
             model.newPassword,
             model.confirmPassword,
           ),
-        () =>
+        (confirmed) => {
+          if (!confirmed) return;
+          this.recoveryComplete.set(true);
           this.recoveryModel.set({
             tokenId: '',
             token: '',
             newPassword: '',
             confirmPassword: '',
-          }),
+          });
+        },
+        (confirmed) => confirmed === true,
       );
     });
   }
@@ -344,12 +386,16 @@ export class IdentityFacade {
     );
   }
 
+  async onLoginReissue(event: SubmitEvent): Promise<void> {
+    this.emailModel.set({ email: this.loginModel().email });
+    await this.onReissue(event);
+  }
+
   identityQueryParams(): Record<string, string> {
     const safeReturn = parseIdentityReturn(
       this.route.snapshot.queryParamMap?.getAll('returnUrl') ?? [],
     );
-    const returnUrl =
-      typeof safeReturn === 'string' ? safeReturn : safeReturn?.identityReturnUrl;
+    const returnUrl = typeof safeReturn === 'string' ? safeReturn : safeReturn?.identityReturnUrl;
     return returnUrl ? { returnUrl } : {};
   }
 
@@ -362,20 +408,36 @@ export class IdentityFacade {
       : null;
   }
 
-  private async loadTerms(): Promise<void> {
+  async loadTerms(): Promise<void> {
+    this.termsState.set('loading');
+    this.registerModel.update((model) => ({ ...model, acceptTerms: false, acceptPrivacy: false }));
     try {
       const terms = await this.api.terms();
       this.terms.set(terms.items);
-      this.termsState.set(terms.items.some((item) => item.type === 'terminos') ? 'ready' : 'error');
+      this.termsState.set(
+        ['terminos', 'privacidad'].every(
+          (type) =>
+            terms.items.filter(
+              (item) =>
+                item.type === type &&
+                item.document?.sections?.length &&
+                item.document.id === item.id,
+            ).length === 1,
+        )
+          ? 'ready'
+          : 'error',
+      );
     } catch {
       this.termsState.set('error');
     }
   }
 
   private begin(): number {
+    this.fieldErrors.set({});
     this.errorMessage.set('');
     this.successMessage.set('');
     this.busy.set(true);
+    ++this.actionSerial;
     return ++this.requestGeneration;
   }
 
@@ -384,15 +446,18 @@ export class IdentityFacade {
     onSuccess: (value: T) => void | Promise<void>,
     acceptsSessionGenerationChange?: (value: T) => boolean,
   ): Promise<void> {
+    if (this.busy()) return;
     this.begin();
     let generation = this.requestGeneration;
     let stateGeneration = this.privateSessionState.generation();
+    let identityRevision = this.identity.sessionRevision;
+    const actionSerial = this.actionSerial;
     let result!: T;
     let hasResult = false;
     const isCurrent = () =>
       this.isCurrentRequest(generation, stateGeneration) ||
       (!this.destroyed &&
-        generation === this.requestGeneration &&
+        actionSerial === this.actionSerial &&
         hasResult &&
         acceptsSessionGenerationChange?.(result) === true);
     try {
@@ -400,14 +465,54 @@ export class IdentityFacade {
       const pending = request();
       generation = this.requestGeneration;
       stateGeneration = this.privateSessionState.generation();
+      identityRevision = this.identity.sessionRevision;
+      this.busy.set(true);
       result = await pending;
       hasResult = true;
       if (!isCurrent()) return;
       await onSuccess(result);
     } catch (error) {
-      if (isCurrent()) this.errorMessage.set(identityErrorMessage(error));
+      const ownsLoginFailure =
+        this.mode === 'login' &&
+        !this.destroyed &&
+        actionSerial === this.actionSerial &&
+        identityRevision === this.identity.sessionRevision &&
+        !(error instanceof StaleIdentityRequest);
+      if (isCurrent() || ownsLoginFailure) {
+        this.fieldErrors.set(identityFieldMessages(error));
+        this.errorMessage.set(
+          this.mode === 'login' &&
+            typeof error === 'object' &&
+            error !== null &&
+            'status' in error &&
+            error.status === 401
+            ? 'Correo o contraseña incorrectos'
+            : this.mode === 'verify' &&
+                typeof error === 'object' &&
+                error !== null &&
+                'status' in error &&
+                error.status === 422
+              ? 'Este enlace no es válido, ha vencido o ya se utilizó. Solicita uno nuevo para continuar.'
+              : identityErrorMessage(error),
+        );
+        if (
+          this.mode === 'login' &&
+          typeof error === 'object' &&
+          error !== null &&
+          'status' in error &&
+          error.status === 403
+        )
+          this.verificationSuggested.set(true);
+      }
     } finally {
-      if (isCurrent()) this.busy.set(false);
+      if (
+        isCurrent() ||
+        (this.mode === 'login' &&
+          !this.destroyed &&
+          actionSerial === this.actionSerial &&
+          identityRevision === this.identity.sessionRevision)
+      )
+        this.busy.set(false);
     }
   }
 
@@ -429,13 +534,14 @@ function passwordRules(path: SchemaPathTree<{ password: string }>['password']): 
       Array.from(password).length >= 8 &&
       new TextEncoder().encode(password).length <= 72 &&
       /\p{Lu}/u.test(password) &&
-      /\p{N}/u.test(password) &&
+      /\p{Nd}/u.test(password) &&
       /[\p{P}\p{S}]/u.test(password);
     return valid
       ? undefined
       : {
           kind: 'password-policy',
-          message: 'Incluye mayúscula, número y símbolo; máximo 72 bytes UTF-8.',
+          message:
+            'Usa mayúscula, número y símbolo. Si la contraseña es muy larga, elige una más corta.',
         };
   });
 }

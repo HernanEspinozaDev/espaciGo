@@ -17,6 +17,9 @@ export class IdentitySession {
   readonly status = signal<IdentityStatus>('anonymous');
   readonly notice = signal('');
   private generation = 0;
+  get sessionRevision(): number {
+    return this.generation;
+  }
 
   async signIn(email: string, password: string): Promise<SessionResponse> {
     const generation = ++this.generation;
@@ -40,7 +43,9 @@ export class IdentitySession {
       this.privateState.generation.update((value) => value + 1);
       return session;
     } catch (error) {
-      if (generation === this.generation) this.resetSession();
+      if (generation !== this.generation) throw new StaleIdentityRequest();
+      this.resetSession();
+      if (generation !== this.generation) throw new StaleIdentityRequest();
       throw error;
     }
   }
@@ -91,7 +96,7 @@ export class IdentitySession {
     recoveryToken: string,
     newPassword: string,
     confirmPassword: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const sourceGeneration = this.generation;
     await this.api.consumeRecovery(tokenId, recoveryToken, newPassword, confirmPassword);
 
@@ -100,44 +105,54 @@ export class IdentitySession {
     const sessionBeforeRevalidation = this.session();
     if (!token) {
       if (sourceGeneration === generation) {
-        this.notice.set('Go cambió la contraseña y revocó las sesiones. Ya puedes iniciar sesión.');
+        this.notice.set(
+          'Contraseña actualizada. Se cerraron las sesiones anteriores. Ya puedes iniciar sesión.',
+        );
       }
-      return;
+      return sourceGeneration === generation;
     }
 
     // A recovery completion can outlive logout/login. Revalidate whichever bearer
     // is current now; the token submitted for recovery may belong to another account.
     try {
       const confirmed = await this.api.session(token);
-      if (generation !== this.generation || token !== this.accessToken()) return;
+      if (generation !== this.generation || token !== this.accessToken()) return false;
       if (
         sessionBeforeRevalidation &&
         confirmed.account_id !== sessionBeforeRevalidation.account_id
       ) {
         ++this.generation;
         this.resetSession();
-        this.notice.set('Go no confirmó la sesión vigente. Inicia sesión nuevamente.');
-        return;
+        this.notice.set('EspaciGo no confirmó la sesión vigente. Inicia sesión nuevamente.');
+        return false;
       }
       this.session.set(confirmed);
       this.status.set('authenticated');
       if (sourceGeneration === generation) {
-        this.notice.set('Go cambió la contraseña y confirmó la sesión vigente.');
+        this.notice.set('EspaciGo cambió la contraseña y confirmó la sesión vigente.');
       }
     } catch (error) {
-      if (generation !== this.generation || token !== this.accessToken()) return;
+      if (generation !== this.generation || token !== this.accessToken()) return false;
       if (isUnauthorized(error)) {
         ++this.generation;
         this.resetSession();
         this.notice.set(
           sourceGeneration === generation
-            ? 'Go cambió la contraseña y revocó la sesión vigente. Inicia sesión nuevamente.'
-            : 'Go confirmó que la sesión vigente ya no está activa. Inicia sesión nuevamente.',
+            ? 'EspaciGo cambió la contraseña y revocó la sesión vigente. Inicia sesión nuevamente.'
+            : 'EspaciGo confirmó que la sesión vigente ya no está activa. Inicia sesión nuevamente.',
+        );
+        return (
+          sourceGeneration === generation &&
+          this.generation === generation + 1 &&
+          this.accessToken() === null
         );
       } else if (sourceGeneration === generation) {
-        this.notice.set('Go cambió la contraseña; no fue posible revalidar la sesión vigente.');
+        this.notice.set(
+          'EspaciGo cambió la contraseña; no fue posible revalidar la sesión vigente.',
+        );
       }
     }
+    return sourceGeneration === this.generation;
   }
 
   async signOut(): Promise<boolean> {
@@ -166,7 +181,7 @@ export class IdentitySession {
     if (!token || this.accessToken() !== token) return false;
     ++this.generation;
     this.resetSession();
-    this.notice.set('Go cerró la sesión. Inicia sesión nuevamente.');
+    this.notice.set('EspaciGo cerró la sesión. Inicia sesión nuevamente.');
     return true;
   }
 
@@ -183,7 +198,9 @@ export class IdentitySession {
       if (generation !== this.generation) throw new StaleIdentityRequest();
       ++this.generation;
       this.resetSession();
-      this.notice.set('Go cambió tu contraseña y revocó las sesiones. Inicia sesión nuevamente.');
+      this.notice.set(
+        'EspaciGo cambió tu contraseña y revocó las sesiones. Inicia sesión nuevamente.',
+      );
     } catch (error) {
       if (generation === this.generation && isUnauthorized(error)) this.resetSession();
       throw error;

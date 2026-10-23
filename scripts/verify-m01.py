@@ -92,12 +92,12 @@ def api(method, path, expected, data=None, token=None, label=None):
 
 terms = api('GET', 'terms', 200)
 assert all(item['synthetic'] for item in terms['items']), 'requires synthetic local terms'
-term_ids = [item['id'] for item in terms['items'] if item['type'] == 'terminos']
+term_ids = [item['id'] for item in terms['items'] if item['type'] in ('terminos', 'privacidad')]
 email = args.email or f'prototype-{uuid.uuid4().hex}@ejemplo.invalid'
 assert re.fullmatch(r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.invalid', email), 'test email must use the reserved .invalid domain'
 password = 'Synthetic#123'
 api('POST', 'register', 400, {'email': email, 'role': 'administrador'}, label='unknown fields rejected')
-api('POST', 'register', 422, {'email': email, 'password': 'Synthetic#123', 'terms_version_ids': term_ids}, label='required use preference')
+api('POST', 'register', 422, {'email': email, 'password': 'Synthetic#123', 'terms_version_ids': []}, label='both current consent versions required')
 api('POST', 'register', 422, {'email': email, 'password': 'weak', 'terms_version_ids': term_ids}, label='password policy')
 api('GET', 'session', 401, label='session requires Bearer')
 registration = api('POST', 'register', 201, {'email': email, 'password': password, 'terms_version_ids': term_ids})
@@ -133,7 +133,7 @@ api('POST', 'verification', 422, {'token_id': new_id, 'token': new_token}, label
 api('POST', 'login', 401, {'email': email, 'password': 'Wrong#123'}, label='wrong password denied')
 login = api('POST', 'login', 200, {'email': email.upper(), 'password': password})
 secrets.append(login['access_token'])
-assert login['roles'] == ['arrendatario'], 'registration granted elevated role'
+assert login['roles'] == [], 'registration granted elevated role'
 session = api('GET', 'session', 200, token=login['access_token'])
 assert session['account_id'] == registration['account_id'], 'session resource mismatch'
 api('POST', 'logout', 204, token=login['access_token'])

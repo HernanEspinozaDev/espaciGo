@@ -144,3 +144,7 @@ $font-family-variant-2:
   sans-serif;
 
 $font-code: 0.82rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+
+// Account experience: proposed for review in AUTH-20261023.
+$auth-document-max-width: 50rem;
+$font-size-auth-heading: clamp(2rem, 5vw, 3rem);
