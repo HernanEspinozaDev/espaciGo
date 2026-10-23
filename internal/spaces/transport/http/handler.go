@@ -486,7 +486,7 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if err := d.Decode(dst); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) && (typeErr.Field == "area_m2" || typeErr.Field == "capacity" || typeErr.Field == "base_price_clp") {
-			failure(w, 422, "validation_error", "Los límites numéricos del borrador no son válidos.")
+			failureWithDetails(w, 422, "validation_error", "Los límites numéricos del borrador no son válidos.", []spaces.FieldError{{Field: typeErr.Field, Code: "invalid_value"}})
 			return false
 		}
 		failure(w, 400, "invalid_request", "El cuerpo JSON no es válido.")
@@ -512,6 +512,11 @@ func serviceError(w http.ResponseWriter, e error) {
 	case errors.Is(e, spaces.ErrTimeZoneRequired):
 		failure(w, 409, "time_zone_required", "Configura una zona horaria IANA válida para conservar el borrador y poder publicarlo.")
 	case errors.Is(e, spaces.ErrInvalid):
+		var validation *spaces.ValidationError
+		if errors.As(e, &validation) {
+			failureWithDetails(w, 422, "validation_error", "Revisa los campos obligatorios y sus límites.", validation.Details)
+			return
+		}
 		failure(w, 422, "validation_error", "Revisa los campos obligatorios y sus límites.")
 	case errors.Is(e, spaces.ErrNotFound):
 		failure(w, 404, "not_found", "Borrador no encontrado.")
@@ -557,6 +562,9 @@ func ownSpaceID(path string) string {
 }
 func failure(w http.ResponseWriter, status int, code, msg string) {
 	write(w, status, map[string]any{"error": map[string]string{"code": code, "message": msg, "request_id": w.Header().Get("X-Request-ID")}})
+}
+func failureWithDetails(w http.ResponseWriter, status int, code, msg string, details []spaces.FieldError) {
+	write(w, status, map[string]any{"error": map[string]any{"code": code, "message": msg, "request_id": w.Header().Get("X-Request-ID"), "details": details}})
 }
 func write(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")

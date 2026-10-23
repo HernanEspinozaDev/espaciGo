@@ -22,12 +22,13 @@ const login = (account_id: string, access_token: string) => ({
   capabilities: [],
   restricted_mode: false,
 });
+const validDescription = 'Un espacio sintético, cómodo y bien equipado para trabajar, reunirse y recibir visitas durante toda la jornada. '.repeat(2);
 const space = (id = 'space-a', state: 'borrador' | 'activa' | 'oculta' = 'borrador') => ({
   id,
   category_code: 'oficina',
   category_name: 'Oficina',
   title: 'Sala de trabajo',
-  description: 'Un espacio sintético para trabajar.',
+  description: validDescription,
   area_m2: 30,
   capacity: 6,
   usage_rules: 'No fumar',
@@ -47,6 +48,7 @@ function apiFor(base = space()) {
     publicLocations: vi.fn(async () => ({ items: [
       { region_code: '13', region_name: 'Metropolitana de Santiago', comuna_code: '13123', comuna_name: 'Providencia' },
       { region_code: '13', region_name: 'Metropolitana de Santiago', comuna_code: '13101', comuna_name: 'Santiago' },
+      { region_code: '06', region_name: "O’Higgins", comuna_code: '06101', comuna_name: 'Rancagua' },
     ] })),
     profile: vi.fn(async (_token: string, category: string, version?: number) => ({
       category_code: category,
@@ -57,6 +59,7 @@ function apiFor(base = space()) {
           label: 'Estacionamiento',
           type: 'boolean' as const,
           order: 1,
+          required: false,
           filter_candidate: true,
         },
       ],
@@ -205,6 +208,24 @@ function apiFor(base = space()) {
   };
 }
 
+async function populateDraft(page: HostingSpacesPage, title: string): Promise<void> {
+  await page.categoryChanged('oficina');
+  Object.assign(page.form, {
+    category_code: 'oficina',
+    title,
+    description: validDescription,
+    area_m2: 30,
+    capacity: 6,
+    usage_rules: 'No fumar y respetar el horario acordado.',
+    rate_unit: 'hora',
+    base_price_clp: '8000',
+    address: 'Dirección privada sintética 123',
+    region_code: '',
+    comuna_code: '',
+    attributes: {},
+  });
+}
+
 function setup(
   mockApi: ReturnType<typeof apiFor>,
   routeId: string | null = null,
@@ -321,10 +342,8 @@ describe('FE-06 HostingSpacesPage', () => {
     const fixture = TestBed.createComponent(HostingSpacesPage);
     fixture.detectChanges();
     await flush();
+    await populateDraft(page(fixture), 'Borrador nuevo');
     Object.assign(page(fixture).form, {
-      category_code: 'oficina',
-      title: 'Borrador nuevo',
-      address: 'Dirección sintética',
       region_code: '13',
       comuna_code: '13123',
     });
@@ -334,6 +353,94 @@ describe('FE-06 HostingSpacesPage', () => {
     expect(page(fixture).selectedSpace()?.id).toBe('space-a');
     expect(page(fixture).detailLoading()).toBe(false);
     expect(page(fixture).saving()).toBe(false);
+    fixture.destroy();
+  });
+
+  it('shows accessible Go field errors and preserves completed draft values after 422', async () => {
+    const api = apiFor();
+    api.list.mockResolvedValue({ items: [] });
+    api.create.mockRejectedValueOnce({
+      status: 422,
+      error: JSON.stringify({
+        error: {
+          code: 'validation_error',
+          message: 'Revisa los campos obligatorios y sus límites.',
+          details: [{ field: 'description', code: 'min_length' }],
+        },
+      }),
+    });
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    const controls = component.draftForm.controls;
+    controls.category_code.setValue('oficina');
+    await flush();
+    controls.title.setValue('Borrador completo');
+    controls.description.setValue(validDescription);
+    controls.area_m2.setValue(30);
+    controls.capacity.setValue(6);
+    controls.usage_rules.setValue('No fumar y respetar el horario acordado.');
+    controls.rate_unit.setValue('hora');
+    controls.base_price_clp.setValue('8000');
+    controls.address.setValue('Dirección privada sintética 123');
+    await component.submitDraft(new Event('submit', { cancelable: true }));
+    await flush();
+    await fixture.whenStable();
+    expect(api.create).toHaveBeenCalledOnce();
+    expect(component.form.title).toBe('Borrador completo');
+    expect(component.form.description).toBe(validDescription);
+    expect(component.fieldErrors()['description']).toContain('100 caracteres');
+    const summary = fixture.nativeElement.querySelector('#draft-error-summary') as HTMLElement | null;
+    expect(summary?.getAttribute('role')).toBe('alert');
+    expect(fixture.nativeElement.querySelector('[name="description"]')?.getAttribute('aria-invalid')).toBe('true');
+    expect(fixture.nativeElement.querySelector('[name="description"]')?.getAttribute('aria-describedby')).toBe('draft-error-summary');
+    expect(summary?.textContent).toContain('Descripción');
+    fixture.destroy();
+  });
+
+  it('matches Go draft limits and distinguishes optional profile values from false', async () => {
+    const api = apiFor();
+    api.profile.mockResolvedValue({
+      category_code: 'oficina',
+      schema_version: 2,
+      attributes: [{
+        code: 'estacionamiento', label: 'Estacionamiento', type: 'boolean', order: 1,
+        filter_candidate: true, required: true,
+      }],
+    });
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    await component.categoryChanged('oficina');
+    const attribute = component.attributeControl('estacionamiento', 'boolean');
+    expect(attribute.hasError('required')).toBe(true);
+    component.setAttribute('estacionamiento', 'false', 'boolean');
+    expect(component.form.attributes['estacionamiento']).toBe(false);
+    component.setAttribute('estacionamiento', '', 'boolean');
+    expect(Object.hasOwn(component.form.attributes, 'estacionamiento')).toBe(false);
+
+    const controls = component.draftForm.controls;
+    controls.title.setValue('x'.repeat(71));
+    controls.description.setValue('corto');
+    controls.area_m2.setValue(12.345);
+    controls.capacity.setValue(0);
+    controls.usage_rules.setValue('x'.repeat(251));
+    controls.base_price_clp.setValue('5000');
+    controls.address.setValue('x'.repeat(501));
+    component.draftAttempted.set(true);
+    component.draftForm.markAllAsTouched();
+    const invalid = new Set(component.draftIssues().map((issue) => issue.field));
+    for (const field of ['title', 'description', 'area_m2', 'capacity', 'usage_rules', 'base_price_clp', 'address', 'attributes.estacionamiento']) {
+      expect(invalid.has(field), field).toBe(true);
+    }
+    await component.submitDraft(new Event('submit', { cancelable: true }));
+    expect(api.create).not.toHaveBeenCalled();
     fixture.destroy();
   });
 
@@ -352,11 +459,7 @@ describe('FE-06 HostingSpacesPage', () => {
     const fixture = TestBed.createComponent(HostingSpacesPage);
     fixture.detectChanges();
     await flush();
-    Object.assign(page(fixture).form, {
-      category_code: 'oficina',
-      title: 'Primer borrador',
-      address: 'Dirección sintética',
-    });
+    await populateDraft(page(fixture), 'Primer borrador');
 
     await page(fixture).createDraft();
 
@@ -383,11 +486,7 @@ describe('FE-06 HostingSpacesPage', () => {
     const fixture = TestBed.createComponent(HostingSpacesPage);
     fixture.detectChanges();
     await flush();
-    Object.assign(page(fixture).form, {
-      category_code: 'oficina',
-      title: 'Borrador A',
-      address: 'Dirección sintética',
-    });
+    await populateDraft(page(fixture), 'Borrador A');
     const pendingCreate = page(fixture).createDraft();
     await flush();
     const loadingB = page(fixture).loadSpace('space-b');
@@ -441,6 +540,26 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
+  it('clears a published field error when that field is edited', async () => {
+    const api = apiFor(space('space-a', 'activa'));
+    api.updatePublished.mockRejectedValueOnce({
+      status: 422,
+      error: { error: { code: 'validation_error', details: [{ field: 'title', code: 'max_length' }] } },
+    });
+    const { identity } = setup(api);
+    await identity.signIn('owner@example.invalid', 'secret');
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    const component = page(fixture);
+    component.publishedForm.title = 'Título demasiado largo';
+    await component.savePublishedContent();
+    expect(component.fieldErrors()['title']).toContain('70 caracteres');
+    component.publishedEditorForm.controls.title.setValue('Título corregido');
+    expect(component.fieldErrors()['title']).toBeUndefined();
+    fixture.destroy();
+  });
+
   it('saves the public location for a published space and clears the commune when the region changes', async () => {
     const api = apiFor(space('space-a', 'activa'));
     const { identity } = setup(api);
@@ -459,6 +578,13 @@ describe('FE-06 HostingSpacesPage', () => {
     page(fixture).form.comuna_code = '06101';
     page(fixture).regionChanged('13');
     expect(page(fixture).form.comuna_code).toBe('');
+    const regionControl = page(fixture).controlFor(page(fixture).form, 'region_code', page(fixture).regionChanged);
+    const communeControl = page(fixture).controlFor(page(fixture).form, 'comuna_code');
+    communeControl.setValue('13123');
+    regionControl.setValue('06');
+    expect(page(fixture).form.comuna_code).toBe('');
+    fixture.detectChanges();
+    expect(communeControl.value).toBe('');
     fixture.destroy();
   });
 
@@ -498,7 +624,7 @@ describe('FE-06 HostingSpacesPage', () => {
       title: 'Título actualizado desde Go',
       description: 'Descripción confirmada remota',
     });
-    page(fixture).form.description = 'Descripción modificada';
+    page(fixture).form.description = validDescription.replace('Un espacio sintético', 'Descripción modificada');
     await page(fixture).saveDraft();
     const payload = api.update.mock.calls[0][2] as {
       base_price_clp: string;
@@ -507,7 +633,7 @@ describe('FE-06 HostingSpacesPage', () => {
     };
     expect(payload.base_price_clp).toBe(exactPrice);
     expect(payload.title).toBe('Título actualizado desde Go');
-    expect(payload.description).toBe('Descripción modificada');
+    expect(payload.description).toBe(validDescription.replace('Un espacio sintético', 'Descripción modificada'));
     fixture.destroy();
   });
 

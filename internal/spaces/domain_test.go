@@ -52,6 +52,28 @@ func TestDraftInputRequiresAllCU15FieldsAndLimits(t *testing.T) {
 	}
 }
 
+func TestDraftFieldErrorsIdentifyOnlyAllowlistedFieldsAndCodes(t *testing.T) {
+	in := validInput()
+	in.Title = strings.Repeat("x", 71)
+	in.Description = "contenido confidencial de prueba"
+	in.AreaM2 = 12.345
+	in.UsageRules = " "
+	in.RegionCode = "13"
+	fields := in.FieldErrors()
+	want := map[string]string{
+		"title": "max_length", "description": "min_length", "area_m2": "step",
+		"usage_rules": "required", "region_code": "location_pair", "comuna_code": "location_pair",
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("fields=%+v", fields)
+	}
+	for _, field := range fields {
+		if want[field.Field] != field.Code {
+			t.Errorf("field=%+v want code %q", field, want[field.Field])
+		}
+	}
+}
+
 func TestPublishedContentInputValidatesPartialTitleAndPrice(t *testing.T) {
 	title := "Título editado"
 	description := strings.Repeat("Descripción local válida. ", 5)
@@ -175,6 +197,27 @@ func TestProfileRejectsMissingRequiredAttributes(t *testing.T) {
 	}
 	if err := p.ValidateAttributeFilters(map[string]any{"amoblado": false}); err != nil {
 		t.Fatalf("partial filter incorrectly required publication attributes: %v", err)
+	}
+}
+
+func TestProfileFieldErrorsDistinguishRequiredAndInvalidValuesWithoutEchoingKeys(t *testing.T) {
+	p := Profile{CategoryCode: "oficina", SchemaVersion: 1, Attributes: []AttributeDefinition{
+		{Code: "tipo_inmueble", Type: "enum", Required: true, Options: []string{"casa", "departamento"}},
+		{Code: "wifi", Type: "boolean"},
+	}}
+	fields := p.AttributeFieldErrorsForArea(map[string]any{"wifi": "not-a-boolean", "client_secret": "never echo this"}, 20)
+	want := map[string]string{
+		"attributes.tipo_inmueble": "required",
+		"attributes.wifi":          "invalid_value",
+		"attributes":               "unknown_field",
+	}
+	if len(fields) != len(want) {
+		t.Fatalf("fields=%+v", fields)
+	}
+	for _, field := range fields {
+		if want[field.Field] != field.Code {
+			t.Errorf("field=%+v want code %q", field, want[field.Field])
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"sort"
 	"strings"
 	"time"
 )
@@ -18,6 +19,29 @@ var (
 	ErrTimeZoneRequired    = errors.New("spaces: valid IANA time zone required before publication")
 	ErrDeleteBlocked       = errors.New("spaces: publication has open obligations")
 )
+
+// FieldError exposes only a stable field path and local validation code. It
+// never contains submitted values or validator internals.
+type FieldError struct {
+	Field string `json:"field"`
+	Code  string `json:"code"`
+}
+
+// ValidationError preserves errors.Is(err, ErrInvalid) while carrying safe,
+// allowlisted field details for clients that can present them.
+type ValidationError struct {
+	Details []FieldError
+}
+
+func (e *ValidationError) Error() string { return ErrInvalid.Error() }
+func (e *ValidationError) Unwrap() error { return ErrInvalid }
+
+func NewValidationError(details []FieldError) error {
+	if len(details) == 0 {
+		return ErrInvalid
+	}
+	return &ValidationError{Details: append([]FieldError(nil), details...)}
+}
 
 type Draft struct {
 	ID                     string         `json:"id"`
@@ -83,44 +107,109 @@ type Deletion struct {
 }
 
 func (i PublishedContentInput) Validate() error {
-	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.BasePriceCLP == nil && i.RegionCode == nil && i.CommuneCode == nil {
+	if len(i.FieldErrors()) > 0 {
 		return ErrInvalid
-	}
-	if i.Title != nil && (strings.TrimSpace(*i.Title) == "" || len([]rune(*i.Title)) > 70) {
-		return ErrInvalid
-	}
-	if i.Description != nil && len([]rune(strings.TrimSpace(*i.Description))) < 100 {
-		return ErrInvalid
-	}
-	if i.Capacity != nil && *i.Capacity <= 0 {
-		return ErrInvalid
-	}
-	if i.UsageRules != nil && (strings.TrimSpace(*i.UsageRules) == "" || len([]rune(*i.UsageRules)) > 250) {
-		return ErrInvalid
-	}
-	if i.BasePriceCLP != nil && *i.BasePriceCLP <= 5000 {
-		return ErrInvalid
-	}
-	if (i.RegionCode == nil) != (i.CommuneCode == nil) {
-		return ErrInvalid
-	}
-	if i.RegionCode != nil {
-		if (*i.RegionCode == "") != (*i.CommuneCode == "") {
-			return ErrInvalid
-		}
-		if *i.RegionCode != "" && !validPublicLocationCodes(*i.RegionCode, *i.CommuneCode) {
-			return ErrInvalid
-		}
 	}
 	return nil
 }
 
+func (i PublishedContentInput) FieldErrors() []FieldError {
+	var fields []FieldError
+	if i.Title == nil && i.Description == nil && i.Capacity == nil && i.UsageRules == nil && i.BasePriceCLP == nil && i.RegionCode == nil && i.CommuneCode == nil {
+		return []FieldError{{Field: "title", Code: "required"}}
+	}
+	if i.Title != nil {
+		if strings.TrimSpace(*i.Title) == "" {
+			fields = append(fields, FieldError{Field: "title", Code: "required"})
+		} else if len([]rune(*i.Title)) > 70 {
+			fields = append(fields, FieldError{Field: "title", Code: "max_length"})
+		}
+	}
+	if i.Description != nil && len([]rune(strings.TrimSpace(*i.Description))) < 100 {
+		fields = append(fields, FieldError{Field: "description", Code: "min_length"})
+	}
+	if i.Capacity != nil && *i.Capacity <= 0 {
+		fields = append(fields, FieldError{Field: "capacity", Code: "minimum"})
+	}
+	if i.UsageRules != nil {
+		if strings.TrimSpace(*i.UsageRules) == "" {
+			fields = append(fields, FieldError{Field: "usage_rules", Code: "required"})
+		} else if len([]rune(*i.UsageRules)) > 250 {
+			fields = append(fields, FieldError{Field: "usage_rules", Code: "max_length"})
+		}
+	}
+	if i.BasePriceCLP != nil && *i.BasePriceCLP <= 5000 {
+		fields = append(fields, FieldError{Field: "base_price_clp", Code: "minimum"})
+	}
+	if (i.RegionCode == nil) != (i.CommuneCode == nil) {
+		fields = append(fields, FieldError{Field: "region_code", Code: "location_pair"}, FieldError{Field: "comuna_code", Code: "location_pair"})
+	}
+	if i.RegionCode != nil && i.CommuneCode != nil {
+		if (*i.RegionCode == "") != (*i.CommuneCode == "") {
+			fields = append(fields, FieldError{Field: "region_code", Code: "location_pair"}, FieldError{Field: "comuna_code", Code: "location_pair"})
+		}
+		if *i.RegionCode != "" && !validPublicLocationCodes(*i.RegionCode, *i.CommuneCode) {
+			fields = append(fields, FieldError{Field: "region_code", Code: "invalid_value"}, FieldError{Field: "comuna_code", Code: "invalid_value"})
+		}
+	}
+	return fields
+}
+
 func (i Input) Validate() error {
-	areaCents := i.AreaM2 * 100
-	if strings.TrimSpace(i.Title) == "" || len([]rune(i.Title)) > 70 || len([]rune(strings.TrimSpace(i.Description))) < 100 || math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) || i.AreaM2 < 0.01 || i.AreaM2 > 99999999.99 || math.Abs(areaCents-math.Round(areaCents)) > 1e-7 || i.CategoryCode == "" || i.Capacity <= 0 || strings.TrimSpace(i.UsageRules) == "" || len([]rune(i.UsageRules)) > 250 || (i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes") || i.BasePriceCLP <= 5000 || strings.TrimSpace(i.Address) == "" || len([]rune(i.Address)) > 500 || (i.RegionCode == "") != (i.CommuneCode == "") || i.RegionCode != "" && !validPublicLocationCodes(i.RegionCode, i.CommuneCode) {
+	if len(i.FieldErrors()) > 0 {
 		return ErrInvalid
 	}
 	return nil
+}
+
+func (i Input) FieldErrors() []FieldError {
+	var fields []FieldError
+	if strings.TrimSpace(i.CategoryCode) == "" {
+		fields = append(fields, FieldError{Field: "category_code", Code: "required"})
+	}
+	if strings.TrimSpace(i.Title) == "" {
+		fields = append(fields, FieldError{Field: "title", Code: "required"})
+	} else if len([]rune(i.Title)) > 70 {
+		fields = append(fields, FieldError{Field: "title", Code: "max_length"})
+	}
+	if len([]rune(strings.TrimSpace(i.Description))) < 100 {
+		fields = append(fields, FieldError{Field: "description", Code: "min_length"})
+	}
+	areaCents := i.AreaM2 * 100
+	if math.IsNaN(i.AreaM2) || math.IsInf(i.AreaM2, 0) {
+		fields = append(fields, FieldError{Field: "area_m2", Code: "invalid_value"})
+	} else if i.AreaM2 < 0.01 {
+		fields = append(fields, FieldError{Field: "area_m2", Code: "minimum"})
+	} else if i.AreaM2 > 99999999.99 {
+		fields = append(fields, FieldError{Field: "area_m2", Code: "maximum"})
+	} else if math.Abs(areaCents-math.Round(areaCents)) > 1e-7 {
+		fields = append(fields, FieldError{Field: "area_m2", Code: "step"})
+	}
+	if i.Capacity <= 0 {
+		fields = append(fields, FieldError{Field: "capacity", Code: "minimum"})
+	}
+	if strings.TrimSpace(i.UsageRules) == "" {
+		fields = append(fields, FieldError{Field: "usage_rules", Code: "required"})
+	} else if len([]rune(i.UsageRules)) > 250 {
+		fields = append(fields, FieldError{Field: "usage_rules", Code: "max_length"})
+	}
+	if i.RateUnit != "hora" && i.RateUnit != "dia" && i.RateUnit != "mes" {
+		fields = append(fields, FieldError{Field: "rate_unit", Code: "invalid_value"})
+	}
+	if i.BasePriceCLP <= 5000 {
+		fields = append(fields, FieldError{Field: "base_price_clp", Code: "minimum"})
+	}
+	if strings.TrimSpace(i.Address) == "" {
+		fields = append(fields, FieldError{Field: "address", Code: "required"})
+	} else if len([]rune(i.Address)) > 500 {
+		fields = append(fields, FieldError{Field: "address", Code: "max_length"})
+	}
+	if (i.RegionCode == "") != (i.CommuneCode == "") {
+		fields = append(fields, FieldError{Field: "region_code", Code: "location_pair"}, FieldError{Field: "comuna_code", Code: "location_pair"})
+	} else if i.RegionCode != "" && !validPublicLocationCodes(i.RegionCode, i.CommuneCode) {
+		fields = append(fields, FieldError{Field: "region_code", Code: "invalid_value"}, FieldError{Field: "comuna_code", Code: "invalid_value"})
+	}
+	return fields
 }
 
 func validPublicLocationCodes(regionCode, communeCode string) bool {
@@ -228,6 +317,61 @@ func (p Profile) ValidateAttributes(values map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// AttributeFieldErrorsForArea returns only profile-backed field paths and
+// stable local codes. It is suitable for API responses; it never returns the
+// invalid value or a validator error string.
+func (p Profile) AttributeFieldErrorsForArea(values map[string]any, areaM2 float64) []FieldError {
+	data, err := json.Marshal(values)
+	if err != nil || len(data) > 16*1024 {
+		return []FieldError{{Field: "attributes", Code: "maximum_size"}}
+	}
+	defs := make(map[string]AttributeDefinition, len(p.Attributes))
+	for _, definition := range p.Attributes {
+		defs[definition.Code] = definition
+	}
+	fields := make([]FieldError, 0)
+	for _, definition := range p.Attributes {
+		if definition.Required {
+			if _, exists := values[definition.Code]; !exists {
+				fields = append(fields, FieldError{Field: "attributes." + definition.Code, Code: "required"})
+			}
+		}
+	}
+	codes := make([]string, 0, len(values))
+	for code := range values {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	for _, code := range codes {
+		value := values[code]
+		definition, exists := defs[code]
+		if !exists {
+			fields = append(fields, FieldError{Field: "attributes", Code: "unknown_field"})
+			continue
+		}
+		if value == nil || definition.validate(value) != nil {
+			fields = append(fields, FieldError{Field: "attributes." + code, Code: "invalid_value"})
+			continue
+		}
+		if p.CategoryCode == "parcela_eventos" && (code == "superficie_exterior_util_m2" || code == "superficie_cubierta_util_m2") {
+			if n, ok := numeric(value); !ok || n > areaM2 {
+				fields = append(fields, FieldError{Field: "attributes." + code, Code: "exceeds_area"})
+			}
+		}
+	}
+	if p.CategoryCode == "quincho" {
+		typ, hasType := values["tipo_parrilla"].(string)
+		count, hasCount := numeric(values["parrillas_disponibles"])
+		if hasType && typ == "sin_parrilla" && hasCount && count != 0 {
+			fields = append(fields, FieldError{Field: "attributes.parrillas_disponibles", Code: "invalid_combination"})
+		}
+		if hasCount && count > 0 && (!hasType || typ == "sin_parrilla") {
+			fields = append(fields, FieldError{Field: "attributes.tipo_parrilla", Code: "invalid_combination"})
+		}
+	}
+	return fields
 }
 
 // ValidateAttributesForArea applies the persisted category schema together

@@ -22,12 +22,24 @@ func (s *Service) Profile(ctx context.Context, category string, version int) (Pr
 	return s.repo.Profile(ctx, category, version)
 }
 func (s *Service) Create(ctx context.Context, owner string, in Input) (Draft, error) {
-	if !validOwner(owner) || in.Validate() != nil {
+	if !validOwner(owner) {
 		return Draft{}, ErrInvalid
 	}
+	if fields := in.FieldErrors(); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
+	}
 	profile, err := s.repo.Profile(ctx, in.CategoryCode, 0)
-	if err != nil || profile.SchemaVersion != in.AttributeSchemaVersion && in.AttributeSchemaVersion != 0 || validateAttributes(profile, in) != nil {
-		return Draft{}, ErrInvalid
+	if errors.Is(err, ErrNotFound) {
+		return Draft{}, NewValidationError([]FieldError{{Field: "category_code", Code: "invalid_value"}})
+	}
+	if err != nil {
+		return Draft{}, err
+	}
+	if in.AttributeSchemaVersion != 0 && profile.SchemaVersion != in.AttributeSchemaVersion {
+		return Draft{}, NewValidationError([]FieldError{{Field: "attribute_schema_version", Code: "invalid_value"}})
+	}
+	if fields := profile.AttributeFieldErrorsForArea(in.Attributes, in.AreaM2); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
 	}
 	in.AttributeSchemaVersion = profile.SchemaVersion
 	if in.Attributes == nil {
@@ -51,8 +63,8 @@ func (s *Service) UpdateOwn(ctx context.Context, owner, id string, in Input) (Dr
 	if !validOwner(owner) || !validID(id) {
 		return Draft{}, ErrNotFound
 	}
-	if in.Validate() != nil {
-		return Draft{}, ErrInvalid
+	if fields := in.FieldErrors(); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
 	}
 	// Existing drafts stay on their saved schema. A client may explicitly
 	// select a different category/profile, but we never silently upgrade it.
@@ -63,13 +75,22 @@ func (s *Service) UpdateOwn(ctx context.Context, owner, id string, in Input) (Dr
 	version := in.AttributeSchemaVersion
 	if version == 0 {
 		if in.CategoryCode != existing.CategoryCode {
-			return Draft{}, ErrInvalid
+			return Draft{}, NewValidationError([]FieldError{{Field: "attribute_schema_version", Code: "invalid_value"}})
 		}
 		version = existing.AttributeSchemaVersion
 	}
 	profile, err := s.repo.Profile(ctx, in.CategoryCode, version)
-	if err != nil || profile.SchemaVersion != version || validateAttributes(profile, in) != nil {
-		return Draft{}, ErrInvalid
+	if errors.Is(err, ErrNotFound) {
+		return Draft{}, NewValidationError([]FieldError{{Field: "category_code", Code: "invalid_value"}})
+	}
+	if err != nil {
+		return Draft{}, err
+	}
+	if profile.SchemaVersion != version {
+		return Draft{}, NewValidationError([]FieldError{{Field: "attribute_schema_version", Code: "invalid_value"}})
+	}
+	if fields := profile.AttributeFieldErrorsForArea(in.Attributes, in.AreaM2); len(fields) != 0 {
+		return Draft{}, NewValidationError(fields)
 	}
 	in.AttributeSchemaVersion = version
 	if in.Attributes == nil {
@@ -96,7 +117,7 @@ func (s *Service) UpdatePublishedOwn(ctx context.Context, owner, id string, inpu
 		return Draft{}, ErrNotFound
 	}
 	if input.Validate() != nil {
-		return Draft{}, ErrInvalid
+		return Draft{}, NewValidationError(input.FieldErrors())
 	}
 	return s.repo.UpdatePublishedOwn(ctx, owner, id, input)
 }

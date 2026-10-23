@@ -174,6 +174,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
   readonly saving = signal(false);
   readonly loadingError = signal('');
   readonly error = signal('');
+  readonly fieldErrors = signal<Record<string, string>>({});
   readonly notice = signal('');
   readonly conflict = signal('');
   readonly form = emptyForm();
@@ -404,6 +405,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     const revision = ++this.resourceGeneration;
     const saveOperation = this.beginSaving();
     this.error.set('');
+    this.fieldErrors.set({});
     this.notice.set('');
     try {
       const created = (await this.api.create(context.token, payload)) as unknown as ExactSpace;
@@ -449,6 +451,7 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     const selection = this.selectionRevision;
     const saveOperation = this.beginSaving();
     this.error.set('');
+    this.fieldErrors.set({});
     this.notice.set('');
     try {
       // The draft PUT is a full replacement. Start from Go's latest record and
@@ -501,6 +504,8 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       return this.setNotice('No hay campos modificados para guardar.');
     const revision = ++this.resourceGeneration;
     const saveOperation = this.beginSaving();
+    this.error.set('');
+    this.fieldErrors.set({});
     try {
       const updated = (await this.api.updatePublished(
         context.token,
@@ -1165,15 +1170,29 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
 
   setAttribute(code: string, raw: string, type: string): void {
     const next = { ...this.form.attributes };
-    if (type === 'boolean') next[code] = raw === 'true';
-    else if (type === 'enum_list')
-      next[code] = raw
+    if (raw.trim() === '') {
+      delete next[code];
+    } else if (type === 'boolean') next[code] = raw === 'true';
+    else if (type === 'enum_list') {
+      const values = raw
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean);
-    else if (type === 'integer' || type === 'number') next[code] = raw === '' ? null : Number(raw);
+      if (values.length) next[code] = values;
+      else delete next[code];
+    } else if (type === 'integer' || type === 'number') next[code] = Number(raw);
     else next[code] = raw;
     this.form.attributes = next;
+  }
+
+  clearDraftFieldError(field: string): void {
+    const current = this.fieldErrors();
+    if (!Object.prototype.hasOwnProperty.call(current, field)) return;
+    const next = { ...current };
+    delete next[field];
+    if (field.startsWith('attributes.')) delete next['attributes'];
+    this.fieldErrors.set(next);
+    if (!Object.keys(next).length) this.error.set('');
   }
 
   addPeriod(dayIndex: number): void {
@@ -1268,14 +1287,10 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     }
   }
   private makePayload(form: DraftForm): SpaceDraftInput | null {
-    if (
-      !form.category_code ||
-      !form.title.trim() ||
-      !form.address.trim() ||
-      (!!form.region_code !== !!form.comuna_code) ||
-      !validClp(form.base_price_clp)
-    ) {
-      this.error.set('Completa categoría, título, dirección y una tarifa CLP entera válida.');
+    const issues = draftInputErrors(form, this.profile(), this.publicLocations());
+    if (issues.length) {
+      this.fieldErrors.set(Object.fromEntries(issues.map(({ field, code }) => [field, fieldErrorMessage(field, code)])));
+      this.error.set('Revisa los campos indicados antes de guardar el borrador.');
       return null;
     }
     return {
@@ -1530,6 +1545,14 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     }
     const message = goErrorMessage(error);
     if (!canPresent) return;
+    if (statusOf(error) === 422) {
+      const fields = safeDraftFieldMessages(error, this.profile());
+      if (Object.keys(fields).length) {
+        this.fieldErrors.set(fields);
+        this.error.set('Go indicó los campos que debes corregir. Tus datos siguen en el formulario.');
+        return;
+      }
+    }
     if (statusOf(error) === 409) this.conflict.set(message);
     this.error.set(message);
   }
@@ -1661,6 +1684,158 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
     };
     this.revokePhoto();
   }
+}
+
+type DraftIssue = { field: string; code: string };
+
+function draftInputErrors(
+  form: DraftForm,
+  profile: SpaceAttributeProfile | null,
+  locations: PublicLocationList['items'],
+): DraftIssue[] {
+  const issues: DraftIssue[] = [];
+  const add = (field: string, code: string) => issues.push({ field, code });
+  const runes = (value: string) => Array.from(value).length;
+  if (!form.category_code.trim()) add('category_code', 'required');
+  if (!form.title.trim()) add('title', 'required');
+  else if (runes(form.title) > 70) add('title', 'max_length');
+  if (runes(form.description.trim()) < 100) add('description', 'min_length');
+
+  const area = Number(form.area_m2);
+  if (!Number.isFinite(area)) add('area_m2', 'invalid_value');
+  else if (area < 0.01) add('area_m2', 'minimum');
+  else if (area > 99_999_999.99) add('area_m2', 'maximum');
+  else if (Math.abs(area * 100 - Math.round(area * 100)) > 1e-7) add('area_m2', 'step');
+
+  const capacity = Number(form.capacity);
+  if (!Number.isInteger(capacity) || capacity < 1) add('capacity', 'minimum');
+  else if (capacity > 2_147_483_647) add('capacity', 'maximum');
+  if (!form.usage_rules.trim()) add('usage_rules', 'required');
+  else if (runes(form.usage_rules) > 250) add('usage_rules', 'max_length');
+  if (!['hora', 'dia', 'mes'].includes(form.rate_unit)) add('rate_unit', 'invalid_value');
+  if (!/^\d+$/.test(form.base_price_clp)) add('base_price_clp', 'invalid_value');
+  else {
+    const price = BigInt(form.base_price_clp);
+    if (price < 5001n) add('base_price_clp', 'minimum');
+    else if (price > 9223372036854775807n) add('base_price_clp', 'maximum');
+  }
+  if (!form.address.trim()) add('address', 'required');
+  else if (runes(form.address) > 500) add('address', 'max_length');
+
+  if (!!form.region_code !== !!form.comuna_code) {
+    add('region_code', 'location_pair');
+    add('comuna_code', 'location_pair');
+  } else if (form.region_code && form.comuna_code) {
+    const shapeIsValid = /^\d{2}$/.test(form.region_code) &&
+      /^\d{5}$/.test(form.comuna_code) && form.comuna_code.startsWith(form.region_code);
+    const existsInCatalog = locations.length === 0 || locations.some((location) =>
+      location.region_code === form.region_code && location.comuna_code === form.comuna_code,
+    );
+    if (!shapeIsValid || !existsInCatalog) {
+      add('region_code', 'invalid_value');
+      add('comuna_code', 'invalid_value');
+    }
+  }
+
+  if (!profile || profile.category_code !== form.category_code) {
+    add('attribute_schema_version', 'required');
+  } else {
+    const definitions = new Map(profile.attributes.map((attribute) => [attribute.code, attribute]));
+    for (const attribute of profile.attributes) {
+      const value = form.attributes[attribute.code];
+      if (value === undefined || value === null || value === '') {
+        if (attribute.required) add(`attributes.${attribute.code}`, 'required');
+        continue;
+      }
+      let valid = true;
+      if (attribute.type === 'boolean') valid = typeof value === 'boolean';
+      else if (attribute.type === 'integer' || attribute.type === 'number') {
+        valid = typeof value === 'number' && Number.isFinite(value) &&
+          (attribute.type !== 'integer' || Number.isInteger(value)) &&
+          (attribute.minimum === undefined || value >= attribute.minimum) &&
+          (attribute.maximum === undefined || value <= attribute.maximum) &&
+          (attribute.step === undefined || Math.abs(value / attribute.step - Math.round(value / attribute.step)) <= 1e-7);
+      } else if (attribute.type === 'enum') {
+        valid = typeof value === 'string' && (attribute.options ?? []).includes(value);
+      } else {
+        valid = Array.isArray(value) && value.length > 0 &&
+          value.every((entry) => typeof entry === 'string' && (attribute.options ?? []).includes(entry)) &&
+          new Set(value).size === value.length;
+      }
+      if (!valid) add(`attributes.${attribute.code}`, 'invalid_value');
+    }
+    for (const code of Object.keys(form.attributes)) {
+      if (!definitions.has(code)) add('attributes', 'unknown_field');
+    }
+    if (profile.category_code === 'parcela_eventos') {
+      for (const code of ['superficie_exterior_util_m2', 'superficie_cubierta_util_m2']) {
+        const value = form.attributes[code];
+        if (typeof value === 'number' && value > area) add(`attributes.${code}`, 'exceeds_area');
+      }
+    }
+    if (profile.category_code === 'quincho') {
+      const kind = form.attributes['tipo_parrilla'];
+      const count = form.attributes['parrillas_disponibles'];
+      if (kind === 'sin_parrilla' && typeof count === 'number' && count !== 0)
+        add('attributes.parrillas_disponibles', 'invalid_combination');
+      if (typeof count === 'number' && count > 0 && (!kind || kind === 'sin_parrilla'))
+        add('attributes.tipo_parrilla', 'invalid_combination');
+    }
+  }
+  return issues;
+}
+
+const localFieldMessages: Record<string, string> = {
+  required: 'Completa este campo.',
+  min_length: 'Escribe al menos 100 caracteres.',
+  max_length: 'El contenido supera el máximo permitido.',
+  minimum: 'El valor está bajo el mínimo permitido.',
+  maximum: 'El valor supera el máximo permitido.',
+  step: 'Usa incrementos de 0,01 m².',
+  invalid_value: 'Selecciona o escribe un valor válido.',
+  location_pair: 'Selecciona región y comuna, o deja ambas sin indicar.',
+  unknown_field: 'Actualiza las características para usar el perfil vigente.',
+  maximum_size: 'Reduce la cantidad de características declaradas.',
+  exceeds_area: 'La superficie útil no puede superar la superficie total.',
+  invalid_combination: 'Revisa la combinación de características indicada.',
+};
+
+function fieldErrorMessage(field: string, code: string): string {
+  if (field === 'description' && code === 'min_length') return 'Escribe al menos 100 caracteres.';
+  if (field === 'title' && code === 'max_length') return 'Usa 70 caracteres o menos.';
+  if (field === 'usage_rules' && code === 'max_length') return 'Usa 250 caracteres o menos.';
+  if (field === 'address' && code === 'max_length') return 'Usa 500 caracteres o menos.';
+  if (field === 'area_m2' && code === 'minimum') return 'La superficie mínima es 0,01 m².';
+  if (field === 'area_m2' && code === 'maximum') return 'La superficie máxima es 99.999.999,99 m².';
+  if (field === 'capacity' && code === 'minimum') return 'Indica una capacidad entera mayor que cero.';
+  if (field === 'capacity' && code === 'maximum') return 'La capacidad supera el máximo permitido.';
+  if (field === 'base_price_clp' && code === 'minimum') return 'La tarifa inicial debe ser mayor que CLP 5.000.';
+  return localFieldMessages[code] ?? 'Revisa este campo.';
+}
+
+function safeDraftFieldMessages(error: unknown, profile: SpaceAttributeProfile | null): Record<string, string> {
+  let body = (error as { error?: unknown })?.error;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body) as unknown; } catch { return {}; }
+  }
+  const envelope = body as { error?: { details?: unknown } } | undefined;
+  const details = envelope?.error?.details;
+  if (!Array.isArray(details)) return {};
+  const known = new Set([
+    'category_code', 'title', 'description', 'area_m2', 'capacity', 'usage_rules',
+    'rate_unit', 'base_price_clp', 'address', 'region_code', 'comuna_code',
+    'attribute_schema_version', 'attributes',
+    ...(profile?.attributes.map((attribute) => `attributes.${attribute.code}`) ?? []),
+  ]);
+  const result: Record<string, string> = {};
+  for (const item of details) {
+    if (typeof item !== 'object' || item === null) continue;
+    const detail = item as { field?: unknown; code?: unknown };
+    if (typeof detail.field !== 'string' || !known.has(detail.field) || typeof detail.code !== 'string') continue;
+    const message = localFieldMessages[detail.code];
+    if (message) result[detail.field] = fieldErrorMessage(detail.field, detail.code);
+  }
+  return result;
 }
 
 function validClp(value: string): boolean {
