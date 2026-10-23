@@ -211,7 +211,9 @@ def main() -> int:
         'gcloud storage objects describe "$$schema_evidence_uri"',
         'gcloud storage cp "$$schema_evidence_uri" /workspace/img01-schema-evidence.json',
         'sha256sum /workspace/img01-schema-evidence.json',
-        "python3 scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json",
+        "schema_python=$$(gcloud info --format='value(basic.python_location)')",
+        '[[ "$$schema_python" == /* && -x "$$schema_python" ]]',
+        '"$$schema_python" scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json',
         "img01-schema-evidence/${_APP_SCHEMA_EVIDENCE_SHA256}.json",
     )
     if any(token not in schema_gate_script for token in schema_evidence_contract):
