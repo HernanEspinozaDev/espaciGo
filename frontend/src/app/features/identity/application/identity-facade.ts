@@ -265,7 +265,8 @@ export class IdentityFacade {
         () => this.api.verifyEmail(model.tokenId, model.token),
         async () => {
           this.tokenModel.set({ tokenId: '', token: '' });
-          const navigated = await this.router.navigateByUrl('/acceso?verificado=1');
+          const query = new URLSearchParams({ ...this.identityQueryParams(), verificado: '1' });
+          const navigated = await this.router.navigateByUrl(`/acceso?${query.toString()}`);
           if (!navigated && !this.destroyed) {
             this.successMessage.set('Correo verificado. Ya puedes iniciar sesión desde Acceso.');
           }

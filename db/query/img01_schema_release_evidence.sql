@@ -80,7 +80,7 @@ SELECT jsonb_build_object(
         SELECT jsonb_agg(jsonb_build_object(
             'granted_role', granted.rolname,
             'member', member.rolname,
-            'grantor_oid', m.grantor,
+            'grantor_oid', m.grantor::bigint,
             'admin_option', m.admin_option,
             'inherit_option', m.inherit_option,
             'set_option', m.set_option

@@ -11,9 +11,11 @@ test('public landing reaches registration and EspaciGo login without a Google se
   const navigatedOrigins = new Set();
   let registerRequestOrigin;
   let loginRequestOrigin;
+  let verified = false;
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigatedOrigins.add(new URL(frame.url()).origin);
   });
+  await page.route('**/config.json', (route) => route.fulfill({ json: { apiBaseUrl: `${publicOrigin}/api/v1`, siteOrigin: publicOrigin } }));
   await context.clearCookies();
   await page.addInitScript(() => {
     localStorage.clear();
@@ -26,20 +28,28 @@ test('public landing reaches registration and EspaciGo login without a Google se
   }));
   await page.route('**/api/v1/auth/register', async (route) => {
     registerRequestOrigin = route.request().headers().origin;
+    expect(route.request().postDataJSON()).not.toHaveProperty('use_preference');
+    expect(route.request().postDataJSON()).not.toHaveProperty('roles');
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
-      body: JSON.stringify({ account_id: accountId, status: 'email_pending', use_preference: 'arrendar' }),
+      body: JSON.stringify({ account_id: accountId, status: 'email_pending' }),
     });
+  });
+  await page.route('**/api/v1/auth/verification', async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ token_id: accountId, token: 'synthetic-verification-token' });
+    verified = true;
+    await route.fulfill({ status: 204, body: '' });
   });
   await page.route('**/api/v1/auth/login', async (route) => {
     loginRequestOrigin = route.request().headers().origin;
+    expect(verified).toBe(true);
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         account_id: accountId,
-        roles: ['arrendatario'],
+        roles: [],
         capabilities: [],
         access_token: 'synthetic-espacigo-application-bearer-token',
         token_type: 'Bearer',
@@ -53,7 +63,7 @@ test('public landing reaches registration and EspaciGo login without a Google se
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ account_id: accountId, roles: ['arrendatario'], capabilities: [], restricted_mode: false }),
+      body: JSON.stringify({ account_id: accountId, roles: [], capabilities: [], restricted_mode: false }),
     });
   });
   await page.route('**/api/v1/profile', async (route) => {
@@ -88,23 +98,29 @@ test('public landing reaches registration and EspaciGo login without a Google se
   await expect(page).toHaveURL(`${publicOrigin}/registro`);
   await expect(page.getByRole('heading', { name: 'Crea tu cuenta' })).toBeVisible();
   await expect(page.getByText(/terminos-v1/)).toBeVisible();
+  if (process.env.PUBLIC_ENTRY_REGISTER_EVIDENCE_PATH) await page.screenshot({ path: process.env.PUBLIC_ENTRY_REGISTER_EVIDENCE_PATH, fullPage: true });
   await page.locator('#register-email').fill('visitor@example.invalid');
   await page.locator('#register-password').fill('Visitor#123');
   await page.locator('#register-confirm').fill('Visitor#123');
-  await page.getByLabel('Arrendar un espacio').check();
+  await expect(page.getByRole('radio')).toHaveCount(0);
   await page.locator('.terms-fieldset input[type="checkbox"]').nth(0).check();
   await page.locator('.terms-fieldset input[type="checkbox"]').nth(1).check();
   await page.getByRole('button', { name: 'Crear cuenta' }).click();
-  await expect(page.getByRole('status')).toContainText('Go creó la cuenta');
+  await expect(page.getByRole('status')).toContainText('La solicitud de registro fue aceptada para envío');
   expect(registerRequestOrigin).toBe(publicOrigin);
 
-  await page.getByRole('link', { name: 'Inicia sesión' }).click();
-  await expect(page).toHaveURL(`${publicOrigin}/acceso`);
+  await page.getByRole('link', { name: 'Verificar el correo', exact: true }).click();
+  await page.locator('#verify-id').fill(accountId);
+  await page.locator('#verify-token').fill('synthetic-verification-token');
+  await page.getByRole('button', { name: 'Verificar correo', exact: true }).click();
+  await expect(page).toHaveURL(`${publicOrigin}/acceso?verificado=1`);
+  await expect(page.getByRole('status')).toContainText('Correo verificado. Ya puedes iniciar sesión.');
   await page.locator('#login-email').fill('visitor@example.invalid');
   await page.locator('#login-password').fill('Visitor#123');
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
   await expect(page).toHaveURL(`${publicOrigin}/mi-cuenta`);
   expect(loginRequestOrigin).toBe(publicOrigin);
+  await expect(page.getByRole('link', { name: 'Ofrecer espacio', exact: true })).toBeVisible();
   expect([...navigatedOrigins]).toEqual([publicOrigin]);
   expect(page.url()).not.toContain('accounts.google.com');
   expect(await context.cookies()).toEqual([]);

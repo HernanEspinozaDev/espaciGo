@@ -5,6 +5,9 @@
     @if (mode === 'login') {
       <h1 id="identity-title">Inicia sesión</h1>
       <p class="intro">Accede con la cuenta que registraste en EspaciGo.</p>
+      @if (successMessage()) {
+        <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
+      }
       <form (submit)="onLogin($event)" novalidate>
         <div class="field">
           <label for="login-email">Correo electrónico</label>
@@ -74,7 +77,7 @@
     @if (mode === 'register') {
       <h1 id="identity-title">Crea tu cuenta</h1>
       <p class="intro">
-        La preferencia inicial organiza el recorrido; Go asigna los permisos por separado.
+        Verifica tu correo para activar tu cuenta. Podrás arrendar y ofrecer espacios según las acciones que realices.
       </p>
       @if (termsState() === 'loading') {
         <p class="loading-note" role="status">Cargando versiones desde Go…</p>

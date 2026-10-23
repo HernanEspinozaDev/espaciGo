@@ -52,6 +52,10 @@ DB=espacigo_dms_stage_20261020
 docker exec "$NAME" createdb -U postgres "$DB"
 export DATABASE_URL="postgres://postgres@localhost/$DB?host=$SOCKET_DIR"
 sql -q -c 'CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT'
+sql -q <<'SQL'
+CREATE ROLE espacigo_api_login LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+GRANT espacigo_runtime TO espacigo_api_login WITH ADMIN FALSE, SET TRUE, INHERIT FALSE;
+SQL
 "$TMP_DIR/dbmigrate" -dir "$TMP_DIR/v67"
 before="$(ledger_hash)"
 # Preserve the real V1-V67 ledger. Only remove role ACLs/role in this disposable
@@ -146,6 +150,19 @@ DO $$ BEGIN
  THEN RAISE EXCEPTION 'V73 worker separation failed'; END IF;
 END $$;
 SQL
+# Exercise the actual SQL/JSON serialization boundary, not a Python-only mock.
+sql -qAt -f /dev/stdin < db/query/img01_schema_release_evidence.sql > "$TMP_DIR/schema-report.json"
+python3 - "$TMP_DIR/schema-report.json" <<'PYREPORT'
+from pathlib import Path
+import hashlib,json,sys
+p=Path(sys.argv[1])
+report=json.loads(p.read_text())
+report['query_sha256']=hashlib.sha256(Path('db/query/img01_schema_release_evidence.sql').read_bytes()).hexdigest()
+worker_edges=[m for m in report['memberships'] if m['granted_role']=='espacigo_privacy_cleanup_worker']
+assert len(worker_edges)==1 and type(worker_edges[0]['grantor_oid']) is int, worker_edges
+p.write_text(json.dumps(report))
+PYREPORT
+python3 scripts/verify_img01_schema_release_evidence.py "$TMP_DIR/schema-report.json" --migrations db/migrations --query db/query/img01_schema_release_evidence.sql
 docker exec "$NAME" psql -X -U fixture_admin -d postgres -v ON_ERROR_STOP=1 -q -c 'ALTER ROLE postgres SUPERUSER'
 # Also exercise the explicitly supported absent-V64-routine repair variant.
 # Recreate only this test DB, without changing any retained resource.

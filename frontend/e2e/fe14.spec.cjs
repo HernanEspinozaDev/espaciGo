@@ -658,10 +658,10 @@ test('Contextual registration and verification preserve the pending return until
   await page.getByLabel('Correo electrónico').fill(email);
   await page.getByLabel('Contraseña', { exact: true }).fill(password);
   await page.getByLabel('Repite la contraseña').fill(password);
-  await page.getByRole('radio', { name: 'Arrendar un espacio' }).check();
+  await expect(page.getByRole('radio')).toHaveCount(0);
   for (const checkbox of await page.getByRole('checkbox').all()) await checkbox.check();
   await page.getByRole('button', { name: 'Crear cuenta' }).click();
-  await expect(page.getByRole('status')).toContainText('Go creó la cuenta');
+  await expect(page.getByRole('status')).toContainText('La solicitud de registro fue aceptada para envío');
   await expect(page).toHaveURL(/\/registro\?returnUrl=/);
 
   await page.getByRole('link', { name: 'Verificar el correo' }).click();
@@ -682,10 +682,9 @@ test('Contextual registration and verification preserve the pending return until
   await page.getByLabel('Identificador del correo').fill(tokenId);
   await page.getByLabel('Código de verificación').fill(token);
   await page.getByRole('button', { name: 'Verificar correo' }).click();
-  await expect(page.getByRole('status')).toContainText('Correo verificado por Go');
-  await expect(page).toHaveURL(/\/verificar-correo\?returnUrl=/);
-
-  await page.getByRole('link', { name: 'Inicia sesión para volver al espacio' }).click();
+  await expect(page).toHaveURL(/\/acceso\?returnUrl=/);
+  expect(new URL(page.url()).searchParams.get('returnUrl')).toBe(pendingReturn);
+  await expect(page.getByRole('status')).toContainText('Correo verificado. Ya puedes iniciar sesión.');
   await page.getByLabel('Correo electrónico').fill(email);
   await page.getByLabel('Contraseña').fill(password);
   await page.getByRole('button', { name: 'Iniciar sesión' }).click();
