@@ -1642,7 +1642,13 @@ export type LocalTrialDisputeTransition = {
 
 export type RegisterRequest = {
     email: string;
-    terms_version_ids: Array<string>;
+    /**
+     * Debe contener exactamente una versión vigente de Términos y condiciones y una de Política de privacidad.
+     */
+    terms_version_ids: [
+        string,
+        string
+    ];
 };
 
 export type EmailRequest = {
@@ -1733,7 +1739,13 @@ export type RegisterRequestWritable = {
      * RQF-003–006; mayúscula, número, especial; máximo bcrypt 72 bytes.
      */
     password: string;
-    terms_version_ids: Array<string>;
+    /**
+     * Debe contener exactamente una versión vigente de Términos y condiciones y una de Política de privacidad.
+     */
+    terms_version_ids: [
+        string,
+        string
+    ];
 };
 
 export type VerificationRequestWritable = {

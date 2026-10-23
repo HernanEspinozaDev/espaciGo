@@ -241,25 +241,15 @@ export class IdentityFacade {
     event.preventDefault();
     await submit(this.registerForm, async () => {
       const model = this.registerModel();
-      const versionIds = this.terms()
-        .filter(
-          (item) =>
-            (item.type === 'terminos' && model.acceptTerms) ||
-            (item.type === 'privacidad' && model.acceptPrivacy),
-        )
-        .map((item) => item.id);
-      if (
-        this.termsState() !== 'ready' ||
-        versionIds.length !== 2 ||
-        !versionIds.some((id) =>
-          this.terms().some((term) => term.id === id && term.type === 'terminos'),
-        )
-      ) {
+      const termsVersionId = model.acceptTerms ? this.termVersions()[0]?.id : undefined;
+      const privacyVersionId = model.acceptPrivacy ? this.privacyVersions()[0]?.id : undefined;
+      if (this.termsState() !== 'ready' || !termsVersionId || !privacyVersionId) {
         this.errorMessage.set(
           'Los documentos todavía no están disponibles. Vuelve a cargarlos antes de crear tu cuenta.',
         );
         return;
       }
+      const versionIds: [string, string] = [termsVersionId, privacyVersionId];
       await this.performRequest(
         () =>
           this.api.register({

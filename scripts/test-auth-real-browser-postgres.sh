@@ -15,14 +15,17 @@ if [[ "$FRONTEND_URL" != http://127.0.0.1:* ]]; then
 fi
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
 NAME="espacigo-auth-browser-$$"
+CONTAINER_CREATED=0
 TMP_DIR="$(mktemp -d /tmp/espacigo-auth-browser.XXXXXX)"
 SOCKET_DIR="$TMP_DIR/socket"
 chmod 0700 "$TMP_DIR"
 mkdir -m 0777 "$SOCKET_DIR"
 install -m 0600 /dev/null "$TMP_DIR/.disposable-postgres"
 cleanup() {
-  docker exec --user root "$NAME" chmod 0777 /var/run/postgresql >/dev/null 2>&1 || true
-  docker rm -fv "$NAME" >/dev/null 2>&1 || true
+  if [[ "$CONTAINER_CREATED" == "1" ]]; then
+    docker exec --user root "$NAME" chmod 0777 /var/run/postgresql >/dev/null 2>&1 || true
+    docker rm -fv "$NAME" >/dev/null 2>&1 || true
+  fi
   rm -rf -- "$TMP_DIR"
 }
 trap cleanup EXIT INT TERM
@@ -32,6 +35,7 @@ export PGPASSFILE="$TMP_DIR/no-credentials"
 docker run -d --name "$NAME" --network none --tmpfs /var/lib/postgresql:rw,size=1g \
   --mount "type=bind,src=$SOCKET_DIR,dst=/var/run/postgresql" \
   -e POSTGRES_USER=fixture_admin -e POSTGRES_HOST_AUTH_METHOD=trust -e PGDATA=/var/lib/postgresql/auth-browser-data "$IMAGE" >/dev/null
+CONTAINER_CREATED=1
 for _ in $(seq 1 120); do
   if docker exec "$NAME" pg_isready -U fixture_admin >/dev/null 2>&1; then break; fi
   sleep 0.25

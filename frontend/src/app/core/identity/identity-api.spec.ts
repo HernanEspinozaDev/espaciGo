@@ -94,7 +94,10 @@ describe('IdentityApi generated SDK integration', () => {
       .register({
         email: 'fixture@example.invalid',
         password: 'Synthetic#123',
-        terms_version_ids: [],
+        terms_version_ids: [
+          '11111111-1111-4111-8111-111111111111',
+          '22222222-2222-4222-8222-222222222222',
+        ],
       })
       .catch((error) => error);
     await new Promise((resolve) => setTimeout(resolve, 0));

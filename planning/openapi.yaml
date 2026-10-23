@@ -648,9 +648,7 @@ paths:
       operationId: registerAccount
       tags:
       - M01 local
-      description: 'CU-01/RQF-001–007/186–187/213; cuenta, arrendatario, preferencia inicial no excluyente y términos atómicos. Duplicado CU-01 A1
-        explícito. Si emisión/correo falla después del commit, 202 con ID pendiente: reemitir, no repetir alta.
-        La preferencia no concede rol ni restringe actividades futuras.'
+      description: 'CU-01/RQF-001–007/186–187/213: crea una cuenta sin asignar roles comerciales ni una preferencia de actividad. Registra de forma atómica las versiones actuales de Términos y condiciones y Política de privacidad. Si falla la entrega del correo tras guardar la cuenta, devuelve 202 y permite reemitir la verificación sin repetir el registro.'
       # FieldError reuses the public safe error contract; messages are not credentials.
       responses:
         '400': *id001
@@ -4955,7 +4953,9 @@ components:
           description: RQF-003–006; mayúscula, número, especial; máximo bcrypt 72 bytes.
         terms_version_ids:
           type: array
-          minItems: 1
+          description: Debe contener exactamente una versión vigente de Términos y condiciones y una de Política de privacidad.
+          minItems: 2
+          maxItems: 2
           uniqueItems: true
           items: &id010
             type: string

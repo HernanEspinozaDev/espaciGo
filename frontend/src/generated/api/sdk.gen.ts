@@ -515,7 +515,7 @@ export class M01Local {
     }
 
     /**
-     * CU-01/RQF-001–007/186–187/213; cuenta, arrendatario, preferencia inicial no excluyente y términos atómicos. Duplicado CU-01 A1 explícito. Si emisión/correo falla después del commit, 202 con ID pendiente: reemitir, no repetir alta. La preferencia no concede rol ni restringe actividades futuras.
+     * CU-01/RQF-001–007/186–187/213: crea una cuenta sin asignar roles comerciales ni una preferencia de actividad. Registra de forma atómica las versiones actuales de Términos y condiciones y Política de privacidad. Si falla la entrega del correo tras guardar la cuenta, devuelve 202 y permite reemitir la verificación sin repetir el registro.
      */
     public registerAccount<ThrowOnError extends boolean = false>(options: Options<RegisterAccountData, ThrowOnError>): RequestResult<RegisterAccountResponses, RegisterAccountErrors, ThrowOnError> {
         return (options.client ?? client).post<RegisterAccountResponses, RegisterAccountErrors, ThrowOnError>({

@@ -20,7 +20,7 @@ export class IdentityApi extends IdentityPort {
   async register(body: {
     email: string;
     password: string;
-    terms_version_ids: string[];
+    terms_version_ids: [string, string];
   }): Promise<AccountCreated> {
     return unwrap(await this.api.registerAccount({ body }), 'body');
   }
