@@ -104,7 +104,17 @@ export class IdentityApi extends IdentityPort {
 }
 
 function unwrap<T>(result: GeneratedResult, kind: 'body' | 'empty'): T {
-  if (result.error) throw new IdentityApiError(result.response?.status ?? 0);
+  if (result.error) {
+    const body =
+      typeof result.error === 'object' && result.error !== null && 'error' in result.error
+        ? result.error.error
+        : null;
+    const code =
+      typeof body === 'object' && body !== null && 'code' in body && typeof body.code === 'string'
+        ? body.code
+        : undefined;
+    throw new IdentityApiError(result.response?.status ?? 0, code);
+  }
   if (kind === 'body' && result.data === undefined) throw new IdentityApiError(0);
   return result.data as T;
 }

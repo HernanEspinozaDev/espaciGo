@@ -1,15 +1,14 @@
 <div class="application-shell">
 <a class="skip-link" href="#contenido">Saltar al contenido</a>
+<header class="site-header">
 <div class="announcement" role="note">
   <span class="announcement-dot" aria-hidden="true"></span>
   EspaciGo está creciendo: nuevas funciones llegarán por etapas.
 </div>
-<header class="site-header">
   <div class="page-width header-inner">
     <a class="brand" routerLink="/" aria-label="EspaciGo, ir a la portada" (click)="closeMenu()">
-      <span>espaci</span>
       <img class="brand-mark" src="/espacigo-mark.svg" alt="" aria-hidden="true" />
-      <span>o</span>
+      <span>EspaciGo</span>
     </a>
     <button
       appButton="primary"
@@ -144,7 +143,7 @@
   </aside>
 }
 
-<div id="contenido" tabindex="-1" role="region" aria-label="Contenido principal">
+<div id="contenido" tabindex="-1">
   <router-outlet />
 </div>
 
@@ -156,9 +155,8 @@
         routerLink="/"
         aria-label="EspaciGo, ir a la portada"
       >
-        <span>espaci</span>
         <img class="brand-mark" src="/espacigo-mark.svg" alt="" aria-hidden="true" />
-        <span>o</span>
+        <span>EspaciGo</span>
       </a>
       <p>Un lugar para cada idea.</p>
     </div>

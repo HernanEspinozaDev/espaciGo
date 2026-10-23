@@ -413,14 +413,19 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.write(w, http.StatusAccepted, item)
 	case "/api/v1/auth/terms":
+		documents, err := identity.PublicConsentDocuments()
+		if err != nil {
+			h.fail(w, 503, "terms_unavailable", "Los documentos no están disponibles.")
+			return
+		}
 		items := []map[string]any{}
-		for _, id := range []string{"00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002"} {
-			version, err := h.terms.TermsVersion(r.Context(), id)
-			if err != nil {
-				h.serviceError(w, err)
+		for _, document := range documents {
+			version, err := h.terms.TermsVersion(r.Context(), document.ID)
+			if err != nil || version.Code != document.Code || version.Type != document.Type || version.SHA256 != document.SHA256 || version.PublishedAt.After(h.now()) {
+				h.fail(w, 503, "terms_unavailable", "Los documentos todavía no están disponibles. Inténtalo más tarde.")
 				return
 			}
-			items = append(items, map[string]any{"id": version.ID, "code": version.Code, "type": version.Type, "sha256": version.SHA256, "published_at": version.PublishedAt.UTC(), "synthetic": true})
+			items = append(items, map[string]any{"id": version.ID, "code": version.Code, "type": version.Type, "sha256": version.SHA256, "published_at": version.PublishedAt.UTC(), "synthetic": true, "document": document})
 		}
 		h.write(w, 200, map[string]any{"items": items})
 	case "/api/v1/auth/register":

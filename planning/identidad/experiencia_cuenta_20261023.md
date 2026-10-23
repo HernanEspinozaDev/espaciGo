@@ -1,0 +1,43 @@
+# AUTH-20261023 — experiencia de cuenta y correo
+
+Corte autorizado por el usuario tras #535. Base `ec4fdd45e6cfd7fc65aff09ac4278530d4594621`. Esta propuesta de código/documentos no acredita despliegue ni aceptación online del nuevo recorrido.
+
+## Comportamiento
+
+- Registro, acceso, confirmación de correo, reenvío y recuperación usan el sistema visual EspaciGo, con layout de escritorio y móvil (incluido 320 px), labels/autocomplete, contraseñas mostrables de forma accesible, validaciones y estados de envío/error/éxito. No hay elección de rol; la misma cuenta puede arrendar y ofrecer según acciones autorizadas por Go.
+- Envío aceptado por backend muestra «Revisa tu correo», sin afirmar llegada al buzón. Cuenta creada con fallo de envío presenta ese estado y reemisión. Reenvío y recuperación mantienen respuestas públicas neutras. El botón se desactiva durante envío y la fachada rechaza una acción simultánea.
+- Los enlaces del mailer existente rellenan verificación/recuperación desde fragmento, se retiran de la URL mediante replace y solo conservan `returnUrl` validado. Duplicados/fragmentos incompletos se rechazan. No se piden IDs ni tokens manuales. Reset confirmado ofrece vuelta a acceso. La recuperación de la propia cuenta con bearer revocado confirma el éxito tras limpiar estado; una respuesta de otra generación no cambia la sesión nueva ni su interfaz.
+- Se reutiliza `net/smtp`/Zoho con TLS ya implementado. No se introducen mailer alternativo, OTP, segundo factor por login ni cambios de TTL: 24 h para verificación, 15 min para recuperación, un uso, reemplazo por propósito y cinco fallos. Login sigue exigiendo correo verificado.
+- Los fallos de envío de verificación y recuperación dejan un evento interno `identity.mail_delivery_failed` con propósito, sin destinatario, IDs, tokens, contraseñas ni texto del error SMTP. Recuperación conserva su respuesta neutra. No hay cola nueva ni reintento automático: una reemisión autorizada invalida el enlace previo y sigue límites por cuenta/IP.
+
+## Documentos y consentimiento
+
+Los documentos técnicos previos no eran textos de consentimiento legibles. `planning/politica_privacidad_local_v1.md` describe únicamente retención local ratificada y no se convierte en una política comercial. V1 contiene versiones sintéticas con hashes de etiquetas, no de estos documentos. No se renombra esa aceptación histórica.
+
+V75 **propuesta, no aplicada por desarrollo** inserta dos versiones nuevas en `version_terminos`, sin modificar V1–V74, filas históricas ni aceptaciones. Los JSON de `internal/identity/consentdocs/` contienen exactamente los textos servidos y se identifican por SHA-256 de sus bytes. GET `/auth/terms` verifica ID, código, tipo, hash y publicación contra DB antes de servirlos; ausencia o drift devuelve 503. Registro en Go exige ambas versiones actuales, exactas y distintas: rechaza IDs antiguos, consentimiento parcial, duplicados y hashes divergentes. La UI enlaza las versiones que envía, no imprime códigos/hashes y no premarca casillas.
+
+Los datos «Espacio Go SpA», «Chile» y «contacto@espaciogo.cl» fueron indicados por el usuario como **ficticios y de ejemplo**. Los documentos lo explican y el correo queda como texto no operativo, sin mailto. No se presentan como empresa registrada, responsable real ni canal de derechos; no se inventan RUT, domicilio, obligaciones o cumplimiento. Los textos se limitan a la evaluación y al catálogo/operaciones de prueba. La identidad/contacto reales y aprobación de textos para uso comercial siguen pendientes. La autorización de esos datos de ejemplo no es aprobación legal comercial. El SMTP real `contacto@hotusoft.com` y su secreto no cambian.
+
+Para una versión futura: agregar documento/versiones nuevos con sus hashes y migración aditiva; conservar los textos y aceptaciones anteriores. No editar una publicación ya aplicada para ajustar un hash.
+
+## Operación pendiente
+
+Seguir [procedimiento canónico Cloud SQL](../gcp/cloudsql_migraciones_incrementales.md): revisión de HEAD → preflight/owners/ledger → backup satisfactorio → plan exacto **solo V75** → autorización concreta del propietario → migrador owner por forward del bastión → postcheck 75/75 y catálogo de documentos → nueva atestación con hash/generación → release por SHA → E2E. El consentimiento SQL anterior cubrió únicamente hasta V74; no se presume permiso para V75 ni se repiten reparaciones/ACL/IAM de #533/#535. V75 no requiere roles nuevos ni cambios Cloud/Terraform.
+
+La fusión no acredita aceptación de producto ni entrega de correo. Se mantiene el checkout principal sucio y los recursos retenidos.
+
+## Validación local
+
+- `scripts/test-img01-release-migrations-postgres.sh`: PASS sobre PostGIS/PostgreSQL 18 desechable, red none/tmpfs/socket propio. Instalación vacía V1–V75, V67→V75, y actualización exacta V74→V75; compara ledger histórico incluyendo timestamps/runner checksums y conserva una aceptación V1. Query SQL real→JSON→validador PASS con 75 versiones. Ejecuta casos seleccionados de registro/roles/consentimiento, reenvío, reemplazo/uso único/24 h, concurrencia, rollback de activación y fallo/reintento, recuperación/15 min/revocación, cinco fallos, expiración tras lock, observabilidad sin secretos y catálogo/hash. El helper crea el rol NOLOGIN de fixture antes de migraciones y deja su ciclo de vida al cluster desechable, evitando borrar un rol compartido mientras otro harness lo usa.
+- `go test ./...`: PASS; las integraciones que requieren DSN se omiten en este comando y se distinguen de las seleccionadas anteriores. Test de documento/migración hash PASS.
+- `npm test -- --watch=false`: 331 tests PASS en 41 archivos. Casos nuevos: fragmento válido/duplicado, retorno externo rechazado, scrub sin copiar secretos, reset con bearer propio revocado y resultado obsoleto conservando cuenta posterior.
+- `npm run build`, `npm run lint` (SCSS/tokens/arquitectura): PASS. OpenAPI y proyección/adaptador actualizados; sin HTTP en presentación ni rutas de transporte en aplicación.
+- Playwright local con API **simulada**: 11 tests PASS. Registro sin selector, consentimiento, envío/fallo/reemisión, verificación/reset por enlace, documentos, respuestas neutras, recuperación de carga de documentos, enlace usado/expirado y doble submit. AXE con todas sus reglas predeterminadas de página completa sin violaciones en las capturas, con desktop, móvil y 320 px. Se ajustó el nombre visible del logotipo común para que coincida con el accesible, conservando el icono. El aviso global queda dentro del header y el contenedor genérico del router deja de anidar el landmark main dentro de otro landmark.
+- Capturas reales del navegador con contenido/estado simulado: [registro escritorio](evidencia/auth-20261023/register-desktop.png), [registro móvil](evidencia/auth-20261023/register-mobile.png), [acceso](evidencia/auth-20261023/login-desktop.png), [confirmación](evidencia/auth-20261023/check-email-mobile.png), [recuperación](evidencia/auth-20261023/recovery-link-mobile.png), [privacidad](evidencia/auth-20261023/privacy-desktop.png). SHA256SUMS acompaña archivos. El estado de servicio mostrado en ese entorno también es simulado.
+- `scripts/verify-m01.py` y contextual `fe14.spec.cjs` actualizados al contrato actual, validados en sintaxis; no se ejecutaron contra stack Mailpit integrado. El smoke público actualizado sí se ejecutó con mocks. No se atribuye SMTP/GCS/Cloud SQL online a esas capturas.
+
+## Evidencia online por completar
+
+Sobre **solo la cuenta sintética nueva autorizada**: registro → aceptación SMTP → llegada observada al buzón → reenvío y rechazo del anterior → verificación única → login → solicitud de recuperación → correo → cambio por enlace → rechazo de usado y de contraseña/sesión anteriores → login nuevo. La expiración de 24 h/15 min se prueba con reloj controlado local; no se alteran TTL ni filas de tokens Cloud para simularla. Registrar revisión Cloud Run, SHA, respuestas y límites sin enlaces/tokens/contraseñas/correo privado.
+
+Publicación e imágenes siguen sujetas a permisos y aprobación sintética normal; no hay bypass KYC. Borrado lógico/revocación y limpieza física son evidencias distintas: la identidad operativa dedicada del worker remoto fue identificada como brecha por el revisor, fuera de este corte y sin elevación del runtime.

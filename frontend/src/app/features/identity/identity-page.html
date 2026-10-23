@@ -1,407 +1,630 @@
 <main class="identity-page page-width">
-  <section class="identity-card" aria-labelledby="identity-title">
-    <p class="eyebrow">ESPACIGO · CUENTA LOCAL DE ENSAYO</p>
-
-    @if (mode === 'login') {
-      <h1 id="identity-title">Inicia sesión</h1>
-      <p class="intro">Accede con la cuenta que registraste en EspaciGo.</p>
-      @if (successMessage()) {
-        <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
-      }
-      <form (submit)="onLogin($event)" novalidate>
-        <div class="field">
-          <label for="login-email">Correo electrónico</label>
-          <input
-            id="login-email"
-            type="email"
-            autocomplete="username"
-            inputmode="email"
-            [formField]="loginForm.email"
-            (input)="onLoginInput()"
-            [attr.aria-invalid]="
-              loginForm.email().touched() && loginForm.email().errors().length > 0 ? 'true' : null
-            "
-            [attr.aria-describedby]="
-              loginForm.email().touched() && loginForm.email().errors().length > 0
-                ? 'login-email-error'
-                : null
-            "
-          />
-          @if (loginForm.email().touched() && loginForm.email().errors().length) {
-            <span class="field-error" id="login-email-error">{{
-              loginForm.email().errors()[0].message
-            }}</span>
-          }
-        </div>
-        <div class="field">
-          <label for="login-password">Contraseña</label>
-          <input
-            id="login-password"
-            type="password"
-            autocomplete="current-password"
-            [formField]="loginForm.password"
-            (input)="onLoginInput()"
-            [attr.aria-invalid]="
-              !loginConfirmed() && loginForm.password().touched() && loginForm.password().errors().length > 0
-                ? 'true'
-                : null
-            "
-            [attr.aria-describedby]="
-              !loginConfirmed() && loginForm.password().touched() && loginForm.password().errors().length > 0
-                ? 'login-password-error'
-                : null
-            "
-          />
-          @if (loginForm.password().touched() && loginForm.password().errors().length) {
-            @if (!loginConfirmed()) {
+  <div class="auth-layout">
+    <aside class="auth-story" aria-label="Una cuenta, muchas posibilidades">
+      <a routerLink="/" class="auth-wordmark">EspaciGo<span aria-hidden="true">↗</span></a>
+      <div class="story-main">
+        <span class="eyebrow">HAZ LUGAR A LO QUE VIENE</span>
+        <h2>Tu próxima idea<br />empieza con<br /><em>un espacio.</em></h2>
+        <p>Encuentra dónde hacerla realidad. O comparte ese lugar que alguien está buscando.</p>
+        <div class="space-illustration" aria-hidden="true"><span></span><i></i></div>
+      </div>
+      <div class="story-footer">
+        <span class="story-dot" aria-hidden="true"></span>
+        <p>Una cuenta para explorar, arrendar y ofrecer espacios.</p>
+      </div>
+    </aside>
+    <section class="identity-card" aria-labelledby="identity-title" [attr.aria-busy]="busy()">
+      <a class="back-link" routerLink="/explorar">← Volver a explorar</a>
+      @if (mode === 'login') {
+        <p class="eyebrow">QUÉ BUENO VERTE</p>
+        <h1 #identityHeading id="identity-title" tabindex="-1">Bienvenido de nuevo</h1>
+        <p class="intro">Inicia sesión y continúa donde lo dejaste.</p>
+        @if (successMessage()) {
+          <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
+        }
+        <form (submit)="onLogin($event)" novalidate>
+          <div class="field">
+            <label for="login-email">Correo electrónico</label
+            ><input
+              id="login-email"
+              type="email"
+              autocomplete="username"
+              [formField]="loginForm.email"
+              [attr.aria-invalid]="
+                loginForm.email().touched() && loginForm.email().errors().length ? 'true' : null
+              "
+              aria-describedby="login-email-error"
+              (input)="onLoginInput()"
+            />
+            @if (loginForm.email().touched() && loginForm.email().errors().length) {
+              <span class="field-error" id="login-email-error">{{
+                loginForm.email().errors()[0].message
+              }}</span>
+            }
+          </div>
+          <div class="field">
+            <label for="login-password">Contraseña</label>
+            <div class="password-control">
+              <input
+                id="login-password"
+                [type]="showPassword() ? 'text' : 'password'"
+                autocomplete="current-password"
+                [formField]="loginForm.password"
+                [attr.aria-invalid]="
+                  loginForm.password().touched() &&
+                  loginForm.password().errors().length &&
+                  !loginConfirmed()
+                    ? 'true'
+                    : null
+                "
+                aria-describedby="login-password-error"
+                (input)="onLoginInput()"
+              /><button
+                type="button"
+                class="password-toggle"
+                [attr.aria-controls]="'login-password'"
+                [attr.aria-pressed]="showPassword()"
+                [attr.aria-label]="showPassword() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                (click)="showPassword.set(!showPassword())"
+              >
+                {{ showPassword() ? 'Ocultar' : 'Mostrar' }}
+              </button>
+            </div>
+            @if (
+              loginForm.password().touched() &&
+              loginForm.password().errors().length &&
+              !loginConfirmed()
+            ) {
               <span class="field-error" id="login-password-error">{{
                 loginForm.password().errors()[0].message
               }}</span>
             }
-          }
-        </div>
-        @if (errorMessage()) {
-          <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
-        }
-        <button appButton="primary" class="primary-button" type="submit" [disabled]="busy()">
-          {{ busy() ? 'Verificando…' : 'Iniciar sesión' }}
-        </button>
-      </form>
-      <nav class="form-links" aria-label="Ayuda para acceder">
-        <a routerLink="/recuperar-acceso" [queryParams]="identityQueryParams()">¿Olvidaste tu contraseña?</a>
-        <a routerLink="/verificar-correo" [queryParams]="identityQueryParams()">Verificar o reenviar correo</a>
-        <a routerLink="/registro" [queryParams]="identityQueryParams()">Crear cuenta</a>
-      </nav>
-    }
-
-    @if (mode === 'register') {
-      <h1 id="identity-title">Crea tu cuenta</h1>
-      <p class="intro">
-        Verifica tu correo para activar tu cuenta. Podrás arrendar y ofrecer espacios según las acciones que realices.
-      </p>
-      @if (termsState() === 'loading') {
-        <p class="loading-note" role="status">Cargando versiones desde Go…</p>
-      }
-      @if (termsState() === 'error') {
-        <p class="form-alert is-error" role="alert">
-          No pudimos cargar las versiones de términos desde Go. Intenta recargar la página.
-        </p>
-      }
-      <form (submit)="onRegister($event)" novalidate>
-        <div class="field">
-          <label for="register-email">Correo electrónico</label>
-          <input
-            id="register-email"
-            type="email"
-            autocomplete="email"
-            inputmode="email"
-            [formField]="registerForm.email"
-            [attr.aria-invalid]="
-              registerForm.email().touched() && registerForm.email().errors().length > 0
-            "
-            aria-describedby="register-email-error"
-          />
-          @if (registerForm.email().touched() && registerForm.email().errors().length) {
-            <span class="field-error" id="register-email-error">{{
-              registerForm.email().errors()[0].message
-            }}</span>
-          }
-        </div>
-        <div class="field">
-          <label for="register-password">Contraseña</label>
-          <input
-            id="register-password"
-            type="password"
-            autocomplete="new-password"
-            [formField]="registerForm.password"
-            [attr.aria-invalid]="
-              registerForm.password().touched() && registerForm.password().errors().length > 0
-            "
-            aria-describedby="password-policy register-password-error"
-          />
-          <span class="field-hint" id="password-policy"
-            >Mínimo 8 caracteres, una mayúscula, un número y un símbolo; máximo 72 bytes
-            UTF-8.</span
-          >
-          @if (
-            !successMessage() &&
-            registerForm.password().touched() &&
-            registerForm.password().errors().length
-          ) {
-            <span class="field-error" id="register-password-error">{{
-              registerForm.password().errors()[0].message
-            }}</span>
-          }
-        </div>
-        <div class="field">
-          <label for="register-confirm">Repite la contraseña</label>
-          <input
-            id="register-confirm"
-            type="password"
-            autocomplete="new-password"
-            [formField]="registerForm.confirmPassword"
-            [attr.aria-invalid]="
-              registerForm.confirmPassword().touched() &&
-              registerForm.confirmPassword().errors().length > 0
-            "
-            aria-describedby="register-confirm-error"
-          />
-          @if (
-            !successMessage() &&
-            registerForm.confirmPassword().touched() &&
-            registerForm.confirmPassword().errors().length
-          ) {
-            <span class="field-error" id="register-confirm-error">{{
-              registerForm.confirmPassword().errors()[0].message
-            }}</span>
-          }
-        </div>
-        @if (termsState() === 'ready') {
-          <fieldset class="terms-fieldset">
-            <legend>Versiones sintéticas de ensayo</legend>
-            <p class="field-hint">
-              Go entrega los identificadores y hashes versionados, pero no el texto legal. Estas
-              confirmaciones son solo para la prueba local; no representan aceptación legal.
-            </p>
-            @for (item of termVersions(); track item.id) {
-              <label class="check-row"
-                ><input type="checkbox" [formField]="registerForm.acceptTerms" />
-                <span
-                  >Continuar con términos {{ item.code }} · SHA-256
-                  {{ item.sha256.slice(0, 12) }}…</span
-                ></label
-              >
-            }
-            @for (item of privacyVersions(); track item.id) {
-              <label class="check-row"
-                ><input type="checkbox" [formField]="registerForm.acceptPrivacy" />
-                <span
-                  >Continuar con privacidad {{ item.code }} · SHA-256
-                  {{ item.sha256.slice(0, 12) }}…</span
-                ></label
-              >
-            }
-            @if (
-              registerForm.acceptTerms().touched() && registerForm.acceptTerms().errors().length
-            ) {
-              <span class="field-error">{{ registerForm.acceptTerms().errors()[0].message }}</span>
-            }
-            @if (
-              registerForm.acceptPrivacy().touched() && registerForm.acceptPrivacy().errors().length
-            ) {
-              <span class="field-error">{{
-                registerForm.acceptPrivacy().errors()[0].message
-              }}</span>
-            }
-          </fieldset>
-        }
-        @if (errorMessage()) {
-          <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
-        }
-        @if (successMessage()) {
-          <p
-            class="form-alert"
-            [class.is-error]="registrationNeedsRetry()"
-            [class.is-success]="!registrationNeedsRetry()"
-            [attr.role]="registrationNeedsRetry() ? 'alert' : 'status'"
-          >{{ successMessage() }}</p>
-          <a routerLink="/verificar-correo" [queryParams]="identityQueryParams()">Verificar el correo</a>
-        }
-        <button
-          appButton="primary"
-          class="primary-button"
-          type="submit"
-          [disabled]="busy() || termsState() !== 'ready'"
-        >
-          {{ busy() ? 'Creando cuenta…' : 'Crear cuenta' }}
-        </button>
-      </form>
-      <p class="bottom-link">¿Ya tienes cuenta? <a routerLink="/acceso" [queryParams]="identityQueryParams()">Inicia sesión</a></p>
-    }
-
-    @if (mode === 'verify') {
-      <h1 id="identity-title">Verifica tu correo</h1>
-      <p class="intro">
-        Abre el enlace de verificación que recibiste. Si no tienes el correo, puedes solicitar otro.
-      </p>
-      <form (submit)="onVerify($event)" novalidate>
-        <div class="field">
-          <label for="verify-id">Identificador del correo</label
-          ><input
-            id="verify-id"
-            autocomplete="off"
-            [formField]="tokenForm.tokenId"
-            aria-describedby="verify-id-error"
-          />
-          @if (
-            !successMessage() &&
-            tokenForm.tokenId().touched() &&
-            tokenForm.tokenId().errors().length
-          ) {
-            <span class="field-error" id="verify-id-error">{{
-              tokenForm.tokenId().errors()[0].message
-            }}</span>
-          }
-        </div>
-        <div class="field">
-          <label for="verify-token">Código de verificación</label
-          ><input
-            id="verify-token"
-            type="password"
-            autocomplete="off"
-            [formField]="tokenForm.token"
-            aria-describedby="verify-token-error"
-          />
-          @if (
-            !successMessage() && tokenForm.token().touched() && tokenForm.token().errors().length
-          ) {
-            <span class="field-error" id="verify-token-error">{{
-              tokenForm.token().errors()[0].message
-            }}</span>
-          }
-        </div>
-        @if (errorMessage()) {
-          <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
-        }
-        @if (successMessage()) {
-          <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
-          <a routerLink="/acceso" [queryParams]="identityQueryParams()">Inicia sesión para volver al espacio</a>
-        }
-        <button appButton="primary" class="primary-button" type="submit" [disabled]="busy()">
-          {{ busy() ? 'Verificando…' : 'Verificar correo' }}
-        </button>
-      </form>
-      <section class="secondary-action" aria-labelledby="reissue-title">
-        <h2 id="reissue-title">¿No recibiste el correo?</h2>
-        <form (submit)="onReissue($event)" novalidate>
-          <div class="field">
-            <label for="reissue-email">Correo registrado</label
-            ><input
-              id="reissue-email"
-              type="email"
-              autocomplete="email"
-              inputmode="email"
-              [formField]="emailForm.email"
-              aria-describedby="reissue-error"
-            />
-            @if (emailForm.email().touched() && emailForm.email().errors().length) {
-              <span class="field-error" id="reissue-error">{{
-                emailForm.email().errors()[0].message
-              }}</span>
-            }
           </div>
-          <button appButton="secondary" class="secondary-button" type="submit" [disabled]="busy()">
-            Reenviar verificación
+          <a
+            class="inline-link recover-link"
+            routerLink="/recuperar-acceso"
+            [queryParams]="identityQueryParams()"
+            >¿Olvidaste tu contraseña?</a
+          >
+          @if (errorMessage()) {
+            <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
+          }
+          <button appButton="primary" class="primary-button" type="submit" [disabled]="busy()">
+            {{ busy() ? 'Iniciando sesión…' : 'Iniciar sesión' }}
           </button>
         </form>
-      </section>
-    }
-
-    @if (mode === 'recovery') {
-      <h1 id="identity-title">Recupera tu acceso</h1>
-      <p class="intro">Go responde de forma genérica para proteger la existencia de las cuentas.</p>
-      <form (submit)="onRecover($event)" novalidate>
-        <div class="field">
-          <label for="recovery-email">Correo electrónico</label
-          ><input
-            id="recovery-email"
-            type="email"
-            autocomplete="email"
-            inputmode="email"
-            [formField]="emailForm.email"
-            aria-describedby="recovery-email-error"
-          />
-          @if (emailForm.email().touched() && emailForm.email().errors().length) {
-            <span class="field-error" id="recovery-email-error">{{
-              emailForm.email().errors()[0].message
-            }}</span>
-          }
-        </div>
-        <button appButton="secondary" class="secondary-button" type="submit" [disabled]="busy()">
-          Enviar instrucciones
-        </button>
-      </form>
-      <section class="secondary-action" aria-labelledby="consume-title">
-        <h2 id="consume-title">Ya recibí el correo</h2>
-        <p class="field-hint">
-          Copia el identificador y el token desde Mailpit. El token se envía solo en el cuerpo de la
-          solicitud.
+        @if (verificationSuggested()) {
+          <div class="next-action">
+            <p>Si aún no verificaste tu correo, solicita otro enlace.</p>
+            <form (submit)="onLoginReissue($event)">
+              <button appButton="secondary" type="submit" [disabled]="busy()">
+                Reenviar verificación
+              </button>
+            </form>
+          </div>
+        }
+        <p class="bottom-link">
+          ¿Aún no tienes cuenta?
+          <a routerLink="/registro" [queryParams]="identityQueryParams()">Crear cuenta</a>
         </p>
-        <form (submit)="onConsumeRecovery($event)" novalidate>
-          <div class="field">
-            <label for="recovery-id">Identificador del correo</label
-            ><input
-              id="recovery-id"
-              autocomplete="off"
-              [formField]="recoveryForm.tokenId"
-              aria-describedby="recovery-id-error"
-            />
-            @if (
-              !successMessage() &&
-              recoveryForm.tokenId().touched() &&
-              recoveryForm.tokenId().errors().length
-            ) {
-              <span class="field-error" id="recovery-id-error">{{
-                recoveryForm.tokenId().errors()[0].message
-              }}</span>
+        <a class="quiet-link" routerLink="/verificar-correo" [queryParams]="identityQueryParams()"
+          >Necesito verificar mi correo</a
+        >
+      }
+      @if (mode === 'register') {
+        @if (registrationSubmitted()) {
+          <p class="eyebrow">UN PASO MÁS</p>
+          <div class="status-icon" aria-hidden="true">✉</div>
+          <h1 #identityHeading id="identity-title" tabindex="-1">
+            {{ registrationNeedsRetry() ? 'Tu cuenta te está esperando' : 'Revisa tu correo' }}
+          </h1>
+          <p class="intro" [attr.role]="registrationNeedsRetry() ? 'alert' : null">
+            {{
+              registrationNeedsRetry()
+                ? 'La cuenta está creada, pero no pudimos confirmar el envío. Solicita un nuevo enlace para verificarla.'
+                : 'El envío fue aceptado. Abre el enlace de verificación para activar tu cuenta. La llegada puede tardar unos minutos.'
+            }}
+          </p>
+          <ol class="next-steps">
+            <li>Busca el mensaje de EspaciGo, también en spam.</li>
+            <li>Abre el enlace y confirma tu correo.</li>
+            <li>Inicia sesión. Podrás explorar y ofrecer espacios.</li>
+          </ol>
+          <form (submit)="onReissue($event)" novalidate>
+            <button appButton="secondary" type="submit" [disabled]="busy()">
+              {{ busy() ? 'Solicitando enlace…' : 'Reenviar verificación' }}
+            </button>
+          </form>
+          @if (reissueRequested() && successMessage()) {
+            <p class="form-alert" role="status">{{ successMessage() }}</p>
+          }
+          @if (errorMessage()) {
+            <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
+          }
+          <a class="button-link" routerLink="/acceso" [queryParams]="identityQueryParams()"
+            >Ya verifiqué mi correo · Iniciar sesión →</a
+          >
+          <a class="quiet-link" routerLink="/registro" (click)="registrationSubmitted.set(false)"
+            >Usar otro correo</a
+          >
+        } @else {
+          <p class="eyebrow">EMPIEZA AQUÍ</p>
+          <h1 #identityHeading id="identity-title" tabindex="-1">
+            Haz espacio<br />para tus ideas.
+          </h1>
+          <p class="intro">Crea tu cuenta de EspaciGo. Tú eliges qué hacer después.</p>
+          <form (submit)="onRegister($event)" novalidate>
+            <div class="field">
+              <label for="register-email">Correo electrónico</label
+              ><input
+                id="register-email"
+                type="email"
+                autocomplete="email"
+                [formField]="registerForm.email"
+                [attr.aria-invalid]="
+                  registerForm.email().touched() && registerForm.email().errors().length
+                    ? 'true'
+                    : null
+                "
+                aria-describedby="register-email-error"
+              />
+              @if (registerForm.email().touched() && registerForm.email().errors().length) {
+                <span class="field-error" id="register-email-error">{{
+                  registerForm.email().errors()[0].message
+                }}</span>
+              }
+            </div>
+            <div class="field">
+              <label for="register-password">Contraseña</label>
+              <div class="password-control">
+                <input
+                  id="register-password"
+                  [type]="showPassword() ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  [formField]="registerForm.password"
+                  [attr.aria-invalid]="
+                    registerForm.password().touched() && registerForm.password().errors().length
+                      ? 'true'
+                      : null
+                  "
+                  aria-describedby="register-password-error register-password-hint"
+                /><button
+                  type="button"
+                  class="password-toggle"
+                  [attr.aria-controls]="'register-password'"
+                  [attr.aria-pressed]="showPassword()"
+                  [attr.aria-label]="showPassword() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                  (click)="showPassword.set(!showPassword())"
+                >
+                  {{ showPassword() ? 'Ocultar' : 'Mostrar' }}
+                </button>
+              </div>
+              <p class="field-hint" id="register-password-hint">
+                Al menos 8 caracteres, una mayúscula, un número y un símbolo.
+              </p>
+              @if (registerForm.password().touched() && registerForm.password().errors().length) {
+                <span class="field-error" id="register-password-error">{{
+                  registerForm.password().errors()[0].message
+                }}</span>
+              }
+            </div>
+            <div class="field">
+              <label for="register-confirm">Repite la contraseña</label>
+              <div class="password-control">
+                <input
+                  id="register-confirm"
+                  [type]="showPassword() ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  [formField]="registerForm.confirmPassword"
+                  [attr.aria-invalid]="
+                    registerForm.confirmPassword().touched() &&
+                    registerForm.confirmPassword().errors().length
+                      ? 'true'
+                      : null
+                  "
+                  aria-describedby="register-confirm-error"
+                /><button
+                  type="button"
+                  class="password-toggle"
+                  [attr.aria-controls]="'register-confirm'"
+                  [attr.aria-pressed]="showPassword()"
+                  [attr.aria-label]="showPassword() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                  (click)="showPassword.set(!showPassword())"
+                >
+                  {{ showPassword() ? 'Ocultar' : 'Mostrar' }}
+                </button>
+              </div>
+              @if (
+                registerForm.confirmPassword().touched() &&
+                registerForm.confirmPassword().errors().length
+              ) {
+                <span class="field-error" id="register-confirm-error">{{
+                  registerForm.confirmPassword().errors()[0].message
+                }}</span>
+              }
+            </div>
+            @if (termsState() === 'loading') {
+              <p class="loading-note" role="status">Cargando documentos…</p>
             }
-          </div>
-          <div class="field">
-            <label for="recovery-token">Token de recuperación</label
-            ><input
-              id="recovery-token"
-              type="password"
-              autocomplete="off"
-              [formField]="recoveryForm.token"
-              aria-describedby="recovery-token-error"
-            />
-            @if (
-              !successMessage() &&
-              recoveryForm.token().touched() &&
-              recoveryForm.token().errors().length
-            ) {
-              <span class="field-error" id="recovery-token-error">{{
-                recoveryForm.token().errors()[0].message
-              }}</span>
+            @if (termsState() === 'error') {
+              <div class="form-alert is-error" role="alert">
+                <p>
+                  No pudimos cargar los documentos. Necesitamos mostrártelos antes de crear la
+                  cuenta.
+                </p>
+                <button type="button" class="inline-link" (click)="reloadTerms()">
+                  Volver a intentar
+                </button>
+              </div>
             }
-          </div>
-          <div class="field">
-            <label for="recovery-password">Nueva contraseña</label
-            ><input
-              id="recovery-password"
-              type="password"
-              autocomplete="new-password"
-              [formField]="recoveryForm.newPassword"
-              aria-describedby="password-policy recovery-password-error"
-            /><span class="field-hint" id="recovery-password-hint"
-              >Mínimo 8 caracteres, mayúscula, número y símbolo.</span
+            @if (termsState() === 'ready') {
+              <fieldset class="terms-fieldset">
+                <legend class="visually-hidden">Documentos de tu cuenta</legend>
+                @for (item of termVersions(); track item.id) {
+                  <label class="consent-row"
+                    ><input type="checkbox" [formField]="registerForm.acceptTerms" /><span
+                      >He leído y acepto los
+                      <a
+                        routerLink="/terminos-y-condiciones"
+                        [queryParams]="{ version: item.id }"
+                        target="_blank"
+                        rel="noopener"
+                        >Términos y condiciones<span class="visually-hidden">
+                          (abre otra pestaña)</span
+                        ></a
+                      >.</span
+                    ></label
+                  >
+                }
+                @for (item of privacyVersions(); track item.id) {
+                  <label class="consent-row"
+                    ><input type="checkbox" [formField]="registerForm.acceptPrivacy" /><span
+                      >He leído y acepto la
+                      <a
+                        routerLink="/politica-de-privacidad"
+                        [queryParams]="{ version: item.id }"
+                        target="_blank"
+                        rel="noopener"
+                        >Política de privacidad<span class="visually-hidden">
+                          (abre otra pestaña)</span
+                        ></a
+                      >.</span
+                    ></label
+                  >
+                }
+                @if (
+                  registerForm.acceptTerms().touched() && registerForm.acceptTerms().errors().length
+                ) {
+                  <p class="field-error">{{ registerForm.acceptTerms().errors()[0].message }}</p>
+                }
+                @if (
+                  registerForm.acceptPrivacy().touched() &&
+                  registerForm.acceptPrivacy().errors().length
+                ) {
+                  <p class="field-error">{{ registerForm.acceptPrivacy().errors()[0].message }}</p>
+                }
+              </fieldset>
+            }
+            @if (errorMessage()) {
+              <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
+            }
+            <button
+              appButton="primary"
+              class="primary-button"
+              type="submit"
+              [disabled]="busy() || termsState() !== 'ready'"
             >
+              {{ busy() ? 'Creando tu cuenta…' : 'Crear cuenta' }}<span aria-hidden="true">→</span>
+            </button>
+            <p class="small-print">Estás accediendo al entorno de evaluación de EspaciGo.</p>
+          </form>
+          <p class="bottom-link">
+            ¿Ya tienes cuenta?
+            <a routerLink="/acceso" [queryParams]="identityQueryParams()">Inicia sesión</a>
+          </p>
+        }
+      }
+      @if (mode === 'verify') {
+        <p class="eyebrow">PROTEGEMOS TU ACCESO</p>
+        <h1 #identityHeading id="identity-title" tabindex="-1">Verifica tu correo</h1>
+        @if (linkState() === 'ready') {
+          <p class="intro">Confirma que este correo te pertenece y activa tu cuenta.</p>
+          <form (submit)="onVerify($event)" novalidate>
+            <button appButton="primary" type="submit" [disabled]="busy()">
+              {{ busy() ? 'Verificando…' : 'Verificar correo' }}
+            </button>
+          </form>
+        } @else {
+          <p class="intro">
+            {{
+              linkState() === 'invalid'
+                ? 'El enlace no está completo. Solicita uno nuevo para continuar.'
+                : 'Abre el enlace del mensaje que recibiste. Si no lo encuentras, solicita uno nuevo.'
+            }}
+          </p>
+        }
+        @if (errorMessage()) {
+          <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
+        }
+        <section class="next-action" aria-labelledby="reissue-title">
+          <h2 id="reissue-title">¿No recibiste el correo?</h2>
+          <p>Revisa spam o solicita otro enlace. Usa siempre el más reciente.</p>
+          <form (submit)="onReissue($event)" novalidate>
+            <div class="field">
+              <label for="reissue-email">Correo registrado</label
+              ><input
+                id="reissue-email"
+                type="email"
+                autocomplete="email"
+                [formField]="emailForm.email"
+                [attr.aria-invalid]="
+                  emailForm.email().touched() && emailForm.email().errors().length ? 'true' : null
+                "
+                aria-describedby="reissue-email-error"
+              />
+              @if (emailForm.email().touched() && emailForm.email().errors().length) {
+                <span class="field-error" id="reissue-email-error">{{
+                  emailForm.email().errors()[0].message
+                }}</span>
+              }
+            </div>
+            <button appButton="secondary" type="submit" [disabled]="busy()">
+              {{ busy() ? 'Solicitando enlace…' : 'Reenviar verificación' }}
+            </button>
+          </form>
+        </section>
+        @if (successMessage()) {
+          <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
+        }
+        <p class="bottom-link">
+          <a routerLink="/acceso" [queryParams]="identityQueryParams()">Volver a iniciar sesión</a>
+        </p>
+      }
+      @if (mode === 'recovery') {
+        @if (recoveryComplete()) {
+          <p class="eyebrow">TODO LISTO</p>
+          <div class="status-icon" aria-hidden="true">✓</div>
+          <h1 #identityHeading id="identity-title" tabindex="-1">
+            Tu contraseña<br />está actualizada.
+          </h1>
+          <p class="intro">
+            Cerramos las sesiones anteriores para proteger tu cuenta. Inicia sesión con tu nueva
+            contraseña.
+          </p>
+          <a class="button-link" routerLink="/acceso" [queryParams]="identityQueryParams()"
+            >Ir a iniciar sesión →</a
+          >
+        } @else if (linkState() === 'ready') {
+          <p class="eyebrow">RECUPERA TU CUENTA</p>
+          <h1 #identityHeading id="identity-title" tabindex="-1">Una nueva<br />contraseña.</h1>
+          <p class="intro">
+            Elige una contraseña diferente. Este enlace solo se puede usar una vez.
+          </p>
+          <form (submit)="onConsumeRecovery($event)" novalidate>
+            <div class="field">
+              <label for="recovery-password">Nueva contraseña</label>
+              <div class="password-control">
+                <input
+                  id="recovery-password"
+                  [type]="showPassword() ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  [formField]="recoveryForm.newPassword"
+                  [attr.aria-invalid]="
+                    recoveryForm.newPassword().touched() &&
+                    recoveryForm.newPassword().errors().length
+                      ? 'true'
+                      : null
+                  "
+                  aria-describedby="recovery-password-error recovery-password-hint"
+                /><button
+                  type="button"
+                  class="password-toggle"
+                  [attr.aria-controls]="'recovery-password'"
+                  [attr.aria-pressed]="showPassword()"
+                  [attr.aria-label]="showPassword() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                  (click)="showPassword.set(!showPassword())"
+                >
+                  {{ showPassword() ? 'Ocultar' : 'Mostrar' }}
+                </button>
+              </div>
+              <p class="field-hint" id="recovery-password-hint">
+                Al menos 8 caracteres, una mayúscula, un número y un símbolo.
+              </p>
+              @if (
+                recoveryForm.newPassword().touched() && recoveryForm.newPassword().errors().length
+              ) {
+                <span class="field-error" id="recovery-password-error">{{
+                  recoveryForm.newPassword().errors()[0].message
+                }}</span>
+              }
+            </div>
+            <div class="field">
+              <label for="recovery-confirm">Repite la nueva contraseña</label>
+              <div class="password-control">
+                <input
+                  id="recovery-confirm"
+                  [type]="showPassword() ? 'text' : 'password'"
+                  autocomplete="new-password"
+                  [formField]="recoveryForm.confirmPassword"
+                  [attr.aria-invalid]="
+                    recoveryForm.confirmPassword().touched() &&
+                    recoveryForm.confirmPassword().errors().length
+                      ? 'true'
+                      : null
+                  "
+                  aria-describedby="recovery-confirm-error"
+                /><button
+                  type="button"
+                  class="password-toggle"
+                  [attr.aria-controls]="'recovery-confirm'"
+                  [attr.aria-pressed]="showPassword()"
+                  [attr.aria-label]="showPassword() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                  (click)="showPassword.set(!showPassword())"
+                >
+                  {{ showPassword() ? 'Ocultar' : 'Mostrar' }}
+                </button>
+              </div>
+              @if (
+                recoveryForm.confirmPassword().touched() &&
+                recoveryForm.confirmPassword().errors().length
+              ) {
+                <span class="field-error" id="recovery-confirm-error">{{
+                  recoveryForm.confirmPassword().errors()[0].message
+                }}</span>
+              }
+            </div>
+            @if (errorMessage()) {
+              <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
+              <a
+                class="quiet-link"
+                routerLink="/recuperar-acceso"
+                (click)="linkState.set('missing')"
+                >Solicitar otro enlace</a
+              >
+            }
+            <button appButton="primary" type="submit" [disabled]="busy()">
+              {{ busy() ? 'Actualizando…' : 'Guardar nueva contraseña' }}
+            </button>
+          </form>
+        } @else {
+          <p class="eyebrow">VOLVAMOS A ENCONTRARNOS</p>
+          <h1 #identityHeading id="identity-title" tabindex="-1">¿Olvidaste<br />tu contraseña?</h1>
+          <p class="intro">Escribe tu correo y solicita un enlace para recuperar el acceso.</p>
+          @if (linkState() === 'invalid') {
+            <p class="form-alert is-error" role="alert">
+              El enlace no está completo. Puedes solicitar otro.
+            </p>
+          }
+          <form (submit)="onRecover($event)" novalidate>
+            <div class="field">
+              <label for="recovery-email">Correo electrónico</label
+              ><input
+                id="recovery-email"
+                type="email"
+                autocomplete="email"
+                [formField]="emailForm.email"
+                [attr.aria-invalid]="
+                  emailForm.email().touched() && emailForm.email().errors().length ? 'true' : null
+                "
+                aria-describedby="recovery-email-error"
+              />
+              @if (emailForm.email().touched() && emailForm.email().errors().length) {
+                <span class="field-error" id="recovery-email-error">{{
+                  emailForm.email().errors()[0].message
+                }}</span>
+              }
+            </div>
+            <button appButton="primary" type="submit" [disabled]="busy()">
+              {{ busy() ? 'Procesando solicitud…' : 'Enviar enlace de recuperación' }}
+            </button>
+          </form>
+          @if (recoveryRequested()) {
+            <div class="form-alert is-success" role="status">
+              <strong>Revisa tu correo</strong>
+              <p>
+                Si existe una cuenta que puede recuperar el acceso, recibirás las instrucciones.
+                Revisa también spam. No podemos confirmar la entrega.
+              </p>
+            </div>
+          }
+          @if (errorMessage()) {
+            <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
+          }
+          <p class="bottom-link">
+            ¿La recordaste?
+            <a routerLink="/acceso" [queryParams]="identityQueryParams()">Inicia sesión</a>
+          </p>
+        }
+      }
+      @if (mode === 'change-password') {
+        <h1 #identityHeading id="identity-title" tabindex="-1">Cambia tu contraseña</h1>
+        <p class="intro">
+          Al confirmar el cambio se cerrarán tus sesiones anteriores. Después podrás iniciar sesión
+          con la nueva contraseña.
+        </p>
+        <form (submit)="onChangePassword($event)" novalidate>
+          <div class="field">
+            <label for="current-password">Contraseña actual</label>
+            <div class="password-control">
+              <input
+                id="current-password"
+                [type]="showPassword() ? 'text' : 'password'"
+                autocomplete="current-password"
+                [formField]="changeForm.currentPassword"
+                aria-describedby="current-password-error"
+              /><button
+                type="button"
+                class="password-toggle"
+                aria-controls="current-password"
+                [attr.aria-pressed]="showPassword()"
+                [attr.aria-label]="showPassword() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                (click)="showPassword.set(!showPassword())"
+              >
+                {{ showPassword() ? 'Ocultar' : 'Mostrar' }}
+              </button>
+            </div>
             @if (
-              !successMessage() &&
-              recoveryForm.newPassword().touched() &&
-              recoveryForm.newPassword().errors().length
+              changeForm.currentPassword().touched() && changeForm.currentPassword().errors().length
             ) {
-              <span class="field-error" id="recovery-password-error">{{
-                recoveryForm.newPassword().errors()[0].message
+              <span class="field-error" id="current-password-error">{{
+                changeForm.currentPassword().errors()[0].message
               }}</span>
             }
           </div>
           <div class="field">
-            <label for="recovery-confirm">Repite la nueva contraseña</label
-            ><input
-              id="recovery-confirm"
-              type="password"
-              autocomplete="new-password"
-              [formField]="recoveryForm.confirmPassword"
-              aria-describedby="recovery-confirm-error"
-            />
+            <label for="new-password">Nueva contraseña</label>
+            <div class="password-control">
+              <input
+                id="new-password"
+                [type]="showPassword() ? 'text' : 'password'"
+                autocomplete="new-password"
+                [formField]="changeForm.newPassword"
+                aria-describedby="password-policy new-password-error"
+              /><button
+                type="button"
+                class="password-toggle"
+                aria-controls="new-password"
+                [attr.aria-pressed]="showPassword()"
+                [attr.aria-label]="showPassword() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                (click)="showPassword.set(!showPassword())"
+              >
+                {{ showPassword() ? 'Ocultar' : 'Mostrar' }}
+              </button>
+            </div>
+            <span class="field-hint" id="password-policy"
+              >Usa al menos 8 caracteres, una mayúscula, un número y un símbolo.</span
+            >
+            @if (changeForm.newPassword().touched() && changeForm.newPassword().errors().length) {
+              <span class="field-error" id="new-password-error">{{
+                changeForm.newPassword().errors()[0].message
+              }}</span>
+            }
+          </div>
+          <div class="field">
+            <label for="change-confirm">Repite la nueva contraseña</label>
+            <div class="password-control">
+              <input
+                id="change-confirm"
+                [type]="showPassword() ? 'text' : 'password'"
+                autocomplete="new-password"
+                [formField]="changeForm.confirmPassword"
+                aria-describedby="change-confirm-error"
+              /><button
+                type="button"
+                class="password-toggle"
+                aria-controls="change-confirm"
+                [attr.aria-pressed]="showPassword()"
+                [attr.aria-label]="showPassword() ? 'Ocultar contraseña' : 'Mostrar contraseña'"
+                (click)="showPassword.set(!showPassword())"
+              >
+                {{ showPassword() ? 'Ocultar' : 'Mostrar' }}
+              </button>
+            </div>
             @if (
-              !successMessage() &&
-              recoveryForm.confirmPassword().touched() &&
-              recoveryForm.confirmPassword().errors().length
+              changeForm.confirmPassword().touched() && changeForm.confirmPassword().errors().length
             ) {
-              <span class="field-error" id="recovery-confirm-error">{{
-                recoveryForm.confirmPassword().errors()[0].message
+              <span class="field-error" id="change-confirm-error">{{
+                changeForm.confirmPassword().errors()[0].message
               }}</span>
             }
           </div>
@@ -412,127 +635,66 @@
             <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
           }
           <button appButton="primary" class="primary-button" type="submit" [disabled]="busy()">
-            {{ busy() ? 'Actualizando…' : 'Cambiar contraseña' }}
+            {{ busy() ? 'Actualizando…' : 'Cambiar contraseña y cerrar sesiones' }}
           </button>
         </form>
-      </section>
-      <p class="bottom-link"><a routerLink="/acceso" [queryParams]="identityQueryParams()">Volver al acceso</a></p>
-    }
+      }
 
-    @if (mode === 'change-password') {
-      <h1 id="identity-title">Cambia tu contraseña</h1>
-      <p class="intro">
-        Go revocará todas las sesiones al confirmar el cambio; tendrás que iniciar sesión otra vez.
-      </p>
-      <form (submit)="onChangePassword($event)" novalidate>
-        <div class="field">
-          <label for="current-password">Contraseña actual</label
-          ><input
-            id="current-password"
-            type="password"
-            autocomplete="current-password"
-            [formField]="changeForm.currentPassword"
-            aria-describedby="current-password-error"
-          />
-          @if (
-            changeForm.currentPassword().touched() && changeForm.currentPassword().errors().length
-          ) {
-            <span class="field-error" id="current-password-error">{{
-              changeForm.currentPassword().errors()[0].message
-            }}</span>
-          }
-        </div>
-        <div class="field">
-          <label for="new-password">Nueva contraseña</label
-          ><input
-            id="new-password"
-            type="password"
-            autocomplete="new-password"
-            [formField]="changeForm.newPassword"
-            aria-describedby="password-policy new-password-error"
-          /><span class="field-hint" id="password-policy"
-            >Mínimo 8 caracteres, una mayúscula, un número y un símbolo; máximo 72 bytes
-            UTF-8.</span
-          >
-          @if (changeForm.newPassword().touched() && changeForm.newPassword().errors().length) {
-            <span class="field-error" id="new-password-error">{{
-              changeForm.newPassword().errors()[0].message
-            }}</span>
-          }
-        </div>
-        <div class="field">
-          <label for="change-confirm">Repite la nueva contraseña</label
-          ><input
-            id="change-confirm"
-            type="password"
-            autocomplete="new-password"
-            [formField]="changeForm.confirmPassword"
-            aria-describedby="change-confirm-error"
-          />
-          @if (
-            changeForm.confirmPassword().touched() && changeForm.confirmPassword().errors().length
-          ) {
-            <span class="field-error" id="change-confirm-error">{{
-              changeForm.confirmPassword().errors()[0].message
-            }}</span>
-          }
-        </div>
-        @if (errorMessage()) {
-          <p class="form-alert is-error" role="alert">{{ errorMessage() }}</p>
-        }
-        @if (successMessage()) {
-          <p class="form-alert is-success" role="status">{{ successMessage() }}</p>
-        }
-        <button appButton="primary" class="primary-button" type="submit" [disabled]="busy()">
-          {{ busy() ? 'Actualizando…' : 'Cambiar contraseña y cerrar sesiones' }}
-        </button>
-      </form>
-    }
-
-    @if (mode === 'account' && session(); as currentSession) {
-      <h1 id="identity-title">Tu sesión</h1>
-      <p class="intro">Roles y restricciones confirmados por Go para esta sesión.</p>
-      <section class="session-summary" aria-label="Capacidades confirmadas">
-        <h2>Roles</h2>
-        <ul class="role-list">
-          @for (role of currentSession.roles; track role) {
-            <li>{{ getRoleLabel(role) }}</li>
-          }
-        </ul>
-        <p>
-          <strong>Modo restringido:</strong>
-          {{ currentSession.restricted_mode ? 'Sí, confirmado por Go' : 'No' }}
-        </p>
-        @if (currentSession.restricted_mode) {
-          <p class="restricted-copy">
-            Go permite a esta cuenta únicamente operaciones sobre reservas existentes. La
-            preferencia elegida al registrarte no altera los roles ni este estado.
+      @if (mode === 'account' && session(); as currentSession) {
+        <h1 #identityHeading id="identity-title" tabindex="-1">Tu sesión</h1>
+        <p class="intro">Consulta las opciones disponibles para tu cuenta.</p>
+        <section class="session-summary" aria-label="Capacidades confirmadas">
+          <h2>Roles</h2>
+          <ul class="role-list">
+            @for (role of currentSession.roles; track role) {
+              <li>{{ getRoleLabel(role) }}</li>
+            }
+          </ul>
+          <p>
+            <strong>Modo restringido:</strong>
+            {{ currentSession.restricted_mode ? 'Sí' : 'No' }}
           </p>
-        } @else {
-          <p class="restricted-copy">
-            La navegación por rol refleja únicamente los roles devueltos por Go. Algunas áreas
-            siguen pendientes de los cortes FE-03, FE-06 y FE-11.
-          </p>
-        }
-      </section>
-      <nav class="account-links" aria-label="Seguridad de la cuenta">
-        <a routerLink="/mi-cuenta/seguridad">Cambiar contraseña</a>
-        @if (currentSession.roles.includes('arrendatario') && !currentSession.restricted_mode) {
-          <a routerLink="/explorar">Explorar espacios <span>Disponible en FE-03</span></a>
-        }
-        @if (currentSession.roles.includes('arrendador') && !currentSession.restricted_mode) {
-          <a routerLink="/panel-anfitrion">Panel de anfitrión <span>Disponible en FE-06</span></a>
-        }
-        @if ((currentSession.capabilities.includes('legacy.administration') || currentSession.roles.includes('administrador')) && !currentSession.restricted_mode) {
-          <a routerLink="/administracion">Administración <span>Disponible en FE-11</span></a>
-        }
-        @if (currentSession.capabilities.includes('accounts.list') && !currentSession.restricted_mode) {
-          <a routerLink="/administracion/global">Administración global <span>Acceso global</span></a>
-        }
-      </nav>
-    }
-  </section>
-  @if (contextualCancelUrl(); as cancelUrl) {
-    <p class="context-cancel"><a [routerLink]="cancelUrl">Cancelar y volver al catálogo</a></p>
-  }
+          @if (currentSession.restricted_mode) {
+            <p class="restricted-copy">
+              Por ahora tu cuenta solo puede gestionar reservas existentes. Las nuevas acciones no
+              están disponibles.
+            </p>
+          } @else {
+            <p class="restricted-copy">
+              Puedes explorar y ofrecer espacios desde una misma cuenta. Cada acción confirma los
+              permisos necesarios.
+            </p>
+          }
+        </section>
+        <nav class="account-links" aria-label="Seguridad de la cuenta">
+          <a routerLink="/mi-cuenta/seguridad">Cambiar contraseña</a>
+          @if (currentSession.roles.includes('arrendatario') && !currentSession.restricted_mode) {
+            <a routerLink="/explorar">Explorar espacios</a>
+          }
+          @if (currentSession.roles.includes('arrendador') && !currentSession.restricted_mode) {
+            <a routerLink="/panel-anfitrion">Panel de anfitrión</a>
+          }
+          @if (
+            (currentSession.capabilities.includes('legacy.administration') ||
+              currentSession.roles.includes('administrador')) &&
+            !currentSession.restricted_mode
+          ) {
+            <a routerLink="/administracion">Administración</a>
+          }
+          @if (
+            currentSession.capabilities.includes('accounts.list') && !currentSession.restricted_mode
+          ) {
+            <a routerLink="/administracion/global"
+              >Administración global <span>Acceso global</span></a
+            >
+          }
+        </nav>
+      }
+      @if (contextualCancelUrl(); as cancelUrl) {
+        <a class="context-cancel quiet-link" [routerLink]="cancelUrl"
+          >Cancelar y volver al catálogo</a
+        >
+      }
+    </section>
+  </div>
 </main>

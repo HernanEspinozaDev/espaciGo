@@ -2,6 +2,8 @@ import { Routes } from '@angular/router';
 import { identityGuard, roleGuard } from './core/identity/identity.guard';
 
 const routeDefinitions: Routes = [
+  { path: 'terminos-y-condiciones', loadComponent: () => import('./features/consent/consent-document-page').then((m) => m.ConsentDocumentPage), title: 'Términos y condiciones | EspaciGo', data: { documentType: 'terminos' } },
+  { path: 'politica-de-privacidad', loadComponent: () => import('./features/consent/consent-document-page').then((m) => m.ConsentDocumentPage), title: 'Política de privacidad | EspaciGo', data: { documentType: 'privacidad' } },
   {
     path: '',
     loadComponent: () => import('./features/home/home').then((module) => module.Home),

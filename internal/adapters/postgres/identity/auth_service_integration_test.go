@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -180,7 +181,7 @@ type authHarness struct {
 func newAuthHarness(t *testing.T) *authHarness {
 	t.Helper()
 	ctx, pool := newIdentityTestPool(t)
-	h := &authHarness{ctx: ctx, pool: pool, repo: identitypg.NewIdentityRepository(pool), mail: &authTestMail{}, limiter: &authTestIPLimiter{max: 100}, now: time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)}
+	h := &authHarness{ctx: ctx, pool: pool, repo: identitypg.NewIdentityRepository(pool), mail: &authTestMail{}, limiter: &authTestIPLimiter{max: 100}, now: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)}
 	service, err := identity.NewAuthenticationService(h.repo, authTestHasher{}, h.mail, h.limiter, &authTestGenerator{}, func() time.Time { return h.now })
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +194,7 @@ func newAuthHarnessWithAtomicClock(t *testing.T) (*authHarness, *atomic.Int64) {
 	t.Helper()
 	ctx, pool := newIdentityTestPool(t)
 	clock := &atomic.Int64{}
-	initial := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	initial := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 	clock.Store(initial.UnixNano())
 	h := &authHarness{ctx: ctx, pool: pool, repo: identitypg.NewIdentityRepository(pool), mail: &authTestMail{}, limiter: &authTestIPLimiter{max: 100}, now: initial}
 	service, err := identity.NewAuthenticationService(h.repo, authTestHasher{}, h.mail, h.limiter, &authTestGenerator{}, func() time.Time {
@@ -296,7 +297,7 @@ func waitForAccountLockWaitCount(t *testing.T, h *authHarness, want int) {
 }
 func (h *authHarness) register(t *testing.T, email string) string {
 	t.Helper()
-	id, err := h.service.Register(h.ctx, identity.RegisterInput{Email: email, Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
+	id, err := h.service.Register(h.ctx, identity.RegisterInput{Email: email, Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000075", "00000000-0000-4000-8000-000000000076"}, Channel: "api", ClientIP: "192.0.2.1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,10 +344,10 @@ func TestAuthRegistrationTermsDuplicateAndUnverifiedLogin(t *testing.T) {
 	if err := h.pool.QueryRow(h.ctx, "SELECT (SELECT count(*) FROM aceptacion_terminos WHERE usuario_id=$1), (SELECT count(*) FROM rol_usuario WHERE usuario_id=$1 AND rol='arrendatario'), (SELECT count(*) FROM rol_usuario WHERE usuario_id=$1 AND rol='administrador')", id).Scan(&terms, &tenants, &admins); err != nil {
 		t.Fatal(err)
 	}
-	if terms != 1 || tenants != 0 || admins != 0 {
+	if terms != 2 || tenants != 0 || admins != 0 {
 		t.Fatal("terms/registration must not grant a role")
 	}
-	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "STRASSE+alias@example.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrEmailRegistered) {
+	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "STRASSE+alias@example.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000075", "00000000-0000-4000-8000-000000000076"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrEmailRegistered) {
 		t.Fatal("canonical duplicate not explicit")
 	}
 	if _, err := h.service.Login(h.ctx, identity.LoginInput{Email: "strasse+alias@example.invalid", Password: "Synthetic#123"}); !errors.Is(err, identity.ErrEmailUnverified) {
@@ -370,7 +371,17 @@ func TestRegistrationAPIRequiresNoBusinessPreferenceAndGrantsNoRole(t *testing.T
 		api.ServeHTTP(response, req)
 		return response
 	}
-	created := request(`{"email":"preference-api@ejemplo.invalid","password":"Synthetic#123","terms_version_ids":["00000000-0000-4000-8000-000000000001"]}`)
+	for _, ids := range []string{
+		`["00000000-0000-4000-8000-000000000001","00000000-0000-4000-8000-000000000002"]`,
+		`["00000000-0000-4000-8000-000000000075"]`,
+		`["00000000-0000-4000-8000-000000000075","00000000-0000-4000-8000-000000000075"]`,
+	} {
+		invalid := request(`{"email":"consent-rejected@ejemplo.invalid","password":"Synthetic#123","terms_version_ids":` + ids + `}`)
+		if invalid.Code != 422 {
+			t.Fatal("old, incomplete or duplicated consent accepted over HTTP")
+		}
+	}
+	created := request(`{"email":"preference-api@ejemplo.invalid","password":"Synthetic#123","terms_version_ids":["00000000-0000-4000-8000-000000000075","00000000-0000-4000-8000-000000000076"]}`)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("register status=%d body=%s", created.Code, created.Body.String())
 	}
@@ -3251,7 +3262,7 @@ func TestAuthVerificationActivationRollsBackAndDeliveryFailureIsRetryable(t *tes
 	}
 	h2 := newAuthHarness(t)
 	h2.mail.fail = true
-	pending, err := h2.service.Register(h2.ctx, identity.RegisterInput{Email: "delivery@ejemplo.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000001"}, Channel: "api", ClientIP: "192.0.2.1"})
+	pending, err := h2.service.Register(h2.ctx, identity.RegisterInput{Email: "delivery@ejemplo.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000075", "00000000-0000-4000-8000-000000000076"}, Channel: "api", ClientIP: "192.0.2.1"})
 	if pending == "" || !errors.Is(err, identity.ErrDelivery) {
 		t.Fatal("delivery failure did not expose committed pending account")
 	}
@@ -4149,5 +4160,76 @@ func TestCredentialNoticeExpiredLeaseRecoversAfterBackendRestart(t *testing.T) {
 	h.mail.mu.Unlock()
 	if sends != 1 {
 		t.Fatalf("expired pre-send lease caused %d deliveries, want one", sends)
+	}
+}
+
+func TestRecoveryDeliveryFailureIsObservableWithoutDisclosingAccount(t *testing.T) {
+	h := newAuthHarness(t)
+	h.register(t, "mail-failure@ejemplo.invalid")
+	h.verify(t)
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	h.mail.mu.Lock()
+	h.mail.fail = true
+	h.mail.mu.Unlock()
+	if err := h.service.RequestPasswordRecovery(h.ctx, "mail-failure@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatal("public recovery disclosed delivery failure")
+	}
+	if err := h.service.RequestPasswordRecovery(h.ctx, "unknown@ejemplo.invalid", "192.0.2.5"); err != nil {
+		t.Fatal("unknown account response differs")
+	}
+	var event map[string]any
+	if err := json.Unmarshal(output.Bytes(), &event); err != nil {
+		t.Fatal("expected exactly one structured internal warning")
+	}
+	if event["event"] != "identity.mail_delivery_failed" || event["purpose"] != "recuperar_clave" || len(event) != 5 {
+		t.Fatal("unsafe or missing recovery event fields")
+	}
+	for _, secret := range []string{"mail-failure@", "unknown@", "synthetic-test-credential", "synthetic mail failure"} {
+		if strings.Contains(output.String(), secret) {
+			t.Fatal("delivery event exposed account or credential detail")
+		}
+	}
+}
+
+func TestReadableConsentEndpointChecksPublishedContentHash(t *testing.T) {
+	h := newAuthHarness(t)
+	api := identityhttp.NewHandler(h.service, h.repo, nil)
+	request := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/terms", nil)
+		req.RemoteAddr = "192.0.2.1:1234"
+		w := httptest.NewRecorder()
+		api.ServeHTTP(w, req)
+		return w
+	}
+	w := request()
+	if w.Code != 200 {
+		t.Fatalf("published documents status=%d", w.Code)
+	}
+	var body struct {
+		Items []struct {
+			ID       string                   `json:"id"`
+			Document identity.ConsentDocument `json:"document"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil || len(body.Items) != 2 {
+		t.Fatal("document response missing")
+	}
+	for _, item := range body.Items {
+		if item.ID != item.Document.ID || len(item.Document.Sections) < 5 {
+			t.Fatal("document id/content mismatch")
+		}
+	}
+	// Only mutate this disposable fixture to prove a drifted publication fails closed.
+	if _, err := h.pool.Exec(h.ctx, "UPDATE public.version_terminos SET hash_sha256=repeat('0',64) WHERE id=$1", body.Items[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.service.Register(h.ctx, identity.RegisterInput{Email: "hash-drift@ejemplo.invalid", Password: "Synthetic#123", TermsVersionIDs: []string{"00000000-0000-4000-8000-000000000075", "00000000-0000-4000-8000-000000000076"}, Channel: "api", ClientIP: "192.0.2.1"}); !errors.Is(err, identity.ErrInvalid) {
+		t.Fatal("registration accepted mismatched consent document hash")
+	}
+	if w := request(); w.Code != 503 {
+		t.Fatal("document hash drift did not block consent catalog")
 	}
 }

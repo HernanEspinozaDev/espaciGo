@@ -130,6 +130,16 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 		closeAdmin()
 		t.Fatalf("create disposable test database: %v", err)
 	}
+	// Shared cluster fixture. Its lifecycle belongs to the disposable cluster
+	// runner, not to a per-database cleanup (tests may have two live harnesses).
+	if _, err := admin.Exec(setupCtx, `DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='espacigo_runtime') THEN
+        CREATE ROLE espacigo_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+      END IF;
+    END $$`); err != nil {
+		closeAdmin()
+		t.Fatalf("prepare shared runtime fixture: %v", err)
+	}
 	closeAdmin()
 
 	parsedURL, err := url.Parse(adminURL)
@@ -153,12 +163,8 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 		if _, err := admin.Exec(cleanupCtx, "DROP DATABASE IF EXISTS "+pgx.Identifier{databaseName}.Sanitize()); err != nil {
 			t.Errorf("drop disposable test database: %v", err)
 		}
-		// The runtime role is shared by integration tests but its grants are
-		// scoped to this disposable database. Drop the database first so no
-		// permission dependencies remain when removing the cluster role.
-		if _, err := admin.Exec(cleanupCtx, `DROP ROLE IF EXISTS espacigo_runtime`); err != nil {
-			t.Errorf("drop disposable runtime role after database cleanup: %v", err)
-		}
+		// Keep the shared NOLOGIN role while other harness DBs may reference it.
+		// The outer networkless disposable cluster removes it at teardown.
 	})
 
 	var migrationErr error
@@ -175,7 +181,7 @@ func newIdentityTestPool(t *testing.T) (context.Context, *pgxpool.Pool) {
 		_, migrationErr = migrator.Run(setupCtx, testURL, migrationDir)
 	}
 	if migrationErr != nil {
-		t.Fatalf("apply V1-V63 to disposable test database: %v", migrationErr)
+		t.Fatalf("apply current migrations to disposable test database: %v", migrationErr)
 	}
 
 	pool, closeConnector, err := openGCP04ReplayPool(context.Background(), testURL)

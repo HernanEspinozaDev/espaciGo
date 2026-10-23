@@ -205,7 +205,7 @@ describe('IdentitySession', () => {
     const sessionB = identity.session();
     const tokenB = identity.accessToken();
     finishRecovery();
-    await recovery;
+    expect(await recovery).toBe(false);
 
     expect(api.session).toHaveBeenCalledTimes(3);
     expect(identity.accessToken()).toBe(tokenB);

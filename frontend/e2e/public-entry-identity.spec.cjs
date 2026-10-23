@@ -1,10 +1,7 @@
 const { test, expect } = require('@playwright/test');
 
 const accountId = '5e7d9f2a-631a-4c82-9d26-791225d19412';
-const termItems = [
-  { id: '00000000-0000-4000-8000-000000000001', code: 'terminos-v1', type: 'terminos', sha256: 'a'.repeat(64), published_at: '2026-01-01T00:00:00Z', synthetic: true },
-  { id: '00000000-0000-4000-8000-000000000002', code: 'privacidad-v1', type: 'privacidad', sha256: 'b'.repeat(64), published_at: '2026-01-01T00:00:00Z', synthetic: true },
-];
+const termItems = require('./fixtures/consent-documents.cjs');
 
 test('public landing reaches registration and EspaciGo login without a Google session or origin change', async ({ page, context, baseURL }) => {
   const publicOrigin = new URL(baseURL).origin;
@@ -15,7 +12,8 @@ test('public landing reaches registration and EspaciGo login without a Google se
   page.on('framenavigated', (frame) => {
     if (frame === page.mainFrame()) navigatedOrigins.add(new URL(frame.url()).origin);
   });
-  await page.route('**/config.json', (route) => route.fulfill({ json: { apiBaseUrl: `${publicOrigin}/api/v1`, siteOrigin: publicOrigin } }));
+  await page.route('**/health/ready',r=>r.fulfill({json:{status:'ready'}}));
+ await page.route('**/config.json', (route) => route.fulfill({ json: { apiBaseUrl: `${publicOrigin}/api/v1`, siteOrigin: publicOrigin } }));
   await context.clearCookies();
   await page.addInitScript(() => {
     localStorage.clear();
@@ -89,15 +87,15 @@ test('public landing reaches registration and EspaciGo login without a Google se
   await expect(page.getByRole('link', { name: /iniciar sesión/i }).first()).toBeVisible();
   await page.getByRole('link', { name: /iniciar sesión/i }).first().click();
   await expect(page).toHaveURL(`${publicOrigin}/acceso`);
-  await expect(page.getByRole('heading', { name: 'Inicia sesión' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bienvenido de nuevo' })).toBeVisible();
   if (process.env.PUBLIC_ENTRY_ACCESS_EVIDENCE_PATH) {
     await page.screenshot({ path: process.env.PUBLIC_ENTRY_ACCESS_EVIDENCE_PATH, fullPage: true });
   }
 
   await page.getByRole('link', { name: 'Crear cuenta' }).click();
   await expect(page).toHaveURL(`${publicOrigin}/registro`);
-  await expect(page.getByRole('heading', { name: 'Crea tu cuenta' })).toBeVisible();
-  await expect(page.getByText(/terminos-v1/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Haz espacio/ })).toBeVisible();
+  await expect(page.getByRole('link', {name:/Términos y condiciones/})).toBeVisible();
   if (process.env.PUBLIC_ENTRY_REGISTER_EVIDENCE_PATH) await page.screenshot({ path: process.env.PUBLIC_ENTRY_REGISTER_EVIDENCE_PATH, fullPage: true });
   await page.locator('#register-email').fill('visitor@example.invalid');
   await page.locator('#register-password').fill('Visitor#123');
@@ -106,12 +104,11 @@ test('public landing reaches registration and EspaciGo login without a Google se
   await page.locator('.terms-fieldset input[type="checkbox"]').nth(0).check();
   await page.locator('.terms-fieldset input[type="checkbox"]').nth(1).check();
   await page.getByRole('button', { name: 'Crear cuenta' }).click();
-  await expect(page.getByRole('status')).toContainText('La solicitud de registro fue aceptada para envío');
+  await expect(page.getByRole('heading',{name:'Revisa tu correo',exact:true})).toBeVisible();
   expect(registerRequestOrigin).toBe(publicOrigin);
 
-  await page.getByRole('link', { name: 'Verificar el correo', exact: true }).click();
-  await page.locator('#verify-id').fill(accountId);
-  await page.locator('#verify-token').fill('synthetic-verification-token');
+  await page.goto('/verificar-correo#'+new URLSearchParams({token_id:accountId,token:'synthetic-verification-token'}));
+  await expect(page).toHaveURL(`${publicOrigin}/verificar-correo`);
   await page.getByRole('button', { name: 'Verificar correo', exact: true }).click();
   await expect(page).toHaveURL(`${publicOrigin}/acceso?verificado=1`);
   await expect(page.getByRole('status')).toContainText('Correo verificado. Ya puedes iniciar sesión.');

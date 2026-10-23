@@ -33,6 +33,12 @@ export class IdentityFacade {
   readonly errorMessage = signal('');
   readonly successMessage = signal('');
   readonly registrationNeedsRetry = signal(false);
+  readonly registrationSubmitted = signal(false);
+  readonly recoveryRequested = signal(false);
+  readonly reissueRequested = signal(false);
+  readonly recoveryComplete = signal(false);
+  readonly linkState = signal<'missing' | 'ready' | 'invalid'>('missing');
+  readonly verificationSuggested = signal(false);
   readonly loginConfirmed = signal(false);
   readonly terms = signal<TermsResponse['items']>([]);
   readonly termVersions = computed(() => this.terms().filter((item) => item.type === 'terminos'));
@@ -43,6 +49,7 @@ export class IdentityFacade {
   readonly session = this.identity.session;
   private unregisterSensitiveState!: () => void;
   private requestGeneration = 0;
+  private actionSerial = 0;
   private destroyed = false;
 
   readonly loginModel = signal({ email: '', password: '' });
@@ -69,8 +76,10 @@ export class IdentityFacade {
         ? { kind: 'password-mismatch', message: 'Las contraseñas no coinciden.' }
         : undefined,
     );
-    required(path.acceptTerms, { message: 'Confirma la versión sintética de términos.' });
-    required(path.acceptPrivacy, { message: 'Confirma la versión sintética de privacidad.' });
+    required(path.acceptTerms, {
+      message: 'Debes aceptar los Términos y condiciones para continuar.',
+    });
+    required(path.acceptPrivacy, { message: 'Debes leer y aceptar la Política de privacidad.' });
   });
 
   readonly emailModel = signal({ email: '' });
@@ -135,14 +144,36 @@ export class IdentityFacade {
     if (this.mode === 'login' && this.route.snapshot.queryParamMap?.get('verificado') === '1') {
       this.successMessage.set('Correo verificado. Ya puedes iniciar sesión.');
     }
-    if (this.mode === 'verify') {
-      const fragment = this.route.snapshot.fragment ?? null;
+    if (this.mode === 'verify' || this.mode === 'recovery') {
+      const fragment = this.route.snapshot.fragment;
       if (fragment) {
         const values = new URLSearchParams(fragment);
-        const tokenId = values.get('token_id') ?? '';
-        const token = values.get('token') ?? '';
-        if (tokenId && token) this.tokenModel.set({ tokenId, token });
-        void this.router.navigate([], { relativeTo: this.route, fragment: undefined, replaceUrl: true });
+        const tokenIds = values.getAll('token_id');
+        const tokens = values.getAll('token');
+        const valid =
+          fragment.length <= 4096 &&
+          values.size === 2 &&
+          tokenIds.length === 1 &&
+          tokens.length === 1 &&
+          !!tokenIds[0] &&
+          !!tokens[0];
+        if (valid) {
+          if (this.mode === 'verify')
+            this.tokenModel.set({ tokenId: tokenIds[0], token: tokens[0] });
+          else
+            this.recoveryModel.update((model) => ({
+              ...model,
+              tokenId: tokenIds[0],
+              token: tokens[0],
+            }));
+          this.linkState.set('ready');
+        } else this.linkState.set('invalid');
+        void this.router.navigate([], {
+          relativeTo: this.route,
+          queryParams: this.identityQueryParams(),
+          fragment: undefined,
+          replaceUrl: true,
+        });
       }
     }
     this.destroyRef.onDestroy(() => {
@@ -170,17 +201,17 @@ export class IdentityFacade {
           );
           try {
             const navigated = await this.router.navigateByUrl(
-              typeof safeReturn === 'string' ? safeReturn : safeReturn?.detailUrl ?? '/mi-cuenta',
+              typeof safeReturn === 'string' ? safeReturn : (safeReturn?.detailUrl ?? '/mi-cuenta'),
             );
             if (!navigated && !this.destroyed) {
               this.errorMessage.set(
-                'Go confirmó tu sesión, pero no pudimos abrir tu cuenta. Inténtalo de nuevo.',
+                'Iniciaste sesión, pero no pudimos abrir tu cuenta. Inténtalo de nuevo.',
               );
             }
           } catch {
             if (!this.destroyed) {
               this.errorMessage.set(
-                'Go confirmó tu sesión, pero no pudimos abrir tu cuenta. Recarga e inténtalo de nuevo.',
+                'Iniciaste sesión, pero no pudimos abrir tu cuenta. Recarga e inténtalo de nuevo.',
               );
             }
           }
@@ -209,12 +240,14 @@ export class IdentityFacade {
         )
         .map((item) => item.id);
       if (
+        this.termsState() !== 'ready' ||
+        versionIds.length !== 2 ||
         !versionIds.some((id) =>
           this.terms().some((term) => term.id === id && term.type === 'terminos'),
         )
       ) {
         this.errorMessage.set(
-          'Go no publicó una versión sintética de términos; no es posible crear la cuenta.',
+          'Los documentos todavía no están disponibles. Vuelve a cargarlos antes de crear tu cuenta.',
         );
         return;
       }
@@ -227,6 +260,7 @@ export class IdentityFacade {
           }),
         (result) => {
           this.registrationNeedsRetry.set(result.status === 'verification_pending');
+          this.registrationSubmitted.set(true);
           this.emailModel.set({ email: model.email });
           this.registerModel.update((current) => ({
             ...current,
@@ -249,10 +283,12 @@ export class IdentityFacade {
       const address = this.emailModel().email;
       await this.performRequest(
         () => this.api.reissueVerification(address),
-        () =>
+        () => {
+          this.reissueRequested.set(true);
           this.successMessage.set(
-            'Solicitud procesada. Si la cuenta necesita verificación, puedes intentarlo más tarde; no podemos confirmar la entrega.',
-          ),
+            'Solicitud recibida. Si tu cuenta necesita verificación, recibirás un nuevo enlace. Revisa también spam; no podemos confirmar la entrega.',
+          );
+        },
       );
     });
   }
@@ -281,7 +317,10 @@ export class IdentityFacade {
       const address = this.emailModel().email;
       await this.performRequest(
         () => this.api.recover(address),
-        (accepted) => this.successMessage.set(accepted.message),
+        (accepted) => {
+          this.recoveryRequested.set(true);
+          this.successMessage.set(accepted.message);
+        },
       );
     });
   }
@@ -298,13 +337,17 @@ export class IdentityFacade {
             model.newPassword,
             model.confirmPassword,
           ),
-        () =>
+        (confirmed) => {
+          if (!confirmed) return;
+          this.recoveryComplete.set(true);
           this.recoveryModel.set({
             tokenId: '',
             token: '',
             newPassword: '',
             confirmPassword: '',
-          }),
+          });
+        },
+        (confirmed) => confirmed === true,
       );
     });
   }
@@ -344,12 +387,16 @@ export class IdentityFacade {
     );
   }
 
+  async onLoginReissue(event: SubmitEvent): Promise<void> {
+    this.emailModel.set({ email: this.loginModel().email });
+    await this.onReissue(event);
+  }
+
   identityQueryParams(): Record<string, string> {
     const safeReturn = parseIdentityReturn(
       this.route.snapshot.queryParamMap?.getAll('returnUrl') ?? [],
     );
-    const returnUrl =
-      typeof safeReturn === 'string' ? safeReturn : safeReturn?.identityReturnUrl;
+    const returnUrl = typeof safeReturn === 'string' ? safeReturn : safeReturn?.identityReturnUrl;
     return returnUrl ? { returnUrl } : {};
   }
 
@@ -362,11 +409,25 @@ export class IdentityFacade {
       : null;
   }
 
-  private async loadTerms(): Promise<void> {
+  async loadTerms(): Promise<void> {
+    this.termsState.set('loading');
+    this.registerModel.update((model) => ({ ...model, acceptTerms: false, acceptPrivacy: false }));
     try {
       const terms = await this.api.terms();
       this.terms.set(terms.items);
-      this.termsState.set(terms.items.some((item) => item.type === 'terminos') ? 'ready' : 'error');
+      this.termsState.set(
+        ['terminos', 'privacidad'].every(
+          (type) =>
+            terms.items.filter(
+              (item) =>
+                item.type === type &&
+                item.document?.sections?.length &&
+                item.document.id === item.id,
+            ).length === 1,
+        )
+          ? 'ready'
+          : 'error',
+      );
     } catch {
       this.termsState.set('error');
     }
@@ -376,6 +437,7 @@ export class IdentityFacade {
     this.errorMessage.set('');
     this.successMessage.set('');
     this.busy.set(true);
+    ++this.actionSerial;
     return ++this.requestGeneration;
   }
 
@@ -384,15 +446,17 @@ export class IdentityFacade {
     onSuccess: (value: T) => void | Promise<void>,
     acceptsSessionGenerationChange?: (value: T) => boolean,
   ): Promise<void> {
+    if (this.busy()) return;
     this.begin();
     let generation = this.requestGeneration;
     let stateGeneration = this.privateSessionState.generation();
+    const actionSerial = this.actionSerial;
     let result!: T;
     let hasResult = false;
     const isCurrent = () =>
       this.isCurrentRequest(generation, stateGeneration) ||
       (!this.destroyed &&
-        generation === this.requestGeneration &&
+        actionSerial === this.actionSerial &&
         hasResult &&
         acceptsSessionGenerationChange?.(result) === true);
     try {
@@ -405,7 +469,25 @@ export class IdentityFacade {
       if (!isCurrent()) return;
       await onSuccess(result);
     } catch (error) {
-      if (isCurrent()) this.errorMessage.set(identityErrorMessage(error));
+      if (isCurrent()) {
+        this.errorMessage.set(
+          this.mode === 'verify' &&
+            typeof error === 'object' &&
+            error !== null &&
+            'status' in error &&
+            error.status === 422
+            ? 'Este enlace no es válido, ha vencido o ya se utilizó. Solicita uno nuevo para continuar.'
+            : identityErrorMessage(error),
+        );
+        if (
+          this.mode === 'login' &&
+          typeof error === 'object' &&
+          error !== null &&
+          'status' in error &&
+          error.status === 403
+        )
+          this.verificationSuggested.set(true);
+      }
     } finally {
       if (isCurrent()) this.busy.set(false);
     }
@@ -435,7 +517,8 @@ function passwordRules(path: SchemaPathTree<{ password: string }>['password']): 
       ? undefined
       : {
           kind: 'password-policy',
-          message: 'Incluye mayúscula, número y símbolo; máximo 72 bytes UTF-8.',
+          message:
+            'Usa mayúscula, número y símbolo. Si la contraseña es muy larga, elige una más corta.',
         };
   });
 }

@@ -5119,6 +5119,7 @@ components:
             - sha256
             - published_at
             - synthetic
+            - document
             properties:
               id: *id010
               code: *id012
@@ -5133,6 +5134,26 @@ components:
               published_at: *id013
               synthetic:
                 const: true
+              document:
+                type: object
+                additionalProperties: false
+                required: [id, code, type, title, scope, status, sections]
+                properties:
+                  id: {type: string}
+                  code: {type: string}
+                  type: {type: string}
+                  title: {type: string}
+                  scope: {type: string}
+                  status: {type: string}
+                  sections:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [heading, body]
+                      properties:
+                        heading: {type: string}
+                        body: {type: string}
     RecoveryAccepted:
       type: object
       additionalProperties: false

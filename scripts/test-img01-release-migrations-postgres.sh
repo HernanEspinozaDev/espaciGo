@@ -14,7 +14,8 @@ cleanup() {
   rm -rf -- "$TMP_DIR"
 }
 trap cleanup EXIT INT TERM
-unset PGPASSWORD PGPASSFILE PGUSER PGHOST PGPORT PGDATABASE DATABASE_PASSWORD_FILE DATABASE_SET_ROLE
+unset PGPASSWORD PGPASSFILE PGUSER PGHOST PGPORT PGDATABASE DATABASE_PASSWORD_FILE DATABASE_SET_ROLE GCP04_REPLAY_CLOUD
+export PGPASSFILE="$TMP_DIR/no-credentials"
 export DATABASE_CONNECTION_MODE=direct
 export DBMIGRATE_TIMEOUT=10m
 
@@ -30,11 +31,12 @@ done
 docker exec "$NAME" pg_isready -U fixture_admin >/dev/null
 docker exec "$NAME" psql -X -U fixture_admin -d postgres -v ON_ERROR_STOP=1 -q -c 'CREATE ROLE postgres LOGIN SUPERUSER'
 go build -o "$TMP_DIR/dbmigrate" ./cmd/dbmigrate
-mkdir "$TMP_DIR/v67"
+mkdir "$TMP_DIR/v67" "$TMP_DIR/v74"
 for migration in db/migrations/V*.sql; do
   version="${migration##*/V}"
   version="${version%%__*}"
   if (( 10#$version <= 67 )); then cp "$migration" "$TMP_DIR/v67/"; fi
+  if (( 10#$version <= 74 )); then cp "$migration" "$TMP_DIR/v74/"; fi
 done
 sql() { docker exec -i "$NAME" psql -X -U postgres -d "$DB" -v ON_ERROR_STOP=1 "$@"; }
 ledger_hash() { sql -qAt -c "SELECT md5(jsonb_agg(to_jsonb(m) ORDER BY version)::text) FROM public.schema_migrations m WHERE version<=67"; }
@@ -126,7 +128,7 @@ python3 - "$TMP_DIR/plan.json" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
 assert p['read_only'] and len(p['applied'])==67
-assert [m['version'] for m in p['pending']]==list(range(68,75)), p
+assert [m['version'] for m in p['pending']]==list(range(68,76)), p
 PY
 expect_failure 'permission denied' env DATABASE_URL="postgres://img01_reader@localhost/$DB?host=$SOCKET_DIR" "$TMP_DIR/dbmigrate" -dir db/migrations
 [[ "$(ledger_hash)" == "$before" ]]
@@ -137,7 +139,7 @@ expect_failure 'permission denied' env DATABASE_URL="postgres://img01_reader@loc
 python3 - "$TMP_DIR/postcheck.json" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
-assert p['read_only'] and len(p['applied'])==74 and p['pending']==[], p
+assert p['read_only'] and len(p['applied'])==75 and p['pending']==[], p
 PY
 sql -q <<'SQL'
 DO $$ BEGIN
@@ -190,9 +192,33 @@ export DATABASE_URL="postgres://postgres@localhost/$DB?host=$SOCKET_DIR"
 python3 - "$TMP_DIR/fresh.json" <<'PY'
 import json,sys
 p=json.load(open(sys.argv[1]))
-assert len(p['applied'])==74 and p['pending']==[], p
+assert len(p['applied'])==75 and p['pending']==[], p
 PY
+# Exact upgrade from the current remote baseline, including old consent history.
+DB=auth_v74_upgrade
+docker exec "$NAME" createdb -U postgres "$DB"
+export DATABASE_URL="postgres://postgres@localhost/$DB?host=$SOCKET_DIR"
+"$TMP_DIR/dbmigrate" -dir "$TMP_DIR/v74"
+before74="$(sql -qAt -c "SELECT md5(jsonb_agg(to_jsonb(m) ORDER BY version)::text) FROM public.schema_migrations m")"
+sql -q <<'SQL'
+INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado)
+VALUES ('90000000-0000-4000-8000-000000000001','history@example.invalid','history@example.invalid','synthetic-hash','activo');
+INSERT INTO public.aceptacion_terminos(id,usuario_id,version_id,canal)
+VALUES ('90000000-0000-4000-8000-000000000002','90000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','web');
+SQL
+"$TMP_DIR/dbmigrate" -dir db/migrations
+[[ "$(sql -qAt -c "SELECT md5(jsonb_agg(to_jsonb(m) ORDER BY version)::text) FROM public.schema_migrations m WHERE version<=74")" == "$before74" ]]
+sql -q <<'SQL'
+DO $$ BEGIN
+ IF (SELECT count(*) FROM public.aceptacion_terminos WHERE id='90000000-0000-4000-8000-000000000002' AND version_id='00000000-0000-4000-8000-000000000001')<>1
+ OR (SELECT count(*) FROM public.version_terminos WHERE codigo IN ('evaluacion-terminos-20261023-v1','evaluacion-privacidad-20261023-v1'))<>2
+ THEN RAISE EXCEPTION 'consent version/history upgrade failed'; END IF;
+END $$;
+SQL
 # Existing integration tests cover plan-only without ledger and history guards.
 export TEST_DATABASE_URL="postgres://postgres@localhost/postgres?host=$SOCKET_DIR"
 go test ./internal/migrator -run 'Test(RunnerAppliesFromEmptyAndRepeatIsNoop|RunnerRefusesToInitializeLedgerBesideExistingApplicationObjects|PlanOnlyDoesNotInitializeLedgerOrExecutePendingMigrations)$' -count=1
-echo 'PASS: isolated V1-V74, V67 upgrade with V64 drift (routine present/absent), repair rejection guards, immutable V1-V67 ledger, read-only plan, DDL denial for reader, worker privileges, repeat no-op.'
+# Account recovery/verification regressions use a shared NOLOGIN role and own
+# fresh databases. This cluster is removed only by this runner's EXIT trap.
+go test ./internal/adapters/postgres/identity -run 'Test(AuthRegistrationTermsDuplicateAndUnverifiedLogin|RegistrationAPIRequiresNoBusinessPreferenceAndGrantsNoRole|AuthVerificationReissueFailureLimitTTLAndReplay|AuthConcurrentVerificationHasOneWinnerAndLoginCountsAllFailures|AuthVerificationActivationRollsBackAndDeliveryFailureIsRetryable|AuthRecoveryAndPasswordChangeRevokeSessions|AuthRecoveryTokenStopsAfterFiveFailuresWithoutBlockingLogin|PasswordResetRevalidatesExpiredTokenAfterAccountLockWait|RecoveryDeliveryFailureIsObservableWithoutDisclosingAccount|ReadableConsentEndpointChecksPublishedContentHash)$' -count=1
+echo 'PASS: isolated V1-V75, V67 upgrade with V64 drift (routine present/absent), repair rejection guards, immutable V1-V67 ledger, read-only plan, DDL denial for reader, worker privileges, repeat no-op.'
