@@ -14,6 +14,12 @@ import { IdentityFacade } from './application/identity-facade';
 export class IdentityPage {
   private readonly facade = inject(IdentityFacade);
   readonly showPassword = signal(false);
+  readonly fieldErrors = this.facade.fieldErrors;
+  clearFieldError(field: string): void {
+    this.fieldErrors.update((errors) =>
+      Object.fromEntries(Object.entries(errors).filter(([key]) => key !== field)),
+    );
+  }
   readonly registrationSubmitted = this.facade.registrationSubmitted;
   readonly recoveryRequested = this.facade.recoveryRequested;
   readonly reissueRequested = this.facade.reissueRequested;
@@ -94,7 +100,25 @@ export class IdentityPage {
   }
   readonly identityQueryParams = this.facade.identityQueryParams.bind(this.facade);
   readonly contextualCancelUrl = this.facade.contextualCancelUrl.bind(this.facade);
-  readonly onLogin = this.facade.onLogin.bind(this.facade);
+  readonly onLogin = async (event: SubmitEvent): Promise<void> => {
+    if (this.busy()) {
+      event.preventDefault();
+      return;
+    }
+    // Password managers can fill native inputs without dispatching input/change.
+    // Read only this submitted form at the presentation boundary before validation.
+    const formElement = event.target instanceof HTMLFormElement ? event.target : null;
+    const email = formElement?.querySelector<HTMLInputElement>('#login-email');
+    const password = formElement?.querySelector<HTMLInputElement>('#login-password');
+    if (email && password) this.loginModel.set({ email: email.value, password: password.value });
+    await this.facade.onLogin(event);
+    setTimeout(() => {
+      const invalid =
+        this.element.nativeElement.querySelector<HTMLElement>('[aria-invalid="true"]');
+      const summary = this.element.nativeElement.querySelector<HTMLElement>('[role="alert"]');
+      (invalid ?? summary)?.focus();
+    });
+  };
   readonly onLoginInput = this.facade.onLoginInput.bind(this.facade);
   private readonly heading = viewChild<ElementRef<HTMLHeadingElement>>('identityHeading');
   private readonly element = inject<ElementRef<HTMLElement>>(ElementRef);
@@ -102,7 +126,11 @@ export class IdentityPage {
     await this.facade.onRegister(event);
     setTimeout(() => {
       if (this.registrationSubmitted()) this.heading()?.nativeElement.focus();
-      else this.element.nativeElement.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      else
+        (
+          this.element.nativeElement.querySelector<HTMLElement>('[aria-invalid="true"]') ??
+          this.element.nativeElement.querySelector<HTMLElement>('[role="alert"]')
+        )?.focus();
     });
   };
   readonly onReissue = this.facade.onReissue.bind(this.facade);

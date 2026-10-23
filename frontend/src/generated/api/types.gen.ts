@@ -1573,7 +1573,7 @@ export type ErrorDetail = {
     message: string;
     request_id: string;
     /**
-     * Detalles seguros, opcionales y específicos del error.
+     * Detalles seguros, opcionales y específicos del error. Registro/acceso usan email:invalid_email, email:already_registered, password:required, password:password_policy y terms_version_ids:consent_invalid; nunca valores enviados ni errores internos.
      */
     details?: Array<FieldError>;
 };

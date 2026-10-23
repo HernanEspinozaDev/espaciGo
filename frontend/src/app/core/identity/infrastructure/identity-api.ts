@@ -7,7 +7,7 @@ import type {
   TermsResponse,
 } from '../../contracts/models';
 import { GeneratedResult, IdentityPort } from '../domain/ports/identity-port';
-import { IdentityApiError } from '../identity-errors';
+import { IdentityApiError, type IdentityFieldError } from '../identity-errors';
 
 @Injectable({ providedIn: 'root' })
 export class IdentityApi extends IdentityPort {
@@ -113,7 +113,25 @@ function unwrap<T>(result: GeneratedResult, kind: 'body' | 'empty'): T {
       typeof body === 'object' && body !== null && 'code' in body && typeof body.code === 'string'
         ? body.code
         : undefined;
-    throw new IdentityApiError(result.response?.status ?? 0, code);
+    const details: IdentityFieldError[] = [];
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'details' in body &&
+      Array.isArray(body.details)
+    ) {
+      for (const detail of body.details.slice(0, 10)) {
+        if (
+          typeof detail === 'object' &&
+          detail !== null &&
+          typeof detail.field === 'string' &&
+          typeof detail.code === 'string'
+        ) {
+          details.push({ field: detail.field, code: detail.code });
+        }
+      }
+    }
+    throw new IdentityApiError(result.response?.status ?? 0, code, details);
   }
   if (kind === 'body' && result.data === undefined) throw new IdentityApiError(0);
   return result.data as T;

@@ -17,6 +17,9 @@ export class IdentitySession {
   readonly status = signal<IdentityStatus>('anonymous');
   readonly notice = signal('');
   private generation = 0;
+  get sessionRevision(): number {
+    return this.generation;
+  }
 
   async signIn(email: string, password: string): Promise<SessionResponse> {
     const generation = ++this.generation;
@@ -40,7 +43,9 @@ export class IdentitySession {
       this.privateState.generation.update((value) => value + 1);
       return session;
     } catch (error) {
-      if (generation === this.generation) this.resetSession();
+      if (generation !== this.generation) throw new StaleIdentityRequest();
+      this.resetSession();
+      if (generation !== this.generation) throw new StaleIdentityRequest();
       throw error;
     }
   }

@@ -352,3 +352,35 @@ h1:focus {
 .consent-row {
   min-height: var(--space-6);
 }
+
+.required-mark {
+  color: var(--brand-primary);
+}
+.required-note {
+  margin-block: 0 var(--space-4);
+  color: var(--color-text-muted);
+  font-size: metrics.$font-size-0-82rem;
+}
+.busy-spinner {
+  display: inline-block;
+  flex: none;
+  width: metrics.$space-1rem;
+  height: metrics.$space-1rem;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  animation: auth-spin 0.8s linear infinite;
+  vertical-align: middle;
+  margin-right: var(--space-3);
+}
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .busy-spinner {
+    animation: none;
+    border-style: dotted;
+  }
+}

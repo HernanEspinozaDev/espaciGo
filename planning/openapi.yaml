@@ -651,6 +651,7 @@ paths:
       description: 'CU-01/RQF-001–007/186–187/213; cuenta, arrendatario, preferencia inicial no excluyente y términos atómicos. Duplicado CU-01 A1
         explícito. Si emisión/correo falla después del commit, 202 con ID pendiente: reemitir, no repetir alta.
         La preferencia no concede rol ni restringe actividades futuras.'
+      # FieldError reuses the public safe error contract; messages are not credentials.
       responses:
         '400': *id001
         '403': *id002
@@ -1410,7 +1411,7 @@ paths:
       tags:
       - M01 local
       description: 'CU-03/04: credencial incorrecta genérica 401, no verificada 403, bloqueo 429. Sesión 8
-        h absoluta, idle 30 min.'
+        h absoluta, idle 30 min. Entrada inválida 422 con error.details field/code (email:invalid_email, password:required), sin valores enviados.'
       responses:
         '400': *id001
         '403': *id002
@@ -4848,7 +4849,7 @@ components:
           format: uuid
         details:
           type: array
-          description: Detalles seguros, opcionales y específicos del error.
+          description: "Detalles seguros, opcionales y específicos del error. Registro/acceso usan email:invalid_email, email:already_registered, password:required, password:password_policy y terms_version_ids:consent_invalid; nunca valores enviados ni errores internos."
           items:
             $ref: '#/components/schemas/FieldError'
     FieldError:

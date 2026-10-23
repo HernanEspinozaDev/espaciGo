@@ -1,7 +1,13 @@
+export interface IdentityFieldError {
+  field: string;
+  code: string;
+}
+
 export class IdentityApiError extends Error {
   constructor(
     readonly status: number,
     readonly code?: string,
+    readonly details: readonly IdentityFieldError[] = [],
   ) {
     super('La operación de identidad no fue aceptada por Go.');
   }
@@ -49,4 +55,22 @@ function messageForStatus(status: number): string {
     default:
       return 'El servicio no pudo completar la solicitud. Inténtalo otra vez.';
   }
+}
+
+export function identityFieldMessages(error: unknown): Record<string, string> {
+  if (!(error instanceof IdentityApiError)) return {};
+  const messages: Record<string, string> = {
+    'email:invalid_email': 'Escribe un correo válido.',
+    'email:already_registered':
+      'Ya existe una cuenta con ese correo. Inicia sesión o recupera el acceso.',
+    'password:required': 'Escribe tu contraseña.',
+    'password:password_policy': 'Usa al menos 8 caracteres, una mayúscula, un número y un símbolo.',
+    'terms_version_ids:consent_invalid': 'Vuelve a cargar y aceptar los documentos vigentes.',
+  };
+  return Object.fromEntries(
+    error.details.flatMap(({ field, code }) => {
+      const message = messages[`${field}:${code}`];
+      return message ? [[field, message]] : [];
+    }),
+  );
 }

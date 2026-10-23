@@ -12,8 +12,14 @@ import { Meta } from '@angular/platform-browser';
 import { ActivatedRoute, Router, UrlTree } from '@angular/router';
 import type { TermsResponse } from '../../../core/contracts/models';
 import { IdentityPort } from '../../../core/identity/domain/ports/identity-port';
-import { identityErrorMessage } from '../../../core/identity/identity-errors';
-import { IdentitySession } from '../../../core/identity/application/identity-session';
+import {
+  identityErrorMessage,
+  identityFieldMessages,
+} from '../../../core/identity/identity-errors';
+import {
+  IdentitySession,
+  StaleIdentityRequest,
+} from '../../../core/identity/application/identity-session';
 import { PrivateSessionState } from '../../../core/identity/private-session-state';
 import { parseIdentityReturn } from '../../../core/identity/contextual-return';
 
@@ -31,6 +37,7 @@ export class IdentityFacade {
   readonly mode = inject(ActivatedRoute).snapshot.data['identityMode'] as IdentityMode;
   readonly busy = signal(false);
   readonly errorMessage = signal('');
+  readonly fieldErrors = signal<Record<string, string>>({});
   readonly successMessage = signal('');
   readonly registrationNeedsRetry = signal(false);
   readonly registrationSubmitted = signal(false);
@@ -187,6 +194,7 @@ export class IdentityFacade {
 
   async onLogin(event: SubmitEvent): Promise<void> {
     event.preventDefault();
+    if (this.busy()) return;
     this.loginConfirmed.set(false);
     this.errorMessage.set('');
     this.successMessage.set('');
@@ -223,6 +231,7 @@ export class IdentityFacade {
   }
 
   onLoginInput(): void {
+    this.fieldErrors.set({});
     this.loginConfirmed.set(false);
     this.errorMessage.set('');
     this.successMessage.set('');
@@ -434,6 +443,7 @@ export class IdentityFacade {
   }
 
   private begin(): number {
+    this.fieldErrors.set({});
     this.errorMessage.set('');
     this.successMessage.set('');
     this.busy.set(true);
@@ -450,6 +460,7 @@ export class IdentityFacade {
     this.begin();
     let generation = this.requestGeneration;
     let stateGeneration = this.privateSessionState.generation();
+    let identityRevision = this.identity.sessionRevision;
     const actionSerial = this.actionSerial;
     let result!: T;
     let hasResult = false;
@@ -464,20 +475,35 @@ export class IdentityFacade {
       const pending = request();
       generation = this.requestGeneration;
       stateGeneration = this.privateSessionState.generation();
+      identityRevision = this.identity.sessionRevision;
+      this.busy.set(true);
       result = await pending;
       hasResult = true;
       if (!isCurrent()) return;
       await onSuccess(result);
     } catch (error) {
-      if (isCurrent()) {
+      const ownsLoginFailure =
+        this.mode === 'login' &&
+        !this.destroyed &&
+        actionSerial === this.actionSerial &&
+        identityRevision === this.identity.sessionRevision &&
+        !(error instanceof StaleIdentityRequest);
+      if (isCurrent() || ownsLoginFailure) {
+        this.fieldErrors.set(identityFieldMessages(error));
         this.errorMessage.set(
-          this.mode === 'verify' &&
+          this.mode === 'login' &&
             typeof error === 'object' &&
             error !== null &&
             'status' in error &&
-            error.status === 422
-            ? 'Este enlace no es válido, ha vencido o ya se utilizó. Solicita uno nuevo para continuar.'
-            : identityErrorMessage(error),
+            error.status === 401
+            ? 'Correo o contraseña incorrectos'
+            : this.mode === 'verify' &&
+                typeof error === 'object' &&
+                error !== null &&
+                'status' in error &&
+                error.status === 422
+              ? 'Este enlace no es válido, ha vencido o ya se utilizó. Solicita uno nuevo para continuar.'
+              : identityErrorMessage(error),
         );
         if (
           this.mode === 'login' &&
@@ -489,7 +515,14 @@ export class IdentityFacade {
           this.verificationSuggested.set(true);
       }
     } finally {
-      if (isCurrent()) this.busy.set(false);
+      if (
+        isCurrent() ||
+        (this.mode === 'login' &&
+          !this.destroyed &&
+          actionSerial === this.actionSerial &&
+          identityRevision === this.identity.sessionRevision)
+      )
+        this.busy.set(false);
     }
   }
 
@@ -511,7 +544,7 @@ function passwordRules(path: SchemaPathTree<{ password: string }>['password']): 
       Array.from(password).length >= 8 &&
       new TextEncoder().encode(password).length <= 72 &&
       /\p{Lu}/u.test(password) &&
-      /\p{N}/u.test(password) &&
+      /\p{Nd}/u.test(password) &&
       /[\p{P}\p{S}]/u.test(password);
     return valid
       ? undefined

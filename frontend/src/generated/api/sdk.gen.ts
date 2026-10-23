@@ -630,7 +630,7 @@ export class M01Local {
     }
 
     /**
-     * CU-03/04: credencial incorrecta genérica 401, no verificada 403, bloqueo 429. Sesión 8 h absoluta, idle 30 min.
+     * CU-03/04: credencial incorrecta genérica 401, no verificada 403, bloqueo 429. Sesión 8 h absoluta, idle 30 min. Entrada inválida 422 con error.details field/code (email:invalid_email, password:required), sin valores enviados.
      */
     public login<ThrowOnError extends boolean = false>(options: Options<LoginData, ThrowOnError>): RequestResult<LoginResponses, LoginErrors, ThrowOnError> {
         return (options.client ?? client).post<LoginResponses, LoginErrors, ThrowOnError>({

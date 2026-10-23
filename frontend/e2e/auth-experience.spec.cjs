@@ -137,3 +137,20 @@ test('a pending registration disables repeat submission',async({page,baseURL})=>
  await page.locator('button[type=submit]').evaluate(e=>e.click());expect(requests).toBe(1);
  release();await expect(page.getByRole('heading',{name:'Revisa tu correo',exact:true})).toBeVisible();
 });
+
+test('safe registration field errors preserve values and focus the failing field', async({page,baseURL})=>{
+ await setup(page,baseURL);
+ await page.route('**/api/v1/auth/register',r=>r.fulfill({status:422,json:{error:{code:'invalid_value',message:'internal detail must not render',request_id:tokenId,details:[{field:'email',code:'invalid_email',message:'external detail must not render'}]}}}));
+ await page.goto('/registro');
+ await page.locator('#register-email').fill('fixture@example.invalid');
+ await page.locator('#register-password').fill('Synthetic#123');
+ await page.locator('#register-confirm').fill('Synthetic#123');
+ await page.getByRole('checkbox').nth(0).check(); await page.getByRole('checkbox').nth(1).check();
+ await page.getByRole('button',{name:'Crear cuenta',exact:true}).click();
+ await expect(page.locator('#register-email-error')).toHaveText('Escribe un correo válido.');
+ await expect(page.locator('#register-email')).toHaveValue('fixture@example.invalid');
+ await expect(page.locator('#register-email')).toBeFocused();
+ await expect(page.locator('main.identity-page')).not.toContainText(/internal detail|external detail/);
+ await page.locator('#register-email').fill('corrected@example.invalid');
+ await expect(page.locator('#register-email-error')).toHaveCount(0);
+});

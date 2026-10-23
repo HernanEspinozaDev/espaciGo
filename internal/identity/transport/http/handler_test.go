@@ -83,3 +83,19 @@ func TestTransportRejectsUnsafeRequestsBeforeCallingService(t *testing.T) {
 		t.Fatal("CORS preflight failed")
 	}
 }
+
+func TestAccountInputErrorsAreSafeAndActionableBeforeServiceLookup(t *testing.T) {
+	handler := NewHandler(nil, nil, nil)
+	for _, test := range []struct{ path, body, field string }{
+		{"login", `{"email":"invalid-email","password":""}`, `"field":"email"`},
+		{"register", `{"email":"fixture@example.invalid","password":"weak","terms_version_ids":[]}`, `"field":"terms_version_ids"`},
+	} {
+		req := httptest.NewRequest("POST", "/api/v1/auth/"+test.path, strings.NewReader(test.body))
+		req.Header.Set("Content-Type", "application/json")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != 422 || !strings.Contains(res.Body.String(), test.field) || strings.Contains(res.Body.String(), "fixture@example.invalid") || strings.Contains(res.Body.String(), "weak") {
+			t.Fatalf("unsafe or missing validation: status %d body %s", res.Code, res.Body.String())
+		}
+	}
+}

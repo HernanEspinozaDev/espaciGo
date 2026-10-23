@@ -437,10 +437,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !h.decode(w, r, &input) {
 			return
 		}
+		documents, documentErr := identity.PublicConsentDocuments()
+		if documentErr != nil {
+			h.fail(w, 503, "consent_unavailable", "Los documentos no están disponibles. Inténtalo más tarde.")
+			return
+		}
+		fields := accountInputErrors(input.Email, input.Password, true)
+		if len(input.TermsVersionIDs) != len(documents) {
+			fields = append(fields, accountFieldError{"terms_version_ids", "consent_invalid"})
+		}
+		if len(fields) > 0 {
+			h.accountFields(w, 422, "invalid_value", fields)
+			return
+		}
 		id, err := h.service.Register(r.Context(), identity.RegisterInput{Email: input.Email, Password: input.Password, TermsVersionIDs: input.TermsVersionIDs, Channel: "web", ClientIP: clientIP})
 		if err != nil {
 			if id != "" {
 				h.write(w, 202, map[string]any{"account_id": id, "status": "verification_pending", "message": "La cuenta quedó pendiente de verificación. Puedes solicitar otro correo desde esta pantalla."})
+				return
+			}
+			if errors.Is(err, identity.ErrConsentInvalid) {
+				h.accountFields(w, 422, "invalid_value", []accountFieldError{{"terms_version_ids", "consent_invalid"}})
+				return
+			}
+			if errors.Is(err, identity.ErrEmailRegistered) {
+				h.accountFields(w, 409, "email_registered", []accountFieldError{{"email", "already_registered"}})
 				return
 			}
 			h.serviceError(w, err)
@@ -528,6 +549,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Password identity.Secret `json:"password"`
 		}
 		if !h.decode(w, r, &input) {
+			return
+		}
+		if fields := accountInputErrors(input.Email, input.Password, false); len(fields) > 0 {
+			h.accountFields(w, 422, "invalid_value", fields)
 			return
 		}
 		result, err := h.service.Login(r.Context(), identity.LoginInput{Email: input.Email, Password: input.Password})
@@ -732,4 +757,31 @@ func (h *Handler) write(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+// Only stable field paths and local codes cross the public boundary; no submitted
+// values, repository errors, or credential contents are reflected in responses.
+type accountFieldError struct {
+	Field string `json:"field"`
+	Code  string `json:"code"`
+}
+
+func accountInputErrors(email string, password identity.Secret, registering bool) []accountFieldError {
+	var fields []accountFieldError
+	if identity.ValidateEmail(email) != nil {
+		fields = append(fields, accountFieldError{"email", "invalid_email"})
+	}
+	if password == "" {
+		fields = append(fields, accountFieldError{"password", "required"})
+	} else if registering && identity.ValidatePassword(password) != nil {
+		fields = append(fields, accountFieldError{"password", "password_policy"})
+	}
+	return fields
+}
+
+func (h *Handler) accountFields(w http.ResponseWriter, status int, code string, fields []accountFieldError) {
+	h.write(w, status, map[string]any{"error": map[string]any{
+		"code": code, "message": "Revisa los campos indicados.",
+		"request_id": w.Header().Get("X-Request-ID"), "details": fields,
+	}})
 }

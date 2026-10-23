@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/mail"
 	"net/netip"
@@ -102,11 +103,13 @@ type RegisterInput struct {
 	Channel, ClientIP string
 }
 
+var ErrConsentInvalid = fmt.Errorf("%w: current consent versions required", ErrInvalid)
+
 // Registration persists the account and terms atomically without assigning a
 // business role. Token issuance and mail follow commit; delivery failure leaves
 // a pending account that can reissue verification.
 func (s *AuthenticationService) Register(ctx context.Context, input RegisterInput) (string, error) {
-	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil || len(input.TermsVersionIDs) == 0 {
+	if ValidateEmail(input.Email) != nil || ValidatePassword(input.Password) != nil {
 		return "", ErrInvalid
 	}
 	if input.Channel != "web" && input.Channel != "api" {
@@ -118,7 +121,7 @@ func (s *AuthenticationService) Register(ctx context.Context, input RegisterInpu
 	now := s.now()
 	documents, err := PublicConsentDocuments()
 	if err != nil || len(input.TermsVersionIDs) != len(documents) {
-		return "", ErrInvalid
+		return "", ErrConsentInvalid
 	}
 	expected := make(map[string]ConsentDocument)
 	for _, document := range documents {
@@ -128,12 +131,12 @@ func (s *AuthenticationService) Register(ctx context.Context, input RegisterInpu
 	for _, id := range input.TermsVersionIDs {
 		document, allowed := expected[id]
 		if !allowed || versions[id] {
-			return "", ErrInvalid
+			return "", ErrConsentInvalid
 		}
 		versions[id] = true
 		version, err := s.repo.TermsVersion(ctx, id)
 		if err != nil || version.PublishedAt.After(now) || version.Code != document.Code || version.Type != document.Type || version.SHA256 != document.SHA256 {
-			return "", ErrInvalid
+			return "", ErrConsentInvalid
 		}
 	}
 
