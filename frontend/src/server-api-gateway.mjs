@@ -66,18 +66,23 @@ export function apiRequestAllowed(mode, method, requestUrl, headers = {}, expect
   if (pathname.includes('%') || pathname.includes('\\') || pathname.includes('//')) return false;
   if (pathname.split('/').some((part) => part === '.' || part === '..')) return false;
   if (mode !== 'public') return true;
-  if (hasHeader(headers, 'cookie') || hasHeader(headers, 'x-serverless-authorization') ||
+  if (hasHeader(headers, 'x-serverless-authorization') ||
       hasHeader(headers, 'x-goog-iap-jwt-assertion') || hasHeader(headers, 'transfer-encoding')) return false;
   const authorization = getHeader(headers, 'authorization');
   if (authorization !== undefined && !/^Bearer [A-Za-z0-9._~-]{16,4096}$/.test(authorization)) return false;
-  const url = new URL(requestUrl, 'http://frontend.invalid');
+  const hasCookie = hasHeader(headers, 'cookie');
+  if (hasCookie && !isOnlyAmbientIapCookie(headers)) return false;
   const verb = method.toUpperCase();
+  const identityPost = unauthenticatedIdentityPaths.get(pathname);
+  const anonymousIdentityRequest = (pathname === publicIdentityTermsPath && verb === 'GET') ||
+    identityPost?.method === verb;
+  if (hasCookie && !anonymousIdentityRequest && !authorization) return false;
+  const url = new URL(requestUrl, 'http://frontend.invalid');
   if (pathname === publicIdentityTermsPath) {
     const contentLength = getHeader(headers, 'content-length');
     return verb === 'GET' && !authorization && !url.search &&
       (contentLength === undefined || contentLength === '0');
   }
-  const identityPost = unauthenticatedIdentityPaths.get(pathname);
   if (identityPost) {
     if (verb !== identityPost.method || authorization) return false;
     const contentLength = getHeader(headers, 'content-length');
@@ -147,7 +152,7 @@ export async function iapRequestValid(mode, pathname, assertion, audience, verif
 // deliberately ignored.
 export function clientApiHeaders(mode, headers = {}, requestUrl = '') {
   const result = new Headers();
-  if (mode === 'public' && (hasHeader(headers, 'cookie') || hasHeader(headers, 'x-serverless-authorization') ||
+  if (mode === 'public' && (hasHeader(headers, 'x-serverless-authorization') ||
       hasHeader(headers, 'x-goog-iap-jwt-assertion'))) {
     return result;
   }
@@ -190,4 +195,11 @@ function getHeader(headers, name) {
   const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === name);
   const value = key ? headers[key] : undefined;
   return Array.isArray(value) ? value[0] : value;
+}
+
+function isOnlyAmbientIapCookie(headers) {
+  const cookie = getHeader(headers, 'cookie');
+  if (typeof cookie !== 'string') return false;
+  const cookies = cookie.split(';').map((value) => value.trim()).filter(Boolean);
+  return cookies.length === 1 && /^GCP_IAP_UID=[^;\s]+$/.test(cookies[0]);
 }

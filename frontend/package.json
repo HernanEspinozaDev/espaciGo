@@ -8,6 +8,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "test:server-gateway": "node --test tooling/server-api-gateway.test.mjs tooling/bounded-request-body.test.mjs",
+    "test:server-gateway:integration": "npm run build && node --test tooling/server-api-gateway.integration.test.mjs",
     "test:iap-assertion": "node --test tooling/iap-assertion.test.mjs",
     "serve:ssr:frontend": "node dist/frontend/server/server.mjs",
     "e2e": "playwright test --config=playwright.config.cjs",

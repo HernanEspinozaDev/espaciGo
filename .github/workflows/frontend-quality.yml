@@ -26,9 +26,11 @@ jobs:
         working-directory: frontend
       - run: npm run api:check
         working-directory: frontend
+      - run: npm run test:server-gateway
+        working-directory: frontend
       - run: npm test -- --watch=false
         working-directory: frontend
-      - run: npm run build
+      - run: npm run test:server-gateway:integration
         working-directory: frontend
       - run: npm audit --omit=dev
         working-directory: frontend
