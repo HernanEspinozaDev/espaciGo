@@ -116,6 +116,7 @@ export FE14_ARTIFACT_DIR_HOST="$STATE_DIR/artifacts"
 export FE14_RESULTS_DIR_HOST="$STATE_DIR/results"
 FE14_EVIDENCE_PREFIX=""
 case "${FE14_EVIDENCE_OUTPUT_DIR:-}" in
+  */ux03p) FE14_EVIDENCE_PREFIX='fe14_architecture_host_' ;;
   */mpv2_03) FE14_EVIDENCE_PREFIX='fe14_mpv2_03_' ;;
   */mpv2_04) FE14_EVIDENCE_PREFIX='fe14_mpv2_04_' ;;
   */mpv2_05) FE14_EVIDENCE_PREFIX='fe14_mpv2_05_' ;;
@@ -354,13 +355,29 @@ LOCAL_FRONTEND_HOST=0.0.0.0 \
   fi
 printf 'PASS npm start local SSR command serves /healthz with explicit local API/origin configuration\n'
 
-python3 "$ROOT_DIR/scripts/provision-fe14-accounts.py" \
-  "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}" \
-  "http://127.0.0.1:${LOCAL_DOCKER_MAILPIT_PORT}" \
-  "$RUN_ID" "$STATE_DIR/accounts.json"
+if [[ "${FE14_TEST_GREP:-}" == "Typed hosting form creates and edits a synthetic draft through Go" ]]; then
+  FE14_ACCOUNT_ROLES=host python3 "$ROOT_DIR/scripts/provision-fe14-accounts.py" \
+    "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}" \
+    "http://127.0.0.1:${LOCAL_DOCKER_MAILPIT_PORT}" \
+    "$RUN_ID" "$STATE_DIR/accounts.json"
+  "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >/dev/null
+INSERT INTO public.rol_usuario (usuario_id, rol)
+SELECT id, 'arrendador' FROM public.usuario
+WHERE correo_normalizado = 'fe14-' || :'run_id' || '-host@ejemplo.invalid'
+ON CONFLICT (usuario_id, rol) DO NOTHING;
+SQL
+  HOST_ROLE_CHECK="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local --command "SELECT count(*) FROM public.usuario u JOIN public.rol_usuario r ON r.usuario_id=u.id AND r.rol='arrendador' WHERE u.correo_normalizado='fe14-${RUN_ID}-host@ejemplo.invalid'")"
+  [[ "${HOST_ROLE_CHECK//[[:space:]]/}" == "1" ]] || { printf 'Synthetic hosting account role verification failed\n' >&2; exit 1; }
+  printf 'PASS hosting fixture uses one verified synthetic host account; no global-admin activation is needed\n'
+else
+  python3 "$ROOT_DIR/scripts/provision-fe14-accounts.py" \
+    "http://127.0.0.1:${LOCAL_DOCKER_API_PORT}" \
+    "http://127.0.0.1:${LOCAL_DOCKER_MAILPIT_PORT}" \
+    "$RUN_ID" "$STATE_DIR/accounts.json"
 
-"${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
-  --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >/dev/null
+  "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
+    --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local <<'SQL' >/dev/null
 INSERT INTO public.rol_usuario (usuario_id, rol)
 SELECT id, 'arrendador' FROM public.usuario
 WHERE correo_normalizado = 'fe14-' || :'run_id' || '-host@ejemplo.invalid'
@@ -402,6 +419,7 @@ GLOBAL_ROLE_CHECK="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet -
 LEGACY_ROLE_CHECK="$("${compose[@]}" exec -T database psql --no-psqlrc --quiet --tuples-only --set=run_id="$RUN_ID" --username espacigo_admin --dbname espacigo_local --command "SELECT count(*) FROM public.usuario u WHERE u.correo_normalizado='fe14-${RUN_ID}-admin@ejemplo.invalid' AND EXISTS(SELECT 1 FROM public.rol_usuario r WHERE r.usuario_id=u.id AND r.rol='administrador') AND NOT EXISTS(SELECT 1 FROM public.administrador_global g WHERE g.usuario_id=u.id)")"
 [[ "${LEGACY_ROLE_CHECK//[[:space:]]/}" == "1" ]] || { printf 'Legacy-only fixture unexpectedly has global membership\n' >&2; exit 1; }
 printf 'PASS Go verified five synthetic accounts; global-only, legacy-only, and ordinary actors are separated\n'
+fi
 
 if [[ "${FE14_TEST_GREP:-}" == *GADM-03* ]]; then
   "${compose[@]}" exec -T database psql --no-psqlrc --quiet --set=ON_ERROR_STOP=1 \
@@ -667,7 +685,7 @@ fi
 bash "$ROOT_DIR/scripts/local-docker-stack.sh" run-e2e >"$STATE_DIR/e2e-build.log" 2>&1
 if [[ -n "${FE14_TEST_GREP:-}" ]]; then
   printf 'Running focused connected FE-14 journey: %s\n' "$FE14_TEST_GREP"
-  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs --grep "$FE14_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
+  "${compose[@]}" --profile e2e run --rm angular-e2e npx playwright test --config=playwright.config.cjs e2e/fe14.spec.cjs --grep "$FE14_TEST_GREP" >"$STATE_DIR/e2e.log" 2>&1 || { print_sanitized_e2e_log >&2; exit 1; }
   cat "$STATE_DIR/e2e.log"
 elif [[ "${FE14_PUBLIC_ONLY:-0}" == "1" ]]; then
   printf 'Running focused anonymous public catalog journey\n'
