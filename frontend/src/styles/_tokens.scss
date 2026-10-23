@@ -12,6 +12,8 @@
   --radius-lg: 0.75rem;
   --radius-xl: 1rem;
   --shadow-color: rgb(51 39 32 / 12%);
+  --shadow-card: 0 1px 3px rgb(51 39 32 / 8%);
+  --shadow-overlay: 0 0.75rem 2rem rgb(51 39 32 / 18%);
   --brand-primary: #a44731;
   --brand-secondary: #8a6a4d;
   --brand-accent: #d97745;
@@ -26,6 +28,9 @@
   --color-border: #ded5cc;
   --color-border-control: #8a796b;
   --color-focus: #1d4ed8;
+  --surface-card: #fff;
+  --surface-raised: #fff;
+  --border-subtle: #ded5cc;
   --color-success: #15803d;
   --color-success-soft: #f0fdf4;
   --color-warning: #b45309;
@@ -34,4 +39,19 @@
   --color-error-soft: #fef2f2;
   --color-info: #1d4ed8;
   --color-info-soft: #eff6ff;
+  --status-success-text: #166534;
+  --status-success-background: #f0fdf4;
+  --status-success-border: #b9d8c1;
+  --status-warning-text: #854d0e;
+  --status-warning-background: #fffbeb;
+  --status-warning-border: #fcd34d;
+  --status-error-text: #991b1b;
+  --status-error-background: #fef2f2;
+  --status-error-border: #fecaca;
+  --status-info-text: #1e40af;
+  --status-info-background: #eff6ff;
+  --status-info-border: #bfdbfe;
+  --status-neutral-text: #4b5563;
+  --status-neutral-background: #f3f4f6;
+  --status-neutral-border: #d1d5db;
 }
