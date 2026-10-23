@@ -9,6 +9,7 @@ describe('application routes', () => {
     expect(alias?.canActivate).toBeUndefined();
     expect(destination?.canActivate).toBeDefined();
     expect(destination?.data?.['requiredRole']).toBe('arrendador');
+    expect(destination?.data?.['allowFirstBusinessAction']).toBe(true);
   });
 
   it('serves the private profile and photo controls from the authenticated account route', () => {

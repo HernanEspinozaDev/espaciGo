@@ -337,6 +337,39 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
+  it('refreshes Go roles after the first draft and enters the role-protected editor only after confirmation', async () => {
+    const api = apiFor();
+    api.list.mockResolvedValue({ items: [] });
+    const identityApi = defaultIdentityApi();
+    identityApi.session
+      .mockReset()
+      .mockResolvedValueOnce({ ...ownerSession, roles: [] })
+      .mockResolvedValueOnce(ownerSession);
+    const { identity } = setup(api, null, identityApi);
+    await identity.signIn('owner@example.invalid', 'secret');
+    expect(identity.session()?.roles).toEqual([]);
+
+    const fixture = TestBed.createComponent(HostingSpacesPage);
+    fixture.detectChanges();
+    await flush();
+    Object.assign(page(fixture).form, {
+      category_code: 'oficina',
+      title: 'Primer borrador',
+      address: 'Dirección sintética',
+    });
+
+    await page(fixture).createDraft();
+
+    expect(identityApi.session).toHaveBeenCalledTimes(2);
+    expect(identity.session()?.roles).toEqual(['arrendador']);
+    expect(TestBed.inject(Router).navigate).toHaveBeenCalledWith([
+      '/panel/espacios',
+      'space-a',
+      'editar',
+    ]);
+    fixture.destroy();
+  });
+
   it('does not let a stale create completion unlock a newer write after switching spaces', async () => {
     const api = apiFor();
     api.list.mockResolvedValue({ items: [] });

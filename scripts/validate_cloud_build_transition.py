@@ -2,6 +2,7 @@
 """Local/CI structural validation for the Cloud Build-only rollout."""
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -195,6 +196,24 @@ def main() -> int:
         errors.append("expected the user-managed deployment service account")
     if ids[0] != "acquire-and-validate-deploy-lock" or "--if-generation-match=0" not in script:
         errors.append("builds must serialize on a GCS lock")
+    schema_migrations = (
+        ("V000068", Path("db/migrations/V000068__img_01b_media_schema.sql")),
+        ("V000073", Path("db/migrations/V000073__img_01e_privacy_media_cleanup.sql")),
+        ("V000074", Path("db/migrations/V000074__first_business_action_roles.sql")),
+    )
+    expected_schema_attestation = "+".join(
+        version + ":" + hashlib.sha256(path.read_bytes()).hexdigest()
+        for version, path in schema_migrations
+    )
+    schema_gate_step = next((step for step in steps if step.get("id") == "acquire-and-validate-deploy-lock"), {})
+    schema_gate_script = "\n".join(schema_gate_step.get("args", []))
+    if (
+        substitutions.get("_APP_SCHEMA_ATTESTATION") != ""
+        or substitutions.get("_APP_SCHEMA_ATTESTATION_REQUIRED") != expected_schema_attestation
+        or '[[ "${_APP_SCHEMA_ATTESTATION}" == "${_APP_SCHEMA_ATTESTATION_REQUIRED}" ]]' not in schema_gate_script
+        or schema_gate_script.find('[[ "${_APP_SCHEMA_ATTESTATION}"') > schema_gate_script.find("gcloud ")
+    ):
+        errors.append("release must fail closed until an operator supplies the reviewed schema version and exact V68/V73/V74 SHA-256 values")
     if "created_epoch <= prior_epoch" not in script:
         errors.append("deployments must reject builds older than the successful main watermark")
     lock_step = next((step for step in steps if step.get("id") == "acquire-and-validate-deploy-lock"), {})

@@ -20,6 +20,8 @@ substitutions:
   _DATABASE_NAME: espacigo_dms_stage_20261020
   _DATABASE_SECRET: espacigo-test-database-password-v67
   _DATABASE_SECRET_VERSION: "1"
+  _APP_SCHEMA_ATTESTATION: ""
+  _APP_SCHEMA_ATTESTATION_REQUIRED: "V000068:5eeda41115017b5ba292db13215304f1e576002e015b6d46352ebd2de98f2626+V000073:ac2bfc0ba17e97ee40297dc75d8aaaa25f8506e5602a2d281d09415158670ada+V000074:a91df632b305468e1389ee72831e77121382e4c467d2cc279ea393e1bdc57bf8"
   _CONTRACT_SECRET: espacigo-test-contract-encryption-key
   _CONTRACT_SECRET_VERSION: "1"
   _PAYMENT_SECRET: espacigo-test-payment-webhook-secret
@@ -52,6 +54,7 @@ steps:
     args:
       - -ceu
       - |
+        [[ "${_APP_SCHEMA_ATTESTATION}" == "${_APP_SCHEMA_ATTESTATION_REQUIRED}" ]]
         [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
         [[ "${_REGION}" == southamerica-west1 && "${_PROJECT}" == espacigo-testprod ]]
         [[ "${_DATABASE_INSTANCE}" == espacigo-testprod-db && "${_DATABASE_NAME}" == espacigo_dms_stage_20261020 ]]

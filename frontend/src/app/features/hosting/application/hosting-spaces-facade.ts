@@ -411,9 +411,26 @@ export class HostingSpacesFacade implements OnInit, OnDestroy {
       this.spaces.update((items) => [created, ...items.filter((item) => item.id !== created.id)]);
       this.selectedSpace.set(created);
       this.setForm(created);
-      this.notice.set('Borrador creado por Go.');
-      await this.router.navigate(['/panel/espacios', created.id, 'editar']);
-      if (!this.contextCurrent(context)) return;
+      let confirmedSession = null;
+      try {
+        confirmedSession = await this.identity.refreshSessionIfCurrent(context.token);
+      } catch {
+        if (!this.contextCurrent(context)) return;
+        this.notice.set('Borrador creado. Go no pudo revalidar el rol todavía; puedes volver a cargar la sesión.');
+        await this.loadSpace(created.id);
+        return;
+      }
+      const refreshedContext = confirmedSession
+        ? { token: context.token, session: confirmedSession }
+        : null;
+      if (!refreshedContext || !this.contextCurrent(refreshedContext)) return;
+      if (confirmedSession?.roles.includes('arrendador')) {
+        this.notice.set('Borrador creado y rol de anfitrión confirmado por Go.');
+        await this.router.navigate(['/panel/espacios', created.id, 'editar']);
+        if (!this.contextCurrent(refreshedContext)) return;
+      } else {
+        this.notice.set('Borrador creado. Go aún no confirmó el rol de anfitrión; las secciones de edición siguen bloqueadas.');
+      }
       await this.loadSpace(created.id);
     } catch (error) {
       this.fail(error, context, this.writeCurrent(context, revision, null));
