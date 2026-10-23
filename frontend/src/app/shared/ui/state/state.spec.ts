@@ -38,7 +38,7 @@ describe('UiState', () => {
       expect(icon.textContent?.trim()).toBe(expectedSymbols[kind]);
       expect(state.textContent).toContain('Estado disponible');
 
-      const result = await axe.run(state, {
+      const result = await axe.run(fixture.nativeElement, {
         runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] },
       });
       expect(result.violations.map(({ id }) => id)).toEqual([]);
