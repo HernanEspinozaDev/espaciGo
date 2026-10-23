@@ -330,10 +330,14 @@ describe('FE-06 HostingSpacesPage', () => {
     expect(root.querySelector('.space-choice[aria-current="true"]')?.textContent).toContain('Borrador');
     expect(root.querySelector('.resource-context')?.textContent).not.toContain('synthetic-space-a');
     expect(root.querySelector('.next-step h3')?.textContent).toContain('Continúa con los datos del borrador');
+    const sections = [...root.querySelectorAll<HTMLButtonElement>('.section-tabs button')];
+    expect(sections.map((button) => button.textContent?.trim())).toEqual(['Datos', 'Tarifas', 'Calendario', 'Galería']);
     expect(root.querySelector('.section-tabs button[aria-current="page"]')?.textContent).toContain('Datos');
-
-    (root.querySelector('.section-tabs button:nth-child(3)') as HTMLButtonElement).click();
-    expect(router.navigate).toHaveBeenCalledWith(['/panel/espacios', 'synthetic-space-a', 'calendario']);
+    sections.forEach((button) => button.click());
+    expect(router.navigate).toHaveBeenNthCalledWith(1, ['/panel/espacios', 'synthetic-space-a', 'editar']);
+    expect(router.navigate).toHaveBeenNthCalledWith(2, ['/panel/espacios', 'synthetic-space-a', 'tarifas']);
+    expect(router.navigate).toHaveBeenNthCalledWith(3, ['/panel/espacios', 'synthetic-space-a', 'calendario']);
+    expect(router.navigate).toHaveBeenNthCalledWith(4, ['/panel/espacios', 'synthetic-space-a', 'galeria']);
     fixture.destroy();
   });
 

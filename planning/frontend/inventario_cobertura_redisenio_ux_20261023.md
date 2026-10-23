@@ -14,11 +14,11 @@ El usuario eligió **A · Editorial funcional** el 2026-10-23 desde `http://127.
 | --- | --- | --- | --- |
 | `/`, `/categorias`, `/como-funciona` | Portada, búsqueda inicial, ocho categorías, explicación y accesos | UX-03 shell/nav; UX-05 contenido público/descubrimiento | Pendiente |
 | `/explorar`, `/espacios/:id` | Filtros permitidos, cursor/paginación disponible, fichas públicas, cotización/intervalo según capacidades del API | UX-05 catálogo público y detalle; UX-09 consolidación | Pendiente; sin datos ni disponibilidad inventados |
-| `/terminos-y-condiciones`, `/politica-de-privacidad` | Lectura versionada de documentos/consentimiento y estados de carga/error | UX-04 identidad y consentimiento; UX-09 revisión de lectura | Pendiente; preservar textos y versión de servicio |
-| `/acceso`, `/registro`, `/verificar-correo`, `/recuperar-acceso` | Login, creación, verificación/reenvío y recuperación; registro no elige rol/capacidades | UX-04 identidad | Pendiente; mantener flujo público y cookie de sesión actual |
-| `/mi-cuenta`, `/mi-cuenta/privacidad` | Perfil propio, privacidad, exportación/solicitud de derechos, baja y confirmaciones existentes | UX-04 cuenta/privacidad; UX-09 revisión cruzada | Pendiente; sesión/autorización actuales |
-| `/mi-cuenta/seguridad` | Cambio de contraseña y resultado de sesión, validación/error | UX-04 identidad/seguridad | Pendiente; no exponer tokens ni aflojar guardas |
-| `/mi-cuenta/verificaciones` | Elegibilidad, casos/historial, evidencia autorizada, retiro y reintento según estados reales | UX-04 cuenta/verificaciones | Pendiente; no confundir correo verificado con KYC/KYB |
+| `/terminos-y-condiciones`, `/politica-de-privacidad` | Lectura versionada de documentos/consentimiento y estados de carga/error | UX-04 identidad y consentimiento; UX-09 revisión de lectura | UX-04 implementado en PR #543; validación completa de rutas/estados se conserva para UX-09 |
+| `/acceso`, `/registro`, `/verificar-correo`, `/recuperar-acceso` | Login, creación, verificación/reenvío y recuperación; registro no elige rol/capacidades | UX-04 identidad | UX-04 implementado en PR #543; mantener flujo público y cookie de sesión actual |
+| `/mi-cuenta`, `/mi-cuenta/privacidad` | Perfil propio, privacidad, exportación/solicitud de derechos, baja y confirmaciones existentes | UX-04 cuenta/privacidad; UX-09 revisión cruzada | UX-04 implementado en PR #543; mantener sesión/autorización actuales |
+| `/mi-cuenta/seguridad` | Cambio de contraseña y resultado de sesión, validación/error | UX-04 identidad/seguridad | UX-04 implementado en PR #543; no exponer tokens ni aflojar guardas |
+| `/mi-cuenta/verificaciones` | Elegibilidad, casos/historial, evidencia autorizada, retiro y reintento según estados reales | UX-04 cuenta/verificaciones | UX-04 implementado en PR #543; no confundir correo verificado con KYC/KYB |
 | `/panel-anfitrion` → `/panel/espacios` | Alias existente; lista de espacios propios, estado del borrador, selección y primera acción comercial autorizada | UX-03 navegación; UX-03P piloto y UX-05 extensión hosting | Pendiente; mantener `allowFirstBusinessAction` y rol Go |
 | `/panel/espacios/:spaceId/editar` | Datos del recurso, validaciones por campo, guardado de borrador y errores del servicio | UX-03P piloto de Hosting; UX-05 datos/atributos/revisión | Pendiente; no guardar campos no tocados |
 | `/panel/espacios/:spaceId/tarifas` | Importe, unidad CLP hora/día/mes, cotización simulada y guardado permitido | UX-05 Hosting | Pendiente; conservar reglas/unidad del dominio |
@@ -80,3 +80,10 @@ La comprobación de acceso y experiencia en servicios online la realiza exclusiv
 - `npm audit --omit=dev --audit-level=low`: PASS, cero vulnerabilidades.
 
 El baseline y la cobertura no afirman que el rediseño ya exista en producción. Cada fila cambiará a “implementada” solo en el PR correspondiente y con evidencia sobre su HEAD probado.
+
+## Evidencia UX-04 (PR #543)
+
+- Merge `3cc27ca57a3f30574f35b3167ea174db065445b6`; HEAD revisado `72b4f63ec982a607c10dfe803478ec54cc515534`; fusionó `HernanEspinozaDev`.
+- 350 pruebas Angular, lint/arquitectura, `api:check`, build, auditoría de producción, gateway SSR e IAP aprobados en local/CI.
+- Inspección local de acceso/registro con backend apagado; consentimiento quedó en estado no disponible y no se probó una cuenta. Las rutas privadas con Go y toda validación online siguen fuera de esa evidencia; online lo comprueba exclusivamente el usuario.
+- El lockfile actualizó `body-parser` 2.3.0→2.4.0 y `qs` 6.16.1 para resolver la auditoría HIGH de producción; `package.json` no cambió.

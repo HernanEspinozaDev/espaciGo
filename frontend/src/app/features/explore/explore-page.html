@@ -53,7 +53,7 @@
       </form>
     </aside>
 
-    <section class="catalog-results" aria-label="Resultados de espacios" [attr.inert]="filtersOpen() ? '' : null">
+    <section class="catalog-results" aria-label="Resultados de espacios" [attr.inert]="filtersOpen() ? '' : null" [attr.aria-busy]="busy() ? 'true' : null">
       <div class="catalog-toolbar">
         <p class="results-count" role="status">{{items().length}} {{items().length === 1 ? 'espacio cargado' : 'espacios cargados'}} · {{appliedFilters().page_size}} por solicitud</p>
         <div class="catalog-order-controls" role="group" aria-label="Orden y cantidad de resultados">
@@ -74,9 +74,9 @@
       }
       @if(hasUnappliedChanges()){<p class="pending-filters" role="status">Tienes cambios sin aplicar. Pulsa “Buscar espacios” para actualizar resultados.</p>}
       @if(activeFilters().length){<section class="active-filters" aria-label="Filtros aplicados a estos resultados"><span>Aplicados:</span>@for(chip of activeFilters();track chip.key){<button type="button" class="filter-chip" [attr.aria-label]="'Quitar filtro ' + chip.label" (click)="removeFilter(chip.key)">{{chip.label}} <span aria-hidden="true">×</span></button>}<button type="button" class="clear-chips" (click)="clearFilters()">Quitar todos</button></section>}
-      @if(error()){<p class="error" role="alert">{{error()}}</p>}
+      @if(error()){<div class="error" role="alert"><p>{{error()}}</p><button appButton="secondary" type="button" [disabled]="busy()" (click)="submitSearch()">Volver a intentar</button></div>}
       @if(busy()&&!items().length){<p class="status" role="status">Cargando publicaciones públicas…</p>}
-      @if(!busy()&&!error()&&!items().length){<p class="empty" role="status">No hay espacios que coincidan con estos filtros.</p>}
+      @if(!busy()&&!error()&&!items().length){<div class="empty" role="status"><p>No hay espacios que coincidan con estos filtros.</p>@if(activeFilters().length){<button appButton="secondary" type="button" (click)="clearFilters()">Quitar filtros y ver todo</button>}</div>}
       @if(items().length){<div class="results">
         @for(item of items();track item.space_id;let index=$index){<article class="space-card panel">
           @if(item.cover_image_id&&!imageFailed(item.space_id)){<img class="space-cover" [ngSrc]="imageUrl(item.space_id,item.cover_image_id)" [alt]="'Fotografía de portada de '+item.title" width="640" height="480" [priority]="index<2" (error)="markImageFailed(item.space_id)" />}@else{<div class="space-art" role="img" aria-label="Sin fotografía pública"><span>Sin fotografía pública</span><b>{{item.category_name}}</b></div>}

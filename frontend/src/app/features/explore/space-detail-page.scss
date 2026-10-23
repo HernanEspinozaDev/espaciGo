@@ -5,10 +5,33 @@
   padding-block: metrics.$space-2rem metrics.$space-5rem;
 }
 .back-link {
-  display: inline-block;
+  display: inline-flex;
+  min-height: var(--control-min-size);
+  align-items: center;
   color: var(--brand-primary-hover);
   font-weight: metrics.$font-weight-700;
   margin-bottom: metrics.$space-1-25rem;
+}
+.detail-index {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: metrics.$space-0-5rem;
+  margin-bottom: metrics.$space-1rem;
+  border-block: 1px solid var(--color-border);
+  padding-block: metrics.$space-0-45rem;
+  a {
+    display: inline-flex;
+    min-height: var(--control-min-size);
+    align-items: center;
+    border-radius: var(--radius-sm);
+    padding-inline: metrics.$space-0-75rem;
+    color: var(--brand-primary-hover);
+    font-size: metrics.$font-size-0-88rem;
+    font-weight: metrics.$font-weight-650;
+    text-decoration: none;
+    &:hover { background: var(--brand-primary-soft); }
+  }
 }
 .safety {
   margin: 0 0 metrics.$space-1rem;
@@ -26,9 +49,9 @@
 }
 .panel {
   border: 1px solid var(--color-border);
-  border-radius: 1.1rem;
+  border-radius: var(--radius-xl);
   background: var(--color-surface);
-  box-shadow: 0 12px 28px rgb(64 42 27 / 6%);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
 }
 .cover {
@@ -42,13 +65,16 @@
     radial-gradient(circle at 78% 30%, var(--color-border) 0 8%, transparent 8.5%),
     linear-gradient(135deg, var(--color-text-muted), var(--brand-accent) 60%, var(--color-border));
 }
-.gallery { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:metrics.$space-0-5rem; padding:metrics.$space-0-5rem; }
-.gallery-image { position:relative; display:block; min-width:0; aspect-ratio:4/3; overflow:hidden; border:0; border-radius:var(--radius-lg); padding:0; background:var(--color-surface-subtle); cursor:pointer; }
-.gallery-image:focus-visible { outline:3px solid var(--brand-primary); outline-offset:2px; }
-.gallery-image.selected-image { box-shadow:0 0 0 3px var(--brand-primary); }
-.gallery-image.cover-image { grid-column:span 2; grid-row:span 2; }
-.gallery-image img { display:block; width:100%; height:100%; object-fit:cover; }
-.gallery-caption { position:absolute; inset:auto auto metrics.$space-0-5rem metrics.$space-0-5rem; border-radius:999px; padding:metrics.$space-0-2rem metrics.$space-0-55rem; background:var(--color-surface); color:var(--color-text); font-size:metrics.$font-size-0-75rem; }
+.gallery { display: grid; gap: metrics.$space-0-65rem; padding: metrics.$space-0-65rem; }
+.gallery-feature { position: relative; min-width: 0; aspect-ratio: 16 / 10; overflow: hidden; margin: 0; border-radius: var(--radius-lg); background: var(--color-surface-subtle); }
+.gallery-feature img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.gallery-feature figcaption,
+.gallery-caption { position: absolute; inset: auto auto metrics.$space-0-5rem metrics.$space-0-5rem; border-radius: 999px; padding: metrics.$space-0-2rem metrics.$space-0-55rem; background: var(--color-surface); color: var(--color-text); font-size: metrics.$font-size-0-75rem; }
+.gallery-thumbnails { display: grid; grid-template-columns: repeat(auto-fit, minmax(5rem, 1fr)); gap: metrics.$space-0-5rem; }
+.gallery-image { position: relative; display: block; min-width: 0; aspect-ratio: 4 / 3; overflow: hidden; border: 0; border-radius: var(--radius-lg); padding: 0; background: var(--color-surface-subtle); cursor: pointer; }
+.gallery-image:focus-visible { outline: 3px solid var(--brand-primary); outline-offset: 2px; }
+.gallery-image.selected-image { box-shadow: 0 0 0 3px var(--brand-primary); }
+.gallery-image img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .cover b {
   font-size: metrics.$font-size-5rem;
   line-height: metrics.$line-height-0-8;
@@ -68,35 +94,49 @@ h1 {
   line-height: metrics.$line-height-1-05;
   margin: metrics.$space-0-35rem 0 metrics.$space-0-8rem;
 }
+.location {
+  margin: 0;
+  color: var(--brand-primary-hover);
+  font-weight: metrics.$font-weight-650;
+}
 .description {
   color: var(--color-text-muted);
   line-height: metrics.$line-height-1-65;
 }
 .facts {
-  border-block: 1px solid var(--brand-primary-soft);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: metrics.$space-0-75rem;
   margin-block: metrics.$space-1-2rem;
 }
-.facts p {
-  display: flex;
-  justify-content: space-between;
-  gap: metrics.$space-1rem;
-  padding-block: metrics.$space-0-45rem;
-  margin: 0;
+.facts > div {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: metrics.$space-0-85rem;
+  background: var(--color-surface-subtle);
 }
-.facts span,
+.facts dt,
 .privacy-note {
   color: var(--color-text-muted);
 }
-.facts strong {
-  text-align: end;
+.facts dd {
+  margin: metrics.$space-0-3rem 0 0;
+  color: var(--color-text);
+  font-weight: metrics.$font-weight-750;
+  overflow-wrap: anywhere;
 }
-.attributes h2 {
-  font-size: metrics.$font-size-1-15rem;
+.attributes {
+  display: grid;
+  gap: metrics.$space-1rem;
+  h2 { margin: 0 0 metrics.$space-0-5rem; font-size: metrics.$font-size-1-15rem; }
+  p { color: var(--color-text-muted); line-height: metrics.$line-height-1-55; }
+  ul { display: grid; gap: metrics.$space-0-45rem; padding-left: metrics.$space-1-25rem; }
 }
 dl {
   margin: 0;
 }
-dl > div {
+dl:not(.facts) > div {
   display: flex;
   justify-content: space-between;
   gap: metrics.$space-1rem;
@@ -126,6 +166,14 @@ pre {
   padding: metrics.$space-1-25rem;
   position: sticky;
   top: 1rem;
+}
+.detail-load-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: metrics.$space-0-75rem metrics.$space-1rem;
+  p { margin: 0; }
 }
 .booking h2 {
   margin: metrics.$space-0-25rem 0 metrics.$space-0-6rem;
@@ -222,8 +270,11 @@ pre {
     min-height: 10rem;
   }
   .gallery { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  .gallery-image.cover-image { grid-column:span 2; grid-row:span 1; }
-  dl > div {
+  .gallery-feature,
+  .gallery-thumbnails { grid-column: 1 / -1; }
+  .gallery-thumbnails { grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr)); }
+  .facts { grid-template-columns: 1fr; }
+  dl:not(.facts) > div {
     align-items: start;
     flex-direction: column;
     gap: metrics.$space-0-25rem;
