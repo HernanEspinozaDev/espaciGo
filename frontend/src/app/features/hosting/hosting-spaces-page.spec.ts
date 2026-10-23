@@ -671,8 +671,16 @@ describe('FE-06 HostingSpacesPage', () => {
       title: 'Título actualizado desde Go',
       description: 'Descripción confirmada remota',
     });
+    const component = page(fixture);
+    component.conflict.set('Go detectó un conflicto con el estado, la elegibilidad o el calendario vigente.');
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Go detectó un conflicto');
     page(fixture).form.description = validDescription.replace('Un espacio sintético', 'Descripción modificada');
     await page(fixture).saveDraft();
+    fixture.detectChanges();
+    expect(component.notice()).toBe('Cambios del borrador confirmados por Go.');
+    expect(component.conflict()).toBe('');
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Go detectó un conflicto');
     const payload = api.update.mock.calls[0][2] as {
       base_price_clp: string;
       title: string;
