@@ -7,15 +7,30 @@ import { BookingConversationFacade } from './application/booking-conversation-fa
   providers: [BookingConversationFacade],
   selector: 'app-booking-conversation-panel',
   template: `
-    <section class="panel conversation" aria-labelledby="conversation-title">
+    <section
+      class="panel conversation"
+      aria-labelledby="conversation-title"
+      [attr.aria-busy]="loading() ? 'true' : null"
+    >
       <header class="heading">
         <div>
           <h2 id="conversation-title">Conversación de la reserva</h2>
           <p>Solo visible para anfitrión y arrendatario. Los mensajes se muestran como texto.</p>
         </div>
-        @if (unreadCount() > 0) {
-          <span class="badge" aria-label="Mensajes sin leer">{{ unreadCount() }} sin leer</span>
-        }
+        <div class="heading-actions">
+          @if (unreadCount() > 0) {
+            <span class="badge" aria-label="Mensajes sin leer">{{ unreadCount() }} sin leer</span>
+          }
+          <button
+            appButton="secondary"
+            class="button secondary refresh"
+            type="button"
+            [disabled]="loading()"
+            (click)="loadRecent()"
+          >
+            {{ loading() ? 'Actualizando…' : 'Actualizar conversación' }}
+          </button>
+        </div>
       </header>
       @if (loading()) {
         <p role="status">Consultando mensajes confirmados por Go…</p>
@@ -86,18 +101,13 @@ import { BookingConversationFacade } from './application/booking-conversation-fa
           Esta reserva está en modo de solo lectura. Go conserva el acceso al historial.
         </p>
       }
-      <button
-        appButton="primary"
-        class="text-button"
-        type="button"
-        [disabled]="loading()"
-        (click)="loadRecent()"
-      >
-        Actualizar conversación
-      </button>
     </section>
 
-    <section class="panel reviews" aria-labelledby="review-title">
+    <section
+      class="panel reviews"
+      aria-labelledby="review-title"
+      [attr.aria-busy]="reviewLoading() ? 'true' : null"
+    >
       <h2 id="review-title">Reseñas y reportes</h2>
       <p>
         Contenido de ensayo. Go define la elegibilidad y conserva las reseñas como registros
@@ -107,7 +117,18 @@ import { BookingConversationFacade } from './application/booking-conversation-fa
         <p role="status">Consultando reseñas…</p>
       }
       @if (reviewError()) {
-        <p class="error" role="alert">{{ reviewError() }}</p>
+        <div class="error" role="alert">
+          <p>{{ reviewError() }}</p>
+          <button
+            appButton="secondary"
+            class="button secondary"
+            type="button"
+            [disabled]="reviewLoading()"
+            (click)="loadReviews()"
+          >
+            {{ reviewLoading() ? 'Consultando…' : 'Volver a consultar reseñas' }}
+          </button>
+        </div>
       }
       @if (!reviews().length && !reviewLoading()) {
         <p>No hay reseñas visibles para esta reserva.</p>
@@ -213,13 +234,28 @@ import { BookingConversationFacade } from './application/booking-conversation-fa
     </section>
 
     @if (isRenter()) {
-      <section class="panel reputation" aria-labelledby="reputation-title">
+      <section
+        class="panel reputation"
+        aria-labelledby="reputation-title"
+        [attr.aria-busy]="reputationLoading() ? 'true' : null"
+      >
         <h2 id="reputation-title">Tu reputación</h2>
         @if (reputationLoading()) {
           <p role="status">Consultando calificaciones recibidas…</p>
         }
         @if (reputationError()) {
-          <p class="error" role="alert">{{ reputationError() }}</p>
+          <div class="error" role="alert">
+            <p>{{ reputationError() }}</p>
+            <button
+              appButton="secondary"
+              class="button secondary"
+              type="button"
+              [disabled]="reputationLoading()"
+              (click)="loadReputation()"
+            >
+              {{ reputationLoading() ? 'Consultando…' : 'Volver a consultar calificaciones' }}
+            </button>
+          </div>
         }
         @if (reputation(); as value) {
           <p>

@@ -43,10 +43,10 @@ h1 {
 .card {
   min-width: 0;
   padding: metrics.$space-1-25rem;
-  background: white;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 0.85rem;
-  box-shadow: 0 6px 20px var(--shadow-color);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-card);
 }
 h2 {
   margin-top: 0;
@@ -104,10 +104,16 @@ pre {
   font-size: metrics.$font-size-0-8rem;
 }
 .error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: metrics.$space-0-75rem metrics.$space-1rem;
   color: var(--brand-primary-hover);
   background: var(--color-error-soft);
   padding: metrics.$space-0-8rem;
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg);
+  p { margin: 0; }
 }
 .claim {
   padding: metrics.$space-0-9rem 0;

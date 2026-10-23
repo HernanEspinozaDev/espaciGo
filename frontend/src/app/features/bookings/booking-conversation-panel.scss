@@ -6,7 +6,7 @@
 }
 .panel {
   border: 1px solid var(--color-border);
-  border-radius: 1rem;
+  border-radius: var(--radius-xl);
   background: var(--color-surface);
   padding: clamp(metrics.$space-1rem, metrics.$space-3vw, metrics.$space-1-5rem);
   margin-bottom: metrics.$space-1rem;
@@ -29,6 +29,13 @@
 }
 .heading p {
   margin-top: metrics.$space-0-3rem;
+}
+.heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: metrics.$space-0-5rem;
 }
 .badge {
   flex: none;
@@ -75,8 +82,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.button,
-.text-button {
+.button {
   min-height: 2.8rem;
   border: 0;
   border-radius: 999px;
@@ -88,20 +94,14 @@
   cursor: pointer;
   margin: metrics.$space-0-55rem metrics.$space-0-45rem metrics.$space-0-2rem 0;
 }
+.button.refresh { margin: 0; }
 .button.secondary {
   background: var(--brand-primary-soft);
   color: var(--brand-primary-hover);
 }
-.button:disabled,
-.text-button:disabled {
+.button:disabled {
   opacity: 0.55;
   cursor: wait;
-}
-.text-button {
-  background: transparent;
-  color: var(--brand-primary-hover);
-  text-decoration: underline;
-  padding-inline: metrics.$space-0-25rem;
 }
 label {
   display: grid;
@@ -130,9 +130,16 @@ textarea {
   background: var(--color-surface-subtle);
 }
 .error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: metrics.$space-0-75rem metrics.$space-1rem;
   padding: metrics.$space-0-8rem;
+  border-radius: var(--radius-lg);
   background: var(--color-error-soft);
   color: var(--brand-primary-hover);
+  p { margin: 0; }
 }
 .success {
   padding: metrics.$space-0-8rem;
@@ -155,6 +162,7 @@ textarea {
   .heading {
     display: block;
   }
+  .heading-actions { justify-content: flex-start; }
   .badge {
     display: inline-block;
     margin-bottom: metrics.$space-0-5rem;

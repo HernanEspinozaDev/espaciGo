@@ -1,11 +1,16 @@
-<main class="page-width bookings">
+<main class="page-width bookings" [attr.aria-busy]="loading() ? 'true' : null">
   <p class="eyebrow">CUENTA PRIVADA · ESTADOS CONFIRMADOS POR GO</p>
   <h1>Reservas</h1>
   <p class="safety" role="note">
     {{ notice() }} · Pagos y devoluciones son simulaciones sin movimiento de dinero.
   </p>
   @if (error()) {
-    <p class="error" role="alert">{{ error() }}</p>
+    <div class="error" role="alert">
+      <p>{{ error() }}</p>
+      <button appButton="secondary" type="button" [disabled]="loading()" (click)="load()">
+        {{ loading() ? 'Consultando…' : 'Volver a consultar reservas' }}
+      </button>
+    </div>
   }
   @if (loading()) {
     <p role="status">Consultando reservas de Go…</p>

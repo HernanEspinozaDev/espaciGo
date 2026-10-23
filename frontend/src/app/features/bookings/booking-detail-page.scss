@@ -4,19 +4,41 @@
   max-width: 900px;
 }
 .back {
-  display: inline-block;
+  display: inline-flex;
+  min-height: var(--control-min-size);
+  align-items: center;
   color: var(--brand-primary-hover);
   font-weight: metrics.$font-weight-750;
   margin-bottom: metrics.$space-1rem;
 }
+.detail-index {
+  display: flex;
+  flex-wrap: wrap;
+  gap: metrics.$space-0-5rem;
+  margin-bottom: metrics.$space-1rem;
+  border-block: 1px solid var(--color-border);
+  padding-block: metrics.$space-0-4rem;
+  a {
+    display: inline-flex;
+    min-height: var(--control-min-size);
+    align-items: center;
+    border-radius: var(--radius-sm);
+    padding-inline: metrics.$space-0-75rem;
+    color: var(--brand-primary-hover);
+    font-weight: metrics.$font-weight-700;
+    text-decoration: none;
+    &:hover { background: var(--brand-primary-soft); }
+  }
+}
 .safety,
 .panel {
   border: 1px solid var(--color-border);
-  border-radius: 1rem;
+  border-radius: var(--radius-xl);
   background: var(--color-surface);
   padding: clamp(metrics.$space-1rem, metrics.$space-3vw, metrics.$space-1-5rem);
   margin-bottom: metrics.$space-1rem;
 }
+.panel { box-shadow: var(--shadow-card); }
 .safety {
   color: var(--brand-primary-hover);
   background: var(--brand-primary-soft);
@@ -114,18 +136,30 @@ textarea {
   cursor: wait;
 }
 .error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: metrics.$space-0-75rem metrics.$space-1rem;
   padding: metrics.$space-0-8rem;
-  border-radius: 0.6rem;
+  border-radius: var(--radius-lg);
   background: var(--color-error-soft);
   color: var(--brand-primary-hover);
+  p { margin: 0; }
 }
 .uncertain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: metrics.$space-0-75rem metrics.$space-1rem;
   padding: metrics.$space-0-9rem;
   border: 2px solid var(--brand-primary);
-  border-radius: 0.7rem;
+  border-radius: var(--radius-lg);
   background: var(--color-warning-soft);
   color: var(--brand-primary-hover);
   font-weight: metrics.$font-weight-750;
+  p { margin: 0; }
 }
 .success {
   padding: metrics.$space-0-9rem;

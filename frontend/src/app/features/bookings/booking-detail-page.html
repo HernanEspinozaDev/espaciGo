@@ -1,19 +1,47 @@
-<main class="page-width detail">
+<main class="page-width detail" [attr.aria-busy]="loading() || busy() ? 'true' : null">
   <a routerLink="/reservas" class="back">← Todas las reservas</a>
   <p class="safety" role="note">{{ notice() }} · Sin movimiento real de dinero.</p>
   @if (error()) {
-    <p class="error" role="alert">{{ error() }}</p>
+    <div class="error retry-panel" role="alert">
+      <p>{{ error() }}</p>
+      <button
+        appButton="secondary"
+        class="button secondary"
+        type="button"
+        [disabled]="loading() || busy()"
+        (click)="load()"
+      >
+        {{ loading() ? 'Consultando…' : 'Consultar estado confirmado' }}
+      </button>
+    </div>
   }
   @if (uncertainNotice()) {
-    <p class="uncertain" role="alert">{{ uncertainNotice() }}</p>
+    <div class="uncertain" role="alert">
+      <p>{{ uncertainNotice() }}</p>
+      <button
+        appButton="secondary"
+        class="button secondary"
+        type="button"
+        [disabled]="loading() || busy()"
+        (click)="load()"
+      >
+        {{ loading() ? 'Consultando…' : 'Consultar estado confirmado en Go' }}
+      </button>
+    </div>
   }
   @if (loading() && !reservation()) {
     <p role="status">Consultando estado confirmado por Go…</p>
   }
   @if (reservation(); as item) {
-    <section class="panel">
+    <nav class="detail-index" aria-label="Secciones de esta reserva">
+      <a href="#reservation-summary">Resumen</a>
+      <a href="#reservation-lifecycle">Contrato y operación</a>
+      <a href="#reservation-conversation">Conversación</a>
+      <a href="#reservation-history">Historial</a>
+    </nav>
+    <section id="reservation-summary" class="panel" aria-labelledby="reservation-title">
       <p class="eyebrow">SOLICITUD · {{ item.id }}</p>
-      <h1>{{ resultLabel(item.state) }}</h1>
+      <h1 id="reservation-title">{{ resultLabel(item.state) }}</h1>
       <p>
         {{ when(item.start_at, item.time_zone) }} – {{ when(item.end_at, item.time_zone) }} ·
         {{ item.time_zone }}
@@ -212,10 +240,18 @@
         dinero real.
       </p>
     }
-    <app-booking-lifecycle-panel [reservation]="item" (stateChanged)="refreshAfterLifecycle()" />
-    <app-booking-conversation-panel [reservation]="item" (stateChanged)="refreshAfterLifecycle()" />
-    <section class="panel history">
-      <h2>Historial confirmado por Go</h2>
+    <app-booking-lifecycle-panel
+      id="reservation-lifecycle"
+      [reservation]="item"
+      (stateChanged)="refreshAfterLifecycle()"
+    />
+    <app-booking-conversation-panel
+      id="reservation-conversation"
+      [reservation]="item"
+      (stateChanged)="refreshAfterLifecycle()"
+    />
+    <section id="reservation-history" class="panel history" aria-labelledby="reservation-history-title">
+      <h2 id="reservation-history-title">Historial confirmado por Go</h2>
       <ol>
         @for (entry of item.history; track entry.sequence) {
           <li>
