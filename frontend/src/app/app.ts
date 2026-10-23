@@ -4,6 +4,7 @@ import { DOCUMENT, isPlatformBrowser } from '@angular/common';
 import {
   afterNextRender,
   Component,
+  computed,
   DestroyRef,
   inject,
   Injector,
@@ -38,6 +39,8 @@ export class App {
   private readonly router = inject(Router);
   private readonly injector = inject(Injector);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly activeUrl = signal(this.router.url);
+  protected readonly shellLocation = computed(() => shellLocationFor(this.activeUrl()));
   private navigationId = 0;
 
   constructor() {
@@ -46,7 +49,11 @@ export class App {
         filter((event): event is NavigationEnd => event instanceof NavigationEnd),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((event) => this.focusAfterNavigation(event));
+      .subscribe((event) => {
+        this.activeUrl.set(event.urlAfterRedirects);
+        this.closeMenu();
+        this.focusAfterNavigation(event);
+      });
     afterNextRender(() => {
       this.offline.set(!navigator.onLine);
       void this.readiness.refresh();
@@ -105,4 +112,33 @@ export class App {
     }
     this.closeMenu();
   }
+}
+
+function shellLocationFor(url: string): { readonly area: string; readonly resource: string } {
+  const path = url.split(/[?#]/, 1)[0];
+  if (path === '/') return { area: 'EspaciGo', resource: 'Inicio' };
+  if (path.startsWith('/panel/espacios')) return { area: 'Área personal', resource: 'Mis espacios' };
+  if (path.startsWith('/reservas')) return { area: 'Área personal', resource: 'Reservas' };
+  if (path.startsWith('/administracion/global')) {
+    return { area: 'Administración', resource: 'Directorio global' };
+  }
+  if (path.startsWith('/administracion/disputas')) {
+    return { area: 'Administración', resource: 'Disputas y finanzas' };
+  }
+  if (path.startsWith('/administracion')) {
+    return { area: 'Administración', resource: 'Cola operativa' };
+  }
+  if (path.startsWith('/mi-cuenta/verificaciones')) {
+    return { area: 'Cuenta', resource: 'Verificaciones' };
+  }
+  if (path.startsWith('/mi-cuenta/seguridad')) {
+    return { area: 'Cuenta', resource: 'Seguridad' };
+  }
+  if (path.startsWith('/mi-cuenta')) return { area: 'Cuenta', resource: 'Perfil y privacidad' };
+  if (path.startsWith('/explorar') || path.startsWith('/espacios/')) {
+    return { area: 'Explorar', resource: path.startsWith('/espacios/') ? 'Detalle' : 'Catálogo' };
+  }
+  if (path.startsWith('/categorias')) return { area: 'Explorar', resource: 'Categorías' };
+  if (path.startsWith('/como-funciona')) return { area: 'EspaciGo', resource: 'Cómo funciona' };
+  return { area: 'EspaciGo', resource: 'Cuenta' };
 }

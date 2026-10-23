@@ -118,6 +118,69 @@ describe('App logout navigation', () => {
     fixture.destroy();
   });
 
+  it('groups authenticated navigation without exposing unpublished account roles', async () => {
+    const identity = {
+      session: signal<SessionResponse>({
+        account_id: 'synthetic-renter',
+        roles: ['arrendatario'],
+        capabilities: [],
+        restricted_mode: false,
+      }),
+      notice: signal(''),
+      signOut: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        ...provideFrontendPorts(),
+        provideRouter([]),
+        { provide: IdentitySession, useValue: identity },
+        { provide: Readiness, useValue: { status: signal('ready'), refresh: vi.fn() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const navigation = fixture.nativeElement.querySelector('#workspace-navigation') as HTMLElement;
+
+    expect(navigation.textContent).toContain('Área personal');
+    expect(navigation.querySelector('a[href="/panel/espacios"]')?.textContent).toContain('Ofrecer espacio');
+    expect(navigation.querySelector('a[href="/reservas"]')?.textContent).toContain('Reservas');
+    expect(navigation.querySelector('a[href="/mi-cuenta/verificaciones"]')).toBeTruthy();
+    expect(navigation.querySelector('a[href="/administracion"]')).toBeNull();
+    expect(navigation.querySelector('a[href="/administracion/global"]')).toBeNull();
+    fixture.destroy();
+  });
+
+  it('has no WCAG A/AA axe violations in the authenticated shell', async () => {
+    const identity = {
+      session: signal<SessionResponse>({
+        account_id: 'synthetic-host',
+        roles: ['arrendatario', 'arrendador'],
+        capabilities: [],
+        restricted_mode: false,
+      }),
+      notice: signal(''),
+      signOut: vi.fn(),
+    };
+    TestBed.configureTestingModule({
+      imports: [App],
+      providers: [
+        ...provideFrontendPorts(),
+        provideRouter([]),
+        { provide: IdentitySession, useValue: identity },
+        { provide: Readiness, useValue: { status: signal('ready'), refresh: vi.fn() } },
+      ],
+    });
+    const fixture = TestBed.createComponent(App);
+    await fixture.whenStable();
+    const result = await axe.run(fixture.nativeElement, {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] },
+    });
+
+    expect(result.violations.map(({ id }) => id)).toEqual([]);
+    fixture.destroy();
+  });
+
   it('has no WCAG A/AA axe violations in the shared shell', async () => {
     const identity = { session: signal(null), notice: signal(''), signOut: vi.fn() };
     TestBed.configureTestingModule({
@@ -194,7 +257,7 @@ describe('App logout navigation', () => {
     expect(link()?.textContent?.trim()).toBe('Ofrecer espacio');
     identity.session.set({ account_id: 'renter-first', roles: ['arrendatario', 'arrendador'], capabilities: [], restricted_mode: false });
     fixture.detectChanges();
-    expect(link()?.textContent?.trim()).toBe('Anfitrión');
+    expect(link()?.textContent?.trim()).toBe('Mis espacios');
     identity.session.update((session) => ({ ...session, restricted_mode: true }));
     fixture.detectChanges();
     expect(link()).toBeNull();
@@ -273,7 +336,7 @@ describe('App logout navigation', () => {
 
   it('sets aria-current page on only the exact nested destination', async () => {
     const identity = {
-      session: signal({ roles: ['administrador', 'arrendatario'], capabilities: [], restricted_mode: false }),
+      session: signal({ roles: ['administrador', 'arrendador', 'arrendatario'], capabilities: [], restricted_mode: false }),
       notice: signal(''),
       signOut: vi.fn(),
     };
@@ -286,6 +349,7 @@ describe('App logout navigation', () => {
         provideRouter([
           { path: 'administracion', component: Destination },
           { path: 'administracion/disputas', component: Destination },
+          { path: 'panel/espacios/:spaceId/editar', component: Destination },
           { path: 'mi-cuenta', component: Destination },
           { path: 'mi-cuenta/privacidad', component: Destination },
         ]),
@@ -298,19 +362,29 @@ describe('App logout navigation', () => {
     await router.navigateByUrl('/administracion/disputas');
     fixture.detectChanges();
     await fixture.whenStable();
-    let currentPages = fixture.nativeElement.querySelectorAll('[aria-current="page"]');
+    let currentPages = fixture.nativeElement.querySelectorAll('#workspace-navigation [aria-current="page"]');
     expect(currentPages).toHaveLength(1);
     expect(currentPages[0].textContent).toContain('Disputas y finanzas');
     const adminLocation = fixture.nativeElement.querySelector('[aria-current="location"]');
-    expect(adminLocation?.textContent).toContain('Administración');
+    expect(adminLocation?.textContent).toContain('Cola operativa');
 
     await router.navigateByUrl('/mi-cuenta/privacidad');
     fixture.detectChanges();
     await fixture.whenStable();
-    currentPages = fixture.nativeElement.querySelectorAll('[aria-current="page"]');
+    currentPages = fixture.nativeElement.querySelectorAll('#workspace-navigation [aria-current="page"]');
     expect(currentPages).toHaveLength(0);
     const accountLocation = fixture.nativeElement.querySelector('[aria-current="location"]');
-    expect(accountLocation?.textContent).toContain('Mi cuenta');
+    expect(accountLocation?.textContent).toContain('Perfil y privacidad');
+
+    await router.navigateByUrl('/panel/espacios/synthetic-space-id/editar');
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const hostingLocation = fixture.nativeElement.querySelector('[aria-current="location"]');
+    const breadcrumb = fixture.nativeElement.querySelector('.breadcrumb') as HTMLElement;
+    expect(hostingLocation?.textContent).toContain('Mis espacios');
+    expect(breadcrumb.textContent).toContain('Área personal');
+    expect(breadcrumb.textContent).toContain('Mis espacios');
+    expect(breadcrumb.textContent).not.toContain('synthetic-space-id');
     fixture.destroy();
   });
 });
