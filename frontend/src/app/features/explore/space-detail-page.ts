@@ -83,8 +83,18 @@ export class SpaceDetailPage {
   readonly attributeLabel = this.facade.attributeLabel.bind(this.facade);
   readonly attributeValue = this.facade.attributeValue.bind(this.facade);
   readonly publicImageUrl = this.facade.publicImageUrl.bind(this.facade);
+  readonly retry = this.facade.retryPublicDetail.bind(this.facade);
   orderedImages(images: { image_id: string; is_cover: boolean }[] = []) {
     return [...images].sort((a, b) => Number(b.is_cover) - Number(a.is_cover));
+  }
+  featuredImage(spaceId: string, images: { image_id: string; is_cover: boolean }[] = []) {
+    const available = this.orderedImages(images).filter((image) => this.imageAvailable(spaceId, image.image_id));
+    const selected = this.selectedImage();
+    if (selected?.spaceId === spaceId && selected.generation === this.spaceGeneration()) {
+      const current = available.find((image) => image.image_id === selected.imageId);
+      if (current) return current;
+    }
+    return available.find((image) => image.is_cover) ?? available[0] ?? null;
   }
   imageFailed(spaceId: string, imageId: string, generation: number): void {
     if (this.space()?.space_id !== spaceId || this.spaceGeneration() !== generation) return;
@@ -105,7 +115,7 @@ export class SpaceDetailPage {
       this.selectedImage.set({ spaceId, generation: this.spaceGeneration(), imageId });
   }
   imageSelected(spaceId: string, imageId: string): boolean {
-    const selected = this.selectedImage();
-    return selected?.spaceId === spaceId && selected.generation === this.spaceGeneration() && selected.imageId === imageId;
+    const item = this.space();
+    return item?.space_id === spaceId && this.featuredImage(spaceId, item.images)?.image_id === imageId;
   }
 }

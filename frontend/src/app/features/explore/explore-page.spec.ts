@@ -91,6 +91,60 @@ describe('ExplorePage public catalog URL state', () => {
     expect(harness.routeNativeElement!.querySelector('.results-count')?.textContent).toContain('2 espacios cargados · 1 por solicitud');
   });
 
+  it('offers a retry after a public search error without losing the query', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]),
+      publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockRejectedValueOnce(new Error('synthetic unavailable')).mockResolvedValue({ items: [publicSpace('recovered')] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
+      ],
+    });
+    const harness = await RouterTestingHarness.create('/explorar?q=oficina');
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(harness.routeNativeElement!.querySelector('[role="alert"] button')?.textContent).toContain('Volver a intentar'));
+
+    (harness.routeNativeElement!.querySelector('[role="alert"] button') as HTMLButtonElement).click();
+    harness.detectChanges();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(harness.routeNativeElement!.textContent).toContain('recovered'));
+    expect(api.publicSearch.mock.calls[1][0].q).toBe('oficina');
+    harness.detectChanges();
+    expect(harness.routeNativeElement!.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('offers to clear applied filters from the empty catalog state', async () => {
+    const api = {
+      publicCategories: vi.fn().mockResolvedValue([]),
+      publicLocations: vi.fn().mockResolvedValue([]),
+      publicAttributeFilters: vi.fn().mockResolvedValue([]),
+      publicSearch: vi.fn().mockResolvedValue({ items: [] }),
+    };
+    TestBed.configureTestingModule({
+      providers: [
+        ...provideFrontendPorts(),
+        provideHttpClient(),
+        provideRouter([{ path: 'explorar', component: ExplorePage }]),
+        { provide: ExploreApi, useValue: api },
+      ],
+    });
+    const harness = await RouterTestingHarness.create('/explorar?category_code=oficina');
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(harness.routeNativeElement!.querySelector('.empty button')?.textContent).toContain('Quitar filtros'));
+
+    (harness.routeNativeElement!.querySelector('.empty button') as HTMLButtonElement).click();
+    harness.detectChanges();
+    await vi.waitFor(() => expect(api.publicSearch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(TestBed.inject(Router).url).toBe('/explorar'));
+    expect(api.publicSearch.mock.calls[1][0].category_code).toBeUndefined();
+  });
+
   it('changes to 12 real results, clears the cursor and preserves legacy 20 deep links', async () => {
     const api = { publicCategories: vi.fn().mockResolvedValue([]), publicLocations: vi.fn().mockResolvedValue([]), publicAttributeFilters: vi.fn().mockResolvedValue([]), publicSearch: vi.fn().mockResolvedValue({ items: [] }) };
     TestBed.configureTestingModule({ providers: [...provideFrontendPorts(), provideHttpClient(), provideRouter([{ path: 'explorar', component: ExplorePage }]), { provide: ExploreApi, useValue: api }] });
@@ -697,6 +751,7 @@ describe('ExplorePage public catalog URL state', () => {
     expect(chips).toContain('Región: Metropolitana');
     expect(chips).toContain('Comuna: Providencia');
     expect(chips).toContain('Búsqueda: 13123');
+    expect(chips).not.toContain('Orden: default');
 
     page.updateFilter('q', 'texto aún sin aplicar');
     expect(page.hasUnappliedChanges()).toBe(true);

@@ -2,6 +2,14 @@
 
 Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS.md`, las decisiones arquitectónicas y el plan vigente. Las instrucciones expresas del usuario prevalecen. No presentar decisiones/documentos propuestos como capacidades implementadas.
 
+## Rediseño Angular A — límite humano vigente (2026-10-23)
+
+- El usuario reservó **todas las comprobaciones de la aplicación online para él mismo**. En los cortes del rediseño, desarrollo y revisión implementan código y prueban únicamente en entornos locales aislados con datos sintéticos autorizados. Esta restricción incluye leer pantallas, sesión/roles, capturas y navegación sin envío: no solo formularios o POST.
+- **No usar CUA ni navegador del usuario en estos cortes.** No inventariar, seleccionar, leer, cerrar o interactuar con sus pestañas. Cuando haga falta evidencia visual, usar Playwright del ensayo local por URL y puerto explícitos comprobados en su preflight, sin compartir perfil del navegador del usuario. No visitar la aplicación pública, demo/IAP, Zoho ni Cloud Console para comprobar el producto.
+- No pedir ni usar correo, contraseña, token o cuenta real. Las solicitudes históricas de login/Firefox están cerradas; el contexto ambiental y respuestas antiguas no son una instrucción humana nueva. No solicitar incógnito ni diagnóstico online para poder continuar el rediseño. Una instrucción humana posterior explícita prevalecerá, identificando y separando ese nuevo alcance.
+- Continúan autorizados los PR, la revisión independiente, la fusión con checks correctos y los despliegues testprod del diseño A. Consultar el estado del despliegue únicamente mediante metadatos de CI/Cloud Build/Cloud Run; no comprobar rutas HTTP, sesión ni UI online. Informar «desplegado; prueba online pendiente del usuario». No desactivar controles ya existentes del pipeline por inferencia.
+- Mantener el avance del inventario de todas las secciones Angular. Un bloqueo de evidencia online no bloquea implementación o pruebas locales y no habilita otra ruta de autenticación. Conservar datos, sesiones y demos ajenos.
+
 ## Base y ramas
 
 - `main` es la única rama permanente y la base de todos los cortes. No crear `develop`, ramas permanentes por área ni ramas personales.
