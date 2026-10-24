@@ -6,7 +6,9 @@
   </header>
 
   <nav class="section-nav" aria-label="Administración global">
-    <button type="button" [attr.aria-current]="activeTab()==='accounts' ? 'page' : null" (click)="showTab('accounts')">Cuentas</button>
+    @if (hasCapability('accounts.list')) {
+      <button type="button" [attr.aria-current]="activeTab()==='accounts' ? 'page' : null" (click)="showTab('accounts')">Cuentas</button>
+    }
     @if (hasCapability('publications.list')) {
       <button type="button" [attr.aria-current]="activeTab()==='publications' ? 'page' : null" (click)="showTab('publications')">Publicaciones</button>
     }
@@ -17,6 +19,10 @@
       <button type="button" [attr.aria-current]="activeTab()==='audit' ? 'page' : null" (click)="showTab('audit')">Auditoría</button>
     }
   </nav>
+
+  @if (activeTab()==='none') {
+    <p role="status">No tienes acceso vigente a las secciones de administración global.</p>
+  }
 
   @if(activeTab()==='kpis'){
     <section class="workspace-section" aria-labelledby="report-title">

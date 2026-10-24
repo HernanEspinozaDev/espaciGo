@@ -156,6 +156,48 @@ it('separates global sections and returns to an authorized section when a capabi
   expect(identityApi.logout).not.toHaveBeenCalled();
 });
 
+it('hides accounts and clears private data when accounts.list is revoked but audit remains authorized', async () => {
+  const { identity, api, component, fixture, facade, setConfirmed } = await setup();
+  expect(facade.page()?.items[0].email).toBe(account.email);
+  expect(facade.overview()).not.toBeNull();
+
+  setConfirmed({ ...globalSession, roles: ['administrador_global'], capabilities: ['audit.read'] });
+  await identity.refreshSessionIfCurrent('token-a');
+  TestBed.tick();
+  fixture.detectChanges();
+
+  expect(component.activeTab()).toBe('audit');
+  expect(facade.page()).toBeNull();
+  expect(facade.overview()).toBeNull();
+  expect(fixture.nativeElement.textContent).not.toContain(account.email);
+  expect(fixture.nativeElement.textContent).not.toContain('Directorio de cuentas');
+  const navigation = fixture.nativeElement.querySelector('nav[aria-label="Administración global"]') as HTMLElement;
+  expect(navigation.textContent).not.toContain('Cuentas');
+  expect(navigation.textContent).toContain('Auditoría');
+
+  component.showTab('accounts');
+  fixture.detectChanges();
+  expect(component.activeTab()).toBe('audit');
+  expect(api.list).toHaveBeenCalledTimes(1);
+  expect(facade.page()).toBeNull();
+  expect(fixture.nativeElement.textContent).not.toContain(account.email);
+});
+
+it('shows a safe empty state when every global section capability is revoked', async () => {
+  const { identity, component, fixture, facade, setConfirmed } = await setup();
+  setConfirmed({ ...globalSession, roles: ['arrendatario'], capabilities: [] });
+  await identity.refreshSessionIfCurrent('token-a');
+  TestBed.tick();
+  fixture.detectChanges();
+
+  expect(component.activeTab()).toBe('none');
+  expect(facade.page()).toBeNull();
+  expect(facade.overview()).toBeNull();
+  expect(fixture.nativeElement.textContent).toContain('No tienes acceso vigente');
+  expect(fixture.nativeElement.querySelectorAll('nav button')).toHaveLength(0);
+  expect(fixture.nativeElement.textContent).not.toContain(account.email);
+});
+
 it('has no WCAG A/AA axe violations across the four global workspaces', async () => {
   const { component, fixture } = await setup();
   const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];

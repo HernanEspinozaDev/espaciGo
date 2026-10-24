@@ -19,7 +19,8 @@ type DirectoryFilters = FormGroup<{
   createdUntil: FormControl<string>;
 }>;
 type PublicationFilters = FormGroup<{search:FormControl<string>;ownerId:FormControl<string>;category:FormControl<string>;state:FormControl<string>;visible:FormControl<string>}>;
-type GlobalAdminSection = 'accounts' | 'publications' | 'kpis' | 'audit';
+type GlobalAdminTab = 'accounts' | 'publications' | 'kpis' | 'audit';
+type GlobalAdminSection = GlobalAdminTab | 'none';
 
 @Component({
   selector: 'app-global-admin-page',
@@ -126,7 +127,7 @@ export class GlobalAdminPage {
       this.previousIdentityContext = context;
       this.previousResetRevision = controlsResetRevision;
       if (!token || !canList) this.clearPrivateControls();
-      if (!this.canOpenSection(this.activeTab())) this.activeTab.set('accounts');
+      if (!this.canOpenSection(this.activeTab())) this.activeTab.set(this.firstAllowedSection());
     });
   }
 
@@ -179,7 +180,7 @@ export class GlobalAdminPage {
     void this.vm.load({});
   }
 
-  showTab(tab: GlobalAdminSection): void {
+  showTab(tab: GlobalAdminTab): void {
     if (!this.canOpenSection(tab)) return;
     this.activeTab.set(tab);
     if (tab === 'publications' && !this.publications()) void this.searchPublications();
@@ -200,13 +201,18 @@ export class GlobalAdminPage {
     if (!this.auditUntil.value) this.auditUntil.setValue(until);
   }
 
-  private canOpenSection(section: GlobalAdminSection): boolean {
+  private canOpenSection(section: GlobalAdminTab | 'none'): boolean {
     switch (section) {
       case 'accounts': return this.hasCapability('accounts.list');
       case 'publications': return this.hasCapability('publications.list');
       case 'kpis': return this.hasCapability('kpi.read');
       case 'audit': return this.hasCapability('audit.read');
+      case 'none': return false;
     }
+  }
+  private firstAllowedSection(): GlobalAdminSection {
+    const sections: GlobalAdminTab[] = ['accounts', 'publications', 'kpis', 'audit'];
+    return sections.find(section => this.canOpenSection(section)) ?? 'none';
   }
   searchKPIs():void{if(!this.reportFrom.value||!this.reportUntil.value)return;void this.vm.loadKPIs({from:new Date(this.reportFrom.value).toISOString(),until:new Date(this.reportUntil.value).toISOString(),time_zone:this.reportZone.value});}
   searchAudit():void{if(!this.auditFrom.value||!this.auditUntil.value)return;const applied:AuditFilter={from:new Date(this.auditFrom.value).toISOString(),until:new Date(this.auditUntil.value).toISOString(),actor_id:this.auditActor.value.trim()||undefined,target_account_id:this.auditTarget.value.trim()||undefined,resource_type:this.auditResource.value.trim()||undefined,resource_id:this.auditResourceId.value.trim()||undefined,action:this.auditAction.value.trim()||undefined,reason_code:this.auditReason.value.trim()||undefined,correlation_id:this.auditCorrelation.value.trim()||undefined,result:this.auditResult.value||undefined,page_size:25};this.appliedAudit.set(applied);void this.vm.loadAudit(applied);}
