@@ -1,41 +1,98 @@
-import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile, readdir } from "node:fs/promises";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("../", import.meta.url);
-
-test("public route uses the EspaciGo marketplace shell", async () => {
-  const page = await readFile(
-    new URL("src/app/(marketplace)/page.tsx", root),
-    "utf8",
+const root = fileURLToPath(new URL("../", import.meta.url));
+const read = (relativePath) => readFile(path.join(root, relativePath), "utf8");
+const exists = async (relativePath) =>
+  access(path.join(root, relativePath)).then(
+    () => true,
+    () => false,
   );
-  assert.match(page, /EspaciGo|Encuentra el espacio/);
-  assert.match(page, /datos de ejemplo/);
-  assert.doesNotMatch(page, /Next\.js logo|Deploy Now|Templates/);
-});
 
-test("layout sets Spanish metadata and the EspaciGo icon", async () => {
-  const layout = await readFile(new URL("src/app/layout.tsx", root), "utf8");
+async function collectSource(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = await Promise.all(
+    entries.map(async (entry) => {
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) return collectSource(absolutePath);
+      if (!/\.(?:ts|tsx|mjs)$/.test(entry.name)) return [];
+      return [await readFile(absolutePath, "utf8")];
+    }),
+  );
+  return files.flat().join("\n");
+}
+
+test("the single Next application identifies EspaciGo and supports Spanish navigation", async () => {
+  const layout = await read("src/app/layout.tsx");
+  const marketplace = await read("src/app/(marketplace)/layout.tsx");
   assert.match(layout, /lang="es"/);
   assert.match(layout, /Omitir al contenido principal/);
-  assert.match(
-    await readFile(new URL("src/app/icon.svg", root), "utf8"),
-    /EspaciGo/,
+  assert.match(layout, /EspaciGo/);
+  assert.match(marketplace, /EspaciGo/);
+  assert.match(await read("public/espacigo-mark.svg"), /<svg/);
+});
+
+test("marketplace routes retain template compositions and use local space fixtures", async () => {
+  const home = await read("src/app/(marketplace)/page.tsx");
+  const listing = await read("src/app/(marketplace)/products/page.tsx");
+  const detail = await read("src/app/(marketplace)/product/[slug]/page.tsx");
+  const grid = await read("src/components/sections/product-grid.tsx");
+  const fixtures = await read("src/lib/marketplace-fixtures.ts");
+  for (const templateSection of [
+    "Hero",
+    "ProductGrid",
+    "About",
+    "Newsletter",
+  ]) {
+    assert.match(home, new RegExp(templateSection));
+  }
+  assert.match(listing, /getSpaces/);
+  assert.match(detail, /MediaGallery/);
+  assert.match(grid, /getSpaces/);
+  assert.match(fixtures, /demo-space-/);
+  assert.match(fixtures, /parseVts/);
+});
+
+test("SaaS Starter pages are present and demo-only pricing/auth cannot submit", async () => {
+  for (const route of [
+    "src/app/(workspace)/saas/page.tsx",
+    "src/app/(workspace)/login/page.tsx",
+    "src/app/(workspace)/dashboard/page.tsx",
+    "src/app/(workspace)/dashboard/general/page.tsx",
+    "src/app/(workspace)/dashboard/security/page.tsx",
+    "src/app/(workspace)/dashboard/activity/page.tsx",
+  ]) {
+    assert.equal(await exists(route), true, `missing route file ${route}`);
+  }
+  const login = await read("src/app/(workspace)/login.tsx");
+  const pricing = await read("src/app/(workspace)/pricing/page.tsx");
+  assert.match(login, /Autenticación y registro no están\s+conectados/);
+  assert.match(login, /disabled/);
+  assert.match(pricing, /no funcional/i);
+  assert.match(pricing, /no hay precios, suscripciones, checkout/);
+  assert.match(pricing, /disabled/);
+  assert.equal(await exists("src/app/(workspace)/panel/page.tsx"), false);
+  assert.equal(
+    await exists("src/app/(marketplace)/design-system/page.tsx"),
+    false,
   );
 });
 
-test("the local design system includes both visual shells and all feedback states", async () => {
-  const designPage = await readFile(
-    new URL("src/app/(marketplace)/design-system/page.tsx", root),
-    "utf8",
+test("copied source notice records both frozen commits and MIT licensing", async () => {
+  const notice = await read("THIRD_PARTY_NOTICES.md");
+  assert.match(notice, /1de63c614f4c57c1862b1b14710f2133784749c1/);
+  assert.match(notice, /6e33e58b1e553a41fe22e6b941a7229a002de361/);
+  assert.match(notice, /MIT/);
+});
+
+test("application source contains no removed commerce, billing, database, or auth SDK imports", async () => {
+  const source = await collectSource(path.join(root, "src"));
+  assert.doesNotMatch(
+    source,
+    /from\s+["'](?:@your-next-store\/commerce-kit|@\/lib\/commerce|@\/lib\/db|stripe|drizzle-orm|bcrypt|jose|jsonwebtoken)["']/i,
   );
-  const workspace = await readFile(
-    new URL("src/app/(workspace)/panel/page.tsx", root),
-    "utf8",
-  );
-  assert.match(designPage, /loading/);
-  assert.match(designPage, /restricted/);
-  assert.match(designPage, /offline/);
-  assert.match(workspace, /Datos sintéticos/);
-  assert.match(workspace, /no crea ni modifica\s+publicaciones/);
+  assert.doesNotMatch(source, /\b(?:cookies|headers)\(\)/);
 });

@@ -51,13 +51,17 @@ Estas instrucciones se aplican a `frontend/` y complementan el `AGENTS.md` raíz
 - Cursores son opacos y no se reutilizan tras cambiar filtros.
 - Binarios y descargas privadas usan Blob URLs temporales, revocadas al cambiar sesión/recurso o desmontar.
 
-## Plantillas
+## Plantillas — decisión vigente tras rechazo de Fase 2
 
-- Your Next Store y Next.js SaaS Starter son referencias visuales y estructurales, no dependencias de dominio.
-- Clonarlas únicamente bajo `.local/frontend-template-sources/`, ignorado por Git.
-- No copiar `.git`, lockfiles, secretos, configuraciones de despliegue ni instrucciones AGENTS de las plantillas.
-- No incorporar Commerce Kit, YNS, Bun, Drizzle, JWT/cookies propios, bcrypt, Stripe, billing o equipos SaaS.
-- Registrar atribuciones MIT en `THIRD_PARTY_NOTICES.md` cuando se copie código reconocible.
+- La Fase 2 diseñada solo por inspiración fue rechazada expresamente por el usuario.
+- Your Next Store y Next.js SaaS Starter son ahora bases de código y vistas, no meras referencias visuales.
+- Mantener los clones de origen bajo `.local/frontend-template-sources/`, ignorados por Git, y copiar al árbol versionado los componentes, layouts, estilos y páginas seleccionados.
+- Your Next Store aporta la base real del marketplace público; Next.js SaaS Starter aporta la base real del workspace y administración SaaS.
+- Unir ambas fuentes en una sola aplicación Next.js, conservando su estructura visual y modificando solo routing, imports, marca EspaciGo y límites del dominio.
+- No copiar `.git`, secretos o configuración de despliegue de los repositorios fuente.
+- Retirar Commerce Kit/YNS remoto, Bun, Drizzle, JWT/cookies propios, bcrypt, Stripe, billing, equipos SaaS y cualquier DB paralela; reemplazar sus accesos por fixtures o adaptadores locales tipados hasta la fase de conexión con Go.
+- No recrear o simplificar las vistas por cuenta propia. La UI debe seguir siendo reconocible respecto de las plantillas originales.
+- Registrar en `THIRD_PARTY_NOTICES.md` las licencias MIT, commits de origen y procedencia de componentes copiados o adaptados.
 
 ## Marca
 

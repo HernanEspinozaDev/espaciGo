@@ -10,16 +10,20 @@
 - **Límite de publicación:** no fusionar a `main`, crear PR, desplegar ni probar la aplicación online hasta autorización posterior expresa.
 - **Entorno:** desarrollo, navegación y pruebas exclusivamente locales, con datos sintéticos.
 
-Este documento es el plan ejecutable para sustituir el frontend Angular por un frontend Next.js. En esta primera entrega no se implementa el nuevo frontend: se fija la arquitectura, los cortes, los criterios de aceptación y los límites.
+### Decisión humana vigente — Fase 2R (2026-10-24)
+
+La Fase 2 anterior y su demo fueron rechazadas por el usuario: su UI simplificada no cumplió la instrucción de integrar las vistas reales de las plantillas. La evidencia `fase-2-sistema-visual.md` queda marcada como rechazada y no aceptada. Esta decisión reemplaza, para la Fase 2R, toda regla previa que limitara las plantillas a inspiración o referencia visual: el código y las vistas reales de los commits congelados indicados abajo deben copiarse/adaptarse dentro de la aplicación Next.js única. No habilita Fase 3 ni publicación fuera de `frontend-next-hermes`.
+
+Este documento mantiene el plan maestro y sus fases. La decisión de Fase 2R y su alcance vigente se registran arriba; su implementación, resultados y límites se documentan de forma incremental en `planning/frontend_next/evidence/fase-2r-integracion-plantillas.md`. Completar esta fase visual no autoriza ni inicia Fase 3.
 
 ## 2. Objetivo
 
 Construir un único frontend Next.js para EspaciGo que combine dos lenguajes visuales:
 
-1. **Marketplace público**, inspirado en Your Next Store.
-2. **Aplicación SaaS privada**, inspirada en Next.js SaaS Starter.
+1. **Marketplace público**, integrado desde las vistas y componentes reales de Your Next Store.
+2. **Aplicación SaaS privada**, integrada desde las vistas y componentes reales de Next.js SaaS Starter.
 
-Las plantillas son fuentes de diseño, composición y patrones de interfaz. No son autoridades de dominio y no se incorporarán como aplicaciones independientes ni como historiales Git anidados.
+Las plantillas son las bases de código y vistas reales para la integración visual de la Fase 2R; no son autoridades de dominio. Se integran selectivamente en la única aplicación bajo `frontend/`, sin aplicaciones independientes ni historiales Git anidados, y se sustituyen sus accesos de plataforma por fixtures tipados locales.
 
 El resultado debe consumir exclusivamente la API Go existente, conservar las rutas y capacidades funcionales implementadas, respetar seguridad, privacidad, idempotencia y exactitud monetaria, y no introducir una segunda base de datos, autenticación paralela ni pagos Stripe.
 
@@ -98,14 +102,14 @@ No se mantendrán dos aplicaciones Next independientes porque eso duplicaría au
 
 ## 5. Política para las plantillas
 
-Durante la ejecución se clonarán referencias completas únicamente en:
+Los repositorios completos congelados se conservan únicamente como fuentes ignoradas en:
 
 ```text
 .local/frontend-template-sources/yournextstore/
 .local/frontend-template-sources/nextjs-saas-starter/
 ```
 
-`.local/` ya está excluido de Git. Antes de copiar código se registrarán:
+`.local/` ya está excluido de Git. La Fase 2R integra vistas reales: Your Next Store es la base del marketplace y Next.js SaaS Starter aporta las vistas del workspace. Antes de copiar código se registrarán:
 
 - URL;
 - commit exacto;
@@ -258,7 +262,7 @@ No se crearán rutas visibles para capacidades aspiracionales sin contrato Go im
 
 ## 9. Sistema visual
 
-Se construirá un sistema común, no una superposición literal de dos plantillas.
+Se integrarán los árboles de vistas reales seleccionados de ambas plantillas en una sola aplicación. Se conservarán por separado sus composiciones y densidades; solo se compartirán los tokens y utilidades compatibles. No se reemplazarán con una UI simplificada nueva.
 
 ### Marketplace
 
@@ -493,6 +497,8 @@ Gate:
 
 ### Fase 2 — Sistema de diseño y dos shells
 
+El resultado previo de Fase 2 fue rechazado por el usuario y no constituye un gate aceptado. Fase 2R lo reemplaza: integrar el código y las vistas reales de las dos fuentes congeladas, adaptar solo imports, routing, stack fijado, marca EspaciGo y límites de dominio; preservar layouts, CSS, jerarquía, navegación y densidad. La política anterior de “referencia/inspiración solamente” ya no aplica a este corte.
+
 Entregables:
 
 - tokens;
@@ -710,7 +716,7 @@ No se afirmará integración completa basándose solo en mocks o screenshots.
 
 ## 16. Riesgos conocidos
 
-1. **Las plantillas no son compatibles entre sí de forma directa.** Se extraerán patrones, no se fusionarán árboles completos.
+1. **Las plantillas no son compatibles entre sí de forma directa.** Fase 2R conserva sus vistas en shells separados dentro de una aplicación y adapta imports, tokens y puertos tipados, sin duplicar runtimes.
 2. **Your Next Store usa Bun, Commerce Kit y reglas específicas de plataforma.** Deben eliminarse antes de considerar código reusable.
 3. **SaaS Starter implementa su propia DB, JWT y Stripe.** Todo eso contradice la autoridad de Go y debe descartarse.
 4. **Next.js 16 evoluciona rápidamente.** Cada uso de caché, proxy, Server Components y routing se verificará contra la documentación instalada de la versión fijada.

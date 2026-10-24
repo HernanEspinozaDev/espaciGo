@@ -3,8 +3,10 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "EspaciGo",
-  description: "Descubre espacios para tus próximos proyectos.",
+  title: { default: "EspaciGo", template: "%s | EspaciGo" },
+  description: "Explora espacios de muestra para trabajar, crear y reunirse.",
+  applicationName: "EspaciGo",
+  icons: { icon: "/espacigo-mark.svg", apple: "/espacigo-mark.svg" },
 };
 
 export default function RootLayout({
@@ -13,7 +15,10 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body>
-        <a className="skip-link" href="#main-content">
+        <a
+          className="sr-only fixed left-3 top-3 z-[100] rounded-md bg-background px-4 py-3 text-foreground shadow-lg focus:not-sr-only focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          href="#main-content"
+        >
           Omitir al contenido principal
         </a>
         {children}

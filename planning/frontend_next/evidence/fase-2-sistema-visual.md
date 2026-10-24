@@ -1,4 +1,6 @@
-# Fase 2 — sistema visual y dos shells
+# RECHAZADA POR EL USUARIO — Fase 2: sistema visual y dos shells
+
+Estado: RECHAZADA; no aceptada como base de producto. El usuario determinó que esta demo era demasiado simplificada y que las plantillas debían integrarse como código/vistas reales, no usarse solo como referencia. La Fase 2R la reemplaza; véase `fase-2r-integracion-plantillas.md`. Los resultados históricos siguientes no equivalen a aceptación de Fase 2R.
 
 Fecha: 2026-10-24
 Rama: `frontend-next-hermes`

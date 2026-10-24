@@ -1,15 +1,57 @@
-import type { Metadata } from "next";
-import type { ReactNode } from "react";
-import { WorkspaceShell } from "@/components/workspace/workspace-shell";
+import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/workspace/ui/button";
 
-export const metadata: Metadata = {
-  title: "Panel de muestra",
-  description: "Shell de administración demostrativo y sin sesión.",
-  robots: { index: false, follow: false },
-};
+function Header() {
+  return (
+    <header className="border-b border-gray-200 bg-white">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+        <Link
+          href="/saas"
+          className="flex items-center"
+          aria-label="EspaciGo, presentación del panel"
+        >
+          <Image
+            src="/espacigo-mark.svg"
+            width={28}
+            height={28}
+            alt=""
+            priority
+          />
+          <span className="ml-2 text-xl font-semibold text-gray-900">
+            EspaciGo
+          </span>
+        </Link>
+        <nav
+          aria-label="Navegación del panel"
+          className="flex items-center space-x-4"
+        >
+          <Link
+            href="/pricing"
+            className="min-h-9 inline-flex items-center text-sm font-medium text-gray-700 hover:text-gray-900"
+          >
+            Planes demo
+          </Link>
+          <Button asChild className="rounded-full">
+            <Link href="/login">Acceso demo</Link>
+          </Button>
+        </nav>
+      </div>
+    </header>
+  );
+}
 
 export default function WorkspaceLayout({
   children,
-}: Readonly<{ children: ReactNode }>) {
-  return <WorkspaceShell>{children}</WorkspaceShell>;
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="flex flex-col min-h-screen bg-white">
+      <Header />
+      <div id="main-content" className="flex-1" tabIndex={-1}>
+        {children}
+      </div>
+    </section>
+  );
 }
