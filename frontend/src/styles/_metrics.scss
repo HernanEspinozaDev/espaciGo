@@ -143,26 +143,6 @@ $font-family-variant-2:
   'Segoe UI',
   sans-serif;
 
-// Semantic aliases for shared primitives; values stay anchored to the reviewed scale above.
-$font-family-body: $font-family-variant-2;
-$font-family-display: $font-family-variant-1;
-$font-family-mono: ui-monospace, SFMono-Regular, Consolas, monospace;
-$font-size-body: $font-size-1rem;
-$line-height-body: $line-height-1-5;
-$font-weight-regular: $font-weight-400;
-$font-weight-medium: $font-weight-500;
-$font-weight-semibold: $font-weight-600;
-$font-weight-bold: $font-weight-700;
-$control-min-size: 2.75rem;
-$motion-duration-fast: 120ms;
-$focus-ring-width: 3px;
-$focus-ring-offset: 3px;
-$focus-heading-offset: $space-0-35rem;
-$workspace-navigation-width: 15rem;
-$menu-icon-stroke-width: 2px;
-$border-width-emphasis: 2px;
-$brand-mark-height: 1.9rem;
-
 $font-code: 0.82rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
 
 // Account experience: proposed for review in AUTH-20261023.

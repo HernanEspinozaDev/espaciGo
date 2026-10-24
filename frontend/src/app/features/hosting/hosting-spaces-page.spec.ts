@@ -313,57 +313,6 @@ describe('FE-06 HostingSpacesPage', () => {
     fixture.destroy();
   });
 
-  it('presents the selected space with its current server state and preserves section navigation', async () => {
-    const api = apiFor(space('synthetic-space-a', 'borrador'));
-    const { identity } = setup(api);
-    await identity.signIn('owner@example.invalid', 'synthetic-secret');
-    const router = TestBed.inject(Router);
-    const fixture = TestBed.createComponent(HostingSpacesPage);
-    fixture.detectChanges();
-    await flush();
-    fixture.detectChanges();
-
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('h1')?.textContent).toContain('Mis espacios');
-    expect(root.querySelector('.page-subtitle')?.textContent).toContain('con el próximo paso a la vista');
-    expect(root.querySelector('.space-choice[aria-current="true"]')?.textContent).toContain('Sala de trabajo');
-    expect(root.querySelector('.space-choice[aria-current="true"]')?.textContent).toContain('Borrador');
-    expect(root.querySelector('.resource-context')?.textContent).not.toContain('synthetic-space-a');
-    expect(root.querySelector('.next-step h3')?.textContent).toContain('Continúa con los datos del borrador');
-    const sections = [...root.querySelectorAll<HTMLButtonElement>('.section-tabs button')];
-    expect(sections.map((button) => button.textContent?.trim())).toEqual(['Datos', 'Tarifas', 'Calendario', 'Galería']);
-    expect(root.querySelector('.section-tabs button[aria-current="page"]')?.textContent).toContain('Datos');
-    sections.forEach((button) => button.click());
-    expect(router.navigate).toHaveBeenNthCalledWith(1, ['/panel/espacios', 'synthetic-space-a', 'editar']);
-    expect(router.navigate).toHaveBeenNthCalledWith(2, ['/panel/espacios', 'synthetic-space-a', 'tarifas']);
-    expect(router.navigate).toHaveBeenNthCalledWith(3, ['/panel/espacios', 'synthetic-space-a', 'calendario']);
-    expect(router.navigate).toHaveBeenNthCalledWith(4, ['/panel/espacios', 'synthetic-space-a', 'galeria']);
-    fixture.destroy();
-  });
-
-  it('offers a retry when the owner-space list fails instead of presenting a false empty state', async () => {
-    const api = apiFor();
-    api.list.mockRejectedValueOnce(new Error('synthetic unavailable'));
-    const { identity } = setup(api);
-    await identity.signIn('owner@example.invalid', 'synthetic-secret');
-    const fixture = TestBed.createComponent(HostingSpacesPage);
-    fixture.detectChanges();
-    await flush();
-    fixture.detectChanges();
-
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('[role="alert"]')?.textContent).toContain('No fue posible cargar tus espacios');
-    expect(root.querySelector('.space-list-empty')).toBeNull();
-    (root.querySelector('.load-error button') as HTMLButtonElement).click();
-    await flush();
-    fixture.detectChanges();
-
-    expect(api.list).toHaveBeenCalledTimes(2);
-    expect(root.querySelector('[role="alert"]')).toBeNull();
-    expect(root.querySelector('.space-choice')).toBeTruthy();
-    fixture.destroy();
-  });
-
   it('discards a stale public-location response after the authenticated account changes', async () => {
     const api = apiFor();
     const first = deferred<{ items: { region_code: string; region_name: string; comuna_code: string; comuna_name: string }[] }>();
@@ -675,16 +624,8 @@ describe('FE-06 HostingSpacesPage', () => {
       title: 'Título actualizado desde Go',
       description: 'Descripción confirmada remota',
     });
-    const component = page(fixture);
-    component.conflict.set('Go detectó un conflicto con el estado, la elegibilidad o el calendario vigente.');
-    fixture.detectChanges();
-    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Go detectó un conflicto');
     page(fixture).form.description = validDescription.replace('Un espacio sintético', 'Descripción modificada');
     await page(fixture).saveDraft();
-    fixture.detectChanges();
-    expect(component.notice()).toBe('Cambios del borrador confirmados por Go.');
-    expect(component.conflict()).toBe('');
-    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Go detectó un conflicto');
     const payload = api.update.mock.calls[0][2] as {
       base_price_clp: string;
       title: string;

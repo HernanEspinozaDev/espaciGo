@@ -84,10 +84,6 @@ export class SpaceDetailFacade implements OnInit {
     });
   }
 
-  async retryPublicDetail(): Promise<void> {
-    if (this.activeSpaceId) await this.loadSpace(this.activeSpaceId);
-  }
-
   async chooseDate(value: string): Promise<void> {
     this.date.set(value);
     this.invalidateInterval();

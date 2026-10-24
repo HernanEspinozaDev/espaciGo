@@ -1,5 +1,5 @@
-@use './styles/breakpoints' as bp;
 @use './styles/metrics';
+@use './styles/breakpoints' as bp;
 @use 'styles/tokens';
 @use 'styles/ui';
 
@@ -15,9 +15,9 @@ body {
   margin: 0;
   background: var(--color-canvas);
   color: var(--color-text);
-  font-family: metrics.$font-family-body;
-  font-size: metrics.$font-size-body;
-  line-height: metrics.$line-height-body;
+  font-family: metrics.$font-family-variant-2;
+  font-size: metrics.$font-size-1rem;
+  line-height: metrics.$line-height-1-5;
 }
 button,
 input,
@@ -37,19 +37,19 @@ a {
   summary,
   [tabindex]:not([tabindex='-1'])
 ):focus-visible {
-  outline: metrics.$focus-ring-width solid var(--color-focus);
-  outline-offset: metrics.$focus-ring-offset;
+  outline: 3px solid var(--color-focus);
+  outline-offset: 3px;
 }
 button,
 select,
 input[type='button'],
 input[type='submit'],
 input[type='reset'] {
-  min-height: metrics.$control-min-size;
+  min-height: 2.75rem;
 }
 .main-navigation a,
 .footer-links a {
-  min-height: metrics.$control-min-size;
+  min-height: 2.75rem;
   align-items: center;
 }
 .main-navigation a,
@@ -57,8 +57,8 @@ input[type='reset'] {
   display: inline-flex;
 }
 #contenido h1[tabindex='-1']:focus {
-  outline: metrics.$focus-ring-width solid var(--color-focus);
-  outline-offset: metrics.$focus-heading-offset;
+  outline: 3px solid var(--color-focus);
+  outline-offset: 0.35rem;
 }
 ::selection {
   background: var(--brand-primary-soft);

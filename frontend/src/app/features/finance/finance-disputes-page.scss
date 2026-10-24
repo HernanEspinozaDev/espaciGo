@@ -43,25 +43,10 @@ h1 {
 .card {
   min-width: 0;
   padding: metrics.$space-1-25rem;
-  background: var(--color-surface);
+  background: white;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-card);
-}
-.admin-mode .admin-tools {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: end;
-  gap: 0 metrics.$space-1rem;
-  border-top: 4px solid var(--brand-primary);
-}
-.admin-mode .admin-tools h2,
-.admin-mode .admin-tools .actions,
-.admin-mode .admin-tools pre {
-  grid-column: 1 / -1;
-}
-.admin-mode .admin-tools label {
-  margin-top: 0;
+  border-radius: 0.85rem;
+  box-shadow: 0 6px 20px var(--shadow-color);
 }
 h2 {
   margin-top: 0;
@@ -119,18 +104,10 @@ pre {
   font-size: metrics.$font-size-0-8rem;
 }
 .error {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: metrics.$space-0-75rem metrics.$space-1rem;
   color: var(--brand-primary-hover);
   background: var(--color-error-soft);
   padding: metrics.$space-0-8rem;
-  border-radius: var(--radius-lg);
-  p {
-    margin: 0;
-  }
+  border-radius: 0.5rem;
 }
 .claim {
   padding: metrics.$space-0-9rem 0;
@@ -151,14 +128,6 @@ pre {
   }
   .grid {
     grid-template-columns: 1fr;
-  }
-  .admin-mode .admin-tools {
-    grid-template-columns: 1fr;
-  }
-  .admin-mode .admin-tools h2,
-  .admin-mode .admin-tools .actions,
-  .admin-mode .admin-tools pre {
-    grid-column: auto;
   }
   .toolbar {
     justify-content: stretch;

@@ -68,9 +68,11 @@ function setup(api: { get: ReturnType<typeof vi.fn>; post: ReturnType<typeof vi.
       {
         provide: FinanceApi,
         useValue: {
-          call: vi.fn().mockResolvedValue({
-            data: { confirmed_movements: [{ amount_clp: '9007199254740993' }] },
-          }),
+          call: vi
+            .fn()
+            .mockResolvedValue({
+              data: { confirmed_movements: [{ amount_clp: '9007199254740993' }] },
+            }),
         },
       },
     ],
@@ -120,37 +122,6 @@ describe('AdminPage', () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     TestBed.resetTestingModule();
-  });
-
-  it('switches labelled operational sections without entering a nested reactive context', async () => {
-    setup({ get: vi.fn().mockResolvedValue({ items: [] }), post: vi.fn() });
-    const identity = TestBed.inject(IdentitySession);
-    await identity.signIn('admin-a@example.invalid', 'Synthetic#123');
-    const fixture = TestBed.createComponent(AdminPage);
-    fixture.detectChanges();
-    const navigation = fixture.nativeElement.querySelector(
-      '[aria-label="Secciones administrativas"]',
-    ) as HTMLElement;
-    const buttons = Array.from(navigation.querySelectorAll('button')) as HTMLButtonElement[];
-    expect(buttons).toHaveLength(10);
-    expect(
-      buttons
-        .find((button) => button.textContent?.includes('Cola KYC'))
-        ?.getAttribute('aria-pressed'),
-    ).toBe('true');
-    buttons.find((button) => button.textContent?.includes('Reservas'))?.click();
-    fixture.detectChanges();
-    await vi.waitFor(() =>
-      expect(
-        buttons
-          .find((button) => button.textContent?.includes('Reservas'))
-          ?.getAttribute('aria-pressed'),
-      ).toBe('true'),
-    );
-    expect(fixture.nativeElement.querySelector('#admin-section-title')?.textContent).toContain(
-      'Reservas',
-    );
-    fixture.destroy();
   });
 
   it('does not let an old queue response replace the data from a new admin session', async () => {

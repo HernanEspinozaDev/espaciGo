@@ -16,19 +16,10 @@ describe('SpaceDetailPage public detail',()=>{
  afterEach(()=>TestBed.resetTestingModule());
  it('loads a minimized listing anonymously and shows a photo placeholder',async()=>{
   const params=new BehaviorSubject(convertToParamMap({id:'space-123'}));
-  const api={publicDetail:vi.fn().mockResolvedValue({space_id:'space-123',category_code:'oficina',category_name:'Oficina',title:'Sala pública',description:'Descripción pública',area_m2:30,rate_unit:'dia',base_price_clp:'9007199254740993',currency:'CLP',comuna_name:'Providencia',region_name:'Metropolitana',usage_rules:'No fumar',features:[{code:'wifi',label:'Wifi',value:true}]})};
+  const api={publicDetail:vi.fn().mockResolvedValue({space_id:'space-123',category_code:'oficina',category_name:'Oficina',title:'Sala pública',description:'Descripción pública',area_m2:30,rate_unit:'dia',base_price_clp:'9007199254740993',currency:'CLP'})};
   TestBed.configureTestingModule({imports:[SpaceDetailPage],providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([]),{provide:ActivatedRoute,useValue:{paramMap:params.asObservable()}},{provide:ExploreApi,useValue:api}]});
   const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalledWith('space-123'));await vi.waitFor(()=>expect((fixture.componentInstance as unknown as {space:()=>unknown}).space()).toBeTruthy());fixture.detectChanges();
-  expect(fixture.nativeElement.textContent).toContain('Sala pública');expect(fixture.nativeElement.textContent).toContain('CLP 9.007.199.254.740.993');expect(fixture.nativeElement.textContent).toContain('Providencia, Metropolitana');expect(fixture.nativeElement.textContent).toContain('Fotografía no disponible');
-  expect([...fixture.nativeElement.querySelectorAll('.detail-index a')].map((link:HTMLAnchorElement)=>link.getAttribute('href'))).toEqual(['#detail-overview','#detail-attributes','#detail-next-step']);
-  expect(fixture.nativeElement.querySelector('#detail-attributes h2')?.textContent).toContain('Reglas de uso');fixture.destroy();
- });
- it('offers a retry when a public detail cannot be loaded',async()=>{
-  const params=new BehaviorSubject(convertToParamMap({id:'space-123'}));
-  const api={publicDetail:vi.fn().mockRejectedValueOnce(new Error('synthetic unavailable')).mockResolvedValue({space_id:'space-123',category_code:'oficina',category_name:'Oficina',title:'Recuperado',description:'Descripción pública',area_m2:30,rate_unit:'dia',base_price_clp:'9000',currency:'CLP'})};
-  TestBed.configureTestingModule({imports:[SpaceDetailPage],providers:[...provideFrontendPorts(),provideHttpClient(),provideRouter([]),{provide:ActivatedRoute,useValue:{paramMap:params.asObservable()}},{provide:ExploreApi,useValue:api}]});
-  const fixture=TestBed.createComponent(SpaceDetailPage);fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalledOnce());await vi.waitFor(()=>expect(fixture.nativeElement.querySelector('.detail-load-error button')?.textContent).toContain('Volver a intentar'));
-  (fixture.nativeElement.querySelector('.detail-load-error button') as HTMLButtonElement).click();fixture.detectChanges();await vi.waitFor(()=>expect(api.publicDetail).toHaveBeenCalledTimes(2));await vi.waitFor(()=>expect(fixture.nativeElement.textContent).toContain('Recuperado'));fixture.destroy();
+  expect(fixture.nativeElement.textContent).toContain('Sala pública');expect(fixture.nativeElement.textContent).toContain('CLP 9.007.199.254.740.993');expect(fixture.nativeElement.textContent).toContain('Fotografía no disponible');fixture.destroy();
  });
  it('renders every public reference with the cover first and omits images that return 404',async()=>{
   const params=new BehaviorSubject(convertToParamMap({id:'space-123'}));
@@ -39,8 +30,8 @@ describe('SpaceDetailPage public detail',()=>{
   const images=[{image_id:'photo-a',is_cover:false},{image_id:'photo-cover',is_cover:true}];
   expect(page.orderedImages(images)).toEqual([{image_id:'photo-cover',is_cover:true},{image_id:'photo-a',is_cover:false}]);
   expect(fixture.nativeElement.querySelectorAll('.gallery-image img')).toHaveLength(2);
-  expect(fixture.nativeElement.querySelectorAll('button.gallery-image')).toHaveLength(2);expect(fixture.nativeElement.querySelector('.gallery-feature img')?.getAttribute('src')).toBe('/public/photo-cover');page.selectImage('space-123','photo-a');fixture.detectChanges();expect(page.imageSelected('space-123','photo-a')).toBe(true);expect(fixture.nativeElement.querySelector('.gallery-feature img')?.getAttribute('src')).toBe('/public/photo-a');
-  page.imageFailed('space-123','photo-a',page.spaceGeneration());fixture.detectChanges();expect(fixture.nativeElement.querySelectorAll('.gallery-image img')).toHaveLength(1);expect(fixture.nativeElement.querySelector('.gallery-feature img')?.getAttribute('src')).toBe('/public/photo-cover');
+  expect(fixture.nativeElement.querySelectorAll('button.gallery-image')).toHaveLength(2);page.selectImage('space-123','photo-a');expect(page.imageSelected('space-123','photo-a')).toBe(true);
+  page.imageFailed('space-123','photo-a',page.spaceGeneration());fixture.detectChanges();expect(fixture.nativeElement.querySelectorAll('.gallery-image img')).toHaveLength(1);
   page.imageFailed('space-old','photo-cover',page.spaceGeneration());expect(page.imageAvailable('space-123','photo-cover')).toBe(true);
   fixture.destroy();
  });

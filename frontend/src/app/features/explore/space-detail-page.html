@@ -1,133 +1,43 @@
-<main class="detail page-width" [attr.aria-busy]="busy() ? 'true' : null">
+<main class="detail page-width">
   <a class="back-link" [routerLink]="listingReturnUrl">← Volver a explorar</a>
-  @if (error()) {
-    @if (space()) {
-      <p class="error" role="alert">{{ error() }}</p>
-    } @else {
-      <div class="error detail-load-error" role="alert">
-        <p>{{ error() }}</p>
-        <button appButton="secondary" type="button" [disabled]="busy()" (click)="retry()">
-          Volver a intentar
-        </button>
-      </div>
-    }
-  }
-  @if (busy() && !space()) {
-    <p class="status" role="status">Cargando publicación…</p>
-  }
-  @if (space(); as item) {
-    <nav class="detail-index" aria-label="Contenido de la publicación">
-      <a href="#detail-overview">Resumen</a>
-      @if (item.usage_rules || item.features?.length) {
-        <a href="#detail-attributes">Reglas y características</a>
-      }
-      <a href="#detail-next-step">Siguiente paso</a>
-    </nav>
+  @if(error()){<p class="error" role="alert">{{error()}}</p>}
+  @if(busy()&&!space()){<p class="status" role="status">Cargando publicación…</p>}
+  @if(space();as item){
     <div class="detail-grid">
-      <article id="detail-overview" class="space-detail panel" aria-labelledby="detail-title">
-        <div class="gallery" aria-label="Galería pública del espacio">
-          @if (featuredImage(item.space_id, item.images); as featured) {
-            <figure class="gallery-feature">
-              <img
-                [src]="publicImageUrl(featured.image_id)"
-                [alt]="featured.is_cover ? 'Fotografía de portada del espacio' : 'Fotografía pública seleccionada'"
-                (error)="imageFailed(item.space_id, featured.image_id, spaceGeneration())"
-              />
-              <figcaption>{{ featured.is_cover ? 'Portada' : 'Fotografía seleccionada' }}</figcaption>
-            </figure>
-          } @else {
-            <div class="cover" role="img" aria-label="Fotografía pública no disponible">
-              <span>Fotografía no disponible</span><b aria-hidden="true">✳</b>
-            </div>
+      <article class="space-detail panel">
+        @if(item.images?.length){<div class="gallery" aria-label="Galería pública del espacio">
+          @for(image of orderedImages(item.images);track image.image_id;let index=$index){
+            @if(imageAvailable(item.space_id,image.image_id)){<button class="gallery-image" [class.cover-image]="index===0" [class.selected-image]="imageSelected(item.space_id,image.image_id)" type="button" [attr.aria-pressed]="imageSelected(item.space_id,image.image_id)" [attr.aria-label]="(image.is_cover?'Portada':'Fotografía '+(index+1))+', seleccionar fotografía'" (click)="selectImage(item.space_id,image.image_id)"><img [src]="publicImageUrl(image.image_id)" [alt]="image.is_cover?'Fotografía de portada del espacio':'Fotografía pública '+(index+1)" loading="lazy" (error)="imageFailed(item.space_id,image.image_id,spaceGeneration())" /><span class="gallery-caption">{{image.is_cover?'Portada':'Fotografía '+(index+1)}}</span></button>}
           }
-          @if (item.images?.length && item.images.length > 1) {
-            <div class="gallery-thumbnails" role="group" aria-label="Elegir fotografía principal">
-              @for (image of orderedImages(item.images); track image.image_id; let index = $index) {
-                @if (imageAvailable(item.space_id, image.image_id)) {
-                  <button
-                    class="gallery-image"
-                    [class.selected-image]="imageSelected(item.space_id, image.image_id)"
-                    type="button"
-                    [attr.aria-pressed]="imageSelected(item.space_id, image.image_id)"
-                    [attr.aria-label]="(image.is_cover ? 'Ver portada' : 'Ver fotografía ' + (index + 1)) + ' en grande'"
-                    (click)="selectImage(item.space_id, image.image_id)"
-                  >
-                    <img [src]="publicImageUrl(image.image_id)" alt="" loading="lazy" (error)="imageFailed(item.space_id, image.image_id, spaceGeneration())" />
-                    <span class="gallery-caption" aria-hidden="true">{{ image.is_cover ? 'Portada' : 'Foto ' + (index + 1) }}</span>
-                  </button>
-                }
-              }
-            </div>
-          }
-        </div>
-        <div class="copy">
-          <p class="eyebrow">{{ item.category_name }} · {{ item.area_m2 }} m²</p>
-          <h1 id="detail-title">{{ item.title }}</h1>
-          @if (item.region_name && item.comuna_name) {
-            <p class="location">{{ item.comuna_name }}, {{ item.region_name }}</p>
-          }
-          <p class="description">{{ item.description }}</p>
-          <dl class="facts" aria-label="Datos principales del espacio">
-            <div><dt>Tarifa base</dt><dd>{{ formatClp(item.base_price_clp) }} / {{ item.rate_unit }}</dd></div>
-            <div><dt>Superficie</dt><dd>{{ item.area_m2 }} m²</dd></div>
-          </dl>
-          @if (item.usage_rules || item.features?.length) {
-            <section id="detail-attributes" class="attributes" aria-label="Reglas y características públicas">
-              @if (item.usage_rules) {
-                <div>
-                  <h2>Reglas de uso</h2>
-                  <p>{{ item.usage_rules }}</p>
-                </div>
-              }
-              @if (item.features?.length) {
-                <div>
-                  <h2>Características</h2>
-                  <ul>
-                    @for (feature of item.features; track feature.code) {
-                      <li>{{ feature.label }}: {{ feature.value ? 'Sí' : 'No' }}</li>
-                    }
-                  </ul>
-                </div>
-              }
-            </section>
-          }
+          @if(!hasAvailableImage(item.space_id,item.images)){<div class="cover" aria-label="Fotografías no disponibles"><span>Fotografías no disponibles</span><b aria-hidden="true">✳</b></div>}
+        </div>}@else{<div class="cover" aria-label="Fotografía no disponible"><span>Fotografía no disponible</span><b aria-hidden="true">✳</b></div>}
+        <div class="copy"><p class="eyebrow">{{item.category_name}} · {{item.area_m2}} m²</p><h1>{{item.title}}</h1>
+          <p class="description">{{item.description}}</p><div class="facts"><p><span>Tarifa base</span><strong>{{formatClp(item.base_price_clp)}} / {{item.rate_unit}}</strong></p><p><span>Superficie</span><strong>{{item.area_m2}} m²</strong></p></div>
+          @if(item.usage_rules){<h2>Reglas de uso</h2><p>{{item.usage_rules}}</p>}
+          @if(item.features?.length){<h2>Características</h2><ul>@for(feature of item.features;track feature.code){<li>{{feature.label}}: {{feature.value?'Sí':'No'}}</li>}</ul>}
           <p class="privacy-note">La ficha muestra solo fotografías y características declaradas públicas. No incluye dirección ni identidad del anfitrión.</p>
         </div>
       </article>
-
-      <section id="detail-next-step" class="booking panel" aria-labelledby="booking-title">
-        <p class="eyebrow">SIGUIENTE PASO</p>
-        <h2 id="booking-title">Consulta horarios</h2>
-        @if (hasReservationContext) {
-          <p class="context-return" role="status">Volviste a esta ficha. Go volverá a consultar horarios y tarifa; elige un intervalo, revisa la cotización y confirma la solicitud cuando estés listo.</p>
-        }
-        @if (canBook()) {
+      <section class="booking panel"><p class="eyebrow">SIGUIENTE PASO</p><h2>Consulta horarios</h2>
+        @if(hasReservationContext){<p class="context-return" role="status">Volviste a esta ficha. Go volverá a consultar horarios y tarifa; elige un intervalo, revisa la cotización y confirma la solicitud cuando estés listo.</p>}
+        @if(canBook()) {
           <p>Los horarios se consultan de forma privada después de confirmar tu sesión.</p>
           <label>Fecha local<input type="date" [value]="date()" (change)="chooseDate($any($event.target).value)" /></label>
           <label>Duración<select [value]="duration()" (change)="chooseDuration($any($event.target).value)">
-            @if (privateSpace()?.rate_unit === 'hora') { <option value="1">1 hora</option><option value="2">2 horas</option><option value="4">4 horas</option> }
-            @if (privateSpace()?.rate_unit === 'dia') { <option value="1">1 día</option><option value="2">2 días</option><option value="3">3 días</option> }
-            @if (privateSpace()?.rate_unit === 'mes') { <option value="1">1 mes</option> }
+            @if(privateSpace()?.rate_unit==='hora'){<option value="1">1 hora</option><option value="2">2 horas</option><option value="4">4 horas</option>}
+            @if(privateSpace()?.rate_unit==='dia'){<option value="1">1 día</option><option value="2">2 días</option><option value="3">3 días</option>}
+            @if(privateSpace()?.rate_unit==='mes'){<option value="1">1 mes</option>}
           </select></label>
-          <label>Horario disponible<select [value]="selected() ? options().indexOf(selected()!) : ''" (change)="chooseInterval($any($event.target).value)" [disabled]="busy() || !options().length">
-            <option value="">Selecciona un intervalo</option>
-            @for (interval of options(); track interval.start_at + interval.end_at; let index = $index) {
-              <option [value]="index">{{ formatInterval(interval) }}</option>
-            }
+          <label>Horario disponible<select [value]="selected()?options().indexOf(selected()!):''" (change)="chooseInterval($any($event.target).value)" [disabled]="busy()||!options().length">
+            <option value="">Selecciona un intervalo</option>@for(interval of options();track interval.start_at+interval.end_at;let index=$index){<option [value]="index">{{formatInterval(interval)}}</option>}
           </select></label>
-          <button appButton="primary" class="button" type="button" [disabled]="busy() || !selected()" (click)="createQuote()">{{ busy() ? 'Consultando…' : 'Cotizar horario' }}</button>
-          @if (quote(); as currentQuote) {
-            <section class="quote" aria-label="Cotización del espacio">
-              <p>{{ formatInterval({ start_at: currentQuote.start_at, end_at: currentQuote.end_at }) }}</p>
-              <p><strong>Total arriendo:</strong> {{ formatClp(currentQuote.subtotal_clp) }}</p>
-              <p><strong>Garantía esperada (ensayo local):</strong> {{ formatClp(currentQuote.guarantee_expected_clp) }}</p>
-              <button appButton="primary" class="button" type="button" [disabled]="requestingReservation()" (click)="requestReservation()">{{ requestingReservation() ? 'Enviando…' : 'Solicitar reserva' }}</button>
-              <p class="no-charge">Solicitar no confirma pago ni aprobación del anfitrión.</p>
-            </section>
-          }
+          <button appButton="primary" class="button" type="button" [disabled]="busy()||!selected()" (click)="createQuote()">{{busy()?'Consultando…':'Cotizar horario'}}</button>
+          @if(quote();as currentQuote){<section class="quote"><p>{{formatInterval({start_at:currentQuote.start_at,end_at:currentQuote.end_at})}}</p><p><strong>Total arriendo:</strong> {{formatClp(currentQuote.subtotal_clp)}}</p><p><strong>Garantía esperada (ensayo local):</strong> {{formatClp(currentQuote.guarantee_expected_clp)}}</p>
+            <button appButton="primary" class="button" type="button" [disabled]="requestingReservation()" (click)="requestReservation()">{{requestingReservation()?'Enviando…':'Solicitar reserva'}}</button>
+            <p class="no-charge">Solicitar no confirma pago ni aprobación del anfitrión.</p></section>}
         } @else if (!session()) {
           <p>Para consultar horarios y solicitar una reserva, inicia sesión con una cuenta de arrendatario. Volverás a esta ficha para elegir y confirmar la operación.</p>
-          <a appButton="primary" class="button" routerLink="/acceso" [queryParams]="{ returnUrl: identityReturnUrl }">Iniciar sesión</a>
+          <a appButton="primary" class="button" routerLink="/acceso" [queryParams]="{returnUrl: identityReturnUrl}">Iniciar sesión</a>
         } @else if (session()?.restricted_mode) {
           <p role="status">Go confirmó que esta cuenta está en modo restringido. Solo permite operaciones sobre reservas existentes; esta solicitud no está disponible.</p>
           <a appButton="secondary" class="button" routerLink="/mi-cuenta">Revisar mi sesión</a>

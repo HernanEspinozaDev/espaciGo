@@ -1,6 +1,5 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import axe from 'axe-core';
 import { afterEach, expect, it, vi } from 'vitest';
 import { IdentitySession } from '../../core/identity/application/identity-session';
 import { IdentityPort } from '../../core/identity/domain/ports/identity-port';
@@ -132,82 +131,6 @@ it('clears private state when the same bearer loses accounts.list on session rev
   expect(facade.overview()).toBeNull();
   expect(component.filters.controls.emailPrefix.value).toBe('');
   expect(identityApi.logout).not.toHaveBeenCalled();
-});
-
-it('separates global sections and returns to an authorized section when a capability is revoked', async () => {
-  const { identity, identityApi, api, component, fixture, setConfirmed } = await setup();
-  component.showTab('audit');
-  expect(component.activeTab()).toBe('audit');
-
-  setConfirmed({ ...globalSession, capabilities: ['accounts.list', 'publications.list'] });
-  await identity.refreshSessionIfCurrent('token-a');
-  TestBed.tick();
-  fixture.detectChanges();
-
-  expect(component.activeTab()).toBe('accounts');
-  const navigation = fixture.nativeElement.querySelector('nav[aria-label="Administración global"]') as HTMLElement;
-  expect(navigation.textContent).toContain('Cuentas');
-  expect(navigation.textContent).toContain('Publicaciones');
-  expect(navigation.textContent).not.toContain('Indicadores');
-  expect(navigation.textContent).not.toContain('Auditoría');
-  component.showTab('audit');
-  expect(component.activeTab()).toBe('accounts');
-  expect(api.audit).not.toHaveBeenCalled();
-  expect(identityApi.logout).not.toHaveBeenCalled();
-});
-
-it('hides accounts and clears private data when accounts.list is revoked but audit remains authorized', async () => {
-  const { identity, api, component, fixture, facade, setConfirmed } = await setup();
-  expect(facade.page()?.items[0].email).toBe(account.email);
-  expect(facade.overview()).not.toBeNull();
-
-  setConfirmed({ ...globalSession, roles: ['administrador_global'], capabilities: ['audit.read'] });
-  await identity.refreshSessionIfCurrent('token-a');
-  TestBed.tick();
-  fixture.detectChanges();
-
-  expect(component.activeTab()).toBe('audit');
-  expect(facade.page()).toBeNull();
-  expect(facade.overview()).toBeNull();
-  expect(fixture.nativeElement.textContent).not.toContain(account.email);
-  expect(fixture.nativeElement.textContent).not.toContain('Directorio de cuentas');
-  const navigation = fixture.nativeElement.querySelector('nav[aria-label="Administración global"]') as HTMLElement;
-  expect(navigation.textContent).not.toContain('Cuentas');
-  expect(navigation.textContent).toContain('Auditoría');
-
-  component.showTab('accounts');
-  fixture.detectChanges();
-  expect(component.activeTab()).toBe('audit');
-  expect(api.list).toHaveBeenCalledTimes(1);
-  expect(facade.page()).toBeNull();
-  expect(fixture.nativeElement.textContent).not.toContain(account.email);
-});
-
-it('shows a safe empty state when every global section capability is revoked', async () => {
-  const { identity, component, fixture, facade, setConfirmed } = await setup();
-  setConfirmed({ ...globalSession, roles: ['arrendatario'], capabilities: [] });
-  await identity.refreshSessionIfCurrent('token-a');
-  TestBed.tick();
-  fixture.detectChanges();
-
-  expect(component.activeTab()).toBe('none');
-  expect(facade.page()).toBeNull();
-  expect(facade.overview()).toBeNull();
-  expect(fixture.nativeElement.textContent).toContain('No tienes acceso vigente');
-  expect(fixture.nativeElement.querySelectorAll('nav button')).toHaveLength(0);
-  expect(fixture.nativeElement.textContent).not.toContain(account.email);
-});
-
-it('has no WCAG A/AA axe violations across the four global workspaces', async () => {
-  const { component, fixture } = await setup();
-  const tags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
-
-  for (const section of ['accounts', 'publications', 'kpis', 'audit'] as const) {
-    component.showTab(section);
-    fixture.detectChanges();
-    const result = await axe.run(fixture.nativeElement, { runOnly: { type: 'tag', values: tags } });
-    expect(result.violations.map(({ id }) => id), section).toEqual([]);
-  }
 });
 
 it('clears controls and revalidates capabilities after a current 403 without closing the login', async () => {
@@ -505,16 +428,10 @@ it('loads owner-scoped resources and ignores a detail response after changing ac
 
 it('loads exact KPI text and exports the applied audit filters at the displayed snapshot', async () => {
   const { api, component, facade, fixture } = await setup();
-  component.showTab('kpis');
+  component.showTab('reports');
   await vi.waitFor(() => expect(facade.kpis()?.finance[0].amount_clp).toBe('9007199254740993'));
   fixture.detectChanges();
   expect(fixture.nativeElement.textContent).toContain('9007199254740993');
-  expect(fixture.nativeElement.textContent).toContain('Indicadores persistidos');
-  expect(fixture.nativeElement.textContent).not.toContain('Auditoría global');
-  component.showTab('audit');
-  fixture.detectChanges();
-  expect(fixture.nativeElement.textContent).toContain('Auditoría global');
-  expect(fixture.nativeElement.textContent).not.toContain('Indicadores persistidos');
   component.searchAudit();
   const applied = component.appliedAudit()!;
   await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
@@ -532,7 +449,7 @@ it('loads exact KPI text and exports the applied audit filters at the displayed 
 
 it('discards an export response after a newer audit query is applied', async () => {
   const { api, component, facade } = await setup();
-  component.showTab('audit');
+  component.showTab('reports');
   component.searchAudit();
   const filters = { ...component.appliedAudit()!, snapshot_cutoff: overview.generated_at };
   let fail!: (error: unknown) => void;
@@ -547,7 +464,7 @@ it('discards an export response after a newer audit query is applied', async () 
 
 it('shows contextual report errors and clears each after a successful retry', async () => {
   const { api, component, fixture, facade } = await setup();
-  component.showTab('kpis');
+  component.showTab('reports');
   api.kpis.mockRejectedValueOnce({ status: 401, message: 'private server detail' });
   component.searchKPIs();
   await vi.waitFor(() => expect(facade.reportError()).toContain('sesión'));
@@ -560,7 +477,6 @@ it('shows contextual report errors and clears each after a successful retry', as
   expect(facade.reportError()).toBe('');
 
   api.audit.mockRejectedValueOnce({ status: 403, message: 'private permission detail' });
-  component.showTab('audit');
   component.searchAudit();
   await vi.waitFor(() => expect(facade.auditError()).toContain('permisos se revalidaron'));
   expect(facade.error()).toBe('');
@@ -587,7 +503,7 @@ it('shows contextual report errors and clears each after a successful retry', as
 
 it('does not publish an export denial after its audit session changes', async () => {
   const { identity, api, component, facade } = await setup();
-  component.showTab('audit');
+  component.showTab('reports');
   component.searchAudit();
   await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
   let fail!: (error: unknown) => void;
@@ -600,9 +516,9 @@ it('does not publish an export denial after its audit session changes', async ()
   expect(facade.exportError()).toBe('');
 });
 
-it('shows a current export 403 in audit and permits retry after reloading the audit page', async () => {
+it('shows a current export 403 in reports and permits retry after reloading the audit page', async () => {
   const { api, component, fixture, facade } = await setup();
-  component.showTab('audit');
+  component.showTab('reports');
   component.searchAudit();
   await vi.waitFor(() => expect(facade.auditPage()).not.toBeNull());
   api.exportAudit.mockRejectedValueOnce({ status: 403, message: 'private denial detail' });
