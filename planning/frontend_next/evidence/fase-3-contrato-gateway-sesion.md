@@ -4,7 +4,7 @@
 - Rama: `frontend-next-hermes`
 - HEAD base antes de los commits de esta fase: `fdbcf5ee010dfbdeeb13f14175f3b33def68c9f8`
 - Commit de implementación publicado: `74f166de60a1acded0d8cb8ed14b3cf07667ccf5`
-- Estado: Fase 3 verificada localmente y lista para publicación directa en esta rama; Fase 4 no iniciada.
+- Estado: Fase 3 verificada y publicada directamente en `frontend-next-hermes`; Fase 4 no iniciada.
 
 ## Implementación
 
@@ -24,7 +24,7 @@
 - `pnpm install --frozen-lockfile`, `pnpm api:generate`, `pnpm api:check`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm format:check`, `pnpm build` y `pnpm check`: pasaron. `pnpm check` ejecutó la suite E2E local por defecto; las pruebas nativas se habilitaron aparte.
 - `PHASE3_NATIVE_API_E2E=1 PLAYWRIGHT_PORT=4205 PLAYWRIGHT_REUSE_SERVER=1 pnpm exec playwright test tests/phase3-gateway.spec.ts --workers=1 --reporter=list`: 8 pasaron, 1 omitida (`/auth/terms` continúa devolviendo 503 `terms_unavailable`).
 - Axe anónimo y autenticado pasó en ambos viewports solicitados: 1280×900 y 390×844. Se verificaron roles, capabilities y `restricted_mode`; Bearer solo en memoria y ausente de cookies, local/session storage, IndexedDB, URL, HTML y logs. Logout final: 204; consulta posterior de sesión: 401 `unauthenticated`, sin Authorization.
-- El escaneo del supervisor de API no encontró material sensible en logs. `phase3_private_runtime_check.py` pasó; el scrub final indicó que no había contextos Playwright sensibles. `gitleaks` no está instalado; el escaneo local de 37 archivos modificados/nuevos no encontró valores privados ni patrones de credenciales de alta confianza. `git diff --check` se ejecutará tras preparar el conjunto exacto de publicación.
+- El escaneo del supervisor de API no encontró material sensible en logs. `phase3_private_runtime_check.py` pasó; el scrub final indicó que no había contextos Playwright sensibles. `gitleaks` no está instalado; el escaneo local de 37 archivos modificados/nuevos no encontró valores privados ni patrones de credenciales de alta confianza. `git diff --cached --check` pasó con el conjunto exacto previo a publicación; el árbol publicado quedó limpio.
 - `go build -o .local/testing/phase3-native-runtime-20261024/api ./cmd/api`: pasó; el binario temporal quedó con modo 0700.
 
 ## API nativa y gateway
@@ -47,3 +47,4 @@
 - No se creó cuenta, base, contenedor o volumen; no se ejecutó migrador, migración, grant ni SQL directo. Se usó únicamente el PostgreSQL nativo autorizado; no se modificaron fuentes backend, SQL, `planning/openapi.yaml`, Compose ni infraestructura. Sí se generaron tipos de frontend desde el contrato existente.
 - Política e inventario privados permanecieron bajo `.local/testing/` con permisos 0600 e ignorados por Git; no se guardó token temporal en disco. No se copiaron datos privados a documentación, capturas o commits.
 - API y Next efímeros se detuvieron. La comprobación final confirmó libres `18082`, `4205` y `4203`; PostgreSQL nativo y Mailpit preexistentes continuaron disponibles. No se inició Fase 4.
+- La publicación utilizó GitHub API tras confirmar `gh` como `HernanEspinozaDev`; se verificaron autor y árbol remoto de los commits. El commit de implementación es `74f166de60a1acded0d8cb8ed14b3cf07667ccf5`; la rama quedó sincronizada local/remoto y limpia.
