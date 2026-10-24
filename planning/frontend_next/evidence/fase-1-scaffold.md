@@ -35,10 +35,10 @@ Desde `frontend/` con Next.js `16.4.3`:
 - Antes del ensayo se verificó que no existía el contenedor `espacigo-frontend-phase1`.
 - `docker build -t espacigo-frontend-phase1:local .`: PASS. El Dockerfile copia `pnpm-workspace.yaml` antes de instalar, por lo que pnpm 12.15.0 aplica las exclusiones acotadas de cuarentena. Instalación frozen con `--ignore-scripts`, Next `16.4.3` y runtime standalone completó; el lockfile pasó la verificación de políticas.
 - `docker run --rm -d --name espacigo-frontend-phase1 -p 127.0.0.1:4202:4000 espacigo-frontend-phase1:local`: iniciado; `curl` verificó HTTP 200, shell en español y SVG; `docker inspect` confirmó usuario `node`, estado `running` y `health=healthy`.
-- La solicitud de parada al finalizar fue bloqueada por el modo no interactivo, que exige aprobación humana para `docker stop`. El contenedor propio puede seguir activo en `127.0.0.1:4202`; no se crearon ni modificaron volúmenes. No declarar el entorno de ensayo retirado hasta verificar su eliminación.
+- Tras completar el healthcheck, el padre detuvo y eliminó el contenedor exacto `espacigo-frontend-phase1`. Una comprobación posterior de `docker ps -a` confirmó que ya no existe. No se crearon ni modificaron volúmenes.
 
 ## Límites y siguiente paso
 
 Todas las comprobaciones fueron locales; no se visitó app pública/demo, no se usaron cuentas o datos reales y no se tocaron backend, SQL, infraestructura, Compose, volúmenes o datos. No se inició Fase 2.
 
-Los gates de instalación, lint, tipos, tests, formato, build Next, servidor local y build/ejecución/healthcheck Docker pasaron con Next `16.4.3`. Pendiente únicamente retirar el contenedor efímero mediante una vía aprobada; no se inició Fase 2.
+Los gates de instalación, lint, tipos, tests, formato, build Next, servidor local y build/ejecución/healthcheck Docker pasaron con Next `16.4.3`. El contenedor efímero fue retirado y la Fase 1 queda cerrada. No se inició Fase 2.
