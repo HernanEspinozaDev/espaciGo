@@ -1,0 +1,132 @@
+{
+  "baseHead": "f722047ca7e4effac7e909f86d2d1aff3aa15100",
+  "browser": "Chromium 155.0.8059.84 (Snap)",
+  "viewports": [
+    {
+      "width": 1365,
+      "height": 900
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "api": {
+    "mode": "Playwright route interception, same-origin only",
+    "runtimeConfig": "synthetic /config.json pins API to /api/v1 on the frontend origin",
+    "healthReady": "synthetic 200",
+    "applicationResponses": "synthetic 503 for same-origin /api/v1/*",
+    "externalHosts": "aborted and recorded before matching paths"
+  },
+  "routes": [
+    "/",
+    "/categorias",
+    "/como-funciona",
+    "/explorar",
+    "/terminos-y-condiciones",
+    "/politica-de-privacidad",
+    "/acceso",
+    "/registro",
+    "/verificar-correo",
+    "/recuperar-acceso"
+  ],
+  "checks": {
+    "pageErrors": 0,
+    "externalRequests": 0,
+    "documentOverflow": 0,
+    "axeViolations": 0,
+    "axeTags": [
+      "wcag2a",
+      "wcag2aa",
+      "wcag21a",
+      "wcag21aa",
+      "wcag22aa"
+    ],
+    "externalMatchingPathsBlocked": [
+      "https://outside.invalid/health/ready",
+      "https://outside.invalid/api/v1/public/listings"
+    ]
+  },
+  "captures": [
+    {
+      "file": "planning/frontend/evidencia/UX09_acceso-1365_local_sintetica.png",
+      "sha256": "5fbe95dc11bdb1d1ded9d18a1a730bb363a84f5b7aef40aa7064262f5a6a1b40"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_acceso-390_local_sintetica.png",
+      "sha256": "11314070244b32090d6a1993e71ce6bb27a5a8268ce19c960f9fe5abc429ff40"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_categorias-1365_local_sintetica.png",
+      "sha256": "3aa8933418b14423454545c34bb9be8216646207769cae5cea774effc92e1c27"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_categorias-390_local_sintetica.png",
+      "sha256": "bd7bfde803e8d39e3c1f7517bf9ebf691bb6013edbd8887d6d6ae1b715b969bc"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_como-funciona-1365_local_sintetica.png",
+      "sha256": "e109631f3a76e16661c3a6ef899d52d0e34277f4b198be1cb27d0af710d3233f"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_como-funciona-390_local_sintetica.png",
+      "sha256": "8cd8d20b32e9359d1f0c6d744388339d9be72687813842e943076057dc1e8dec"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_explorar-1365_local_sintetica.png",
+      "sha256": "a676328839c15f2756d98df7e9c0620089bff00104332b1ce7fa3a52877e73e7"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_explorar-390_local_sintetica.png",
+      "sha256": "f7d726be6efa438ad6e694c156b544148d845d51f2f5e9bd5a84343f528c503b"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_inicio-1365_local_sintetica.png",
+      "sha256": "4ad119d95c54f79f5111d14a183863d55c81478ececc46b2af4ad75f7ca96be2"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_inicio-390_local_sintetica.png",
+      "sha256": "635afdeb04f49d79fa712fc98526bde33f82254bf8067a1485f1cd2b8415b5ff"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_politica-de-privacidad-1365_local_sintetica.png",
+      "sha256": "0ebbdcfca5b694e3f810008b73432af6969f19fb4537a35ecbd5b4e37dcf462a"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_politica-de-privacidad-390_local_sintetica.png",
+      "sha256": "44058a7de854257dbd68aeaddc49295639618992bbe46f1d361dfb7e3d7ae718"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_recuperar-acceso-1365_local_sintetica.png",
+      "sha256": "7b86bd3e3d59dee556c7830320d2503403c5992e2b4275c29bd775eac658ac49"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_recuperar-acceso-390_local_sintetica.png",
+      "sha256": "1cd287296f854c97ff265112db3d7b8924575fa1a86b3806d63c5db400546092"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_registro-1365_local_sintetica.png",
+      "sha256": "966049960e41725f6027fdcca37db36133b1947e5652e3f9803d4d8f6af4e886"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_registro-390_local_sintetica.png",
+      "sha256": "1f5e30658de13c3848088916965594bc1385f349dbccafa093e8de8f37e71549"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_terminos-y-condiciones-1365_local_sintetica.png",
+      "sha256": "0ebbdcfca5b694e3f810008b73432af6969f19fb4537a35ecbd5b4e37dcf462a"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_terminos-y-condiciones-390_local_sintetica.png",
+      "sha256": "44058a7de854257dbd68aeaddc49295639618992bbe46f1d361dfb7e3d7ae718"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_verificar-correo-1365_local_sintetica.png",
+      "sha256": "ade751f7341fb415de7e157ce8e165c6ed792701b8f3bb4b07152945abec8fd1"
+    },
+    {
+      "file": "planning/frontend/evidencia/UX09_verificar-correo-390_local_sintetica.png",
+      "sha256": "39630f8f149d97edebfb6ed173d15bd8ba94b46553f1bc44332714516f08e794"
+    }
+  ]
+}
