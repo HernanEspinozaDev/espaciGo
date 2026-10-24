@@ -17,6 +17,38 @@ const publicRoutes = [
   { path: '/recuperar-acceso', title: /contraseña/ },
 ];
 
+function installSyntheticRouting(page, baseOrigin, externalRequests) {
+  page.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== baseOrigin) {
+      externalRequests.push(`${url.origin}${url.pathname}`);
+      return route.abort();
+    }
+    if (url.pathname === '/config.json') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ apiBaseUrl: '/api/v1', siteOrigin: baseOrigin }),
+      });
+    }
+    if (url.pathname === '/health/ready') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ready', synthetic: true }),
+      });
+    }
+    if (url.pathname.startsWith('/api/v1/')) {
+      return route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'synthetic_unavailable', message: 'Respuesta sintética no disponible.' } }),
+      });
+    }
+    return route.continue();
+  });
+}
+
 for (const routeCase of publicRoutes) {
   test(`UX09 public route ${routeCase.path} stays usable at desktop and mobile`, async ({ page }, testInfo) => {
     const errors = [];
@@ -24,26 +56,7 @@ for (const routeCase of publicRoutes) {
     const baseOrigin = new URL(testInfo.project.use.baseURL || 'http://angular-frontend:4000').origin;
     page.on('pageerror', (error) => errors.push(error.message));
 
-    await page.route('**/*', async (route) => {
-      const url = new URL(route.request().url());
-      if (url.pathname === '/health/ready') {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ status: 'ready', synthetic: true }),
-        });
-      }
-      if (url.pathname.startsWith('/api/v1/')) {
-        return route.fulfill({
-          status: 503,
-          contentType: 'application/json',
-          body: JSON.stringify({ error: { code: 'synthetic_unavailable', message: 'Respuesta sintética no disponible.' } }),
-        });
-      }
-      if (url.origin === baseOrigin) return route.continue();
-      externalRequests.push(url.origin);
-      return route.abort();
-    });
+    installSyntheticRouting(page, baseOrigin, externalRequests);
 
     for (const width of [1365, 390]) {
       await page.setViewportSize({ width, height: width < 500 ? 844 : 900 });
@@ -78,3 +91,26 @@ for (const routeCase of publicRoutes) {
     expect(externalRequests, routeCase.path).toEqual([]);
   });
 }
+
+test('UX09 never applies synthetic API responses to external origins', async ({ page }, testInfo) => {
+  const externalRequests = [];
+  const baseOrigin = new URL(testInfo.project.use.baseURL || 'http://angular-frontend:4000').origin;
+  installSyntheticRouting(page, baseOrigin, externalRequests);
+
+  const results = await page.evaluate(async () => Promise.all([
+    fetch('https://outside.invalid/health/ready'),
+    fetch('https://outside.invalid/api/v1/public/listings'),
+  ].map(async (request) => {
+    try {
+      return (await request).status;
+    } catch {
+      return 'blocked';
+    }
+  })));
+
+  expect(results).toEqual(['blocked', 'blocked']);
+  expect(externalRequests).toEqual([
+    'https://outside.invalid/health/ready',
+    'https://outside.invalid/api/v1/public/listings',
+  ]);
+});

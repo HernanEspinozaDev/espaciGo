@@ -12,10 +12,11 @@
     }
   ],
   "api": {
-    "mode": "Playwright route interception",
+    "mode": "Playwright route interception, same-origin only",
+    "runtimeConfig": "synthetic /config.json pins API to /api/v1 on the frontend origin",
     "healthReady": "synthetic 200",
-    "applicationResponses": "synthetic 503 for /api/v1/*",
-    "externalHosts": "blocked"
+    "applicationResponses": "synthetic 503 for same-origin /api/v1/*",
+    "externalHosts": "aborted and recorded before matching paths"
   },
   "routes": [
     "/",
@@ -40,6 +41,10 @@
       "wcag21a",
       "wcag21aa",
       "wcag22aa"
+    ],
+    "externalMatchingPathsBlocked": [
+      "https://outside.invalid/health/ready",
+      "https://outside.invalid/api/v1/public/listings"
     ]
   },
   "captures": [
