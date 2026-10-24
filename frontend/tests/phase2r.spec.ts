@@ -121,7 +121,7 @@ test("marketplace detail gallery changes images using the original navigation co
   await expect(page.getByText("2 / 2")).toBeVisible();
 });
 
-test("workspace account, security, login and pricing remain non-functional", async ({
+test("workspace account, security and pricing stay previews while login is enabled", async ({
   page,
 }) => {
   await page.goto("/dashboard/general");
@@ -145,11 +145,11 @@ test("workspace account, security, login and pricing remain non-functional", asy
   ).toBeDisabled();
 
   await page.goto("/login");
-  await expect(page.getByLabel("Correo electrónico")).toBeDisabled();
-  await expect(page.getByLabel("Contraseña")).toBeDisabled();
+  await expect(page.getByLabel("Correo electrónico")).toBeEnabled();
+  await expect(page.getByLabel("Contraseña")).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "Iniciar sesión" }),
-  ).toBeDisabled();
+  ).toBeEnabled();
 
   await page.goto("/pricing");
   await expect(

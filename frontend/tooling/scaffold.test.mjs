@@ -56,7 +56,7 @@ test("marketplace routes retain template compositions and use local space fixtur
   assert.match(fixtures, /parseVts/);
 });
 
-test("SaaS Starter pages are present and demo-only pricing/auth cannot submit", async () => {
+test("SaaS Starter pages are present; auth uses its API facade and pricing stays demo-only", async () => {
   for (const route of [
     "src/app/(workspace)/saas/page.tsx",
     "src/app/(workspace)/login/page.tsx",
@@ -69,7 +69,9 @@ test("SaaS Starter pages are present and demo-only pricing/auth cannot submit", 
   }
   const login = await read("src/app/(workspace)/login.tsx");
   const pricing = await read("src/app/(workspace)/pricing/page.tsx");
-  assert.match(login, /Autenticación y registro no están\s+conectados/);
+  assert.match(login, /useAuth/);
+  assert.match(login, /await login\(\{ email, password \}\)/);
+  assert.doesNotMatch(login, /\bfetch\s*\(/);
   assert.match(login, /disabled/);
   assert.match(pricing, /no funcional/i);
   assert.match(pricing, /no hay precios, suscripciones, checkout/);

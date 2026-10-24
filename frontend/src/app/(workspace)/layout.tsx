@@ -47,11 +47,11 @@ export default function WorkspaceLayout({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col min-h-screen bg-white">
+    <div className="flex flex-col min-h-screen bg-white">
       <Header />
       <div id="main-content" className="flex-1" tabIndex={-1}>
         {children}
       </div>
-    </section>
+    </div>
   );
 }
