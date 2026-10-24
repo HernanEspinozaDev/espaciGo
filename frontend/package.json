@@ -10,12 +10,14 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src/app/page.tsx src/app/layout.tsx next.config.ts eslint.config.mjs",
+    "lint": "eslint src playwright.config.ts tests tooling next.config.ts eslint.config.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test tooling/*.test.mjs",
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test --grep @a11y",
     "format:check": "prettier --check .",
-    "start:local": "mkdir -p .next/standalone/public && cp -R public/. .next/standalone/public/ && HOSTNAME=127.0.0.1 PORT=4201 node .next/standalone/server.js",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm format:check && pnpm build"
+    "start:local": "mkdir -p .next/standalone/public .next/standalone/.next && cp -R public/. .next/standalone/public/ && cp -R .next/static .next/standalone/.next/static && HOSTNAME=127.0.0.1 PORT=${PORT:-4201} node .next/standalone/server.js",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm format:check && pnpm build && pnpm test:e2e"
   },
   "dependencies": {
     "next": "16.4.3",
@@ -23,6 +25,8 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

@@ -1,8 +1,14 @@
-# EspaciGo Next.js frontend
+# Frontend Next.js de EspaciGo
 
-This directory contains the replacement frontend scaffold. It uses Next.js App Router, TypeScript strict mode, and pnpm. The initial page is intentionally a neutral shell; product routes and design systems belong to later approved phases.
+Aplicación única con App Router, React, TypeScript estricto y pnpm. La Fase 2 entrega dos shells visuales —marketplace público y panel demostrativo— sobre tokens y componentes compartidos. Todo el contenido del panel es sintético; no hay API, sesión, gateway, autenticación ni persistencia conectados.
 
-## Local checks
+## Rutas de demostración
+
+- `/`: shell público, categorías y tarjetas ilustrativas.
+- `/panel`: shell de administración responsive con estados de ejemplo.
+- `/design-system`: paleta, componentes, estados comunes y densidades.
+
+## Comprobaciones locales
 
 ```sh
 pnpm install --frozen-lockfile
@@ -11,8 +17,12 @@ pnpm typecheck
 pnpm test
 pnpm format:check
 pnpm build
+pnpm test:e2e
+pnpm test:a11y
 ```
 
-Run locally with `pnpm dev`. After `pnpm build`, `pnpm start:local` serves the standalone output on `127.0.0.1:4201`. The initial standalone Docker image is built from this directory and runs as the unprivileged `node` user on port 4000. It has no backend, database, or credential dependencies.
+`pnpm test` incluye la comprobación de contraste de tokens; Playwright arranca un servidor standalone en `127.0.0.1:4203` (configurable con `PLAYWRIGHT_PORT`) y verifica teclado, skip link, estados, accesibilidad axe y overflow en `390×844` y `1365×900`. Las capturas de comprobación se guardan bajo `../.local/frontend-phase2/` y no se versionan.
 
-The reference template clones live outside Git in `.local/frontend-template-sources/` at the commits recorded in `../planning/frontend_next/plan_frontend_next_hermes.md`. Use them only as visual/pattern references; do not merge their applications or platform-specific integrations.
+Para desarrollo visual usa `pnpm dev`. Después de `pnpm build`, `pnpm start:local` sirve la salida standalone en `127.0.0.1:4201`. La imagen Docker corre como usuario `node` en el puerto 4000 y no requiere backend, base de datos ni credenciales.
+
+Las plantillas locales en `.local/frontend-template-sources/` son referencias visuales/estructurales en los commits registrados en `../planning/frontend_next/plan_frontend_next_hermes.md`. No se incorporan sus plataformas, autenticación, dependencias de dominio ni persistencia.

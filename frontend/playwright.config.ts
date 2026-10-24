@@ -1,0 +1,30 @@
+import { defineConfig, devices } from "@playwright/test";
+
+const testPort = Number(process.env.PLAYWRIGHT_PORT ?? 4203);
+const baseURL = `http://127.0.0.1:${testPort}`;
+
+export default defineConfig({
+  testDir: "./tests",
+  fullyParallel: true,
+  reporter: "list",
+  timeout: 30_000,
+  expect: { timeout: 5_000 },
+  use: {
+    baseURL,
+    trace: "retain-on-failure",
+  },
+  projects: [
+    {
+      name: "chromium-local",
+      use: { ...devices["Desktop Chrome"] },
+    },
+  ],
+  webServer: {
+    command: `PORT=${testPort} pnpm start:local`,
+    url: baseURL,
+    reuseExistingServer: false,
+    timeout: 60_000,
+    stdout: "pipe",
+    stderr: "pipe",
+  },
+});

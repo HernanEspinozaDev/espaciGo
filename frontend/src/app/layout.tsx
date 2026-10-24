@@ -1,18 +1,23 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "EspaciGo",
-  description: "Encuentra tu espacio con EspaciGo.",
-  icons: { icon: "/espacigo-mark.svg" },
+  description: "Descubre espacios para tus próximos proyectos.",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+}: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        <a className="skip-link" href="#main-content">
+          Omitir al contenido principal
+        </a>
+        {children}
+      </body>
     </html>
   );
 }

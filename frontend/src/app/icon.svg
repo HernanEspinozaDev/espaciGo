@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="154 130 512 512">
+  <title>EspaciGo</title>
+  <defs>
+    <linearGradient id="terracotta" x1="295" y1="175" x2="535" y2="553" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EE8953"/>
+      <stop offset="0.48" stop-color="#D46236"/>
+      <stop offset="1" stop-color="#B94628"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="328" y1="516" x2="516" y2="433" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C04C2B"/>
+      <stop offset="1" stop-color="#E67B46"/>
+    </linearGradient>
+  </defs>
+  <path fill="url(#terracotta)" d="M592 204C548 166 489 150 433 156C315 164 218 255 217 363C214 418 233 460 272 491L402 612Q409 622 416 612C456 566 519 535 561 488C595 450 605 404 603 356Q603 335 582 335H511Q500 335 491 328L439 286Q426 275 414 284L329 352Q317 362 317 377V410Q325 431 340 444C310 420 298 392 298 369C298 293 358 231 433 231C466 230 496 243 532 265Q540 270 548 262L592 218Q599 211 592 204Z"/>
+  <path fill="url(#fold)" d="M272 491C340 537 425 532 489 475C524 444 550 442 578 451C556 501 499 538 455 572L416 612Q409 622 402 612Z"/>
+  <path fill="#fff" d="M340 444V401Q340 389 350 381L407 340Q417 332 427 340L491 389Q501 398 514 400V428C514 441 508 450 498 458C456 492 393 499 350 474Q344 470 340 466Z"/>
+  <g fill="#CA5732"><rect x="394" y="387" width="21" height="20" rx="4"/><rect x="421" y="387" width="21" height="20" rx="4"/><rect x="394" y="414" width="21" height="21" rx="4"/><rect x="421" y="414" width="21" height="21" rx="4"/></g>
+</svg>
