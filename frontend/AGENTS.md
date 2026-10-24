@@ -1,59 +1,94 @@
-You are an expert in TypeScript, Angular, and scalable web application development. You write functional, maintainable, performant, and accessible code following Angular and TypeScript best practices.
+# Frontend Next.js — reglas de desarrollo
 
-## TypeScript Best Practices
+Estas instrucciones se aplican a `frontend/` y complementan el `AGENTS.md` raíz. La instrucción humana más reciente prevalece.
 
-- Use strict type checking
-- Prefer type inference when the type is obvious
-- Avoid the `any` type; use `unknown` when type is uncertain
+## Alcance vigente
 
-## Angular Best Practices
+- El frontend Angular fue rechazado y será sustituido por una aplicación Next.js nueva.
+- Trabajar exclusivamente en la rama `frontend-next-hermes` y en su worktree aislado.
+- Para esta rama, el usuario autorizó a `HernanEspinozaDev` a desarrollar, commitear y publicar directamente.
+- No escribir en `main`, abrir PR, fusionar, desplegar ni probar online sin autorización posterior expresa.
+- Todo desarrollo y prueba debe ejecutarse localmente con datos sintéticos.
+- No usar el navegador o las pestañas del usuario; Playwright solo contra URL y puerto locales comprobados.
+- No modificar backend, SQL, Terraform, IAM, GCP, volúmenes o datos persistentes por inferencia desde una tarea frontend.
 
-- Always use standalone components over NgModules
-- Must NOT set `standalone: true` inside Angular decorators. It's the default in Angular v20+.
-- Do NOT set `changeDetection: ChangeDetectionStrategy.OnPush` explicitly. `OnPush` is the default in Angular v22+.
-- Use signals for state management
-- Implement lazy loading for feature routes
-- Do NOT use the `@HostBinding` and `@HostListener` decorators. Put host bindings inside the `host` object of the `@Component` or `@Directive` decorator instead
-- Use `NgOptimizedImage` for all static images.
-  - `NgOptimizedImage` does not work for inline base64 images.
+## Stack
 
-## Accessibility Requirements
+- Next.js estable con App Router.
+- React y TypeScript estricto.
+- pnpm fijado mediante `packageManager` y `pnpm-lock.yaml`.
+- Server Components por defecto; Client Components solo cuando requieran estado, eventos o APIs del navegador.
+- No usar versiones canary salvo autorización expresa y evidencia de necesidad.
 
-- It MUST pass all AXE checks.
-- It MUST follow all WCAG AA minimums, including focus management, color contrast, and ARIA attributes.
+## Arquitectura
 
-### Components
+- Construir una sola aplicación Next.js con route groups para marketplace público, identidad, cuenta, anfitrión, reservas y administración.
+- Mantener el flujo `UI → aplicación/fachada → puerto → adaptador → cliente generado → gateway → Go` en features con lógica.
+- Componentes y páginas no construyen rutas REST ni importan directamente transporte generado.
+- Go es la única autoridad para identidad, autorización, propiedad, capacidades, disponibilidad, precios, estados y transiciones.
+- No introducir PostgreSQL, ORM, autenticación, pagos o persistencia paralelos en Next.js.
+- Generar el cliente desde `planning/openapi.yaml`; no editar archivos generados.
 
-- Keep components small and focused on a single responsibility
-- Use `input()` and `output()` functions instead of decorators
-- Use `model()` for two-way bound properties with `[(prop)]` syntax instead of pairing `input()` with `output()`
-- Use `computed()` for derived state
-- Use `linkedSignal()` for state derived from multiple reactive sources that must stay synchronized
-- Prefer inline templates for small components
-- Prefer Signal Forms (`@angular/forms/signals`) for new forms. They are stable in Angular v22+ and provide signal-based state, type-safe field access, and schema-based validation
-- When not using Signal Forms, prefer Reactive forms instead of Template-driven ones
-- Do NOT use `ngClass`, use `class` bindings instead
-- Do NOT use `ngStyle`, use `style` bindings instead
-- Do NOT import `CommonModule`, import only the directives and pipes the template uses, such as `AsyncPipe` or `DatePipe`
-- When using external templates/styles, use paths relative to the component TS file.
+## Seguridad y sesión
 
-## State Management
+- El Bearer opaco vive solo en memoria.
+- Prohibido guardar tokens en cookies propias, `localStorage`, `sessionStorage`, IndexedDB, URLs, HTML SSR o logs.
+- No inventar refresh tokens, JWT o sesiones NextAuth/Auth.js sin un contrato nuevo aprobado.
+- Las áreas privadas usan shell más CSR autenticado; nunca compartir Bearer entre solicitudes SSR.
+- Navegación y controles administrativos dependen de capacidades confirmadas por Go, no solo de roles.
+- Respetar `restricted_mode`, revocaciones, respuestas tardías y expiración por generación de sesión.
+- No registrar cuerpos sensibles, credenciales, secretos ni cabeceras Authorization.
 
-- Use signals for local component state
-- Use `computed()` for derived state
-- Keep state transformations pure and predictable
-- Do NOT use `mutate` on signals, use `update` or `set` instead
+## Contrato y datos
 
-## Templates
+- JSON de request debe ser exacto: no enviar propiedades internas de UI.
+- Controlar errores por `error.code`, con fallback seguro por status y `X-Request-ID`.
+- Preservar `Retry-After` e información de validación disponible.
+- Reutilizar `Idempotency-Key` y payload durante reintentos de la misma intención.
+- Montos CLP exactos: no usar `float` ni conversiones inseguras de `int64`.
+- Go decide cotizaciones, vencimientos, disponibilidad y reglas de calendario.
+- Usar RFC 3339 y zonas IANA; cubrir `America/Santiago` y DST.
+- Cursores son opacos y no se reutilizan tras cambiar filtros.
+- Binarios y descargas privadas usan Blob URLs temporales, revocadas al cambiar sesión/recurso o desmontar.
 
-- Keep templates simple and avoid complex logic
-- Use native control flow (`@if`, `@for`, `@switch`) instead of `*ngIf`, `*ngFor`, `*ngSwitch`
-- Use the async pipe to handle observables
-- Do not assume globals like (`new Date()`) are available.
+## Plantillas
 
-## Services
+- Your Next Store y Next.js SaaS Starter son referencias visuales y estructurales, no dependencias de dominio.
+- Clonarlas únicamente bajo `.local/frontend-template-sources/`, ignorado por Git.
+- No copiar `.git`, lockfiles, secretos, configuraciones de despliegue ni instrucciones AGENTS de las plantillas.
+- No incorporar Commerce Kit, YNS, Bun, Drizzle, JWT/cookies propios, bcrypt, Stripe, billing o equipos SaaS.
+- Registrar atribuciones MIT en `THIRD_PARTY_NOTICES.md` cuando se copie código reconocible.
 
-- Design services around a single responsibility
-- Use the `providedIn: 'root'` option for singleton services
-- Prefer the `@Service` decorator over `@Injectable({providedIn: 'root'})` for new singleton services (Angular v22+)
-- Use the `inject()` function instead of constructor injection
+## Marca
+
+Del frontend anterior solo se permite recuperar `public/espacigo-mark.svg` y favicon derivados de esa marca. No restaurar componentes, estilos, páginas, lógica Angular o SDK Angular.
+
+## UI y accesibilidad
+
+- Marketplace público y aplicación SaaS comparten tokens y componentes base, aunque tengan densidades distintas.
+- Componentes pequeños, composición explícita y props tipadas; evitar `any`.
+- HTML semántico, landmarks, skip link, labels persistentes y foco visible.
+- Navegación completa por teclado y objetivos táctiles adecuados.
+- No depender solo del color; respetar movimiento reducido.
+- Objetivo WCAG 2.2 AA y AXE sin violaciones conocidas en rutas principales.
+- Imágenes con dimensiones/sizes correctos y prioridad solo para LCP real.
+
+## Calidad
+
+Antes de cerrar un corte ejecutar según corresponda:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm format:check
+pnpm build
+```
+
+Cuando existan los harness correspondientes, añadir Playwright, AXE, validación OpenAPI, arranque local y Docker.
+
+- Los comandos de CI deben comprobar, no reescribir archivos.
+- No elevar presupuestos o desactivar reglas para ocultar fallos.
+- No afirmar integración por mocks o capturas: distinguir unitario, presentación, API local real y E2E.
+- Registrar HEAD, pruebas, resultados, límites y siguiente paso en la evidencia de cada fase.

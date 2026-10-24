@@ -1,23 +1,22 @@
-FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS build
-
+FROM node:24.21.0-alpine AS build
+ENV NEXT_TELEMETRY_DISABLED=1
 WORKDIR /app
-RUN npm install --global npm@12.1.0
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN corepack enable && corepack prepare pnpm@12.15.0 --activate
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY . .
-RUN npm run build
+RUN pnpm build
 
-FROM node:24.21.0-alpine3.23@sha256:9ec4a2e289874ed0d722e1772ec2de45d2801541db8612f3638b26f128c69ac2 AS runtime
-
-ENV NODE_ENV=production
-ENV PORT=4000
-ENV API_PUBLIC_BASE_URL=http://localhost:8080/api/v1
+FROM node:24.21.0-alpine AS runtime
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=4000 \
+    HOSTNAME=0.0.0.0
 WORKDIR /app
-RUN npm install --global npm@12.1.0
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
-COPY --from=build /app/dist/frontend ./dist/frontend
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
 USER node
 EXPOSE 4000
-HEALTHCHECK --interval=10s --timeout=3s --retries=5 --start-period=10s CMD node -e "fetch('http://127.0.0.1:4000/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
-CMD ["node", "dist/frontend/server/server.mjs"]
+HEALTHCHECK --interval=10s --timeout=3s --retries=5 --start-period=10s CMD node -e "fetch('http://127.0.0.1:4000/').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+CMD ["node", "server.js"]
