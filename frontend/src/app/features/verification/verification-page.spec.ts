@@ -158,13 +158,7 @@ describe('VerificationPage', () => {
     const api = defaults();
     const { f, identity } = fixture(api);
     await identity.signIn('a@example.invalid', 'secret');
-    f.detectChanges();
     await ensureLoaded(f);
-    expect([...f.nativeElement.querySelectorAll('.verification-index a')].map((link: HTMLAnchorElement) => link.getAttribute('href'))).toEqual([
-      '#eligibility-heading',
-      '#create-heading',
-      '#cases-heading',
-    ]);
     expect(page(f).cases()[0].state).toBe('en_revision');
     expect(page(f).eligibility()?.items[0].eligible).toBe(false);
     expect(api.create).not.toHaveBeenCalled();

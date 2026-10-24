@@ -11,6 +11,7 @@ import {
   ValidatorFn,
   Validators,
 } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { ModelControls } from '../../shared/forms/model-controls';
 import { HostingSpacesFacade } from './application/hosting-spaces-facade';
 import type { SpaceAttributeProfile, SpaceGalleryPhoto, SpaceMediaPhoto } from '../../core/contracts/models';
@@ -18,7 +19,7 @@ import type { SpaceAttributeProfile, SpaceGalleryPhoto, SpaceMediaPhoto } from '
 @Component({
   providers: [ModelControls, HostingSpacesFacade],
   selector: 'app-hosting-spaces-page',
-  imports: [UiButton, ReactiveFormsModule, DatePipe],
+  imports: [UiButton, ReactiveFormsModule, RouterLink, DatePipe],
   templateUrl: './hosting-spaces-page.html',
   styleUrl: './hosting-spaces-page.scss',
 })
@@ -376,7 +377,6 @@ export class HostingSpacesPage {
   readonly zoneLabel = this.facade.zoneLabel.bind(this.facade);
   readonly goTo = this.facade.goTo.bind(this.facade);
   readonly newDraft = this.facade.newDraft.bind(this.facade);
-  readonly retry = this.facade.load.bind(this.facade);
   readonly closePhoto = this.facade.closePhoto.bind(this.facade);
   readonly setNotice = this.facade.setNotice.bind(this.facade);
   readonly zoneDateTime = this.facade.zoneDateTime.bind(this.facade);

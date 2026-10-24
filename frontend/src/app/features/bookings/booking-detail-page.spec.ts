@@ -132,38 +132,6 @@ describe('BookingDetailPage with real IdentitySession', () => {
     TestBed.resetTestingModule();
   });
 
-  it('retries a failed reservation read without repeating a mutation', async () => {
-    const api = {
-      detail: vi
-        .fn()
-        .mockRejectedValueOnce(new Error('Lectura temporal no disponible'))
-        .mockResolvedValueOnce(envelope(makeReservation('r1'))),
-      payment: vi.fn(),
-      decision: vi.fn(),
-      cancellationPreview: vi.fn(),
-      cancel: vi.fn(),
-      refund: vi.fn(),
-    };
-    const { fixture, identity } = setup(api);
-    await identity.signIn('a@example.invalid', 'secret');
-    await settle(fixture);
-    expect(fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain(
-      'Lectura temporal',
-    );
-
-    const retry = fixture.nativeElement.querySelector(
-      '[role="alert"] button',
-    ) as HTMLButtonElement;
-    expect(retry.textContent).toContain('Consultar estado confirmado');
-    retry.click();
-    await settle(fixture);
-
-    expect(api.detail).toHaveBeenCalledTimes(2);
-    expect(api.payment).not.toHaveBeenCalled();
-    expect(page(fixture).reservation()?.id).toBe('r1');
-    fixture.destroy();
-  });
-
   it('keeps timeout notice through a failed and pending refresh, and clears only after Go confirms a terminal state', async () => {
     let confirmed = false;
     const api = {

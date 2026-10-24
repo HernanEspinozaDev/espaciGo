@@ -1,46 +1,15 @@
-@use '../../../../styles/metrics';
-
 :host {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
+  display: block;
   padding: var(--space-4);
-  border: 1px solid var(--status-neutral-border);
   border-radius: var(--radius-md);
-  color: var(--status-neutral-text);
-  background: var(--status-neutral-background);
-}
-.state-icon {
-  display: grid;
-  width: 1.5rem;
-  min-height: 1.5rem;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--surface-card);
-  font-weight: metrics.$font-weight-bold;
-  line-height: normal;
-}
-.state-content {
-  min-width: 0;
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
 }
 :host([data-ui-state='error']) {
-  border-color: var(--status-error-border);
-  color: var(--status-error-text);
-  background: var(--status-error-background);
+  color: var(--color-error);
+  background: var(--color-error-soft);
 }
 :host([data-ui-state='success']) {
-  border-color: var(--status-success-border);
-  color: var(--status-success-text);
-  background: var(--status-success-background);
-}
-:host([data-ui-state='pending']) {
-  border-color: var(--status-warning-border);
-  color: var(--status-warning-text);
-  background: var(--status-warning-background);
-}
-:host([data-ui-state='restricted']) {
-  border-color: var(--status-info-border);
-  color: var(--status-info-text);
-  background: var(--status-info-background);
+  color: var(--color-success);
+  background: var(--color-success-soft);
 }

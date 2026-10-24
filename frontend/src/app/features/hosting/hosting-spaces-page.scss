@@ -11,7 +11,7 @@ $terracotta-500: var(--brand-primary);
   padding: metrics.$space-2rem metrics.$space-1-25rem metrics.$space-5rem;
   color: $ink;
 }
-.hosting-page-heading,
+.hosting-intro,
 .editor-heading,
 .card-heading,
 .rail-heading,
@@ -21,54 +21,21 @@ $terracotta-500: var(--brand-primary);
   justify-content: space-between;
   gap: metrics.$space-1rem;
 }
-.hosting-page-heading {
+.hosting-intro {
   margin: 0 auto metrics.$space-1-8rem;
-  align-items: flex-end;
+  padding: metrics.$space-1-6rem;
+  border-radius: 1.4rem;
+  color: $cream;
+  background: linear-gradient(120deg, $terracotta-700, $terracotta-500);
 }
-.hosting-page-heading h1 {
+.hosting-intro h1 {
   margin: metrics.$space-0-1rem 0 metrics.$space-0-4rem;
-  color: var(--color-text);
-  font-family: metrics.$font-family-display;
-  font-size: metrics.$font-size-variant-43;
-  font-weight: metrics.$font-weight-500;
-  letter-spacing: metrics.$letter-spacing-neg-0-035em;
-  line-height: metrics.$line-height-1-1;
+  font-size: metrics.$font-size-variant-41;
 }
-.resource-context {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: metrics.$space-0-5rem;
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: metrics.$font-size-0-85rem;
-}
-.resource-context strong {
-  color: var(--color-text);
-  font-weight: metrics.$font-weight-semibold;
-}
-.page-subtitle {
-  max-width: 42rem;
-  margin: 0;
-  color: var(--color-text-muted);
+.hosting-intro p {
+  max-width: 650px;
+  margin: metrics.$space-0-4rem 0 0;
   line-height: metrics.$line-height-1-5;
-}
-.new-draft-action {
-  flex: 0 0 auto;
-  gap: metrics.$space-0-5rem;
-}
-.new-draft-action > span {
-  font-size: metrics.$font-size-1-2rem;
-  line-height: metrics.$line-height-1-1;
-}
-.load-error {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: metrics.$space-1rem;
-}
-.load-error p {
-  margin: 0;
 }
 .eyebrow {
   margin: 0 0 metrics.$space-0-3rem;
@@ -79,7 +46,7 @@ $terracotta-500: var(--brand-primary);
 }
 .hosting-layout {
   display: grid;
-  grid-template-columns: minmax(15rem, 0.85fr) minmax(0, 1.8fr);
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: metrics.$space-1-2rem;
   align-items: start;
 }
@@ -88,113 +55,54 @@ $terracotta-500: var(--brand-primary);
 .panel-card,
 .sub-card {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
+  border-radius: 1.1rem;
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
+  box-shadow: 0 8px 28px var(--shadow-color);
 }
 .space-rail {
   position: sticky;
-  top: var(--space-4);
+  top: 1rem;
   padding: metrics.$space-1rem;
 }
 .space-rail h2 {
   margin: 0;
   font-size: metrics.$font-size-1rem;
 }
-.rail-heading p {
-  margin: metrics.$space-0-25rem 0 0;
-  color: var(--color-text-muted);
-  font-size: metrics.$font-size-0-82rem;
-}
-.space-count {
-  display: inline-grid;
-  min-width: metrics.$control-min-size;
-  min-height: metrics.$control-min-size;
-  place-items: center;
-  border-radius: 50%;
+.rail-heading span {
+  border-radius: 99px;
   background: var(--brand-primary-soft);
-  color: var(--brand-primary-hover);
-  font-weight: metrics.$font-weight-semibold;
+  padding: metrics.$space-0-2rem metrics.$space-0-55rem;
 }
-.space-list {
+.space-rail ul {
   list-style: none;
   padding: 0;
-  margin: metrics.$space-1rem 0 0;
+  margin: metrics.$space-1rem 0;
   display: grid;
   gap: metrics.$space-0-45rem;
 }
-.space-list li {
-  min-width: 0;
-}
 .space-choice {
   display: grid;
-  grid-template-columns: metrics.$space-3-5rem minmax(0, 1fr);
-  align-items: center;
-  justify-content: start;
-  gap: metrics.$space-0-75rem;
+  gap: metrics.$space-0-28rem;
   width: 100%;
-  min-height: metrics.$space-5rem;
-  padding: metrics.$space-0-5rem;
-  border-color: transparent;
-  color: var(--color-text);
-  text-align: start;
+  text-align: left;
+  padding: metrics.$space-0-75rem;
+  border: 1px solid transparent;
+  border-radius: 0.8rem;
+  color: inherit;
+  background: transparent;
 }
-.space-choice:hover,
-.space-choice--active,
-.space-choice[aria-current='true'] {
-  border-color: var(--color-border);
-  background: var(--color-surface-subtle);
-}
-.space-choice__body {
-  display: grid;
-  min-width: 0;
-  gap: metrics.$space-0-25rem;
-}
-.space-choice__body strong {
-  overflow-wrap: anywhere;
-  color: var(--color-text);
-  font-size: metrics.$font-size-0-9rem;
-  line-height: metrics.$line-height-1-4;
-}
-.space-choice__category,
-.space-choice__status {
+.space-choice span {
   color: var(--color-text-muted);
   font-size: metrics.$font-size-0-8rem;
 }
-.space-choice__status {
-  width: fit-content;
-  border-radius: var(--radius-sm);
-  padding-inline: metrics.$space-0-35rem;
-  background: var(--brand-primary-soft);
-  color: var(--brand-primary-hover);
-  font-weight: metrics.$font-weight-semibold;
+.space-choice:hover,
+.space-choice--active {
+  border-color: var(--color-border);
+  background: var(--color-surface-subtle);
 }
-.space-choice__status[data-state='activa'] {
-  color: var(--status-success-text);
-  background: var(--status-success-background);
-}
-.space-choice__status[data-state='oculta'] {
-  background: var(--color-text-muted);
-  color: var(--color-surface);
-}
-.space-art {
-  display: grid;
-  width: metrics.$space-3-5rem;
-  aspect-ratio: 1;
-  place-items: center;
-  overflow: hidden;
-  border-radius: var(--radius-lg);
-  color: var(--brand-primary-hover);
-  background: linear-gradient(145deg, var(--color-surface-subtle), var(--brand-primary-soft));
-  font-size: metrics.$font-size-1-35rem;
-}
-.list-footnote {
-  margin: metrics.$space-1rem 0 0;
-  border-top: 1px solid var(--color-border);
-  padding-block-start: metrics.$space-0-75rem;
-  color: var(--color-text-muted);
-  font-size: metrics.$font-size-0-82rem;
-  line-height: metrics.$line-height-1-45;
+.rail-create {
+  width: 100%;
+  margin-top: metrics.$space-1rem;
 }
 .editor {
   padding: clamp(metrics.$space-1rem, metrics.$space-2-5vw, metrics.$space-1-7rem);
@@ -202,26 +110,10 @@ $terracotta-500: var(--brand-primary);
 }
 .editor-heading {
   margin-bottom: metrics.$space-1rem;
-  align-items: flex-start;
-}
-.editor-heading > div {
-  min-width: 0;
-}
-.editor-heading .resource-context {
-  margin-bottom: metrics.$space-0-75rem;
-}
-.editor-heading .eyebrow {
-  margin-bottom: metrics.$space-0-25rem;
 }
 .editor-heading h2 {
   margin: metrics.$space-0-15rem 0 0;
   font-size: metrics.$font-size-1-45rem;
-  overflow-wrap: anywhere;
-}
-.resource-summary {
-  margin: metrics.$space-0-25rem 0 0;
-  color: var(--color-text-muted);
-  font-size: metrics.$font-size-0-88rem;
 }
 .state-pill {
   padding: metrics.$space-0-35rem metrics.$space-0-65rem;
@@ -253,27 +145,10 @@ $terracotta-500: var(--brand-primary);
   background: transparent;
   white-space: nowrap;
 }
-.section-tabs button[aria-current='page'] {
+.section-tabs button.selected {
   color: var(--brand-primary-hover);
   border-color: var(--brand-primary);
   font-weight: metrics.$font-weight-750;
-}
-.next-step {
-  margin-block-end: metrics.$space-1rem;
-}
-.next-step .eyebrow {
-  margin-bottom: metrics.$space-0-25rem;
-  color: var(--brand-primary-hover);
-}
-.next-step h3 {
-  margin: 0;
-  font-size: metrics.$font-size-1rem;
-}
-.next-step p:last-child {
-  margin: metrics.$space-0-25rem 0 0;
-  color: var(--color-text-muted);
-  font-size: metrics.$font-size-0-88rem;
-  line-height: metrics.$line-height-1-45;
 }
 .panel-card {
   padding: clamp(metrics.$space-1rem, metrics.$space-2vw, metrics.$space-1-5rem);
@@ -666,16 +541,10 @@ textarea {
   .hosting-shell {
     padding: metrics.$space-1rem metrics.$space-0-8rem metrics.$space-3rem;
   }
-  .hosting-page-heading {
-    align-items: stretch;
+  .hosting-intro {
+    align-items: flex-start;
     flex-direction: column;
-  }
-  .new-draft-action {
-    width: 100%;
-  }
-  .load-error {
-    align-items: stretch;
-    flex-direction: column;
+    padding: metrics.$space-1-2rem;
   }
   .space-rail ul,
   .form-grid,
@@ -689,12 +558,6 @@ textarea {
   }
   .card-heading {
     flex-direction: column;
-  }
-  .editor-heading {
-    align-items: flex-start;
-  }
-  .resource-context {
-    overflow-wrap: anywhere;
   }
   .card-heading > p {
     text-align: left;

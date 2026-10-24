@@ -8,14 +8,6 @@
       elegibilidad; esta pantalla no asigna roles.
     </p>
   </header>
-  @if (session()) {
-    <nav class="verification-index" aria-label="Secciones de verificación">
-      <span>En esta página</span>
-      <a href="#eligibility-heading">Elegibilidad</a>
-      <a href="#create-heading">Nuevo caso</a>
-      <a href="#cases-heading">Historial</a>
-    </nav>
-  }
   @if (error()) {
     <p class="alert error" role="alert">{{ error() }}</p>
   }

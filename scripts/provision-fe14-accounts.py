@@ -54,13 +54,8 @@ def main():
     if not ids or not all(item.get('synthetic') for item in terms['items']):
         raise RuntimeError('Go did not provide synthetic terms')
 
-    supported_roles = ('renter', 'host', 'admin', 'globalAdmin', 'thirdParty')
-    roles = tuple(filter(None, os.environ.get('FE14_ACCOUNT_ROLES', ','.join(supported_roles)).split(',')))
-    if not roles or len(set(roles)) != len(roles) or any(role not in supported_roles for role in roles):
-        raise RuntimeError('invalid synthetic account role selection')
-
     result = {}
-    for role in roles:
+    for role in ('renter', 'host', 'admin', 'globalAdmin', 'thirdParty'):
         email = f'fe14-{run_id}-{role.lower()}@ejemplo.invalid'
         password = 'F14!' + secrets.token_urlsafe(24)
         status, _ = request(api, 'POST', '/api/v1/auth/register', {
@@ -83,7 +78,7 @@ def main():
     with os.fdopen(fd, 'w', encoding='utf-8') as stream:
         json.dump(result, stream)
     os.chmod(target, 0o600)
-    print(f'PASS Go registered and verified {len(result)} disposable synthetic account(s); credentials are stored in a mode-0600 temporary file')
+    print('PASS Go registered and verified five disposable synthetic accounts; credentials are stored in a mode-0600 temporary file')
 
 
 if __name__ == '__main__':
@@ -98,7 +93,6 @@ if __name__ == '__main__':
             'Go did not provide synthetic terms',
             'Go did not register a synthetic account',
             'Go did not verify a synthetic account',
-            'invalid synthetic account role selection',
         } else 'synthetic account setup failed without exposing response content'
         print('ERROR ' + safe, file=sys.stderr)
         raise SystemExit(1)

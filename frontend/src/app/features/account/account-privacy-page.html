@@ -8,17 +8,6 @@
     </p>
   </header>
 
-  @if (session()) {
-    <nav class="account-index" aria-label="Secciones de tu cuenta">
-      <span>En esta página</span>
-      <a href="#profile-heading">Perfil</a>
-      <a href="#photo-heading">Foto</a>
-      <a href="#payout-heading">Cuenta de cobro</a>
-      <a href="#rights-heading">Acceso y supresión</a>
-      <a href="#export-heading">Exportación</a>
-    </nav>
-  }
-
   @if (error()) {
     <p class="alert error" role="alert">{{ error() }}</p>
   }

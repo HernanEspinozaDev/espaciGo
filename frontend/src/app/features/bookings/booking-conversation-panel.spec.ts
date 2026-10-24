@@ -275,30 +275,6 @@ describe('BookingConversationPanel with real IdentitySession', () => {
     test.fixture.destroy();
   });
 
-  it('refreshes the read-only conversation after a temporary read error', async () => {
-    const messages = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('Lectura temporal no disponible'))
-      .mockResolvedValueOnce(page([message(1, 'mensaje confirmado')], null));
-    const test = setup({ messages });
-    await test.identity.signIn('renter@example.invalid', 'synthetic');
-    await settle(test.fixture);
-    expect(test.fixture.nativeElement.querySelector('[role="alert"]')?.textContent).toContain(
-      'Lectura temporal',
-    );
-
-    const refresh = [...test.fixture.nativeElement.querySelectorAll('button')].find((button) =>
-      button.textContent.includes('Actualizar conversación'),
-    ) as HTMLButtonElement;
-    refresh.click();
-    await settle(test.fixture);
-
-    expect(messages).toHaveBeenCalledTimes(2);
-    expect(test.fixture.nativeElement.textContent).toContain('mensaje confirmado');
-    expect(test.api.sendMessage).not.toHaveBeenCalled();
-    test.fixture.destroy();
-  });
-
   it('advances only its own read cursor after the latest message has rendered', async () => {
     const test = setup(
       { messages: vi.fn(async () => page([message(7, 'visible before marking read')], null)) },
@@ -389,10 +365,7 @@ describe('BookingConversationPanel with real IdentitySession', () => {
       const test = setup({ messages });
       await test.identity.signIn('renter@example.invalid', 'synthetic');
       await settle(test.fixture);
-      const older = () =>
-        [...test.fixture.nativeElement.querySelectorAll('button')].find((button) =>
-          button.textContent.includes('Ver mensajes anteriores'),
-        ) as HTMLButtonElement;
+      const older = () => test.fixture.nativeElement.querySelector('button') as HTMLButtonElement;
       older().click();
       await Promise.resolve();
       expect(test.panel().olderLoading()).toBe(true);

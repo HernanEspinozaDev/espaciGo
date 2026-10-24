@@ -1,12 +1,4 @@
-import {
-  DestroyRef,
-  Injectable,
-  Injector,
-  WritableSignal,
-  effect,
-  inject,
-  untracked,
-} from '@angular/core';
+import { DestroyRef, Injectable, Injector, WritableSignal, effect, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl } from '@angular/forms';
 
@@ -47,13 +39,11 @@ export class ModelControls {
     if (!control) {
       control = new FormControl(source(), { nonNullable: true });
       const current = control;
-      untracked(() =>
-        effect(
-          () => {
-            if (current.value !== source()) current.setValue(source(), { emitEvent: false });
-          },
-          { injector: this.injector },
-        ),
+      effect(
+        () => {
+          if (current.value !== source()) current.setValue(source(), { emitEvent: false });
+        },
+        { injector: this.injector },
       );
       control.valueChanges.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((value) => {
         if (onChange) onChange(value);

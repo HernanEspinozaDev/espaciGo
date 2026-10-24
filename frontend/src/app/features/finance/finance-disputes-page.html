@@ -1,8 +1,4 @@
-<div
-  class="finance-page"
-  [class.admin-mode]="admin"
-  [attr.aria-busy]="loading() || busy() ? 'true' : null"
->
+<main class="finance-page">
   <a class="back" routerLink="/reservas">← Volver a reservas</a>
   <header>
     <p class="eyebrow">{{ admin ? 'GESTIÓN AUTORIZADA' : 'TU RESERVA' }}</p>
@@ -22,17 +18,7 @@
     </button>
   </div>
   @if (error()) {
-    <div class="error" role="alert">
-      <p>{{ error() }}</p>
-      <button
-        appButton="secondary"
-        type="button"
-        [disabled]="loading() || busy()"
-        (click)="refresh()"
-      >
-        {{ loading() ? 'Consultando…' : 'Volver a consultar estado en Go' }}
-      </button>
-    </div>
+    <p class="error" role="alert">{{ error() }}</p>
   }
   @if (loading()) {
     <p role="status">Cargando estado confirmado…</p>
@@ -361,4 +347,4 @@
       }
     </div>
   }
-</div>
+</main>

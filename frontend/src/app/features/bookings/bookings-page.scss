@@ -26,13 +26,6 @@ h1 {
   background: var(--brand-primary-soft);
   font-weight: metrics.$font-weight-700;
 }
-.empty,
-.card {
-  border-radius: var(--radius-xl);
-}
-.card {
-  box-shadow: var(--shadow-card);
-}
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
@@ -83,14 +76,8 @@ dd {
   text-decoration: none;
 }
 .error {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: metrics.$space-0-75rem metrics.$space-1rem;
   padding: metrics.$space-0-8rem;
-  border-radius: var(--radius-lg);
+  border-radius: 0.6rem;
   background: var(--color-error-soft);
   color: var(--brand-primary-hover);
-  p { margin: 0; }
 }

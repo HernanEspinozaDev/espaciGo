@@ -2,8 +2,8 @@
 
 | Primitiva usada | API | Estados/semántica | Tokens y consumidores |
 | --- | --- | --- | --- |
-| `UiButton` | `button[appButton]` o `a[appButton]`; variante primary/secondary/text | Elemento nativo; disabled conserva semántica y contraste; foco visible compartido; tamaño mínimo 44px. No asigna permisos ni hace HTTP. | Colores semánticos, espaciado y radio compartidos. Shell y features. |
-| `UiState` | `<app-state kind="loading|pending|empty|error|success|restricted">…</app-state>` | Error usa role=alert/aria-live=assertive; otros estados role=status/polite. Icono decorativo oculto a lector de pantalla; contenido proyectado y atómico, sin reglas del dominio. | Tokens semánticos de estado/superficie. Usado en la carga KYC; variantes reutilizables. |
+| `UiButton` | `button[appButton]` o `a[appButton]`; variante primary/secondary/text | Elemento nativo; disabled conserva semántica; foco compartido; min-height 44px. No asigna permisos ni hace HTTP. | Colores semánticos y espaciado/radio compartidos. Shell y features. |
+| `UiState` | `<app-state kind="loading|empty|error|success">…</app-state>` | Error usa role=alert/aria-live=assertive; otros estados role=status/polite. Contenido proyectado, sin reglas del dominio. | Tokens de superficie/error/success. Usado en la carga KYC; variantes pueden reutilizarse en vistas futuras. |
 | `ModelControls` | forProperty/forSignal devuelve FormControl tipado; por instancia de vista | Sincronización de modelo/señal y reset sin reescritura; handlers de transición de la feature conservan invalidación. Subs se destruyen con la vista. | Oferta/admin; FormGroup/FormRecord tipados, sin ngModel. |
 | `FocusMonitor` (CDK) | focusVia en el shell | Escape devuelve foco al menú; NavigationEnd/render enfoca el h1; SSR no toca DOM. | Anillo azul compartido de 3px. |
 
@@ -17,12 +17,8 @@ Las variantes de negocio (precios, contratos, elegibilidad, evidencia autorizada
 
 Stylelint valida padding/margin/gaps y tipografía; rechaza literales, tokens desconocidos, variables locales y fallbacks arbitrarios. Las queries de viewport se declaran solo en el módulo común, incluidos los rangos de media queries. El chequeo AST prohíbe CSS inline de componentes; ESLint revisa templates externos e inline y prohíbe estilos literales. Se admiten bindings dinámicos de datos, como las coordenadas del mapa sintético. No hay excepciones generales por feature.
 
-## Fundamentos UX-02
+La comparación con `f461c2eab3cdf5f2bd6f94e2981c72b20d0c400e` es evidencia histórica de FE-14; no acredita automáticamente equivalencia del HEAD actual. La restauración del frontend tras el rechazo de UX-02–UX-09 se compara directamente con #539, según `restauracion_pre_redisenio_20261023.md`. La compilación valida el build, no la aceptación visual del usuario.
 
-`_metrics.scss` agrega nombres semánticos para tipografía, control (44px), movimiento y foco, anclados a la escala existente. `_tokens.scss` concentra superficies, elevación y estados semánticos. Fuentes y colores de marca conservan el valor visual del baseline; el encabezado enfocado mantiene su desplazamiento de 0,35rem. Las primitivas no asignan permisos ni incorporan transporte.
+## Estado tras la restauración solicitada
 
-`UiState` distingue carga, pendiente, vacío, error recuperable, éxito y acceso restringido. Solo error interrumpe con `alert/assertive`; el resto usa `status/polite`. Cada variante incorpora un símbolo decorativo oculto a lectores de pantalla y anuncia el contenido proyectado como una unidad. `UiButton` sigue usando semántica nativa y representa disabled sin reducir la opacidad del control.
-
-`design-token-contrast.test.mjs` calcula contraste WCAG AA de texto (4,5:1), contorno de foco y borde de control (3:1). `state.spec.ts` recorre las seis variantes y valida sus atributos accesibles con axe. Estos checks verifican primitivas compartidas; no demuestran permisos de servidor ni reemplazan una evaluación visual de una feature.
-
-La comparación `check-frontend-style-compatibility.mjs` contra `f461c2eab3cdf5f2bd6f94e2981c72b20d0c400e` fue evidencia histórica de la migración FE-14, no un check reproducible para el HEAD actual: ese baseline precede cambios de estilo posteriores y UX-02 introduce cambios visuales intencionales en disabled y `UiState`. En UX-02 los alias Sass de fuente, tamaño/ritmo del body, tamaño mínimo, movimiento y foco referencian los valores ya presentes en `_metrics.scss`; el build actual valida compilación, no equivalencia byte a byte de todas las hojas.
+El catálogo vuelve a las primitivas de #539. Las variantes `pending` y `restricted`, los alias semánticos y el test de contraste añadidos en UX-02 no se presentan como capacidades actuales de la base restaurada. Sus fuentes y pruebas permanecen en la historia Git y las evidencias de planning se conservan como historia del diseño rechazado. La nueva implementación debe contrastarse con la maqueta A y revisar cada ruta localmente antes de proponer publicación.

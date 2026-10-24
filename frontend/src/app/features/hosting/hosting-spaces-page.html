@@ -1,22 +1,21 @@
 <main class="hosting-shell">
-  <header class="hosting-page-heading">
+  <section class="hosting-intro">
     <div>
+      <p class="eyebrow">PANEL DE ANFITRIÓN · ENSAYO LOCAL</p>
       <h1>Mis espacios</h1>
-      <p class="page-subtitle">Tus borradores y publicaciones, con el próximo paso a la vista.</p>
+      <p>
+        Administra tus borradores, publicaciones y calendario. Go confirma permisos, elegibilidad y
+        conflictos.
+      </p>
     </div>
-    <button appButton="primary" class="button button--primary new-draft-action" type="button" (click)="newDraft()">
-      <span aria-hidden="true">＋</span> Nuevo borrador
-    </button>
-  </header>
+    <a appButton="secondary" class="button button--quiet" routerLink="/explorar">Ver catálogo</a>
+  </section>
 
   @if (loading()) {
     <p class="status" role="status">Cargando espacios propios desde Go…</p>
   }
   @if (loadingError()) {
-    <div class="alert load-error" role="alert">
-      <p>{{ loadingError() }}</p>
-      <button appButton="secondary" type="button" (click)="retry()" [disabled]="loading()">Reintentar</button>
-    </div>
+    <p class="alert" role="alert">{{ loadingError() }}</p>
   }
   @if (error()) {
     <p class="alert" role="alert">{{ error() }}</p>
@@ -31,38 +30,39 @@
   <div class="hosting-layout">
     <aside class="space-rail" aria-label="Tus espacios">
       <div class="rail-heading">
-        <div>
-          <h2>Espacios propios</h2>
-          <p>{{ spaces().length }} {{ spaces().length === 1 ? 'espacio' : 'espacios' }} registrados</p>
-        </div>
-        <span class="space-count" aria-label="Cantidad de espacios propios">{{ spaces().length }}</span>
+        <h2>Espacios propios</h2>
+        <span>{{ spaces().length }}</span>
       </div>
-      @if (!loading() && spaces().length === 0 && !loadingError()) {
-        <p class="empty"><strong>Aún no tienes espacios.</strong> Cuando guardes un borrador, aparecerá aquí para que puedas continuar.</p>
+      @if (spaces().length === 0) {
+        <p class="empty">
+          Todavía no tienes espacios. Completa el formulario para crear tu primer borrador.
+        </p>
       } @else {
-        <ul class="space-list">
+        <ul>
           @for (space of spaces(); track space.id) {
             <li>
               <button
-                appButton="text"
+                appButton="primary"
                 type="button"
                 class="space-choice"
                 [class.space-choice--active]="selectedSpace()?.id === space.id"
-                [attr.aria-current]="selectedSpace()?.id === space.id ? 'true' : null"
                 (click)="goTo(space.id)"
               >
-                <span class="space-art" aria-hidden="true">⌂</span>
-                <span class="space-choice__body">
-                  <strong>{{ space.title || 'Borrador sin título' }}</strong>
-                  <span class="space-choice__category">{{ space.category_name }}</span>
-                  <span class="space-choice__status" [attr.data-state]="space.state">{{ labelState(space.state) }}</span>
-                </span>
+                <strong>{{ space.title || 'Borrador sin título' }}</strong>
+                <span>{{ space.category_name }} · {{ labelState(space.state) }}</span>
               </button>
             </li>
           }
         </ul>
       }
-      <p class="list-footnote">El servicio confirma los cambios y el estado de cada espacio.</p>
+      <button
+        appButton="primary"
+        class="button button--primary rail-create"
+        type="button"
+        (click)="newDraft()"
+      >
+        + Nuevo borrador
+      </button>
     </aside>
 
     <section class="editor" aria-label="Gestión del espacio" [attr.aria-busy]="detailLoading()">
@@ -73,10 +73,8 @@
         @if (selectedSpace(); as space) {
           <header class="editor-heading">
             <div>
-              <p class="resource-context"><span>Mis espacios</span><span aria-hidden="true">›</span><span>{{ space.title || 'Borrador sin título' }}</span><span aria-hidden="true">›</span><strong>{{ sectionTitle() }}</strong></p>
-              <p class="eyebrow">{{ space.category_name }}</p>
+              <p class="eyebrow">{{ space.category_name }} · {{ labelState(space.state) }}</p>
               <h2>{{ space.title || 'Borrador sin título' }}</h2>
-              <p class="resource-summary">{{ formatClp(tariff()?.base_price ?? space.base_price_clp) }} por {{ tariff()?.rate_unit ?? space.rate_unit }} <span aria-hidden="true">·</span> {{ labelState(space.state) }}</p>
             </div>
             <span class="state-pill" [attr.data-state]="space.state">{{
               labelState(space.state)
@@ -87,7 +85,6 @@
               appButton="primary"
               type="button"
               [class.selected]="section() === 'datos'"
-              [attr.aria-current]="section() === 'datos' ? 'page' : null"
               (click)="goTo(space.id, 'datos')"
             >
               Datos
@@ -96,7 +93,6 @@
               appButton="primary"
               type="button"
               [class.selected]="section() === 'tarifas'"
-              [attr.aria-current]="section() === 'tarifas' ? 'page' : null"
               (click)="goTo(space.id, 'tarifas')"
             >
               Tarifas
@@ -105,7 +101,6 @@
               appButton="primary"
               type="button"
               [class.selected]="section() === 'calendario'"
-              [attr.aria-current]="section() === 'calendario' ? 'page' : null"
               (click)="goTo(space.id, 'calendario')"
             >
               Calendario
@@ -114,7 +109,6 @@
               appButton="primary"
               type="button"
               [class.selected]="section() === 'galeria'"
-              [attr.aria-current]="section() === 'galeria' ? 'page' : null"
               (click)="goTo(space.id, 'galeria')"
             >
               Galería
@@ -124,36 +118,17 @@
           <header class="editor-heading">
             <div>
               <p class="eyebrow">NUEVO ESPACIO</p>
-              <h2>Prepara tu primer borrador</h2>
-              <p class="resource-summary">Los datos se guardan al confirmar el formulario. Go valida el resultado.</p>
+              <h2>Prepara un borrador</h2>
             </div>
           </header>
         }
 
         @if (!selectedSpace() || section() === 'datos') {
-          <section class="status next-step" aria-labelledby="next-step-title">
-            <div>
-              <p class="eyebrow">SIGUIENTE PASO</p>
-              <h3 id="next-step-title">
-                @if (!selectedSpace()) { Completa los datos del espacio }
-                @else if (selectedSpace()!.state === 'borrador') { Continúa con los datos del borrador }
-                @else if (selectedSpace()!.state === 'activa') { Tu publicación está activa }
-                @else { Tu publicación está oculta }
-              </h3>
-              <p>
-                @if (!selectedSpace() || selectedSpace()!.state === 'borrador') {
-                  Guarda los cambios para validarlos. Go confirma el resultado y cualquier requisito para publicar.
-                } @else {
-                  Los cambios y la visibilidad quedan sujetos a la confirmación del servicio.
-                }
-              </p>
-            </div>
-          </section>
           <section class="panel-card">
             <div class="card-heading">
               <div>
-                <p class="eyebrow">DATOS DEL ESPACIO</p>
-                <h3>{{ selectedSpace() ? 'Revisa y edita los datos' : 'Completa los datos del borrador' }}</h3>
+                <p class="eyebrow">CONFIGURACIÓN</p>
+                <h3>{{ selectedSpace() ? 'Completa tu borrador' : 'Completa los datos del borrador' }}</h3>
               </div>
               <p>Los campos obligatorios se validan también en Go.</p>
             </div>

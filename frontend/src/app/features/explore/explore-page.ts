@@ -116,7 +116,7 @@ export class ExplorePage {
       start_at: 'Desde', end_at: 'Hasta', min_total_clp: 'Total estimado desde', max_total_clp: 'Total estimado hasta',
       sort: 'Orden',
     };
-    const active = Object.entries(labels).filter(([key]) => Boolean(f[key as keyof typeof f]) && !(key === 'sort' && f.sort === 'default')).map(([key, label]) => {
+    const active = Object.entries(labels).filter(([key]) => Boolean(f[key as keyof typeof f])).map(([key, label]) => {
       const value = String(f[key as keyof typeof f]);
       const formatted = key === 'category_code'
         ? this.categories().find((item) => item.code === value)?.name ?? value
