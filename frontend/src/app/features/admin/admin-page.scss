@@ -52,12 +52,14 @@
   line-height: metrics.$line-height-1-5;
 }
 .admin-tabs {
-  display: flex;
-  gap: metrics.$space-0-5rem;
-  overflow-x: auto;
-  padding: metrics.$space-0-5rem 0 metrics.$space-1rem;
-  border-bottom: 1px solid var(--color-border);
-  scrollbar-width: thin;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  gap: metrics.$space-0-6rem;
+  margin: metrics.$space-1-25rem 0;
+  padding: metrics.$space-0-65rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  background: var(--color-surface-subtle);
 }
 .admin-tabs button,
 .secondary-button,
@@ -72,9 +74,13 @@
   cursor: pointer;
 }
 .admin-tabs button {
-  flex: 0 0 auto;
   background: var(--color-canvas);
   color: var(--color-text);
+  text-align: left;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
 }
 .admin-tabs button.active {
   background: var(--brand-primary-hover);
@@ -82,7 +88,11 @@
   color: white;
 }
 .admin-content {
-  padding: metrics.$space-1-25rem 0;
+  padding: metrics.$space-1-25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 1rem;
+  background: var(--color-canvas);
+  box-shadow: var(--shadow-card);
 }
 .section-heading {
   align-items: center;
@@ -192,6 +202,10 @@ button:disabled {
   border: 1px solid var(--color-border);
   border-radius: 0.85rem;
   background: var(--color-surface);
+}
+.record-card:focus-within,
+.evidence-row:focus-within {
+  border-color: var(--brand-accent);
 }
 .record-card summary {
   display: flex;
@@ -303,5 +317,15 @@ pre {
   }
   .record-card summary {
     display: grid;
+  }
+  .admin-content {
+    padding: metrics.$space-0-85rem;
+  }
+  .admin-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .admin-tabs button {
+    min-height: 3rem;
+    padding-inline: metrics.$space-0-65rem;
   }
 }

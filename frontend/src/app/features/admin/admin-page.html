@@ -1,4 +1,4 @@
-<main class="admin-page">
+<div class="admin-page">
   <header class="admin-heading">
     <div>
       <p class="eyebrow">Panel privado · acceso administrativo</p>
@@ -13,24 +13,25 @@
     reales.
   </p>
 
-  <nav class="admin-tabs" aria-label="Secciones administrativas">
+  <div class="admin-tabs" aria-label="Secciones administrativas" role="group">
     @for (section of sections; track section.id) {
       <button
         appButton="primary"
         type="button"
         [class.active]="active() === section.id"
+        [attr.aria-pressed]="active() === section.id"
         (click)="selectSection(section.id)"
       >
         {{ section.label }}
       </button>
     }
-  </nav>
+  </div>
 
-  <section class="admin-content" aria-live="polite">
+  <section class="admin-content" aria-labelledby="admin-section-title">
     <div class="section-heading">
       <div>
         <p class="eyebrow">Operaciones locales</p>
-        <h2>{{ title(active()) }}</h2>
+        <h2 id="admin-section-title">{{ title(active()) }}</h2>
       </div>
       @if (active() !== 'reports') {
         <button
@@ -431,4 +432,4 @@
       </div>
     }
   </section>
-</main>
+</div>
