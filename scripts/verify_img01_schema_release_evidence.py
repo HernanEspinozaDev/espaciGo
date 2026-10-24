@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a recent, read-only IMG-01 schema report against this checkout.
+"""Validate an approved, read-only IMG-01 schema report against this checkout.
 
 This checks report integrity and declared contents; it does not authenticate
 the database connection or prove report provenance. A matching GCS generation
@@ -107,7 +107,13 @@ def migration_inventory(directory: Path) -> list[dict[str, object]]:
     return files
 
 
-def validate(path: Path, migrations_dir: Path, query_path: Path, now: datetime | None = None) -> dict[str, object]:
+def validate(
+    path: Path,
+    migrations_dir: Path,
+    query_path: Path,
+    now: datetime | None = None,
+    expected_captured_at: str | None = None,
+) -> dict[str, object]:
     try:
         evidence = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -121,9 +127,14 @@ def validate(path: Path, migrations_dir: Path, query_path: Path, now: datetime |
     require(evidence["format"] == FORMAT, "unsupported schema evidence format")
 
     captured_at = parse_time(evidence["captured_at"])
+    if expected_captured_at is not None:
+        require(
+            evidence["captured_at"] == expected_captured_at,
+            "report captured_at differs from the checked-in attestation",
+        )
     current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     age_seconds = (current_time - captured_at).total_seconds()
-    require(-120 <= age_seconds <= 6 * 60 * 60, "schema evidence is older than six hours or is from the future")
+    require(age_seconds >= -120, "schema evidence capture time is too far in the future")
 
     expected_query_sha = hashlib.sha256(query_path.read_bytes()).hexdigest()
     require(evidence["query_sha256"] == expected_query_sha, "evidence query hash does not match the reviewed SQL source")
@@ -221,14 +232,20 @@ def main() -> int:
     parser.add_argument("evidence", type=Path)
     parser.add_argument("--migrations", type=Path, default=Path("db/migrations"))
     parser.add_argument("--query", type=Path, default=Path("db/query/img01_schema_release_evidence.sql"))
+    parser.add_argument("--expected-captured-at")
     args = parser.parse_args()
     try:
-        report = validate(args.evidence, args.migrations, args.query)
+        report = validate(
+            args.evidence,
+            args.migrations,
+            args.query,
+            expected_captured_at=args.expected_captured_at,
+        )
     except EvidenceError as exc:
         print(f"schema evidence rejected: {exc}", file=sys.stderr)
         return 1
     print(
-        "schema evidence passed: "
+        "versioned schema release attestation validated: "
         f"database={report['target']['database']} "
         f"migrations={report['migration_ledger']['count']} "
         f"captured_at={report['captured_at']}"

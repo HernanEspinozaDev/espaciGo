@@ -20,9 +20,6 @@ substitutions:
   _DATABASE_NAME: espacigo_dms_stage_20261020
   _DATABASE_SECRET: espacigo-test-database-password-v67
   _DATABASE_SECRET_VERSION: "1"
-  _APP_SCHEMA_EVIDENCE_URI: ""
-  _APP_SCHEMA_EVIDENCE_GENERATION: ""
-  _APP_SCHEMA_EVIDENCE_SHA256: ""
   _CONTRACT_SECRET: espacigo-test-contract-encryption-key
   _CONTRACT_SECRET_VERSION: "1"
   _PAYMENT_SECRET: espacigo-test-payment-webhook-secret
@@ -55,10 +52,7 @@ steps:
     args:
       - -ceu
       - |
-        [[ -n "${_APP_SCHEMA_EVIDENCE_URI}" && -n "${_APP_SCHEMA_EVIDENCE_GENERATION}" && -n "${_APP_SCHEMA_EVIDENCE_SHA256}" ]]
         [[ -n "${_AUTH_SMTP_HOST}" && -n "${_AUTH_SMTP_PORT}" && -n "${_AUTH_SMTP_SECURITY}" && -n "${_AUTH_SMTP_PASSWORD_SECRET}" && -n "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" ]]
-        [[ "${_APP_SCHEMA_EVIDENCE_GENERATION}" =~ ^[1-9][0-9]*$ ]]
-        [[ "${_APP_SCHEMA_EVIDENCE_SHA256}" =~ ^[a-f0-9]{64}$ ]]
         [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]
         [[ "${_REGION}" == southamerica-west1 && "${_PROJECT}" == espacigo-testprod ]]
         [[ "${_DATABASE_INSTANCE}" == espacigo-testprod-db && "${_DATABASE_NAME}" == espacigo_dms_stage_20261020 ]]
@@ -68,16 +62,22 @@ steps:
         [[ ("${_AUTH_SMTP_PORT}" == "587" && "${_AUTH_SMTP_SECURITY}" == "starttls") || ("${_AUTH_SMTP_PORT}" == "465" && "${_AUTH_SMTP_SECURITY}" == "tls") ]]
         [[ "${_AUTH_SMTP_PASSWORD_SECRET}" =~ ^[a-z][a-z0-9-]{2,62}$ ]]
         [[ "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" =~ ^[1-9][0-9]*$ ]]
-        schema_evidence_uri="gs://${_LOCK_BUCKET}/img01-schema-evidence/${_APP_SCHEMA_EVIDENCE_SHA256}.json"
-        [[ "${_APP_SCHEMA_EVIDENCE_URI}" == "$$schema_evidence_uri" ]]
-        schema_evidence_generation=$$(gcloud storage objects describe "$$schema_evidence_uri" --format='value(generation)')
-        [[ "$$schema_evidence_generation" == "${_APP_SCHEMA_EVIDENCE_GENERATION}" ]]
-        gcloud storage cp "$$schema_evidence_uri" /workspace/img01-schema-evidence.json >/dev/null
-        schema_evidence_sha256=$$(sha256sum /workspace/img01-schema-evidence.json | awk '{print $$1}')
-        [[ "$$schema_evidence_sha256" == "${_APP_SCHEMA_EVIDENCE_SHA256}" ]]
+        # BEGIN schema-attestation gate
         schema_python=$$(gcloud info --format='value(basic.python_location)')
         [[ "$$schema_python" == /* && -x "$$schema_python" ]]
-        "$$schema_python" scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json --migrations db/migrations --query db/query/img01_schema_release_evidence.sql
+        "$$schema_python" scripts/resolve_img01_schema_release_attestation.py db/schema-evidence/img01-release-attestation.json --source-commit "$COMMIT_SHA" > /workspace/schema-evidence-reference
+        [[ "$$(wc -l < /workspace/schema-evidence-reference)" == 4 ]]
+        schema_evidence_uri=$$(sed -n '1p' /workspace/schema-evidence-reference)
+        schema_evidence_expected_generation=$$(sed -n '2p' /workspace/schema-evidence-reference)
+        schema_evidence_expected_sha256=$$(sed -n '3p' /workspace/schema-evidence-reference)
+        schema_evidence_captured_at=$$(sed -n '4p' /workspace/schema-evidence-reference)
+        schema_evidence_actual_generation=$$(gcloud storage objects describe "$$schema_evidence_uri" --format='value(generation)')
+        [[ "$$schema_evidence_actual_generation" == "$$schema_evidence_expected_generation" ]]
+        gcloud storage cp "$$schema_evidence_uri" /workspace/img01-schema-evidence.json >/dev/null
+        schema_evidence_actual_sha256=$$(sha256sum /workspace/img01-schema-evidence.json | awk '{print $$1}')
+        [[ "$$schema_evidence_actual_sha256" == "$$schema_evidence_expected_sha256" ]]
+        "$$schema_python" scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json --migrations db/migrations --query db/query/img01_schema_release_evidence.sql --expected-captured-at "$$schema_evidence_captured_at"
+        # END schema-attestation gate
         gcloud secrets describe "${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" >/dev/null
         smtp_version_state=$$(gcloud secrets versions describe "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" --secret="${_AUTH_SMTP_PASSWORD_SECRET}" --project="${_PROJECT}" --format='value(state)')
         [[ "$$smtp_version_state" == ENABLED ]]

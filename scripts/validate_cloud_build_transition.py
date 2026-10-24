@@ -2,9 +2,16 @@
 """Local/CI structural validation for the Cloud Build-only rollout."""
 from __future__ import annotations
 
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
+
+from resolve_img01_schema_release_attestation import (
+    AttestationError,
+    validate as validate_schema_attestation,
+)
 
 try:
     import yaml
@@ -197,29 +204,50 @@ def main() -> int:
         errors.append("builds must serialize on a GCS lock")
     schema_gate_step = next((step for step in steps if step.get("id") == "acquire-and-validate-deploy-lock"), {})
     schema_gate_script = "\n".join(schema_gate_step.get("args", []))
-    schema_evidence_substitutions = (
-        "_APP_SCHEMA_EVIDENCE_URI",
-        "_APP_SCHEMA_EVIDENCE_GENERATION",
-        "_APP_SCHEMA_EVIDENCE_SHA256",
-    )
-    if any(substitutions.get(key) != "" for key in schema_evidence_substitutions):
-        errors.append("schema evidence location/generation/digest must remain empty until a recent live database report is approved")
+    schema_attestation_path = Path("db/schema-evidence/img01-release-attestation.json")
+    try:
+        attestation = json.loads(schema_attestation_path.read_text(encoding="utf-8"))
+        source_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        validate_schema_attestation(
+            schema_attestation_path,
+            Path("db/migrations"),
+            Path("db/query/img01_schema_release_evidence.sql"),
+            source_commit,
+        )
+        for older_commit, newer_commit, label in (
+            (attestation["migration_source_commit"], attestation["validation_source_commit"], "migration source"),
+            (attestation["validation_source_commit"], source_commit, "capture validation source"),
+        ):
+            ancestor = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", older_commit, newer_commit],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            if ancestor.returncode != 0:
+                errors.append(f"attested {label} commit must be an ancestor of the next reviewed source")
+    except (AttestationError, OSError, KeyError, TypeError, ValueError, subprocess.CalledProcessError) as exc:
+        errors.append(f"checked-in schema release attestation is invalid: {exc}")
+    if any(key.startswith("_APP_SCHEMA_EVIDENCE_") for key in substitutions):
+        errors.append("schema evidence must resolve from the checked-in attestation, not trigger substitutions")
     schema_evidence_contract = (
-        '[[ -n "${_APP_SCHEMA_EVIDENCE_URI}" && -n "${_APP_SCHEMA_EVIDENCE_GENERATION}" && -n "${_APP_SCHEMA_EVIDENCE_SHA256}" ]]',
-        '[[ "${_APP_SCHEMA_EVIDENCE_GENERATION}" =~ ^[1-9][0-9]*$ ]]',
-        '[[ "${_APP_SCHEMA_EVIDENCE_SHA256}" =~ ^[a-f0-9]{64}$ ]]',
+        'scripts/resolve_img01_schema_release_attestation.py db/schema-evidence/img01-release-attestation.json --source-commit "$COMMIT_SHA"',
         'gcloud storage objects describe "$$schema_evidence_uri"',
         'gcloud storage cp "$$schema_evidence_uri" /workspace/img01-schema-evidence.json',
         'sha256sum /workspace/img01-schema-evidence.json',
         "schema_python=$$(gcloud info --format='value(basic.python_location)')",
         '[[ "$$schema_python" == /* && -x "$$schema_python" ]]',
         '"$$schema_python" scripts/verify_img01_schema_release_evidence.py /workspace/img01-schema-evidence.json',
-        "img01-schema-evidence/${_APP_SCHEMA_EVIDENCE_SHA256}.json",
+        '--expected-captured-at "$$schema_evidence_captured_at"',
+        '[[ "$$schema_evidence_actual_generation" == "$$schema_evidence_expected_generation" ]]',
+        '[[ "$$schema_evidence_actual_sha256" == "$$schema_evidence_expected_sha256" ]]',
     )
     if any(token not in schema_gate_script for token in schema_evidence_contract):
-        errors.append("release must validate a generation-pinned, digest-pinned live schema evidence report before deployment")
+        errors.append("release must resolve and validate the checked-in generation-pinned schema attestation before deployment")
     if schema_gate_script.find("verify_img01_schema_release_evidence.py") > schema_gate_script.find("--if-generation-match=0"):
-        errors.append("live schema evidence must be verified before the deployment lock is created")
+        errors.append("versioned schema attestation must be verified before the deployment lock is created")
     evidence_validator = Path("scripts/verify_img01_schema_release_evidence.py").read_text(encoding="utf-8")
     for token in (
         "schema_migrations", "space_media", "claim_private_media_cleanup",

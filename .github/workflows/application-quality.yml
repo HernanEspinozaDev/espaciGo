@@ -38,6 +38,7 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Test BuildKit attestation verifier
         run: python3 -m unittest discover -s scripts -p 'test_verify_gcp07_attestations.py'
       # GCP-07D preview/apply policy targeted the retired Actions-to-Terraform
@@ -52,6 +53,8 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_classify_gcp08_terraform_failure.py'
       - name: Validate Cloud Build application deployment config
         run: python3 scripts/validate_cloud_build_transition.py
+      - name: Test IMG-01 schema evidence and versioned release attestation
+        run: python3 -m unittest discover -s scripts -p 'test_img01_schema_release_*.py'
       - name: Test schema gate in its pinned Cloud SDK image
         run: bash scripts/test-cloudbuild-schema-sdk.sh
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v4.0.1
