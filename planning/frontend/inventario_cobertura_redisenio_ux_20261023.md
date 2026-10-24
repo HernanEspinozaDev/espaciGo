@@ -28,7 +28,7 @@ El usuario eligió **A · Editorial funcional** el 2026-10-23 desde `http://127.
 | `/reservas/:id/disputas` | Evidencia/finanzas de reserva según datos, permisos, reversa/garantía/liquidación y estados actuales | UX-06 reserva y finanzas | UX-06 en este PR: reintento de lectura; no mezclar importes ni afirmar pago por timeout |
 | `/administracion` | Inicio, perfiles operativos y colas de capacidades existentes | UX-07 administración operativa | UX-07 implementado en este PR; selector de secciones accesible/responsive, sin soporte/tickets ni KPI inventados |
 | `/administracion/disputas` | Cola, ficha, evidencia y decisiones/motivos cuando las capacidades vigentes lo permiten | UX-07 administración operativa | UX-07 implementado en este PR; diseño administrativo responsive, acciones y control de Go conservados |
-| `/administracion/global` | Directorios de cuentas/publicaciones, filtros/paginación, ficha, capacidades por operación, indicadores/auditoría existentes | UX-08 administración global | Pendiente; acciones sensibles dependen de permiso de servidor |
+| `/administracion/global` | Directorios de cuentas/publicaciones, filtros/paginación, ficha, capacidades por operación, indicadores/auditoría existentes | UX-08 administración global | Implementación local en rama UX-08; pendiente PR y revisión independiente. Acciones sensibles siguen dependiendo del permiso de servidor. |
 | `**` → `/` | Ruta no reconocida y retorno seguro | UX-03 shell/nav; pruebas UX-09 | Pendiente |
 
 ## Cobertura de acciones por área
@@ -80,6 +80,14 @@ La comprobación de acceso y experiencia en servicios online la realiza exclusiv
 - `npm audit --omit=dev --audit-level=low`: PASS, cero vulnerabilidades.
 
 El baseline y la cobertura no afirman que el rediseño ya exista en producción. Cada fila cambiará a “implementada” solo en el PR correspondiente y con evidencia sobre su HEAD probado.
+
+## Evidencia UX-08 (implementación local; revisión pendiente)
+
+- `/administracion/global` separa Cuentas, Publicaciones, Indicadores y Auditoría en destinos seleccionables y visibles solo con su capacidad vigente. En móvil, cuentas y publicaciones se presentan como tarjetas; las tablas completas permanecen en escritorio. Indicadores y auditoría tienen áreas de trabajo separadas. No se agregan operaciones, métricas ni permisos y se conservan las acciones actuales.
+- Playwright local con Chromium 155.0.8059.84, frontend en `127.0.0.1:4387` y API totalmente interceptada con datos sintéticos `.invalid`; se bloquearon destinos externos. Cuatro vistas se capturaron a 1365 px y 390 px. Las ocho vistas no presentan overflow del documento, errores de página ni infracciones axe WCAG 2.0/2.1/2.2 A/AA. La evidencia no representa integración con Go/PostgreSQL ni validación online.
+- Capturas y SHA-256: escritorio cuentas `planning/frontend/evidencia/UX08_accounts_desktop_local_sintetica.png` (`109dc9d29b1ac63b355ddfe1baef370b86d6599c51c017069390abe636ba4c4f`), móvil cuentas `UX08_accounts_mobile_local_sintetica.png` (`be4eca633636534b04f110266fd6f5e771d2573a81c515591fd0667ce1b28c6c`), escritorio publicaciones `UX08_publications_desktop_local_sintetica.png` (`b3513126d298f954ca9f363d6170fce842576602cb3c5047a6f286037a414dd6`), móvil publicaciones `UX08_publications_mobile_local_sintetica.png` (`c8c9c92c8ed97e80738f6ba3a7091b80214bc4579abf01ffddef69d7222f7e4d`), escritorio indicadores `UX08_kpis_desktop_local_sintetica.png` (`ba27d43bc931a462cae81115d5199728664f6644f183e8ff893f6b74e75e4b00`), móvil indicadores `UX08_kpis_mobile_local_sintetica.png` (`61eac1a14d3de07483401792fa26094560db116ea8b5889a152f53324971cf1a`), escritorio auditoría `UX08_audit_desktop_local_sintetica.png` (`641c147487231bdb0643021073efe53a2dfc9bdca3eb83cc61393993696c592c`) y móvil auditoría `UX08_audit_mobile_local_sintetica.png` (`71125dd5741ef9c13fd9559b43c42949b607162f9f96527dc4fcbbcc251f1aa3`).
+- Verificación local: `npm test -- --watch=false` 359/359 en 45 archivos; suite global 26/26; `npm run lint`, `npm run api:check`, `npm run build` y `git diff --check`: PASS. Build mantiene el warning previo de `hosting-spaces-page.scss` (11,49/9,00 kB).
+- La evidencia corresponde al estado local sobre base merge UX-07 `2ad5c82f00433f0a25aa902eff3a41535f5cff60`; falta crear el PR y obtener revisión independiente. La aceptación visual y comprobación online corresponden exclusivamente al usuario.
 
 ## Evidencia UX-04 (PR #543)
 

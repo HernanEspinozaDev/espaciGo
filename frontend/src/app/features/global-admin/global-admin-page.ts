@@ -19,6 +19,7 @@ type DirectoryFilters = FormGroup<{
   createdUntil: FormControl<string>;
 }>;
 type PublicationFilters = FormGroup<{search:FormControl<string>;ownerId:FormControl<string>;category:FormControl<string>;state:FormControl<string>;visible:FormControl<string>}>;
+type GlobalAdminSection = 'accounts' | 'publications' | 'kpis' | 'audit';
 
 @Component({
   selector: 'app-global-admin-page',
@@ -51,7 +52,7 @@ export class GlobalAdminPage {
   readonly loadingDetail = this.vm.loadingDetail;
   readonly publications = this.vm.publications;
   readonly loadingPublications = this.vm.loadingPublications;
-  readonly activeTab = signal<'accounts'|'publications'|'reports'>('accounts');
+  readonly activeTab = signal<GlobalAdminSection>('accounts');
   readonly reportFrom=new FormControl('',{nonNullable:true});readonly reportUntil=new FormControl('',{nonNullable:true});readonly reportZone=new FormControl('America/Santiago',{nonNullable:true});
   readonly auditFrom=new FormControl('',{nonNullable:true});readonly auditUntil=new FormControl('',{nonNullable:true});readonly auditActor=new FormControl('',{nonNullable:true});readonly auditTarget=new FormControl('',{nonNullable:true});readonly auditResource=new FormControl('',{nonNullable:true});readonly auditResourceId=new FormControl('',{nonNullable:true});readonly auditAction=new FormControl('',{nonNullable:true});readonly auditReason=new FormControl('',{nonNullable:true});readonly auditCorrelation=new FormControl('',{nonNullable:true});readonly auditResult=new FormControl('',{nonNullable:true});
   readonly appliedAudit=signal<AuditFilter|null>(null);
@@ -125,6 +126,7 @@ export class GlobalAdminPage {
       this.previousIdentityContext = context;
       this.previousResetRevision = controlsResetRevision;
       if (!token || !canList) this.clearPrivateControls();
+      if (!this.canOpenSection(this.activeTab())) this.activeTab.set('accounts');
     });
   }
 
@@ -177,7 +179,35 @@ export class GlobalAdminPage {
     void this.vm.load({});
   }
 
-  showTab(tab:'accounts'|'publications'|'reports'):void{this.activeTab.set(tab);if(tab==='publications'&&!this.publications())void this.searchPublications();if(tab==='reports'){const now=new Date(),week=new Date(now.getTime()-7*86400000);const local=(d:Date)=>new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16);if(!this.reportFrom.value){this.reportFrom.setValue(local(week));this.auditFrom.setValue(local(week));}if(!this.reportUntil.value){this.reportUntil.setValue(local(now));this.auditUntil.setValue(local(now));}if(this.identity.session()?.capabilities?.includes('kpi.read'))void this.searchKPIs();}}
+  showTab(tab: GlobalAdminSection): void {
+    if (!this.canOpenSection(tab)) return;
+    this.activeTab.set(tab);
+    if (tab === 'publications' && !this.publications()) void this.searchPublications();
+    if (tab !== 'kpis' && tab !== 'audit') return;
+
+    const now = new Date();
+    const week = new Date(now.getTime() - 7 * 86400000);
+    const local = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const from = local(week);
+    const until = local(now);
+    if (tab === 'kpis') {
+      if (!this.reportFrom.value) this.reportFrom.setValue(from);
+      if (!this.reportUntil.value) this.reportUntil.setValue(until);
+      void this.searchKPIs();
+      return;
+    }
+    if (!this.auditFrom.value) this.auditFrom.setValue(from);
+    if (!this.auditUntil.value) this.auditUntil.setValue(until);
+  }
+
+  private canOpenSection(section: GlobalAdminSection): boolean {
+    switch (section) {
+      case 'accounts': return this.hasCapability('accounts.list');
+      case 'publications': return this.hasCapability('publications.list');
+      case 'kpis': return this.hasCapability('kpi.read');
+      case 'audit': return this.hasCapability('audit.read');
+    }
+  }
   searchKPIs():void{if(!this.reportFrom.value||!this.reportUntil.value)return;void this.vm.loadKPIs({from:new Date(this.reportFrom.value).toISOString(),until:new Date(this.reportUntil.value).toISOString(),time_zone:this.reportZone.value});}
   searchAudit():void{if(!this.auditFrom.value||!this.auditUntil.value)return;const applied:AuditFilter={from:new Date(this.auditFrom.value).toISOString(),until:new Date(this.auditUntil.value).toISOString(),actor_id:this.auditActor.value.trim()||undefined,target_account_id:this.auditTarget.value.trim()||undefined,resource_type:this.auditResource.value.trim()||undefined,resource_id:this.auditResourceId.value.trim()||undefined,action:this.auditAction.value.trim()||undefined,reason_code:this.auditReason.value.trim()||undefined,correlation_id:this.auditCorrelation.value.trim()||undefined,result:this.auditResult.value||undefined,page_size:25};this.appliedAudit.set(applied);void this.vm.loadAudit(applied);}
   nextAudit():void{const f=this.appliedAudit(),page=this.vm.auditPage();if(f&&page?.next_cursor)void this.vm.loadAudit({...f,cursor:page.next_cursor,snapshot_cutoff:page.snapshot_cutoff});}
@@ -346,7 +376,7 @@ export class GlobalAdminPage {
     this.notice.set(`Publicación retirada. Archivos pendientes de limpieza: ${String(pending ?? 0)}.`);
     await this.vm.loadPublications(this.appliedPublicationCriteria());
   }
-  openOwner(id:string):void{this.activeTab.set('accounts');void this.open(id);}
+  openOwner(id:string):void{this.showTab('accounts');void this.open(id);}
 
   next(): void {
     const cursor = this.page()?.next_cursor;

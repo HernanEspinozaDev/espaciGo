@@ -1,14 +1,25 @@
 <main class="global-admin" aria-labelledby="title">
-  <header>
+  <header class="page-heading">
     <p class="eyebrow">EspaciGo · Administración privada</p>
-    <h1 id="title">Directorio de cuentas</h1>
-    <p>Consulta paginada de cuentas y actividad asociada.</p>
+    <h1 id="title">Administración global</h1>
+    <p>Consulta cuentas y publicaciones, o revisa indicadores y trazabilidad según tus permisos.</p>
   </header>
 
-  <nav aria-label="Administración global"><button type="button" [attr.aria-current]="activeTab()==='accounts' ? 'page' : null" (click)="showTab('accounts')">Cuentas</button><button type="button" [attr.aria-current]="activeTab()==='publications' ? 'page' : null" (click)="showTab('publications')">Publicaciones</button><button type="button" [attr.aria-current]="activeTab()==='reports' ? 'page' : null" (click)="showTab('reports')">Indicadores y auditoría</button></nav>
+  <nav class="section-nav" aria-label="Administración global">
+    <button type="button" [attr.aria-current]="activeTab()==='accounts' ? 'page' : null" (click)="showTab('accounts')">Cuentas</button>
+    @if (hasCapability('publications.list')) {
+      <button type="button" [attr.aria-current]="activeTab()==='publications' ? 'page' : null" (click)="showTab('publications')">Publicaciones</button>
+    }
+    @if (hasCapability('kpi.read')) {
+      <button type="button" [attr.aria-current]="activeTab()==='kpis' ? 'page' : null" (click)="showTab('kpis')">Indicadores</button>
+    }
+    @if (hasCapability('audit.read')) {
+      <button type="button" [attr.aria-current]="activeTab()==='audit' ? 'page' : null" (click)="showTab('audit')">Auditoría</button>
+    }
+  </nav>
 
-  @if(activeTab()==='reports'){
-    <section aria-labelledby="report-title">
+  @if(activeTab()==='kpis'){
+    <section class="workspace-section" aria-labelledby="report-title">
       <h2 id="report-title">Indicadores persistidos</h2>
       @if(vm.reportError();as reportError){<p role="alert" aria-live="assertive" class="error">{{reportError}}</p>}
       @if(hasCapability('kpi.read')){
@@ -16,18 +27,25 @@
         @if(vm.loadingReport()){<p role="status">Cargando indicadores…</p>}
         @if(vm.kpis();as report){<p>Generado {{report.generated_at|date:'medium'}} · período {{report.period.from|date:'short'}} a {{report.period.until|date:'short'}} · zona {{report.period.time_zone}}. Cuentas activas no representa DAU.</p><section class="totals" aria-label="Cuentas por estado">@for(state of objectKeys(report.accounts);track state){<article><span>{{state}}</span><strong>{{report.accounts[state]}}</strong></article>}</section><p>Registros de cuenta en el período: <strong>{{report.registrations_in_period}}</strong></p><h3>Cuentas por rol (roles pueden solaparse)</h3><ul>@for(role of objectKeys(report.account_roles);track role){<li>{{role}}: {{report.account_roles[role]}}</li>}</ul><h3>Publicaciones por categoría y estado</h3><ul>@for(item of report.publications;track $index){<li>{{item.definition}} <strong>{{item.value}}</strong></li>}</ul><h3>Distribución de publicaciones por titular</h3><ul>@for(item of report.publication_owner_distribution;track item.key){<li>{{item.key}} publicaciones: {{item.value}} titulares</li>}</ul><h3>Reservas y decisiones en el período</h3><ul>@for(item of report.reservations;track item.key){<li>{{item.definition}} <strong>{{item.available ? item.value + (item.denominator ? ' / ' + item.denominator : '') : 'No disponible (' + item.reason + ')'}}</strong></li>}</ul><h3>Hitos operativos (eventos, no reservas cerradas)</h3><ul>@for(item of report.operations;track $index){<li>{{item.definition}} <strong>{{item.value}}</strong></li>}</ul><h3>Movimientos sintéticos CLP</h3><p>CLP se presenta como texto entero exacto; garantías se reportan en su fuente separada.</p><ul>@for(item of report.finance;track $index){<li>{{item.kind}} · {{item.state}} · {{item.count}} · CLP {{item.amount_clp}} — {{item.definition}}</li>}</ul><h3>Colas vigentes</h3><ul>@for(item of report.queues;track $index){<li>{{item.definition}} <strong>{{item.value}}</strong></li>}</ul>}
       }
-      <h2>Auditoría global</h2>
+    </section>
+  }
+
+  @if(activeTab()==='audit'){
+    <section class="workspace-section" aria-labelledby="audit-title">
+      <h2 id="audit-title">Auditoría global</h2>
       @if(vm.auditError();as auditError){<p role="alert" aria-live="assertive" class="error">{{auditError}}</p>}
       @if(vm.exportError();as exportError){<p role="alert" aria-live="assertive" class="error">{{exportError}}</p>}
       @if(hasCapability('audit.read')){
         <form class="filters" (ngSubmit)="searchAudit()"><label>Desde<input type="datetime-local" [formControl]="auditFrom" required></label><label>Hasta (exclusivo)<input type="datetime-local" [formControl]="auditUntil" required></label><label>Actor UUID<input [formControl]="auditActor"></label><label>Cuenta objetivo UUID<input [formControl]="auditTarget"></label><label>Tipo recurso<input [formControl]="auditResource"></label><label>Recurso UUID<input [formControl]="auditResourceId"></label><label>Acción<input [formControl]="auditAction"></label><label>Motivo<input [formControl]="auditReason"></label><label>Correlation/request ID<input [formControl]="auditCorrelation"></label><label>Resultado<select [formControl]="auditResult"><option value="">Todos</option><option value="exito">Éxito</option><option value="rechazo">Rechazo</option></select></label><button type="button" (click)="searchAudit()">Aplicar filtros</button></form>
         @if(vm.loadingAudit()){<p role="status">Cargando auditoría…</p>}
-        @if(vm.auditPage();as audit){<p>Ventana {{audit.from|date:'short'}}–{{audit.until|date:'short'}} · datos registrados hasta {{audit.snapshot_cutoff|date:'medium'}} · consulta generada {{audit.generated_at|date:'medium'}}</p><div class="actions">@if(hasCapability('audit.export')){<button type="button" (click)="downloadAudit('json')">Exportar JSON</button><button type="button" (click)="downloadAudit('csv')">Exportar CSV</button>}</div><div class="table-wrap"><table><thead><tr><th>Fecha</th><th>Actor</th><th>Cuenta objetivo</th><th>Recurso</th><th>Acción</th><th>Resultado</th><th>Motivo</th><th>Correlación</th></tr></thead><tbody>@for(e of audit.items;track e.id){<tr><td>{{e.occurred_at|date:'short'}}</td><td>{{e.actor_id||'No disponible'}}</td><td>{{e.target_account_id||'No vinculado'}}</td><td>{{e.resource_type}} · {{e.resource_id}}</td><td>{{e.action}}</td><td>{{e.result}}</td><td>{{e.reason_code}}</td><td>{{e.correlation_id}}</td></tr>}</tbody></table></div><button type="button" [disabled]="!audit.next_cursor||vm.loadingAudit()" (click)="nextAudit()">Siguiente página</button>}
+        @if(vm.auditPage();as audit){<p>Ventana {{audit.from|date:'short'}}–{{audit.until|date:'short'}} · datos registrados hasta {{audit.snapshot_cutoff|date:'medium'}} · consulta generada {{audit.generated_at|date:'medium'}}</p><div class="actions">@if(hasCapability('audit.export')){<button type="button" (click)="downloadAudit('json')">Exportar JSON</button><button type="button" (click)="downloadAudit('csv')">Exportar CSV</button>}</div><p class="scroll-guidance">En pantallas pequeñas, desplaza la tabla para consultar todas las columnas.</p><div class="table-wrap table-wrap--audit" role="region" aria-label="Tabla de auditoría desplazable horizontalmente" tabindex="0"><table><thead><tr><th>Fecha</th><th>Actor</th><th>Cuenta objetivo</th><th>Recurso</th><th>Acción</th><th>Resultado</th><th>Motivo</th><th>Correlación</th></tr></thead><tbody>@for(e of audit.items;track e.id){<tr><td>{{e.occurred_at|date:'short'}}</td><td>{{e.actor_id||'No disponible'}}</td><td>{{e.target_account_id||'No vinculado'}}</td><td>{{e.resource_type}} · {{e.resource_id}}</td><td>{{e.action}}</td><td>{{e.result}}</td><td>{{e.reason_code}}</td><td>{{e.correlation_id}}</td></tr>}</tbody></table></div><button type="button" [disabled]="!audit.next_cursor||vm.loadingAudit()" (click)="nextAudit()">Siguiente página</button>}
       }
     </section>
   }
 
   @if (activeTab()==='accounts') {
+  <section class="workspace-section" aria-labelledby="accounts-title">
+  <h2 id="accounts-title">Directorio de cuentas</h2>
 
   @if (overview(); as totals) {
     <section class="totals" aria-label="Totales">
@@ -75,7 +93,25 @@
 
   @if (page(); as result) {
     <p aria-live="polite">{{ result.matching_total }} cuentas coinciden</p>
-    <div class="table-wrap">
+    <div class="directory-cards account-cards" aria-label="Resultados de cuentas">
+      @for (account of result.items; track account.account_id) {
+        <article class="directory-card">
+          <div class="directory-card-heading">
+            <button class="account" type="button" (click)="open(account.account_id)">{{ account.display_name || account.email }}<small>{{ account.email }}</small></button>
+            <span class="status-pill">{{ account.state }}</span>
+          </div>
+          @if (account.administrative_blocked) { <p class="card-notice">Bloqueo administrativo activo</p> }
+          <p class="account-roles">{{ account.roles.join(', ') || 'Sin rol' }}</p>
+          <dl class="resource-stats">
+            <div><dt>Espacios</dt><dd>{{ account.publication_count }}</dd></div>
+            <div><dt>Reservas</dt><dd>{{ account.reservation_count }}</dd></div>
+            <div><dt>Incidentes</dt><dd>{{ account.incident_count }}</dd></div>
+          </dl>
+        </article>
+      }
+    </div>
+    <p class="scroll-guidance">En pantallas pequeñas, desplaza la tabla para consultar todas las columnas.</p>
+    <div class="table-wrap table-wrap--accounts" role="region" aria-label="Directorio de cuentas desplazable horizontalmente" tabindex="0">
       <table>
         <thead><tr><th>Cuenta</th><th>Estado</th><th>Roles</th><th>Espacios</th><th>Reservas</th><th>Incidentes</th></tr></thead>
         <tbody>
@@ -162,10 +198,11 @@
       @if (notice()) { <p role="status">{{ notice() }}</p> }
     </aside>
   }
+  </section>
   }
 
   @if (activeTab()==='publications') {
-    <section aria-labelledby="publications-title"><h2 id="publications-title">Inventario global de publicaciones</h2>
+    <section class="workspace-section" aria-labelledby="publications-title"><h2 id="publications-title">Inventario global de publicaciones</h2>
       @if (error()) { <p role="alert" class="error">{{ error() }}</p> }
       <p>La visibilidad pública efectiva aplica elegibilidad del propietario, moderación, categoría y fixture vigente. CLP se muestra como texto decimal exacto.</p>
       <form class="filters" [formGroup]="publicationFilters" (ngSubmit)="searchPublications()">
@@ -179,7 +216,28 @@
       @if (loadingPublications()) { <p role="status">Cargando publicaciones…</p> }
       @if (publications(); as result) {
         <p aria-live="polite">{{ result.matching_total }} publicaciones · generado {{ result.generated_at | date:'medium' }}</p>
-        <div class="table-wrap"><table><thead><tr><th>Publicación</th><th>Propietario</th><th>Categoría</th><th>Estado</th><th>Tarifa</th><th>Catálogo real</th><th>Portada</th><th>Acción</th></tr></thead><tbody>
+        <div class="directory-cards publication-cards" aria-label="Resultados de publicaciones">
+          @for (item of result.items; track item.publication_id) {
+            <article class="directory-card">
+              <div class="directory-card-heading"><h3>{{ item.title }}</h3><span class="status-pill">{{ item.state }}</span></div>
+              <button type="button" class="account owner-link" (click)="openOwner(item.owner_id)">{{ item.owner_name || item.owner_email }}<small>{{ item.owner_email }}</small></button>
+              <dl class="publication-facts">
+                <div><dt>Categoría</dt><dd>{{ item.category_name }}</dd></div>
+                <div><dt>Tarifa</dt><dd>{{ item.base_price_clp }} CLP / {{ item.rate_unit }}</dd></div>
+                <div><dt>Catálogo real</dt><dd>{{ item.publicly_visible ? 'Visible' : 'No visible' }}</dd></div>
+                <div><dt>Portada</dt><dd>{{ item.public_cover_available ? 'Disponible' : 'Sin portada pública' }}</dd></div>
+              </dl>
+              <div class="card-actions">
+                @if (canEditPublications() && (item.state==='activa'||item.state==='oculta'||item.state==='borrador')) { <button type="button" (click)="editPublication(item)">Editar</button> }
+                @if (canReadPublications() && item.state!=='eliminada') { <button type="button" class="secondary" (click)="openPublicationGallery(item)">Galería</button><button type="button" class="secondary" (click)="openPublicationSchedule(item)">Horario</button> }
+                @if (canModeratePublications() && item.state!=='eliminada') { @if (item.state==='activa') { <button type="button" class="secondary" [disabled]="vm.saving()" (click)="changePublicationState(item,'oculta')">Ocultar</button> } @else { <button type="button" class="secondary" [disabled]="vm.saving()" (click)="changePublicationState(item,'activa')">Publicar</button> } }
+                @if (canRetirePublications() && item.state!=='eliminada') { <button type="button" class="secondary" [disabled]="vm.saving()" (click)="requestRetirement(item)">Retirar</button> }
+              </div>
+            </article>
+          }
+        </div>
+        <p class="scroll-guidance">En pantallas pequeñas, desplaza la tabla para consultar todas las columnas.</p>
+        <div class="table-wrap table-wrap--publications" role="region" aria-label="Directorio de publicaciones desplazable horizontalmente" tabindex="0"><table><thead><tr><th>Publicación</th><th>Propietario</th><th>Categoría</th><th>Estado</th><th>Tarifa</th><th>Catálogo real</th><th>Portada</th><th>Acción</th></tr></thead><tbody>
           @for (item of result.items;track item.publication_id) { <tr><td>{{ item.title }}<small>{{ item.publication_id }}</small></td><td><button type="button" class="account" (click)="openOwner(item.owner_id)">{{ item.owner_name || item.owner_email }}<small>{{ item.owner_email }}</small></button></td><td>{{ item.category_name }}</td><td>{{ item.state }}</td><td>{{ item.base_price_clp }} CLP / {{ item.rate_unit }}</td><td>{{ item.publicly_visible ? 'Visible' : 'No visible' }}</td><td>{{ item.public_cover_available ? 'Disponible' : 'Sin portada pública' }}</td><td>@if (canEditPublications() && (item.state==='activa'||item.state==='oculta'||item.state==='borrador')) { <button type="button" (click)="editPublication(item)">Editar</button> } @if (canReadPublications() && item.state!=='eliminada') { <button type="button" (click)="openPublicationGallery(item)">Galería</button><button type="button" (click)="openPublicationSchedule(item)">Horario</button> } @if (canModeratePublications() && item.state!=='eliminada') { @if (item.state==='activa') { <button type="button" [disabled]="vm.saving()" (click)="changePublicationState(item,'oculta')">Ocultar</button> } @else { <button type="button" [disabled]="vm.saving()" (click)="changePublicationState(item,'activa')">Publicar</button> } } @if (canRetirePublications() && item.state!=='eliminada') { <button type="button" [disabled]="vm.saving()" (click)="requestRetirement(item)">Retirar</button> }</td></tr> }
         </tbody></table></div>
         @if (schedulePublication(); as item) {
