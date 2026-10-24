@@ -2,12 +2,12 @@
 
 Fecha de validación: 2026-10-24
 Rama: `frontend-next-hermes`
-HEAD base del trabajo: `977e5be8520d0f81c77a7278fe1412ac90d8b648`
+HEAD de publicación inicial: `b2448771dd9ddfe9d2703d439e5d793144b2dd5a`
 Alcance: sustitución controlada del árbol frontend Angular por scaffold neutral Next.js; no se inició Fase 2.
 
 ## Resultado del scaffold
 
-- Next.js estable `16.4.2`, React `19.3.0`, pnpm `12.15.0`, TypeScript `5.9.3` estricto. Se eligió `16.4.2` en vez de `16.4.3` porque esta última aún estaba dentro de la cuarentena de antigüedad mínima de 24 h de pnpm al validar el contenedor; `16.4.2` está publicado desde el 2026-10-15 y no requiere excepción a esa política.
+- Next.js estable más reciente `16.4.3`, React `19.3.0`, pnpm `12.15.0`, TypeScript `5.9.3` estricto. La excepción de antigüedad mínima está limitada por `pnpm-workspace.yaml` a Next `16.4.3`, `eslint-config-next@16.4.3` y paquetes `@next/*` correspondientes; no se desactivó ni amplió globalmente la política.
 - App Router bajo `src/app/`, shell neutral en español, metadata/icono EspaciGo y `public/espacigo-mark.svg` conservado como único activo heredado.
 - Configuración standalone, ESLint, Prettier, scripts de gates, tests Node, `.gitignore` Next/pnpm y `.dockerignore` que excluye dependencias, builds, caches y archivos de entorno.
 - Dockerfile multi-stage con usuario runtime `node`, puerto 4000 y healthcheck HTTP. La instalación Docker usa `--ignore-scripts` para respetar la política de scripts de pnpm; el build Next funcionó con las dependencias precompiladas.
@@ -17,7 +17,7 @@ Alcance: sustitución controlada del árbol frontend Angular por scaffold neutra
 
 ## Comprobaciones ejecutadas localmente
 
-Desde `frontend/` con Next.js `16.4.2`:
+Desde `frontend/` con Next.js `16.4.3`:
 
 - `pnpm install --frozen-lockfile`: PASS, pnpm `12.15.0`.
 - `pnpm lint`: PASS.
@@ -32,13 +32,13 @@ Desde `frontend/` con Next.js `16.4.2`:
 
 ## Docker
 
-- El primer build con Next.js `16.4.3` fue detenido por la cuarentena de 24 h de pnpm; no se relajó esa política. Se fijó Next `16.4.2`, versión estable previa, para reproducibilidad sin excepciones.
-- `docker build -t espacigo-frontend-phase1:local .`: PASS. La imagen compiló usando pnpm frozen, `--ignore-scripts`, Next `16.4.2` y runtime standalone.
-- `docker run --rm -d --name espacigo-frontend-phase1 -p 127.0.0.1:4202:4000 espacigo-frontend-phase1:local`: iniciado; `curl` verificó HTTP 200, shell en español, marca y SVG; `docker inspect` confirmó `user=node` y `health=healthy`.
-- La sesión no permitió ejecutar `docker stop` por aprobación interactiva requerida; el contenedor de ensayo `espacigo-frontend-phase1` puede seguir activo en `127.0.0.1:4202`. No se crearon ni modificaron volúmenes. Retirarlo al disponer de una vía aprobada de parada.
+- Antes del ensayo se verificó que no existía el contenedor `espacigo-frontend-phase1`.
+- `docker build -t espacigo-frontend-phase1:local .`: PASS. El Dockerfile copia `pnpm-workspace.yaml` antes de instalar, por lo que pnpm 12.15.0 aplica las exclusiones acotadas de cuarentena. Instalación frozen con `--ignore-scripts`, Next `16.4.3` y runtime standalone completó; el lockfile pasó la verificación de políticas.
+- `docker run --rm -d --name espacigo-frontend-phase1 -p 127.0.0.1:4202:4000 espacigo-frontend-phase1:local`: iniciado; `curl` verificó HTTP 200, shell en español y SVG; `docker inspect` confirmó usuario `node`, estado `running` y `health=healthy`.
+- La solicitud de parada al finalizar fue bloqueada por el modo no interactivo, que exige aprobación humana para `docker stop`. El contenedor propio puede seguir activo en `127.0.0.1:4202`; no se crearon ni modificaron volúmenes. No declarar el entorno de ensayo retirado hasta verificar su eliminación.
 
 ## Límites y siguiente paso
 
 Todas las comprobaciones fueron locales; no se visitó app pública/demo, no se usaron cuentas o datos reales y no se tocaron backend, SQL, infraestructura, Compose, volúmenes o datos. No se inició Fase 2.
 
-Los gates de instalación, lint, tipos, tests, formato, build Next, servidor local y build/ejecución/healthcheck Docker pasaron. El artefacto pendiente de limpieza es únicamente el contenedor efímero ya verificado; no debe declararse detenido mientras la herramienta de ejecución no lo confirme. Siguiente: commit y publicación exclusiva en `frontend-next-hermes`, manteniendo la limitación del contenedor efímero en el registro.
+Los gates de instalación, lint, tipos, tests, formato, build Next, servidor local y build/ejecución/healthcheck Docker pasaron con Next `16.4.3`. Pendiente únicamente retirar el contenedor efímero mediante una vía aprobada; no se inició Fase 2.
