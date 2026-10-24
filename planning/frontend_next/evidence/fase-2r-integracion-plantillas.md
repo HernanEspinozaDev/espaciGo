@@ -1,6 +1,6 @@
 # Fase 2R — Integración real de las plantillas
 
-Estado: implementación, gates, validación runtime local y limpieza completados. Esta evidencia no equivale a aceptación de producto ni habilita Fase 3.
+Estado: implementación, gates, validación runtime local y limpieza completados. Fase 2R publicada en la rama autorizada; esta evidencia no equivale a aceptación de producto ni habilita Fase 3.
 
 ## Decisión humana y fuentes
 
@@ -62,7 +62,7 @@ Inspección visual: se conservan las composiciones del catálogo, búsqueda, fic
 - Secret scan básico (claves privadas, tokens GitHub/AWS y asignaciones típicas de secretos) en el código, pruebas, config, assets y notices del frontend, además de `planning/frontend_next`: sin coincidencias.
 - `frontend/next-env.d.ts`: sin diff incidental.
 - Identidad consultada mediante `gh api user --jq .login`: `HernanEspinozaDev`.
-- Destino autorizado de publicación: únicamente `frontend-next-hermes`, mediante GitHub API/MCP y con autor `HernanEspinozaDev`.
+- Publicación: commit de integración `41484bf4d63225931e23db5505bd0e2c4d60217a`, publicado exclusivamente en `frontend-next-hermes` mediante GitHub API; autor y committer verificados como `HernanEspinozaDev`. El commit de cierre de esta evidencia registra la comprobación final de rama/árbol.
 
 ## Límites y siguiente paso
 
