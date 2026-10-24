@@ -1,4 +1,8 @@
-<main class="finance-page" [attr.aria-busy]="loading() || busy() ? 'true' : null">
+<div
+  class="finance-page"
+  [class.admin-mode]="admin"
+  [attr.aria-busy]="loading() || busy() ? 'true' : null"
+>
   <a class="back" routerLink="/reservas">← Volver a reservas</a>
   <header>
     <p class="eyebrow">{{ admin ? 'GESTIÓN AUTORIZADA' : 'TU RESERVA' }}</p>
@@ -357,4 +361,4 @@
       }
     </div>
   }
-</main>
+</div>

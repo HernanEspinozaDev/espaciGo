@@ -48,6 +48,21 @@ h1 {
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-card);
 }
+.admin-mode .admin-tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 0 metrics.$space-1rem;
+  border-top: 4px solid var(--brand-primary);
+}
+.admin-mode .admin-tools h2,
+.admin-mode .admin-tools .actions,
+.admin-mode .admin-tools pre {
+  grid-column: 1 / -1;
+}
+.admin-mode .admin-tools label {
+  margin-top: 0;
+}
 h2 {
   margin-top: 0;
   font-size: metrics.$font-size-1-25rem;
@@ -113,7 +128,9 @@ pre {
   background: var(--color-error-soft);
   padding: metrics.$space-0-8rem;
   border-radius: var(--radius-lg);
-  p { margin: 0; }
+  p {
+    margin: 0;
+  }
 }
 .claim {
   padding: metrics.$space-0-9rem 0;
@@ -134,6 +151,14 @@ pre {
   }
   .grid {
     grid-template-columns: 1fr;
+  }
+  .admin-mode .admin-tools {
+    grid-template-columns: 1fr;
+  }
+  .admin-mode .admin-tools h2,
+  .admin-mode .admin-tools .actions,
+  .admin-mode .admin-tools pre {
+    grid-column: auto;
   }
   .toolbar {
     justify-content: stretch;
