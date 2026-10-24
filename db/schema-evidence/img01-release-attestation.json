@@ -1,0 +1,26 @@
+{
+  "format": "espacigo.img01.schema-release-attestation.v1",
+  "report_format": "espacigo.img01.schema-evidence.v1",
+  "evidence_uri": "gs://espacigo-testprod-cloud-build-447373903153/img01-schema-evidence/59f19d920c40b30de1b071435f1eedefdef491312352afecd33fcdf08a9ba26a.json",
+  "evidence_generation": "1792801304606976",
+  "evidence_sha256": "59f19d920c40b30de1b071435f1eedefdef491312352afecd33fcdf08a9ba26a",
+  "target": {
+    "project_id": "espacigo-testprod",
+    "instance_connection_name": "espacigo-testprod:southamerica-west1:espacigo-testprod-db",
+    "database": "espacigo_dms_stage_20261020",
+    "postgres_major_version": 18
+  },
+  "query_sha256": "9a8a6d0a020128918aadabfd3adb78ccc340991bffe4cc1aed2cc28e783d3697",
+  "migration_fingerprint_sha256": "3b6a045e8082b58806f54263bf800b1f672610aeba780d57019625adf907dad2",
+  "migration_source_commit": "e02a8d60dbad04e12a7f3355479e6f9b10c3f753",
+  "migration_source_pr": 536,
+  "captured_at": "2026-10-24T00:21:15.596892+00:00",
+  "captured_by": "HernanEspinozaDev",
+  "capture_method": "scripts/capture_img01_schema_release_evidence.sh via local bastion forward; read-only transaction",
+  "validation_build_id": "6d41d7bf-97bf-49e4-ae8a-f1d25dfd2f73",
+  "validation_source_commit": "9c00127d5a07145757892e21e72336756c325ef2",
+  "approval_policy": {
+    "type": "protected-pull-request-review",
+    "required_reviewer": "HernanEspinozaDev"
+  }
+}

@@ -87,6 +87,19 @@ class SchemaEvidenceTests(unittest.TestCase):
             path.write_text(json.dumps(report), encoding="utf-8")
             MODULE.validate(path, ROOT / "db/migrations", ROOT / "db/query/img01_schema_release_evidence.sql")
 
+    def validate_report_at(self, report: dict[str, object], now: datetime) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            import json
+
+            path.write_text(json.dumps(report), encoding="utf-8")
+            MODULE.validate(
+                path,
+                ROOT / "db/migrations",
+                ROOT / "db/query/img01_schema_release_evidence.sql",
+                now=now,
+            )
+
     def test_accepts_current_target_with_owner_neutral_inventory(self) -> None:
         report = valid_report()
         report["target"]["database_owner"] = "observed_db_owner"
@@ -113,11 +126,33 @@ class SchemaEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.EvidenceError, "ledger privilege"):
             self.validate_report(report)
 
-    def test_rejects_stale_or_future_report(self) -> None:
+    def test_accepts_report_older_than_six_hours_under_versioned_policy(self) -> None:
         report = valid_report()
         report["captured_at"] = (datetime.now(timezone.utc) - timedelta(hours=7)).isoformat()
-        with self.assertRaisesRegex(MODULE.EvidenceError, "older than six hours"):
-            self.validate_report(report)
+        self.validate_report(report)
+
+    def test_rejects_capture_time_too_far_in_the_future(self) -> None:
+        now = datetime.now(timezone.utc)
+        report = valid_report()
+        report["captured_at"] = (now + timedelta(minutes=3)).isoformat()
+        with self.assertRaisesRegex(MODULE.EvidenceError, "too far in the future"):
+            self.validate_report_at(report, now)
+
+    def test_manifest_captured_at_must_match_report_capture_time(self) -> None:
+        report = valid_report()
+        expected = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "evidence.json"
+            import json
+
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(MODULE.EvidenceError, "differs from the checked-in attestation"):
+                MODULE.validate(
+                    path,
+                    ROOT / "db/migrations",
+                    ROOT / "db/query/img01_schema_release_evidence.sql",
+                    expected_captured_at=expected,
+                )
 
     def test_rejects_missing_or_unexpected_migrator_identity_not_schema_owner(self) -> None:
         report = valid_report()
