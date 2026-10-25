@@ -35,25 +35,36 @@ test("the single Next application identifies EspaciGo and supports Spanish navig
   assert.match(await read("public/espacigo-mark.svg"), /<svg/);
 });
 
-test("marketplace routes retain template compositions and use local space fixtures", async () => {
+test("marketplace routes use the Go public catalog without local listing fixtures", async () => {
   const home = await read("src/app/(marketplace)/page.tsx");
-  const listing = await read("src/app/(marketplace)/products/page.tsx");
-  const detail = await read("src/app/(marketplace)/product/[slug]/page.tsx");
+  const explore = await read("src/app/(marketplace)/explorar/page.tsx");
+  const detail = await read("src/app/(marketplace)/espacios/[id]/page.tsx");
   const grid = await read("src/components/sections/product-grid.tsx");
-  const fixtures = await read("src/lib/marketplace-fixtures.ts");
+  const source = await collectSource(path.join(root, "src"));
   for (const templateSection of [
     "Hero",
     "ProductGrid",
-    "About",
-    "Newsletter",
+    "CategoryRail",
+    "OwnerCallout",
   ]) {
     assert.match(home, new RegExp(templateSection));
   }
-  assert.match(listing, /getSpaces/);
+  assert.match(home, /publicCatalog\.spaces/);
+  assert.match(explore, /spacesFromParams/);
+  assert.match(detail, /publicCatalog\.space/);
   assert.match(detail, /MediaGallery/);
-  assert.match(grid, /getSpaces/);
-  assert.match(fixtures, /demo-space-/);
-  assert.match(fixtures, /parseVts/);
+  assert.match(grid, /PublicCatalogCard/);
+  assert.match(
+    await read("src/app/(marketplace)/products/page.tsx"),
+    /redirectLegacyCatalog/,
+  );
+  assert.match(
+    await read("src/app/(marketplace)/search/page.tsx"),
+    /redirectLegacyCatalog/,
+  );
+  assert.doesNotMatch(source, /marketplace-fixtures/);
+  assert.equal(await exists("src/lib/marketplace-fixtures.ts"), false);
+  assert.equal(await exists("src/app/search-suggest.ts"), false);
 });
 
 test("SaaS Starter pages are present; auth uses its API facade and pricing stays demo-only", async () => {

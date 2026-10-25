@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { spaceCategories } from "@/lib/marketplace-fixtures";
 
 export function Footer() {
   const year = new Date().getFullYear();
@@ -13,76 +12,100 @@ export function Footer() {
               EspaciGo
             </Link>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Encuentra espacios para trabajar, crear y reunirse. Catálogo local
-              de demostración.
+              Arriendos residenciales y espacios flexibles para vivir, trabajar,
+              guardar, reunirse o celebrar.
             </p>
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold text-foreground">
-              Categorías
-            </h2>
-            <ul className="mt-4 space-y-3">
-              {spaceCategories.map((category) => (
-                <li key={category.slug}>
-                  <Link
-                    href={`/products?category=${category.slug}`}
-                    className="text-sm text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    {category.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
           </div>
           <div>
             <h2 className="text-sm font-semibold text-foreground">Explora</h2>
             <ul className="mt-4 space-y-3">
               <li>
                 <Link
-                  href="/products"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  href="/explorar"
+                  className="text-sm text-muted-foreground hover:text-foreground"
                 >
-                  Todos los espacios
+                  Catálogo público
                 </Link>
               </li>
               <li>
                 <Link
-                  href="/search"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  href="/categorias"
+                  className="text-sm text-muted-foreground hover:text-foreground"
                 >
-                  Buscar
+                  Categorías
                 </Link>
               </li>
               <li>
                 <Link
-                  href="/saas"
-                  className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                  href="/arriendos"
+                  className="text-sm text-muted-foreground hover:text-foreground"
                 >
-                  Vista de aplicación
+                  Arriendos residenciales
                 </Link>
               </li>
             </ul>
           </div>
           <div>
             <h2 className="text-sm font-semibold text-foreground">
-              Información
+              Conoce EspaciGo
             </h2>
-            <p className="mt-4 max-w-xs text-sm leading-relaxed text-muted-foreground">
-              Las fichas, imágenes y tarifas son sintéticas. No se ofrecen
-              reservas ni pagos desde esta demo.
-            </p>
+            <ul className="mt-4 space-y-3">
+              <li>
+                <Link
+                  href="/como-funciona"
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Cómo funciona
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/anfitriones"
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Para anfitriones
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/login"
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Ingresar a EspaciGo
+                </Link>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              Información legal
+            </h2>
+            <ul className="mt-4 space-y-3">
+              <li>
+                <Link
+                  href="/terminos-y-condiciones"
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Términos y condiciones
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/politica-de-privacidad"
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  Política de privacidad
+                </Link>
+              </li>
+            </ul>
           </div>
         </div>
         <div className="flex flex-col gap-4 border-t border-border py-6 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-muted-foreground">
-            © {year} EspaciGo · demostración local
+          <p className="text-sm text-muted-foreground">© {year} EspaciGo</p>
+          <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
+            La tarifa y modalidad dependen de cada publicación. Una estimación
+            no confirma disponibilidad ni constituye cotización o reserva.
           </p>
-          <Link
-            href="/pricing"
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            Planes ilustrativos
-          </Link>
         </div>
       </div>
     </footer>

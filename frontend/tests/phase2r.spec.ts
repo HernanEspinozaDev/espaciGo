@@ -7,7 +7,6 @@ const routes = [
   { name: "home", path: "/" },
   { name: "products", path: "/products" },
   { name: "search", path: "/search?q=estudio" },
-  { name: "space-detail", path: "/product/sala-luz-providencia" },
   { name: "saas-landing", path: "/saas" },
   { name: "login", path: "/login" },
   { name: "dashboard", path: "/dashboard" },
@@ -111,16 +110,6 @@ for (const route of routes) {
   }
 }
 
-test("marketplace detail gallery changes images using the original navigation controls", async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 1365, height: 900 });
-  await page.goto("/product/sala-luz-providencia");
-  await expect(page.getByText("1 / 2")).toBeVisible();
-  await page.getByRole("button", { name: "Siguiente imagen" }).click();
-  await expect(page.getByText("2 / 2")).toBeVisible();
-});
-
 test("workspace account, security and pricing stay previews while login is enabled", async ({
   page,
 }) => {
@@ -178,32 +167,32 @@ test("skip link is first in keyboard order and moves focus to main content", asy
   await expect(page.locator("#main-content")).toBeFocused();
 });
 
-test("search suggestions support keyboard selection using local fixtures", async ({
+test("homepage search submits a query to the Go-backed public catalog", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/search");
-  const input = page.getByRole("combobox", { name: "Buscar espacios" });
+  await page.goto("/");
+  const input = page.getByRole("searchbox", {
+    name: "¿Qué quieres arrendar?",
+  });
   await input.fill("estudio");
-  const firstSuggestion = page.getByRole("option").first();
-  await expect(firstSuggestion).toBeVisible();
-  await input.press("ArrowDown");
-  await input.press("Enter");
-  await expect(page).toHaveURL(/\/product\//);
+  await page.getByRole("button", { name: "Explorar arriendos" }).click();
+  await expect(page).toHaveURL(/\/explorar\?q=estudio$/);
+  await expect(page.getByText("Resultados para “estudio”")).toBeVisible();
 });
 
-test("mobile marketplace navigation opens and follows a template route", async ({
+test("mobile marketplace navigation opens and follows a public catalog route", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await page.getByRole("button", { name: "Abrir menú" }).click();
-  const spacesLink = page.getByRole("link", { name: "Espacios", exact: true });
-  await expect(spacesLink).toBeVisible();
-  await spacesLink.click();
-  await expect(page).toHaveURL(/\/products$/);
+  const exploreLink = page.getByRole("link", { name: "Explorar", exact: true });
+  await expect(exploreLink).toBeVisible();
+  await exploreLink.click();
+  await expect(page).toHaveURL(/\/explorar$/);
   await expect(
-    page.getByRole("heading", { name: "Explorar espacios" }),
+    page.getByRole("heading", { name: "Explorar arriendos" }),
   ).toBeVisible();
 });
 
@@ -220,19 +209,20 @@ test("mobile workspace navigation opens and follows a dashboard route", async ({
   await expect(page.getByRole("heading", { name: "Seguridad" })).toBeVisible();
 });
 
-test("mobile catalog filters preserve the listing view and update its route", async ({
+test("mobile public catalog filters preserve the listing and update its route", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/products");
-  await page.getByRole("button", { name: "Filtros" }).click();
+  await page.goto("/explorar");
+  await page.getByRole("button", { name: "Filtrar" }).click();
+  const dialog = page.getByRole("dialog");
   await expect(
-    page.getByRole("dialog").getByRole("heading", { name: "Filtros" }).first(),
+    dialog.getByRole("heading", { name: "Refinar publicaciones" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Cowork" }).click();
-  await expect(page).toHaveURL(/category=cowork/);
-  await page.keyboard.press("Escape");
+  await dialog.getByLabel("Categoría").selectOption("inmuebles");
+  await dialog.getByRole("button", { name: "Aplicar filtros" }).click();
+  await expect(page).toHaveURL(/category_code=inmuebles/);
   await expect(
-    page.getByRole("heading", { name: "Explorar espacios" }),
+    page.getByRole("heading", { name: "Explorar arriendos" }),
   ).toBeVisible();
 });

@@ -558,6 +558,8 @@ Gate:
 - SEO y accesibilidad;
 - navegación anónima completa.
 
+Estado del corte local (2026-10-25): implementación frontend y pruebas Fase 4 pasaron contra el API Go compatible histórico `5995a5fcdbd428220cd8927499d1d33f84466980`, usando la misma base nativa sin modificarla. La validación con el API Go de HEAD no es completa: categorías/ubicaciones responden 200, pero el listado responde 500 por la relación `public.space_media` ausente (SQLSTATE `42P01`) en el esquema existente. Esta limitación de compatibilidad backend/esquema queda abierta, sin cambios a Go o PostgreSQL, y no se atribuye a un fallo del frontend. La respuesta legal compatible devuelve metadatos sintéticos sin contenido; la UI no muestra texto legal sustituto. Evidencia de niveles, resultados, pruebas y límites: `planning/frontend_next/evidence/fase-4-marketplace-publico.md`. Fase 5 no iniciada.
+
 ### Fase 5 — Identidad y onboarding
 
 Entregables:

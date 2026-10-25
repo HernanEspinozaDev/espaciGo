@@ -4,7 +4,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: { default: "EspaciGo", template: "%s | EspaciGo" },
-  description: "Explora espacios de muestra para trabajar, crear y reunirse.",
+  description:
+    "Explora arriendos residenciales y espacios flexibles publicados en EspaciGo.",
   applicationName: "EspaciGo",
   icons: { icon: "/espacigo-mark.svg", apple: "/espacigo-mark.svg" },
 };

@@ -7,8 +7,10 @@ import { Navbar } from "@/app/navbar";
 
 const links = [
   { href: "/", label: "Inicio" },
-  { href: "/products", label: "Espacios" },
-  { href: "/#about", label: "Cómo funciona" },
+  { href: "/explorar", label: "Explorar" },
+  { href: "/categorias", label: "Categorías" },
+  { href: "/arriendos", label: "Arriendos residenciales" },
+  { href: "/como-funciona", label: "Cómo funciona" },
 ];
 
 export default function MarketplaceLayout({
@@ -45,10 +47,10 @@ export default function MarketplaceLayout({
                 </Suspense>
               </div>
               <Link
-                href="/dashboard"
+                href="/login"
                 className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary"
               >
-                Mi espacio
+                Ingresar a EspaciGo
               </Link>
             </div>
           </div>

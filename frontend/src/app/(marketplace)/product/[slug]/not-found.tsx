@@ -18,15 +18,15 @@ export default function ProductNotFound() {
         Espacio no encontrado
       </h1>
       <p className="mt-2 max-w-md text-sm text-muted-foreground">
-        Este espacio no existe o ya no está disponible en este catálogo de
-        muestra.
+        Esta publicación no existe o ya no está disponible para consulta
+        pública.
       </p>
       <div className="mt-8 flex items-center gap-4">
         <Link
-          href="/products"
+          href="/explorar"
           className="inline-flex items-center rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background transition-colors hover:bg-foreground/90"
         >
-          Explorar espacios
+          Explorar arriendos
         </Link>
         <Link
           href="/"

@@ -12,68 +12,63 @@ This notice covers recognizable source code and view structures copied or adapte
 
 ### Source-to-target inventory
 
-| Upstream path                                | EspaciGo path                                        | Treatment                                                                                          |
-| -------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `app/page.tsx`                               | `src/app/(marketplace)/page.tsx`                     | Adapted; retains hero, grid, about, newsletter composition; uses local fixtures and EspaciGo text. |
-| `app/navbar.tsx`                             | `src/app/navbar.tsx`                                 | Adapted; route links and accessible labels localized.                                              |
-| `app/footer.tsx`                             | `src/app/footer.tsx`                                 | Adapted; EspaciGo navigation and local-demo limits.                                                |
-| `app/products/page.tsx`                      | `src/app/(marketplace)/products/page.tsx`            | Adapted; product listing becomes space catalog; local fixture filtering/sorting.                   |
-| `app/products/products-sort-select.tsx`      | `src/app/products/products-sort-select.tsx`          | Adapted; local Next routing and Spanish labels.                                                    |
-| `app/search/page.tsx`                        | `src/app/(marketplace)/search/page.tsx`              | Adapted; local search fixtures and EspaciGo semantics.                                             |
-| `app/search/search-controls.tsx`             | `src/app/search/search-controls.tsx`                 | Adapted; local category/sort controls and Spanish labels.                                          |
-| `app/search/search-pagination.tsx`           | `src/app/search/search-pagination.tsx`               | Adapted; Spanish labels and local route/query parameters.                                          |
-| `app/search/sort.ts`                         | `src/app/search/sort.ts`                             | Adapted; local catalog sort keys/labels.                                                           |
-| `lib/vts.ts`                                 | `src/lib/vts.ts`                                     | Adapted parser/encoder for the source filter-query format; no API call.                            |
-| `app/layout.tsx`                             | `src/app/(marketplace)/layout.tsx`                   | Reassembled public chrome from source header/nav/footer; platform providers excluded.              |
-| `app/search/loading.tsx`                     | `src/app/(marketplace)/search/loading.tsx`           | Adapted; retains listing skeleton composition.                                                     |
-| `app/product/[slug]/page.tsx`                | `src/app/(marketplace)/product/[slug]/page.tsx`      | Adapted; detail route renders a synthetic EspaciGo space.                                          |
-| `app/product/[slug]/media-gallery.tsx`       | `src/app/product/[slug]/media-gallery.tsx`           | Adapted; preserves gallery navigation/zoom/thumbnails; localized labels and local assets.          |
-| `app/product/[slug]/not-found.tsx`           | `src/app/(marketplace)/product/[slug]/not-found.tsx` | Adapted; local not-found state.                                                                    |
-| `app/product/[slug]/error.tsx`               | `src/app/(marketplace)/product/[slug]/error.tsx`     | Adapted; local error state.                                                                        |
-| `app/product/[slug]/product-features.tsx`    | `src/app/product/[slug]/product-features.tsx`        | Adapted and used by the detail route; renders only synthetic amenities from local fixtures.        |
-| `components/product-card.tsx`                | `src/components/product-card.tsx`                    | Adapted; space fixture data, local paths, synthetic image alt text, illustrative CLP/day.          |
-| `components/product-grid-skeleton.tsx`       | `src/components/product-grid-skeleton.tsx`           | Copied/adapted; listing loading state.                                                             |
-| `components/listing-pagination.tsx`          | `src/components/listing-pagination.tsx`              | Adapted; local route and filters.                                                                  |
-| `components/route-error.tsx`                 | `src/components/route-error.tsx`                     | Adapted; local route error state.                                                                  |
-| `components/sections/hero.tsx`               | `src/components/sections/hero.tsx`                   | Adapted; retains hierarchy, uses Spanish EspaciGo copy.                                            |
-| `components/sections/about.tsx`              | `src/components/sections/about.tsx`                  | Adapted; EspaciGo copy and explicit synthetic-data limitation.                                     |
-| `components/sections/product-grid.tsx`       | `src/components/sections/product-grid.tsx`           | Adapted; reads the typed local space fixture.                                                      |
-| `components/sections/product-filters.tsx`    | `src/components/sections/product-filters.tsx`        | Adapted; filter view preserved; local fixtures, CLP/day, Spanish labels.                           |
-| `components/sections/newsletter.tsx`         | `src/components/sections/newsletter.tsx`             | Adapted; disabled, non-submitting preview; no data collection.                                     |
-| `app/globals.css`                            | `src/app/globals.css`                                | Adapted as the active Tailwind/theme base; workspace tokens are scoped separately.                 |
-| `lib/utils.ts`                               | `src/lib/utils.ts`                                   | Copied/adapted utility functions used by imported components.                                      |
-| `components/ui/accordion.tsx`                | `src/components/ui/accordion.tsx`                    | Copied/adapted primitive.                                                                          |
-| `components/ui/badge.tsx`                    | `src/components/ui/badge.tsx`                        | Adapted primitive.                                                                                 |
-| `components/ui/breadcrumb.tsx`               | `src/components/ui/breadcrumb.tsx`                   | Copied/adapted primitive.                                                                          |
-| `components/ui/button.tsx`                   | `src/components/ui/button.tsx`                       | Adapted primitive and local imports.                                                               |
-| `components/ui/checkbox.tsx`                 | `src/components/ui/checkbox.tsx`                     | Copied/adapted primitive.                                                                          |
-| `components/ui/dialog.tsx`                   | `src/components/ui/dialog.tsx`                       | Copied/adapted primitive.                                                                          |
-| `components/ui/dropdown-menu.tsx`            | `src/components/ui/dropdown-menu.tsx`                | Copied/adapted primitive.                                                                          |
-| `components/ui/input.tsx`                    | `src/components/ui/input.tsx`                        | Copied/adapted primitive.                                                                          |
-| `components/ui/label.tsx`                    | `src/components/ui/label.tsx`                        | Copied/adapted primitive.                                                                          |
-| `components/ui/pagination.tsx`               | `src/components/ui/pagination.tsx`                   | Copied/adapted primitive.                                                                          |
-| `components/ui/popover.tsx`                  | `src/components/ui/popover.tsx`                      | Copied/adapted primitive.                                                                          |
-| `components/ui/scroll-area.tsx`              | `src/components/ui/scroll-area.tsx`                  | Copied/adapted primitive.                                                                          |
-| `components/ui/select.tsx`                   | `src/components/ui/select.tsx`                       | Copied/adapted primitive.                                                                          |
-| `components/ui/sheet.tsx`                    | `src/components/ui/sheet.tsx`                        | Copied/adapted primitive.                                                                          |
-| `components/ui/skeleton.tsx`                 | `src/components/ui/skeleton.tsx`                     | Copied/adapted primitive.                                                                          |
-| `components/ui/slider.tsx`                   | `src/components/ui/slider.tsx`                       | Copied/adapted primitive.                                                                          |
-| `components/ui/sonner.tsx`                   | `src/components/ui/sonner.tsx`                       | Adapted to the installed Sonner package and local theme.                                           |
-| `components/ui/tooltip.tsx`                  | `src/components/ui/tooltip.tsx`                      | Copied/adapted primitive.                                                                          |
-| `components/search/highlighted-text.tsx`     | `src/components/search/highlighted-text.tsx`         | Copied/adapted search view component.                                                              |
-| `components/search/search-input.tsx`         | `src/components/search/search-input.tsx`             | Adapted; local suggestions/navigation and Spanish accessible name.                                 |
-| `components/search/search-page-input.tsx`    | `src/components/search/search-page-input.tsx`        | Adapted; local suggestions/navigation and Spanish labels.                                          |
-| `components/search/mobile-search-input.tsx`  | `src/components/search/mobile-search-input.tsx`      | Adapted; local suggestions/navigation and Spanish labels.                                          |
-| `components/search/suggestions.tsx`          | `src/components/search/suggestions.tsx`              | Adapted to synthetic local suggestions and Spanish copy.                                           |
-| `components/search/use-search-controller.ts` | `src/components/search/use-search-controller.ts`     | Adapted; local suggestion adapter and App Router navigation.                                       |
+| Upstream path                               | EspaciGo path                                        | Treatment                                                                                          |
+| ------------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `app/page.tsx`                              | `src/app/(marketplace)/page.tsx`                     | Adapted; retains hero, grid, about, newsletter composition; uses local fixtures and EspaciGo text. |
+| `app/navbar.tsx`                            | `src/app/navbar.tsx`                                 | Adapted; route links and accessible labels localized.                                              |
+| `app/footer.tsx`                            | `src/app/footer.tsx`                                 | Adapted; EspaciGo navigation and local-demo limits.                                                |
+| `app/products/page.tsx`                     | `src/app/(marketplace)/products/page.tsx`            | Adapted; product listing becomes space catalog; local fixture filtering/sorting.                   |
+| `app/products/products-sort-select.tsx`     | `src/app/products/products-sort-select.tsx`          | Adapted; local Next routing and Spanish labels.                                                    |
+| `app/search/page.tsx`                       | `src/app/(marketplace)/search/page.tsx`              | Adapted; local search fixtures and EspaciGo semantics.                                             |
+| `app/search/search-controls.tsx`            | `src/app/search/search-controls.tsx`                 | Adapted; local category/sort controls and Spanish labels.                                          |
+| `app/search/search-pagination.tsx`          | `src/app/search/search-pagination.tsx`               | Adapted; Spanish labels and local route/query parameters.                                          |
+| `app/search/sort.ts`                        | `src/app/search/sort.ts`                             | Adapted; local catalog sort keys/labels.                                                           |
+| `lib/vts.ts`                                | `src/lib/vts.ts`                                     | Adapted parser/encoder for the source filter-query format; no API call.                            |
+| `app/layout.tsx`                            | `src/app/(marketplace)/layout.tsx`                   | Reassembled public chrome from source header/nav/footer; platform providers excluded.              |
+| `app/search/loading.tsx`                    | `src/app/(marketplace)/search/loading.tsx`           | Adapted; retains listing skeleton composition.                                                     |
+| `app/product/[slug]/page.tsx`               | `src/app/(marketplace)/product/[slug]/page.tsx`      | Adapted; detail route renders a synthetic EspaciGo space.                                          |
+| `app/product/[slug]/media-gallery.tsx`      | `src/app/product/[slug]/media-gallery.tsx`           | Adapted; preserves gallery navigation/zoom/thumbnails; localized labels and local assets.          |
+| `app/product/[slug]/not-found.tsx`          | `src/app/(marketplace)/product/[slug]/not-found.tsx` | Adapted; local not-found state.                                                                    |
+| `app/product/[slug]/error.tsx`              | `src/app/(marketplace)/product/[slug]/error.tsx`     | Adapted; local error state.                                                                        |
+| `app/product/[slug]/product-features.tsx`   | `src/app/product/[slug]/product-features.tsx`        | Adapted and used by the detail route; renders only synthetic amenities from local fixtures.        |
+| `components/product-card.tsx`               | `src/components/product-card.tsx`                    | Adapted; space fixture data, local paths, synthetic image alt text, illustrative CLP/day.          |
+| `components/product-grid-skeleton.tsx`      | `src/components/product-grid-skeleton.tsx`           | Copied/adapted; listing loading state.                                                             |
+| `components/listing-pagination.tsx`         | `src/components/listing-pagination.tsx`              | Adapted; local route and filters.                                                                  |
+| `components/route-error.tsx`                | `src/components/route-error.tsx`                     | Adapted; local route error state.                                                                  |
+| `components/sections/hero.tsx`              | `src/components/sections/hero.tsx`                   | Adapted; retains hierarchy, uses Spanish EspaciGo copy.                                            |
+| `components/sections/about.tsx`             | `src/components/sections/about.tsx`                  | Adapted; EspaciGo copy and explicit synthetic-data limitation.                                     |
+| `components/sections/product-grid.tsx`      | `src/components/sections/product-grid.tsx`           | Adapted; reads the typed local space fixture.                                                      |
+| `components/sections/product-filters.tsx`   | `src/components/sections/product-filters.tsx`        | Adapted; filter view preserved; local fixtures, CLP/day, Spanish labels.                           |
+| `components/sections/newsletter.tsx`        | `src/components/sections/newsletter.tsx`             | Adapted; disabled, non-submitting preview; no data collection.                                     |
+| `app/globals.css`                           | `src/app/globals.css`                                | Adapted as the active Tailwind/theme base; workspace tokens are scoped separately.                 |
+| `lib/utils.ts`                              | `src/lib/utils.ts`                                   | Copied/adapted utility functions used by imported components.                                      |
+| `components/ui/accordion.tsx`               | `src/components/ui/accordion.tsx`                    | Copied/adapted primitive.                                                                          |
+| `components/ui/badge.tsx`                   | `src/components/ui/badge.tsx`                        | Adapted primitive.                                                                                 |
+| `components/ui/breadcrumb.tsx`              | `src/components/ui/breadcrumb.tsx`                   | Copied/adapted primitive.                                                                          |
+| `components/ui/button.tsx`                  | `src/components/ui/button.tsx`                       | Adapted primitive and local imports.                                                               |
+| `components/ui/checkbox.tsx`                | `src/components/ui/checkbox.tsx`                     | Copied/adapted primitive.                                                                          |
+| `components/ui/dialog.tsx`                  | `src/components/ui/dialog.tsx`                       | Copied/adapted primitive.                                                                          |
+| `components/ui/dropdown-menu.tsx`           | `src/components/ui/dropdown-menu.tsx`                | Copied/adapted primitive.                                                                          |
+| `components/ui/input.tsx`                   | `src/components/ui/input.tsx`                        | Copied/adapted primitive.                                                                          |
+| `components/ui/label.tsx`                   | `src/components/ui/label.tsx`                        | Copied/adapted primitive.                                                                          |
+| `components/ui/pagination.tsx`              | `src/components/ui/pagination.tsx`                   | Copied/adapted primitive.                                                                          |
+| `components/ui/popover.tsx`                 | `src/components/ui/popover.tsx`                      | Copied/adapted primitive.                                                                          |
+| `components/ui/scroll-area.tsx`             | `src/components/ui/scroll-area.tsx`                  | Copied/adapted primitive.                                                                          |
+| `components/ui/select.tsx`                  | `src/components/ui/select.tsx`                       | Copied/adapted primitive.                                                                          |
+| `components/ui/sheet.tsx`                   | `src/components/ui/sheet.tsx`                        | Copied/adapted primitive.                                                                          |
+| `components/ui/skeleton.tsx`                | `src/components/ui/skeleton.tsx`                     | Copied/adapted primitive.                                                                          |
+| `components/ui/slider.tsx`                  | `src/components/ui/slider.tsx`                       | Copied/adapted primitive.                                                                          |
+| `components/ui/sonner.tsx`                  | `src/components/ui/sonner.tsx`                       | Adapted to the installed Sonner package and local theme.                                           |
+| `components/ui/tooltip.tsx`                 | `src/components/ui/tooltip.tsx`                      | Copied/adapted primitive.                                                                          |
+| `components/search/search-input.tsx`        | `src/components/search/search-input.tsx`             | Adapted as a plain GET form to the Go-backed public catalog; local suggestions were removed.       |
+| `components/search/mobile-search-input.tsx` | `src/components/search/mobile-search-input.tsx`      | Adapted as a plain GET form to the Go-backed public catalog; local suggestions were removed.       |
 
 ### Local integration adapters and fixtures
 
 These supporting files are EspaciGo integration code rather than copied template files:
 
 - `src/app/layout.tsx`: single-app Spanish root, metadata, and skip link.
-- `src/app/search-suggest.ts`: typed local search suggestion adapter.
-- `src/lib/marketplace-fixtures.ts`: synthetic space records, categories, facets, search, sort, and CLP/day formatting.
+- `src/features/public-catalog/`: server-only Go adapter, validated URL query state, public DTO presentation, and catalog UI. Fase 4 no longer ships local listing fixtures.
 - `src/lib/workspace-fixtures.ts`: synthetic account, summary, and activity data.
 - `src/lib/template-media.tsx`: local `next/image` adapter retaining the imported media component API.
 - `src/app/(marketplace)/layout.tsx`: route-group chrome assembled from the listed Your Next Store navbar/footer components and EspaciGo routing.
