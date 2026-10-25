@@ -3,6 +3,8 @@
 Fecha de verificación local: 2026-10-25
 Rama: `frontend-next-hermes`
 HEAD de origen antes del corte: `317b7695508efa1a88a95666d828aa188f2950b6`
+Commit de implementación publicado: `2624e7e370467c639651836c1143fd2ab6a41907`
+Estado: publicado exclusivamente en `frontend-next-hermes`; sin PR, merge, `main` ni despliegue.
 Base PostgreSQL nativa: `espacigo_dms_stage_20261020` (sin migraciones ni cambios de datos)
 
 ## Alcance ejecutado
@@ -27,18 +29,18 @@ Para comprobar la integración pública sin migrar la base, se usó localmente u
 
 Resultados observados:
 
-| Operación | Resultado |
-| --- | --- |
-| `GET /public/space-categories` | HTTP 200; 9 categorías activas, incluida `inmuebles` |
-| `GET /public/locations` | HTTP 200; 345 ubicaciones |
-| `GET /public/spaces?page_size=3` | HTTP 200; 3 elementos y `next_cursor` |
-| Página siguiente usando el cursor opaco | HTTP 200; sin IDs repetidos respecto de la primera página |
-| `GET /public/space-categories/inmuebles/filters` | HTTP 200 |
-| `GET /public/spaces?category_code=inmuebles&page_size=3` | HTTP 200; 0 publicaciones residenciales |
-| `GET /public/spaces?page_size=48` | HTTP 200; 48 elementos; 46 contienen referencias de imagen |
-| Detalle público de un elemento elegible | HTTP 200; DTO público y 1 referencia de imagen en el elemento ensayado |
-| Variantes `display`/`thumbnail` y endpoint original para esa referencia | HTTP 404 en las tres rutas; Next muestra el placeholder y no inventa una imagen |
-| `GET /auth/terms` | HTTP 200, pero cada elemento contiene metadatos sintéticos y no el objeto `document`/su contenido |
+| Operación                                                               | Resultado                                                                                         |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `GET /public/space-categories`                                          | HTTP 200; 9 categorías activas, incluida `inmuebles`                                              |
+| `GET /public/locations`                                                 | HTTP 200; 345 ubicaciones                                                                         |
+| `GET /public/spaces?page_size=3`                                        | HTTP 200; 3 elementos y `next_cursor`                                                             |
+| Página siguiente usando el cursor opaco                                 | HTTP 200; sin IDs repetidos respecto de la primera página                                         |
+| `GET /public/space-categories/inmuebles/filters`                        | HTTP 200                                                                                          |
+| `GET /public/spaces?category_code=inmuebles&page_size=3`                | HTTP 200; 0 publicaciones residenciales                                                           |
+| `GET /public/spaces?page_size=48`                                       | HTTP 200; 48 elementos; 46 contienen referencias de imagen                                        |
+| Detalle público de un elemento elegible                                 | HTTP 200; DTO público y 1 referencia de imagen en el elemento ensayado                            |
+| Variantes `display`/`thumbnail` y endpoint original para esa referencia | HTTP 404 en las tres rutas; Next muestra el placeholder y no inventa una imagen                   |
+| `GET /auth/terms`                                                       | HTTP 200, pero cada elemento contiene metadatos sintéticos y no el objeto `document`/su contenido |
 
 El 404 de las tres rutas de imagen corresponde a la referencia real usada en el ensayo; no se atribuye a todas las imágenes del catálogo. Sí se verificó el fallback de la UI con esa referencia y el placeholder accesible tras fallar la variante y el endpoint original.
 
