@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, PlusCircle } from "lucide-react";
+import { Building2, PlusCircle, CalendarCheck } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -18,8 +18,10 @@ export function HostNavigation() {
 
   const isNuevo = pathname.includes("/espacios/nuevo");
   const isEditar = pathname.includes("/editar");
+  const isReservas = pathname.includes("/anfitrion/reservas");
   const isListado =
-    pathname === "/anfitrion/espacios" || pathname === "/anfitrion";
+    (pathname === "/anfitrion/espacios" || pathname === "/anfitrion") &&
+    !isReservas;
 
   return (
     <div className="space-y-4">
@@ -55,6 +57,14 @@ export function HostNavigation() {
               </BreadcrumbItem>
             </>
           )}
+          {isReservas && (
+            <>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Reservas</BreadcrumbPage>
+              </BreadcrumbItem>
+            </>
+          )}
         </BreadcrumbList>
       </Breadcrumb>
 
@@ -75,6 +85,20 @@ export function HostNavigation() {
         >
           <Building2 className="size-4" aria-hidden="true" />
           <span>Mis Espacios</span>
+        </Link>
+
+        <Link
+          href="/anfitrion/reservas"
+          aria-current={isReservas ? "page" : undefined}
+          className={cn(
+            "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
+            isReservas
+              ? "border-primary text-primary bg-muted/40 font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+          )}
+        >
+          <CalendarCheck className="size-4" aria-hidden="true" />
+          <span>Reservas</span>
         </Link>
 
         <Link
