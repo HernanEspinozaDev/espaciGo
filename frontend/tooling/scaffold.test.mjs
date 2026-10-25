@@ -105,6 +105,11 @@ test("copied source notice records both frozen commits and MIT licensing", async
   assert.match(notice, /1de63c614f4c57c1862b1b14710f2133784749c1/);
   assert.match(notice, /6e33e58b1e553a41fe22e6b941a7229a002de361/);
   assert.match(notice, /MIT/);
+
+  const tsNotice = await read("src/app/legal/notice.ts");
+  assert.match(tsNotice, /1de63c614f4c57c1862b1b14710f2133784749c1/);
+  assert.match(tsNotice, /6e33e58b1e553a41fe22e6b941a7229a002de361/);
+  assert.match(tsNotice, /MIT/);
 });
 
 test("application source contains no removed commerce, billing, database, or auth SDK imports", async () => {
