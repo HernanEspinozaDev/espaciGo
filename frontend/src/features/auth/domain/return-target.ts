@@ -39,6 +39,9 @@ const fixedPaths = new Set([
   "/mi-cuenta/privacidad",
   "/mi-cuenta/seguridad",
   "/mi-cuenta/verificaciones",
+  "/anfitrion",
+  "/anfitrion/espacios",
+  "/anfitrion/espacios/nuevo",
 ]);
 
 export type ReturnTarget = string & { readonly __returnTarget: unique symbol };
@@ -112,6 +115,8 @@ export function resolveReturnTarget(
   const space = /^\/espacios\/([^/]+)$/.exec(pathname);
   if (space && canonicalUuid.test(space[1] ?? ""))
     return pathname as ReturnTarget;
+  const hostEdit = /^\/anfitrion\/espacios\/([^/]+)\/editar$/.exec(pathname);
+  if (hostEdit) return pathname as ReturnTarget;
   return home;
 }
 
