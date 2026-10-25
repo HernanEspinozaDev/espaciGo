@@ -114,6 +114,11 @@ export class AuthFacade {
 
   getServerSnapshot = (): AuthSnapshot => anonymousSnapshot;
 
+  getAccessToken = (): AccessToken | null => {
+    this.#expireIfNeeded();
+    return this.#accessToken;
+  };
+
   async login(input: LoginRequest): Promise<boolean> {
     const generation = this.#advanceGeneration();
     this.#accessToken = null;

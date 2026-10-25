@@ -9,6 +9,7 @@ import {
   Menu,
   Settings,
   Shield,
+  User,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 
@@ -17,6 +18,7 @@ const navItems = [
   { href: "/dashboard/general", icon: Settings, label: "General" },
   { href: "/dashboard/activity", icon: Activity, label: "Actividad" },
   { href: "/dashboard/security", icon: Shield, label: "Seguridad" },
+  { href: "/mi-cuenta", icon: User, label: "Mi Cuenta" },
 ];
 
 export default function DashboardLayout({
