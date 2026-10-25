@@ -35,6 +35,10 @@ const fixedPaths = new Set([
   "/dashboard/general",
   "/dashboard/security",
   "/dashboard/activity",
+  "/mi-cuenta",
+  "/mi-cuenta/privacidad",
+  "/mi-cuenta/seguridad",
+  "/mi-cuenta/verificaciones",
 ]);
 
 export type ReturnTarget = string & { readonly __returnTarget: unique symbol };
