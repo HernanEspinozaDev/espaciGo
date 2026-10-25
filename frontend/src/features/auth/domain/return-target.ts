@@ -42,6 +42,9 @@ const fixedPaths = new Set([
   "/anfitrion",
   "/anfitrion/espacios",
   "/anfitrion/espacios/nuevo",
+  "/anfitrion/reservas",
+  "/reservas",
+  "/reservas/nueva",
 ]);
 
 export type ReturnTarget = string & { readonly __returnTarget: unique symbol };
@@ -114,6 +117,20 @@ export function resolveReturnTarget(
     return pathname as ReturnTarget;
   const space = /^\/espacios\/([^/]+)$/.exec(pathname);
   if (space && canonicalUuid.test(space[1] ?? ""))
+    return pathname as ReturnTarget;
+  const booking = /^\/reservas\/([^/]+)$/.exec(pathname);
+  if (
+    booking &&
+    (canonicalUuid.test(booking[1] ?? "") ||
+      /^res-[a-z0-9_-]+$/i.test(booking[1] ?? ""))
+  )
+    return pathname as ReturnTarget;
+  const hostBooking = /^\/anfitrion\/reservas\/([^/]+)$/.exec(pathname);
+  if (
+    hostBooking &&
+    (canonicalUuid.test(hostBooking[1] ?? "") ||
+      /^res-[a-z0-9_-]+$/i.test(hostBooking[1] ?? ""))
+  )
     return pathname as ReturnTarget;
   const hostEdit = /^\/anfitrion\/espacios\/([^/]+)\/editar$/.exec(pathname);
   if (hostEdit) return pathname as ReturnTarget;
