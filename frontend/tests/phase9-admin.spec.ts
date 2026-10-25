@@ -652,7 +652,7 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
         name: /Moderación de Verificaciones KYC/i,
       }),
     ).toBeVisible();
-    await expect(page.getByText("En revisión")).toBeVisible();
+    await expect(page.getByText("En revisión", { exact: true })).toBeVisible();
 
     // 1.1 Rechazo con motivo obligatorio: validación < 5 caracteres
     await page.getByRole("button", { name: "Rechazar" }).click();
@@ -770,7 +770,7 @@ test.describe("Fase 9 - Administración, Moderación y Gobernanza", () => {
     await page.getByRole("button", { name: "Confirmar Bloqueo" }).click();
 
     // Badge bloqueada visible
-    await expect(page.getByText("Bloqueada")).toBeVisible();
+    await expect(page.getByText("Bloqueada").first()).toBeVisible();
 
     // 2.3 Desbloqueo
     await page.getByRole("button", { name: "Desbloquear" }).first().click();

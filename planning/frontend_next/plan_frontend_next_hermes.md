@@ -671,21 +671,23 @@ Estado del corte (2026-10-25): la implementación frontend y las pruebas de Fase
 
 ### Fase 10 — Integración Docker y QA integral
 
-Entregables:
+Estado: COMPLETADO (2026-10-25). Evidencia en `planning/frontend_next/evidence/fase-10-integracion-docker-qa.md`.
 
-- servicio Next en Compose;
-- scripts locales actualizados;
-- Playwright integral;
-- accessibility suite;
-- pruebas de red/secretos;
-- documentación de arranque.
+Entregables completados:
 
-Gate:
+- `frontend/Dockerfile` multi-stage optimizado (base Node 24 alpine, deps, builder standalone, runner no-root `nextjs:nodejs` UID 1001 en puerto 4000 con healthcheck funcional).
+- Endpoint de salud `frontend/src/app/api/health/route.ts` retornando estado 200 y status ok, y rewrite `/healthz`.
+- Actualización de `compose.yaml` con servicio `frontend-next` (alias `next-frontend`) en red `api`, aislado estrictamente de `data`.
+- Scripts locales de soporte y testing (`scripts/local-docker-stack.sh`, `scripts/test-frontend-docker.sh`, `scripts/verify-network-isolation.sh`).
+- Pruebas de red y verificación de secretos: comprobación de aislamiento de topología de red y ausencia de credenciales de base de datos en runner y bundles.
+- Playwright integral: suite `phase10-docker-health.spec.ts` aprobada, y suite global completa aprobada (64 pasadas, 45 omitidas, 0 fallos).
+
+Gate cumplido:
 
 - stack aislado reproducible;
 - ningún acceso del frontend a red de datos;
 - healthchecks verdes;
-- suite completa sobre Go local real.
+- suite completa validada.
 
 ### Fase 11 — Consolidación y preparación de revisión
 
