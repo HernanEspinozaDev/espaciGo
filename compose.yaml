@@ -105,7 +105,7 @@ services:
       DATABASE_SSLROOTCERT: ${DATABASE_SSLROOTCERT:-}
       DATABASE_SSLCERT: ${DATABASE_SSLCERT:-}
       DATABASE_SSLKEY: ${DATABASE_SSLKEY:-}
-      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_ANGULAR_PORT:-4200},http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200},http://angular-frontend:4000
+      CORS_ALLOWED_ORIGINS: http://localhost:${LOCAL_ANGULAR_PORT:-4200},http://127.0.0.1:${LOCAL_ANGULAR_PORT:-4200},http://angular-frontend:4000,http://localhost:${LOCAL_NEXT_PORT:-4201},http://127.0.0.1:${LOCAL_NEXT_PORT:-4201},http://frontend-next:4000,http://next-frontend:4000
     secrets:
       - runtime_password
       - local_payment_webhook_secret
@@ -199,7 +199,35 @@ services:
     networks:
       - api
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/healthz').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  frontend-next:
+    image: ${LOCAL_IMAGE_PREFIX:-espacigo-local}-next:dev
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "4000"
+      API_INTERNAL_BASE_URL: http://backend:8080/api/v1
+      API_PUBLIC_BASE_URL: http://127.0.0.1:${LOCAL_API_PORT:-8080}/api/v1
+      FRONTEND_PUBLIC_ORIGIN: http://127.0.0.1:${LOCAL_NEXT_PORT:-4201}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${LOCAL_NEXT_PORT:-4201}:4000"
+    networks:
+      api:
+        aliases:
+          - frontend-next
+          - next-frontend
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 20

@@ -41,7 +41,7 @@ export DATABASE_SSLKEY="${DATABASE_SSLKEY:-}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-angular|up|up-frontend|verify-frontend|run-e2e|run-fe14-clock-e2e|stop-backend|down|down-frontend|status}
+Usage: scripts/local-docker-stack.sh {config|config-frontend|build-backend|build-angular|build-next|up|up-frontend|up-next|verify-frontend|run-e2e|run-fe14-clock-e2e|stop-backend|down|down-frontend|status}
 
 This stack uses a dedicated Compose project, volume, ports, secrets and private
 directories. `down` retains its named PostgreSQL volume. There is intentionally
@@ -251,6 +251,11 @@ case "$command" in
     prepare
     compose build angular-frontend
     ;;
+  build-next)
+    validate_isolated_paths
+    prepare
+    compose build frontend-next
+    ;;
   up)
     validate_isolated_paths
     prepare
@@ -260,6 +265,11 @@ case "$command" in
     validate_isolated_paths
     prepare
     compose_frontend up --build --wait angular-frontend
+    ;;
+  up-next)
+    validate_isolated_paths
+    prepare
+    compose up --build --wait frontend-next
     ;;
   verify-frontend)
     validate_isolated_paths
