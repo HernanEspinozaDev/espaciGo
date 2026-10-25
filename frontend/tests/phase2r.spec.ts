@@ -135,7 +135,7 @@ test("workspace account, security and pricing stay previews while login is enabl
 
   await page.goto("/login");
   await expect(page.getByLabel("Correo electrónico")).toBeEnabled();
-  await expect(page.getByLabel("Contraseña")).toBeEnabled();
+  await expect(page.getByLabel("Contraseña", { exact: true })).toBeEnabled();
   await expect(
     page.getByRole("button", { name: "Iniciar sesión" }),
   ).toBeEnabled();
@@ -219,9 +219,9 @@ test("mobile public catalog filters preserve the listing and update its route", 
   await expect(
     dialog.getByRole("heading", { name: "Refinar publicaciones" }),
   ).toBeVisible();
-  await dialog.getByLabel("Categoría").selectOption("inmuebles");
+  await dialog.getByLabel("Modalidad de tarifa").selectOption("dia");
   await dialog.getByRole("button", { name: "Aplicar filtros" }).click();
-  await expect(page).toHaveURL(/category_code=inmuebles/);
+  await expect(page).toHaveURL(/rate_unit=dia/);
   await expect(
     page.getByRole("heading", { name: "Explorar arriendos" }),
   ).toBeVisible();

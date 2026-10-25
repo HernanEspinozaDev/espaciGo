@@ -92,9 +92,23 @@ export function authErrorMessage(error: unknown): string {
     case "unauthorized":
       return "El correo o la contraseña no son válidos.";
     case "email_not_verified":
+    case "email_unverified":
       return "Verifica tu correo antes de iniciar sesión.";
     case "login_blocked":
       return "El acceso está bloqueado temporalmente. Intenta más tarde.";
+    case "rate_limited":
+    case "too_many_requests":
+      return "No pudimos completar la solicitud ahora. Espera antes de volver a intentarlo.";
+    case "invalid_token":
+      return "El enlace no es válido o ya no está disponible. Solicita instrucciones nuevas si corresponde.";
+    case "password_confirmation_mismatch":
+      return "Las contraseñas no coinciden.";
+    case "password_unchanged":
+      return "Elige una contraseña distinta de la actual.";
+    case "password_recently_used":
+      return "Elige una contraseña que no hayas usado recientemente.";
+    case "consent_invalid":
+      return "Los documentos cambiaron. Vuelve a revisarlos antes de continuar.";
     case "restricted_mode":
       return "La cuenta tiene acceso restringido a operaciones permitidas por el servicio.";
     case "service_unavailable":

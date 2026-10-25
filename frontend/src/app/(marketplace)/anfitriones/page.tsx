@@ -40,7 +40,7 @@ export default function HostsPage() {
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
-            href="/login"
+            href="/acceso"
             className="inline-flex min-h-12 items-center rounded-full bg-foreground px-6 text-sm font-medium text-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             Ingresar a EspaciGo

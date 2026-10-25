@@ -578,6 +578,8 @@ Gate:
 - no enumeración de cuenta;
 - 401/429 y expiración cubiertos.
 
+Estado del corte (2026-10-25): la implementación frontend y las pruebas de Fase 5 están completadas y verificadas tanto en modo controlado como contra la API Go nativa en loopback (`127.0.0.1:18082`) y la base nativa `espacigo_dms_stage_20261020`. Se verificaron tokens de acción seguros restringidos exclusivamente a hash fragments (`#token=...&token_id=...`) con purga inmediata del historial vía `replaceState`, confirmación de sesión (`GET /auth/session`) antes de permitir la navegación tras login, manejo reactivo de rate-limit (429) respetando la cabecera `Retry-After`, bloqueo preventivo de registro si `/auth/terms` devuelve 503 o carece de documentos completos, y validación estricta de `return_to` contra rutas canónicas del catálogo. Se documenta formalmente la limitación parcial de no enumeración originada en el backend Go existente (409 `email_registered` en registro duplicado y 403 `email_unverified` en login). Pruebas: 28 unitarias aprobadas, suite E2E controlada y a11y Axe sin violaciones (15/15), suite nativa Go loopback (6/6), lint, typecheck y formato limpios. Evidencia: `planning/frontend_next/evidence/fase-5-identidad-onboarding.md`. Fase 5 completada en frontend con gate backend parcial documentado; Fase 6 pendiente; sin PR, merge, `main` ni despliegue.
+
 ### Fase 6 — Cuenta y verificaciones
 
 Entregables:

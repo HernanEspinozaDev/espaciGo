@@ -33,7 +33,7 @@ function Header() {
             Planes demo
           </Link>
           <Button asChild className="rounded-full">
-            <Link href="/login">Acceso demo</Link>
+            <Link href="/acceso">Acceso</Link>
           </Button>
         </nav>
       </div>

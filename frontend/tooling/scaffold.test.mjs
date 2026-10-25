@@ -70,7 +70,8 @@ test("marketplace routes use the Go public catalog without local listing fixture
 test("SaaS Starter pages are present; auth uses its API facade and pricing stays demo-only", async () => {
   for (const route of [
     "src/app/(workspace)/saas/page.tsx",
-    "src/app/(workspace)/login/page.tsx",
+    "src/app/(auth)/acceso/page.tsx",
+    "src/app/(auth)/login/page.tsx",
     "src/app/(workspace)/dashboard/page.tsx",
     "src/app/(workspace)/dashboard/general/page.tsx",
     "src/app/(workspace)/dashboard/security/page.tsx",
@@ -78,11 +79,16 @@ test("SaaS Starter pages are present; auth uses its API facade and pricing stays
   ]) {
     assert.equal(await exists(route), true, `missing route file ${route}`);
   }
-  const login = await read("src/app/(workspace)/login.tsx");
+  const login = await read("src/features/auth/ui/access-screen.tsx");
+  const canonicalAccess = await read("src/app/(auth)/acceso/page.tsx");
+  const legacyLogin = await read("src/app/(auth)/login/page.tsx");
   const pricing = await read("src/app/(workspace)/pricing/page.tsx");
   assert.match(login, /useAuth/);
   assert.match(login, /await login\(\{ email, password \}\)/);
   assert.doesNotMatch(login, /\bfetch\s*\(/);
+  assert.match(canonicalAccess, /<AccessScreen\s*\/>/);
+  assert.match(legacyLogin, /<AccessScreen\s*\/>/);
+  assert.match(legacyLogin, /canonical:\s*"\/acceso"/);
   assert.match(login, /disabled/);
   assert.match(pricing, /no funcional/i);
   assert.match(pricing, /no hay precios, suscripciones, checkout/);

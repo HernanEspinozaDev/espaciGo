@@ -68,7 +68,7 @@ export function Footer() {
               </li>
               <li>
                 <Link
-                  href="/login"
+                  href="/acceso"
                   className="text-sm text-muted-foreground hover:text-foreground"
                 >
                   Ingresar a EspaciGo

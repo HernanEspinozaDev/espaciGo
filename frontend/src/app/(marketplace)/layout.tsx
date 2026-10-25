@@ -47,7 +47,7 @@ export default function MarketplaceLayout({
                 </Suspense>
               </div>
               <Link
-                href="/login"
+                href="/acceso"
                 className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary"
               >
                 Ingresar a EspaciGo
