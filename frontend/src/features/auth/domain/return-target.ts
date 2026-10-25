@@ -45,6 +45,13 @@ const fixedPaths = new Set([
   "/anfitrion/reservas",
   "/reservas",
   "/reservas/nueva",
+  "/administracion",
+  "/administracion/verificaciones",
+  "/administracion/espacios",
+  "/administracion/disputas",
+  "/administracion/cuentas",
+  "/administracion/auditoria",
+  "/administracion/global",
 ]);
 
 export type ReturnTarget = string & { readonly __returnTarget: unique symbol };

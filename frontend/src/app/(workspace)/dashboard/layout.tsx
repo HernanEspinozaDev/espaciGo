@@ -9,9 +9,12 @@ import {
   Menu,
   Settings,
   Shield,
+  ShieldAlert,
   User,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
+import { useAuth } from "@/features/auth/ui/use-auth";
+import { isAdminOrGlobalAdmin } from "@/features/admin/domain/admin-rules";
 
 const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Resumen" },
@@ -28,6 +31,23 @@ export default function DashboardLayout({
 }) {
   const pathname = usePathname();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const { snapshot } = useAuth();
+  const canAdmin =
+    isAdminOrGlobalAdmin(snapshot.roles) ||
+    snapshot.capabilities.some(
+      (c) =>
+        c.startsWith("accounts.") ||
+        c.startsWith("publications.") ||
+        c === "kpi.read" ||
+        c === "audit.read",
+    );
+
+  const items = canAdmin
+    ? [
+        ...navItems,
+        { href: "/administracion", icon: ShieldAlert, label: "Administración" },
+      ]
+    : navItems;
 
   return (
     <div className="relative mx-auto flex min-h-[calc(100dvh-112px)] w-full max-w-7xl flex-col">
@@ -55,7 +75,7 @@ export default function DashboardLayout({
             aria-label="Navegación del panel"
             className="flex flex-col gap-1 p-4"
           >
-            {navItems.map((item) => {
+            {items.map((item) => {
               const active = pathname === item.href;
               return (
                 <Button
