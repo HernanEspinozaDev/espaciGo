@@ -16,6 +16,7 @@ export class OpenApiAuthAdapter implements AuthPort {
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
+    if (result.response.status !== 200) throw new ApiProtocolError();
     if (!result.data || result.data.token_type !== "Bearer") {
       throw new ApiProtocolError();
     }
@@ -40,6 +41,7 @@ export class OpenApiAuthAdapter implements AuthPort {
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
+    if (result.response.status !== 200) throw new ApiProtocolError();
     if (!result.data) throw new ApiProtocolError();
 
     return {
@@ -58,5 +60,6 @@ export class OpenApiAuthAdapter implements AuthPort {
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
+    if (result.response.status !== 204) throw new ApiProtocolError();
   }
 }
