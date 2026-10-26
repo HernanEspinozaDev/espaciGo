@@ -186,7 +186,7 @@ steps:
           --min="${_MIN_WEB}" --max="${_MAX_WEB}" --concurrency="${_WEB_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
           --startup-probe="httpGet.path=/healthz,httpGet.port=4000,periodSeconds=10,timeoutSeconds=5,failureThreshold=12" \
           --ingress=internal-and-cloud-load-balancing --network="${_VPC}" --subnet="${_WEB_SUBNET}" --vpc-egress=private-ranges-only \
-          --allow-unauthenticated --set-env-vars="FRONTEND_ENTRY_MODE=public,NG_ALLOWED_HOSTS=${_PUBLIC_HOST},API_INTERNAL_BASE_URL=$${api_url}/api/v1,API_PUBLIC_BASE_URL=/api/v1,API_SERVICE_AUDIENCE=$${api_url},FRONTEND_PUBLIC_ORIGIN=https://${_PUBLIC_HOST},PRIVATE_DEMO_ORIGIN=https://${_PRIVATE_HOST}"
+          --allow-unauthenticated --set-env-vars="FRONTEND_ENTRY_MODE=public,API_BACKEND_BASE_URL=$${api_url}/api/v1,API_INTERNAL_BASE_URL=$${api_url}/api/v1,API_PUBLIC_BASE_URL=/api/v1,API_SERVICE_AUDIENCE=$${api_url},FRONTEND_PUBLIC_ORIGIN=https://${_PUBLIC_HOST},PRIVATE_DEMO_ORIGIN=https://${_PRIVATE_HOST}"
 
   - id: deploy-private-web-by-digest
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
@@ -204,7 +204,7 @@ steps:
           --min="${_MIN_WEB}" --max="${_MAX_WEB}" --concurrency="${_WEB_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
           --startup-probe="httpGet.path=/healthz,httpGet.port=4000,periodSeconds=10,timeoutSeconds=5,failureThreshold=12" \
           --ingress=internal-and-cloud-load-balancing --network="${_VPC}" --subnet="${_WEB_SUBNET}" --vpc-egress=private-ranges-only \
-          --no-allow-unauthenticated --iap --set-env-vars="FRONTEND_ENTRY_MODE=private,NG_ALLOWED_HOSTS=${_PRIVATE_HOST},API_INTERNAL_BASE_URL=$${api_url}/api/v1,API_PUBLIC_BASE_URL=/api/v1,API_SERVICE_AUDIENCE=$${api_url},FRONTEND_PUBLIC_ORIGIN=https://${_PRIVATE_HOST},IAP_JWT_AUDIENCE=/projects/447373903153/locations/${_REGION}/services/${_PRIVATE_SERVICE}"
+          --no-allow-unauthenticated --iap --set-env-vars="FRONTEND_ENTRY_MODE=private,API_BACKEND_BASE_URL=$${api_url}/api/v1,API_INTERNAL_BASE_URL=$${api_url}/api/v1,API_PUBLIC_BASE_URL=/api/v1,API_SERVICE_AUDIENCE=$${api_url},FRONTEND_PUBLIC_ORIGIN=https://${_PRIVATE_HOST},IAP_JWT_AUDIENCE=/projects/447373903153/locations/${_REGION}/services/${_PRIVATE_SERVICE}"
         gcloud run services add-iam-policy-binding "${_PRIVATE_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --member="serviceAccount:service-447373903153@gcp-sa-iap.iam.gserviceaccount.com" --role=roles/run.invoker --quiet
   - id: release-deploy-lock
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable

@@ -355,14 +355,31 @@ async function proxy(
   const encodedPath = path
     .map((segment) => encodeURIComponent(segment))
     .join("/");
-  const upstreamUrl = new URL(`${baseUrl.pathname}/${encodedPath}`, baseUrl);
+  const upstreamUrl = new URL(
+    `${baseUrl.pathname.replace(/\/$/, "")}/${encodedPath.replace(/^\//, "")}`,
+    baseUrl,
+  );
   upstreamUrl.search = requestUrl.search;
+
+  const upstreamHeaders = new Headers(collected.headers);
+  const idHeaders = await getCloudRunIdentityHeaders(
+    process.env.API_SERVICE_AUDIENCE?.trim() || baseUrl.origin,
+  );
+  if (idHeaders["X-Serverless-Authorization"]) {
+    upstreamHeaders.set(
+      "X-Serverless-Authorization",
+      idHeaders["X-Serverless-Authorization"],
+    );
+  }
+  if (!upstreamHeaders.has("authorization") && idHeaders["Authorization"]) {
+    upstreamHeaders.set("authorization", idHeaders["Authorization"]);
+  }
 
   let upstream: Response;
   try {
     upstream = await fetch(upstreamUrl, {
       method: operation.method,
-      headers: collected.headers,
+      headers: upstreamHeaders,
       body: body ?? undefined,
       cache: "no-store",
       redirect: "manual",
