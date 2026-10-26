@@ -64,7 +64,12 @@ export function AccountNavigation() {
               <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
               <div className="flex flex-col min-w-0 text-left">
                 <span>{item.title}</span>
-                <span className="text-xs text-muted-foreground font-normal hidden lg:block truncate">
+                <span
+                  className={cn(
+                    "text-xs font-normal hidden lg:block truncate",
+                    isActive ? "text-foreground" : "text-muted-foreground",
+                  )}
+                >
                   {item.description}
                 </span>
               </div>
