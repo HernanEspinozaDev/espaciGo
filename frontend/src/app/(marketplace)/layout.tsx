@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { Footer } from "@/app/footer";
 import { Navbar } from "@/app/navbar";
+import { SessionControls } from "@/features/auth/ui/session-controls";
 
 const links = [
   { href: "/", label: "Inicio" },
@@ -37,12 +38,7 @@ export default function MarketplaceLayout({
               </Link>
             </div>
             <div className="flex items-center gap-1 sm:gap-2">
-              <Link
-                href="/acceso"
-                className="inline-flex min-h-11 items-center rounded-full border border-border px-4 text-sm font-medium transition-colors hover:bg-secondary"
-              >
-                Ingresar a EspaciGo
-              </Link>
+              <SessionControls variant="public" />
             </div>
           </div>
         </div>

@@ -22,26 +22,11 @@ import { resolveReturnParam } from "../domain/return-target";
 import { retryAfterSeconds } from "../domain/retry-after";
 import { useRetryRemaining } from "./use-retry-remaining";
 
-function formatRoleBadge(role: string): string {
-  switch (role) {
-    case "administrador_global":
-      return "Administrador Global";
-    case "administrador":
-      return "Administrador";
-    case "arrendador":
-      return "Anfitrión / Arrendador";
-    case "arrendatario":
-      return "Arrendatario";
-    default:
-      return role;
-  }
-}
-
 export function AccessScreen() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const returnTo = resolveReturnParam(searchParams.getAll("return_to"));
-  const { snapshot, login, checkSession, logout } = useAuth();
+  const { snapshot, login, checkSession } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
@@ -64,6 +49,21 @@ export function AccessScreen() {
       active = false;
     };
   }, [checkSession]);
+
+  useEffect(() => {
+    if (snapshot.status === "authenticated") {
+      const isAdmin =
+        snapshot.roles.includes("administrador") ||
+        snapshot.roles.includes("administrador_global");
+      const target =
+        returnTo !== "/"
+          ? returnTo
+          : isAdmin
+            ? "/administracion"
+            : "/mi-cuenta";
+      router.replace(target);
+    }
+  }, [snapshot.status, snapshot.roles, returnTo, router]);
 
   const submit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -104,19 +104,6 @@ export function AccessScreen() {
     [email, login, password, returnTo, router],
   );
 
-  async function signOut() {
-    setMessage("");
-    setPending(true);
-    try {
-      await logout();
-      setMessage("Sesión cerrada.");
-    } catch (error) {
-      setMessage(authErrorMessage(error));
-    } finally {
-      setPending(false);
-    }
-  }
-
   return (
     <AuthShell
       title="Acceso a tu cuenta"
@@ -125,104 +112,23 @@ export function AccessScreen() {
       secondaryLabel="Crear una cuenta"
       secondaryHref="/registro"
     >
-      {snapshot.status === "authenticated" ? (
-        <section
-          aria-label="Estado de sesión activa"
-          className="space-y-5 rounded-2xl border border-orange-200 bg-orange-50/50 p-6 text-center shadow-sm"
+      {snapshot.status === "checking" ? (
+        <div
+          data-testid="access-checking"
+          className="flex min-h-[220px] items-center justify-center text-sm text-gray-500"
+          aria-live="polite"
         >
-          <div className="space-y-1">
-            <p className="text-lg font-semibold text-gray-950">Sesión activa</p>
-            <p className="text-xs text-muted-foreground">
-              Tienes una sesión iniciada en este navegador.
-            </p>
-          </div>
-
-          {snapshot.roles.length > 0 ? (
-            <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1">
-              {snapshot.roles.map((role) => (
-                <span
-                  key={role}
-                  className="inline-flex items-center rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-orange-900 border border-orange-200"
-                >
-                  {formatRoleBadge(role)}
-                </span>
-              ))}
-            </div>
-          ) : null}
-
-          {snapshot.restrictedMode ? (
-            <p className="text-xs text-amber-800">
-              La cuenta tiene acceso restringido a operaciones permitidas por el
-              servicio.
-            </p>
-          ) : null}
-
-          <div className="space-y-2.5 pt-2">
-            {snapshot.roles.includes("administrador") ||
-            snapshot.roles.includes("administrador_global") ? (
-              <Button
-                asChild
-                className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 font-medium"
-              >
-                <Link href="/administracion">
-                  Ingresar al Panel de Administración
-                </Link>
-              </Button>
-            ) : null}
-
-            {returnTo !== "/" && returnTo !== "/administracion" ? (
-              <Button
-                asChild
-                className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 font-medium"
-              >
-                <Link href={returnTo}>Continuar a {returnTo}</Link>
-              </Button>
-            ) : null}
-
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Button
-                asChild
-                variant="outline"
-                className="min-h-11 flex-1 rounded-full border-gray-300"
-              >
-                <Link href="/mi-cuenta">Mi Cuenta</Link>
-              </Button>
-              {snapshot.roles.includes("arrendador") ? (
-                <Button
-                  asChild
-                  variant="outline"
-                  className="min-h-11 flex-1 rounded-full border-gray-300"
-                >
-                  <Link href="/anfitrion/espacios">Mis Espacios</Link>
-                </Button>
-              ) : null}
-            </div>
-
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={pending}
-              onClick={() => void signOut()}
-              className="min-h-11 w-full rounded-full text-gray-600 hover:text-gray-900 hover:bg-gray-100"
-            >
-              Cerrar sesión
-            </Button>
-          </div>
-        </section>
-      ) : null}
-
-      <div
-        className={
-          snapshot.status === "authenticated"
-            ? "mt-8 border-t border-gray-200 pt-6"
-            : ""
-        }
-      >
-        {snapshot.status === "authenticated" ? (
-          <p className="mb-4 text-center text-sm font-medium text-gray-700">
-            O inicia sesión con una cuenta diferente:
-          </p>
-        ) : null}
+          <span className="sr-only">Comprobando sesión…</span>
+        </div>
+      ) : snapshot.status === "authenticated" ? (
+        <div
+          data-testid="access-redirecting"
+          className="flex min-h-[220px] items-center justify-center text-sm text-gray-500"
+          aria-live="polite"
+        >
+          <span className="sr-only">Redirigiendo…</span>
+        </div>
+      ) : (
         <form className="space-y-6" onSubmit={submit}>
           <div>
             <Label
@@ -277,7 +183,7 @@ export function AccessScreen() {
             servicio hasta su vencimiento.
           </p>
         </form>
-      </div>
+      )}
       <div className="mt-4 space-y-3">
         <AuthFeedback message={message} focusRef={feedbackRef} />
         <RateLimitNotice deadline={retryUntil} />

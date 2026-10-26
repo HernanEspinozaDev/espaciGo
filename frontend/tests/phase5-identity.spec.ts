@@ -731,8 +731,10 @@ test("@phase5 @controlled login 401 is generic and confirmed login honors only a
   page,
 }) => {
   let allowLogin = false;
+  let loginRequests = 0;
   await mockGateway(page, async (pathname, method) => {
     if (pathname === "/api/backend/auth/login" && method === "POST") {
+      loginRequests++;
       if (!allowLogin) return apiError(401, "unauthenticated");
       return {
         status: 200,
@@ -778,16 +780,14 @@ test("@phase5 @controlled login 401 is generic and confirmed login honors only a
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page).toHaveURL(/\/dashboard\/security$/);
 
+  const loginRequestsBefore = loginRequests;
   await page.goto("/acceso?return_to=https%3A%2F%2Foutside.invalid%2Fpath");
-  await page
-    .getByLabel("Correo electrónico")
-    .fill("phase5-test@example.invalid");
-  await page.getByLabel("Contraseña", { exact: true }).fill("ABC123!!");
-  await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page).toHaveURL(
     // main already uses Mi cuenta as its safe fallback; keep the external URL rejected.
     (url) => url.pathname === "/mi-cuenta" && url.hostname === "127.0.0.1",
   );
+  await expect(page.getByLabel("Correo electrónico")).not.toBeVisible();
+  expect(loginRequests).toBe(loginRequestsBefore);
 });
 
 test("@phase5 @a11y identity routes fit both viewports and have no Axe violations", async ({

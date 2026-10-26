@@ -8,7 +8,14 @@ export async function startSessionUpstream(port = 0) {
   const sessions = new Map();
   const issued = [];
   const observations = [];
-  const state = { ttlMs: 60_000, sessionFailure: false, logoutFailure: false };
+  const state = {
+    ttlMs: 60_000,
+    sessionFailure: false,
+    logoutFailure: false,
+    profile404: false,
+    profileName: "Cuenta sintética",
+    sessionDelayMs: 0,
+  };
   const identity = {
     account_id: "770e8400-e29b-41d4-a716-446655440000",
     roles: ["arrendatario"],
@@ -72,6 +79,11 @@ export async function startSessionUpstream(port = 0) {
     if (!session || session.revoked || Date.now() >= session.expiry)
       return fail(401, "unauthenticated");
     if (pathname === "/api/v1/auth/session") {
+      if (state.sessionDelayMs > 0) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, state.sessionDelayMs),
+        );
+      }
       if (state.sessionFailure) return fail(503, "temporarily_unavailable");
       return reply(200, identity);
     }
@@ -91,10 +103,32 @@ export async function startSessionUpstream(port = 0) {
       return reply(201, { synthetic_transport_probe: true });
     }
     if (pathname === "/api/v1/profile" && req.method === "GET") {
+      if (state.profile404) return fail(404, "profile_not_found");
       return reply(200, {
-        display_name: "Cuenta sintética",
+        display_name: state.profileName,
         phone: null,
         updated_at: "2026-10-26T00:00:00Z",
+      });
+    }
+    if (pathname === "/api/v1/profile" && req.method === "PUT") {
+      let text = "";
+      for await (const chunk of req) {
+        text += chunk;
+        if (text.length > 4096) return fail(413, "too_large");
+      }
+      let body;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        return fail(400, "invalid_request");
+      }
+      if (body.display_name !== undefined) {
+        state.profileName = String(body.display_name);
+      }
+      return reply(200, {
+        display_name: state.profileName,
+        phone: body.phone ?? null,
+        updated_at: new Date().toISOString(),
       });
     }
     if (pathname === "/api/v1/profile/photo")

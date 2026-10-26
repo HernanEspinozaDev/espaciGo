@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
-import { Button } from "@/components/workspace/ui/button";
 import { PrivateSessionBoundary } from "@/features/auth/ui/private-session-boundary";
+import { SessionControls } from "@/features/auth/ui/session-controls";
 
 function Header() {
   return (
@@ -27,9 +27,7 @@ function Header() {
           aria-label="Navegación del panel"
           className="flex items-center space-x-4 text-sm font-medium text-gray-700"
         >
-          <Button asChild className="rounded-full">
-            <Link href="/acceso">Acceso</Link>
-          </Button>
+          <SessionControls variant="workspace" />
         </nav>
       </div>
     </header>

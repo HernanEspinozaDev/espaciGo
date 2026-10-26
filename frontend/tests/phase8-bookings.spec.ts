@@ -50,13 +50,43 @@ function apiSuccess<T>(data: T): MockResult {
 
 async function loginAndNavigate(page: Page, destination = "/reservas") {
   const [pathname] = destination.split("?");
+
+  const header = page.locator("header");
+  const isConfirmed =
+    (await header
+      .getByRole("button", { name: "Cerrar sesión", exact: true })
+      .isVisible()
+      .catch(() => false)) ||
+    (await header
+      .getByRole("link", { name: "Mi cuenta", exact: true })
+      .isVisible()
+      .catch(() => false));
+
+  if (isConfirmed) {
+    await page.goto(destination);
+    await page.waitForURL((url) => url.pathname === pathname);
+    await header
+      .getByRole("button", { name: "Cerrar sesión", exact: true })
+      .waitFor({ state: "visible" });
+    return;
+  }
+
   await page.goto(`/acceso?return_to=${encodeURIComponent(pathname)}`);
-  await page
-    .getByLabel("Correo electrónico")
-    .fill("arrendatario.test@example.invalid");
-  await page.getByLabel("Contraseña", { exact: true }).fill("SecurePass123!");
-  await page.getByRole("button", { name: "Iniciar sesión" }).click();
-  await page.waitForURL((url) => url.pathname === pathname);
+
+  const emailInput = page.getByLabel("Correo electrónico");
+  const authOrGuest = await Promise.race([
+    page
+      .waitForURL((url) => url.pathname === pathname)
+      .then(() => "authenticated" as const),
+    emailInput.waitFor({ state: "visible" }).then(() => "guest" as const),
+  ]);
+
+  if (authOrGuest === "guest") {
+    await emailInput.fill("arrendatario.test@example.invalid");
+    await page.getByLabel("Contraseña", { exact: true }).fill("SecurePass123!");
+    await page.getByRole("button", { name: "Iniciar sesión" }).click();
+    await page.waitForURL((url) => url.pathname === pathname);
+  }
 }
 
 async function installMockGateway(page: Page, handler: MockHandler) {
