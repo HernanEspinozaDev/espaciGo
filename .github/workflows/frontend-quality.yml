@@ -14,23 +14,22 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           persist-credentials: false
+      - uses: pnpm/action-setup@a3252b78c470c02df07e9d59298aecedc3ccdd6d # v3.0.0
+        with:
+          version: 12.15.0
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: '24.21.0'
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm install --global npm@12.1.0
-      - run: npm ci
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
         working-directory: frontend
-      - run: npm run lint
+      - run: pnpm format:check
         working-directory: frontend
-      - run: npm run api:check
+      - run: pnpm lint
         working-directory: frontend
-      - run: npm run test:server-gateway
+      - run: pnpm typecheck
         working-directory: frontend
-      - run: npm test -- --watch=false
+      - run: pnpm test
         working-directory: frontend
-      - run: npm run test:server-gateway:integration
-        working-directory: frontend
-      - run: npm audit --omit=dev
-        working-directory: frontend
+      - run: bash scripts/verify-network-isolation.sh

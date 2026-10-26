@@ -86,7 +86,7 @@ jobs:
           attests: |
             type=sbom,generator=docker/buildkit-syft-scanner@sha256:ae4f3b554449e7e25548e7d8ccc029d17357348e30c6e3df01b92bc93654d6a9
             type=provenance,mode=min
-      - name: Build Angular SSR OCI image and verify SBOM/provenance without publishing
+      - name: Build Next.js Standalone OCI image and verify SBOM/provenance without publishing
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: ./frontend
