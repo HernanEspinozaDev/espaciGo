@@ -3,9 +3,8 @@ import test from "node:test";
 
 // Test identity headers computation and caching logic
 test("cloud run identity returns empty headers if audience is empty", async () => {
-  const { getCloudRunIdentityHeaders } = await import(
-    "../src/lib/api/cloud-run-identity.ts"
-  );
+  const { getCloudRunIdentityHeaders } =
+    await import("../src/lib/api/cloud-run-identity.ts");
   const headers = await getCloudRunIdentityHeaders("");
   assert.deepEqual(headers, {});
 });
@@ -25,19 +24,13 @@ test("cloud run identity requests metadata server and formats headers", async ()
     return new Response(mockToken, { status: 200 });
   };
 
-  const h1 = await getCloudRunIdentityHeaders(
-    "https://api.test",
-    mockFetch,
-  );
+  const h1 = await getCloudRunIdentityHeaders("https://api.test", mockFetch);
   assert.equal(h1.Authorization, `Bearer ${mockToken}`);
   assert.equal(h1["X-Serverless-Authorization"], `Bearer ${mockToken}`);
   assert.equal(calls, 1);
 
   // Cached on second call
-  const h2 = await getCloudRunIdentityHeaders(
-    "https://api.test",
-    mockFetch,
-  );
+  const h2 = await getCloudRunIdentityHeaders("https://api.test", mockFetch);
   assert.equal(h2.Authorization, `Bearer ${mockToken}`);
   assert.equal(calls, 1);
 

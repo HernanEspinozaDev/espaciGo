@@ -5,6 +5,7 @@ options:
 serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com
 timeout: 1800s
 substitutions:
+  _DEPLOY_SCOPE: web
   _REGION: southamerica-west1
   _PROJECT: espacigo-testprod
   _AR_REPOSITORY: espacigo-testprod
@@ -49,12 +50,26 @@ substitutions:
   _WEB_SUBNET: espacigo-testprod-serverless
 
 steps:
+  - id: web-only-rollout
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:1855ee6031f03bb7d4b251cfd0e5b88a18fd9a2552a742cf86d269810832c80b
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        [[ "${_DEPLOY_SCOPE}" == web || "${_DEPLOY_SCOPE}" == full ]]
+        if [[ "${_DEPLOY_SCOPE}" == full ]]; then echo 'Full rollout: original schema evidence gates remain mandatory.'; exit 0; fi
+        [[ "${_PROJECT}" == espacigo-testprod && "${_REGION}" == southamerica-west1 ]]
+        [[ "${_API_SERVICE}" == espacigo-test-api && "${_PUBLIC_SERVICE}" == espacigo-test-public && "${_PRIVATE_SERVICE}" == espacigo-test-private ]]
+        web_python=$$(gcloud info --format='value(basic.python_location)')
+        "$$web_python" scripts/gcp/rollout_web.py --execute --sha="$COMMIT_SHA" --build-id="$BUILD_ID"
   - id: acquire-and-validate-deploy-lock
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:1855ee6031f03bb7d4b251cfd0e5b88a18fd9a2552a742cf86d269810832c80b
     entrypoint: bash
     args:
       - -ceu
       - |
+        if [[ "${_DEPLOY_SCOPE}" == web ]]; then echo 'Full-only step: skipped; web rollout is handled by web-only-rollout.'; exit 0; fi
+        [[ "${_DEPLOY_SCOPE}" == full ]]
         [[ -n "${_APP_SCHEMA_EVIDENCE_URI}" && -n "${_APP_SCHEMA_EVIDENCE_GENERATION}" && -n "${_APP_SCHEMA_EVIDENCE_SHA256}" ]]
         [[ -n "${_AUTH_SMTP_HOST}" && -n "${_AUTH_SMTP_PORT}" && -n "${_AUTH_SMTP_SECURITY}" && -n "${_AUTH_SMTP_PASSWORD_SECRET}" && -n "${_AUTH_SMTP_PASSWORD_SECRET_VERSION}" ]]
         [[ "${_APP_SCHEMA_EVIDENCE_GENERATION}" =~ ^[1-9][0-9]*$ ]]
@@ -119,6 +134,8 @@ steps:
     args:
       - -ceu
       - |
+        if [[ "${_DEPLOY_SCOPE}" == web ]]; then echo 'Full-only step: skipped; web rollout is handled by web-only-rollout.'; exit 0; fi
+        [[ "${_DEPLOY_SCOPE}" == full ]]
         child_build_id=$$(gcloud builds submit /workspace --project="${_PROJECT}" --region="${_REGION}" \
           --config=cloudbuild-images.yaml --gcs-source-staging-dir="gs://${_SOURCE_STAGING_BUCKET}/source" \
           --service-account="projects/${_PROJECT}/serviceAccounts/espacigo-cloud-build-deployer@${_PROJECT}.iam.gserviceaccount.com" \
@@ -135,6 +152,8 @@ steps:
     args:
       - -ceu
       - |
+        if [[ "${_DEPLOY_SCOPE}" == web ]]; then echo 'Full-only step: skipped; web rollout is handled by web-only-rollout.'; exit 0; fi
+        [[ "${_DEPLOY_SCOPE}" == full ]]
         child_build_id=$$(cat /workspace/image-build-id)
         [[ "$$child_build_id" =~ ^[0-9a-f-]{36}$ ]]
         expected_invocation="https://cloudbuild.googleapis.com/v1/projects/${_PROJECT}/locations/${_REGION}/builds/$${child_build_id}"
@@ -155,6 +174,8 @@ steps:
     args:
       - -ceu
       - |
+        if [[ "${_DEPLOY_SCOPE}" == web ]]; then echo 'Full-only step: skipped; web rollout is handled by web-only-rollout.'; exit 0; fi
+        [[ "${_DEPLOY_SCOPE}" == full ]]
         api="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-api:sha-${COMMIT_SHA}"
         digest=$$(gcloud artifacts docker images describe "$$api" --format='value(image_summary.digest)')
         [[ "$$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -176,6 +197,8 @@ steps:
     args:
       - -ceu
       - |
+        if [[ "${_DEPLOY_SCOPE}" == web ]]; then echo 'Full-only step: skipped; web rollout is handled by web-only-rollout.'; exit 0; fi
+        [[ "${_DEPLOY_SCOPE}" == full ]]
         web="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web:sha-${COMMIT_SHA}"
         digest=$$(gcloud artifacts docker images describe "$$web" --format='value(image_summary.digest)')
         [[ "$$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -194,6 +217,8 @@ steps:
     args:
       - -ceu
       - |
+        if [[ "${_DEPLOY_SCOPE}" == web ]]; then echo 'Full-only step: skipped; web rollout is handled by web-only-rollout.'; exit 0; fi
+        [[ "${_DEPLOY_SCOPE}" == full ]]
         web="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web:sha-${COMMIT_SHA}"
         digest=$$(gcloud artifacts docker images describe "$$web" --format='value(image_summary.digest)')
         [[ "$$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
@@ -212,6 +237,8 @@ steps:
     args:
       - -ceu
       - |
+        if [[ "${_DEPLOY_SCOPE}" == web ]]; then echo 'Full-only step: skipped; web rollout is handled by web-only-rollout.'; exit 0; fi
+        [[ "${_DEPLOY_SCOPE}" == full ]]
         object=$$(cat /workspace/deploy-lock-uri)
         watermark="gs://${_LOCK_BUCKET}/last-successful-main.json"
         generation=$$(cat /workspace/watermark-generation)

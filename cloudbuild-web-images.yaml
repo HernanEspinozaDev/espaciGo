@@ -1,0 +1,17 @@
+serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: MUST_MATCH
+  requestedVerifyOption: VERIFIED
+timeout: 1200s
+substitutions:
+  _COMMIT_SHA: ""
+steps:
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --tag=southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web:sha-${_COMMIT_SHA}
+      - .
+images:
+  - southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web:sha-${_COMMIT_SHA}

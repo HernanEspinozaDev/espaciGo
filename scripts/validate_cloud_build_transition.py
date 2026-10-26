@@ -193,8 +193,23 @@ def main() -> int:
         "espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com"
     ):
         errors.append("expected the user-managed deployment service account")
-    if ids[0] != "acquire-and-validate-deploy-lock" or "--if-generation-match=0" not in script:
-        errors.append("builds must serialize on a GCS lock")
+    if ids[:2] != ["web-only-rollout", "acquire-and-validate-deploy-lock"] or "--if-generation-match=0" not in script:
+        errors.append("web/full builds must serialize on the shared GCS lock")
+    if substitutions.get("_DEPLOY_SCOPE") != "web":
+        errors.append("main must default to web-only with a verified unchanged backend")
+    for step in steps[1:]:
+        body = "\n".join(step.get("args", []))
+        if 'if [[ "${_DEPLOY_SCOPE}" == web ]]' not in body or '[[ "${_DEPLOY_SCOPE}" == full ]]' not in body:
+            errors.append(f"{step['id']} must only execute in explicit full mode")
+    web_step = "\n".join(steps[0].get("args", []))
+    if 'scripts/gcp/rollout_web.py --execute --sha="$COMMIT_SHA" --build-id="$BUILD_ID"' not in web_step:
+        errors.append("web rollout must be bound to the actual parent build/SHA")
+    web_config = yaml.safe_load(Path("cloudbuild-web-images.yaml").read_text())
+    if (web_config.get("serviceAccount") != config["serviceAccount"]
+        or web_config.get("options", {}).get("requestedVerifyOption") != "VERIFIED"
+        or len(web_config.get("images", [])) != 1
+        or "espacigo-web:sha-${_COMMIT_SHA}" not in web_config["images"][0]):
+        errors.append("web image build must only publish one provenance-verified web image")
     schema_gate_step = next((step for step in steps if step.get("id") == "acquire-and-validate-deploy-lock"), {})
     schema_gate_script = "\n".join(schema_gate_step.get("args", []))
     schema_evidence_substitutions = (
@@ -368,7 +383,7 @@ def main() -> int:
     if config.get("options", {}).get("substitutionOption") != "MUST_MATCH" or image_build.get("options", {}).get("substitutionOption") != "MUST_MATCH":
         errors.append("both Cloud Build configs must reject unknown substitutions")
 
-    for label, document in (("cloudbuild.yaml", config), ("cloudbuild-images.yaml", image_build)):
+    for label, document in (("cloudbuild.yaml", config), ("cloudbuild-images.yaml", image_build), ("cloudbuild-web-images.yaml", web_config)):
         allowed = set(document.get("substitutions", {})) | BUILTIN_SUBSTITUTIONS
         unescaped = [reference for item in all_strings(document) for reference in unescaped_cloud_build_dollars(item, allowed)]
         if unescaped:
@@ -389,7 +404,7 @@ def main() -> int:
     if errors:
         print("\n".join(f"ERROR: {error}" for error in errors), file=sys.stderr)
         return 1
-    print(f"Cloud Build transition config is valid ({len(steps)} orchestration steps, 2 provenance-pinned images).")
+    print(f"Cloud Build transition config is valid ({len(steps)} orchestration steps; full=2 images, web=1 provenance-pinned image).")
     return 0
 
 

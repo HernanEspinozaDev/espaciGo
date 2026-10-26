@@ -20,7 +20,7 @@ El proyecto opera 100% online mediante una arquitectura **Cloud-Native** orienta
 - **Base de Datos Operativa (OLTP):** PostgreSQL para asegurar transacciones financieras atómicas (ACID).
 - **Almacenamiento Analítico (OLAP):** Google BigQuery para el registro inmutable de logs de auditoría asíncronos.
 - **Almacenamiento de Archivos:** Google Cloud Storage para resguardar contratos en PDF y documentos de identidad cifrados.
-- **Infraestructura y Despliegue:** Docker, Google Cloud Platform (Cloud Run, Cloud SQL), e integración continua (CI/CD) con GitHub Actions.
+- **Infraestructura y Despliegue:** Docker, Google Cloud Platform (Cloud Run, Cloud SQL). GitHub Actions ejecuta calidad; el trigger regional de **Cloud Build `espacigo-main-rollout`** recibe los pushes de `main` y ejecuta `cloudbuild.yaml`. Procedimiento vigente y verificación de entrega: [`planning/gcp/operacion_cloud_build_next.md`](planning/gcp/operacion_cloud_build_next.md).
 - **Microservicio de Contratos Dinámicos:** Generación aislada de contratos PDF (usando Gotenberg/Python) con editores tipo TipTap/Slate.js.
 - **Integraciones (APIs):** Mercado Pago (Split Payments) y FirmaVirtual (Notaría API).
 

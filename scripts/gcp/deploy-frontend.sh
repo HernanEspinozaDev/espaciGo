@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
+# deploy-frontend.sh — Safe Cloud Build trigger wrapper for EspaciGo Frontend.
+#
+# Target infrastructure:
+#   Trigger: espacigo-main-rollout (548b8eff-e489-4307-a77f-455b56aa4e57)
+#   Project: espacigo-testprod
+#   Region:  southamerica-west1
+#   Account: pasteleriahijitos@gmail.com
+#   Repo:    HernanEspinozaDev/espaciGo (main branch)
+#
+# Usage:
+#   ./scripts/gcp/deploy-frontend.sh              # READ-ONLY preflight and status inspection
+#   ./scripts/gcp/deploy-frontend.sh --deploy     # Verify clean git & remote origin/main SHA and dispatch trigger
+#   ./scripts/gcp/deploy-frontend.sh --dry-run    # Verify all gates including remote SHA without dispatching build
+#   ./scripts/gcp/deploy-frontend.sh --help       # Display usage information
+
 set -euo pipefail
 
-# Deploy script for EspaciGo Frontend to Cloud Run
-REGION="southamerica-west1"
-PROJECT_ID="espacigo-448200"
-SERVICE_NAME="espacigo-frontend"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "Deploying ${SERVICE_NAME} to Google Cloud Run (${REGION}) in project ${PROJECT_ID}..."
-gcloud run deploy "${SERVICE_NAME}" \
-  --source frontend \
-  --project "${PROJECT_ID}" \
-  --region "${REGION}" \
-  --set-env-vars NEXT_PUBLIC_API_URL=https://espacigo-api-559139855589.southamerica-west1.run.app,NODE_ENV=production \
-  --allow-unauthenticated \
-  --quiet
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "[ERROR] python3 is required to execute the deployment wrapper." >&2
+  exit 1
+fi
 
-echo "Deployment to Cloud Run completed successfully!"
+exec python3 "${SCRIPT_DIR}/release.py" "$@"

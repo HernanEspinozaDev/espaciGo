@@ -50,6 +50,8 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_gcp08_bootstrap_state_inventory.py' &&
           PYTHONPATH=scripts python3 -m unittest scripts.test_gcp08_legacy_state_reconcile &&
           python3 -m unittest discover -s scripts -p 'test_classify_gcp08_terraform_failure.py'
+      - name: Test web-only release guards and console wrapper offline
+        run: python3 -m unittest discover -s scripts/gcp -p 'test_*.py' -v
       - name: Validate Cloud Build application deployment config
         run: python3 scripts/validate_cloud_build_transition.py
       - name: Test schema gate in its pinned Cloud SDK image
