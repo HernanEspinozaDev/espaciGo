@@ -7,9 +7,9 @@ function Header() {
     <header className="border-b border-gray-200 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
         <Link
-          href="/saas"
+          href="/"
           className="flex items-center"
-          aria-label="EspaciGo, presentación del panel"
+          aria-label="EspaciGo, volver al inicio"
         >
           <Image
             src="/espacigo-mark.svg"
@@ -26,12 +26,6 @@ function Header() {
           aria-label="Navegación del panel"
           className="flex items-center space-x-4"
         >
-          <Link
-            href="/pricing"
-            className="min-h-9 inline-flex items-center text-sm font-medium text-gray-700 hover:text-gray-900"
-          >
-            Planes demo
-          </Link>
           <Button asChild className="rounded-full">
             <Link href="/acceso">Acceso</Link>
           </Button>
