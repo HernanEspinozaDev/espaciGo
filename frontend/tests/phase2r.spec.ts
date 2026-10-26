@@ -209,6 +209,56 @@ test("mobile workspace navigation opens and follows a dashboard route", async ({
   await expect(page.getByRole("heading", { name: "Seguridad" })).toBeVisible();
 });
 
+test("mobile workspace navigation preserves open menu when deferred auth session check resolves anonymous", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  let unblockSessionResponse = (): void => {};
+  const sessionResponseBlocked = new Promise<void>((resolve) => {
+    unblockSessionResponse = resolve;
+  });
+
+  let markSessionRequested = (): void => {};
+  const sessionRequested = new Promise<void>((resolve) => {
+    markSessionRequested = resolve;
+  });
+
+  await page.route("**/api/backend/auth/session", async (route) => {
+    markSessionRequested();
+    await sessionResponseBlocked;
+    await route.fulfill({
+      status: 401,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: { code: "unauthorized", message: "Session expired or missing" },
+      }),
+    });
+  });
+
+  const sessionResponsePromise = page.waitForResponse(
+    (res) =>
+      res.url().includes("/api/backend/auth/session") &&
+      res.request().method() === "GET",
+  );
+
+  await page.goto("/dashboard");
+  await sessionRequested;
+
+  await page.getByRole("button", { name: "Abrir navegación" }).click();
+  const securityLink = page.getByRole("link", { name: "Seguridad" });
+  await expect(securityLink).toBeVisible();
+
+  unblockSessionResponse();
+  await sessionResponsePromise;
+
+  // El menú debe mantenerse abierto tras resolver 401 sin desmontar el árbol
+  await expect(securityLink).toBeVisible();
+  await securityLink.click();
+  await expect(page).toHaveURL(/\/dashboard\/security$/);
+  await expect(page.getByRole("heading", { name: "Seguridad" })).toBeVisible();
+});
+
 test("mobile public catalog filters preserve the listing and update its route", async ({
   page,
 }) => {

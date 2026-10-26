@@ -2,7 +2,6 @@
 
 import "client-only";
 
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type { VerificationPort } from "./verification.port";
 import type {
   SyntheticEvidence,
@@ -36,11 +35,33 @@ const initialSnapshot: VerificationSnapshot = Object.freeze({
 export class VerificationFacade {
   #port: VerificationPort;
   #abortController: AbortController | null = null;
+  #sessionController = new AbortController();
+  #epoch = 0;
   #snapshot: VerificationSnapshot = initialSnapshot;
   #listeners = new Set<() => void>();
 
   constructor(port: VerificationPort) {
     this.#port = port;
+  }
+
+  #isCurrent(epoch: number, signal?: AbortSignal): boolean {
+    return epoch === this.#epoch && !signal?.aborted;
+  }
+
+  #guard(epoch: number, signal: AbortSignal): void {
+    if (!this.#isCurrent(epoch, signal)) {
+      throw (
+        signal.reason ??
+        new DOMException("The operation was aborted", "AbortError")
+      );
+    }
+  }
+
+  #createSignal(signal?: AbortSignal): { epoch: number; signal: AbortSignal } {
+    const epoch = this.#epoch;
+    const signals = [this.#sessionController.signal];
+    if (signal) signals.push(signal);
+    return { epoch, signal: AbortSignal.any(signals) };
   }
 
   getSnapshot = (): VerificationSnapshot => {
@@ -75,18 +96,29 @@ export class VerificationFacade {
     }
   }
 
-  async loadOverview(token: AccessToken): Promise<VerificationSnapshot> {
+  async loadOverview(signal?: AbortSignal): Promise<VerificationSnapshot> {
     this.cancel();
-    this.#abortController = new AbortController();
-    const signal = this.#abortController.signal;
+    const controller = new AbortController();
+    this.#abortController = controller;
+    const epoch = this.#epoch;
+    const signals = [controller.signal, this.#sessionController.signal];
+    if (signal) signals.push(signal);
+    const activeSignal = AbortSignal.any(signals);
 
     this.#setSnapshot({ loading: true, error: null });
 
     try {
       const [verifications, eligibility] = await Promise.all([
-        this.#port.listVerifications(token, signal),
-        this.#port.getEligibility(token, signal),
+        this.#port.listVerifications(activeSignal),
+        this.#port.getEligibility(activeSignal),
       ]);
+
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        this.#abortController !== controller
+      ) {
+        return this.#snapshot;
+      }
 
       this.#setSnapshot({
         verifications: Object.freeze(verifications),
@@ -96,27 +128,39 @@ export class VerificationFacade {
       });
       return this.#snapshot;
     } catch (err) {
-      if (signal.aborted) throw err;
+      if (
+        !this.#isCurrent(epoch, activeSignal) ||
+        this.#abortController !== controller
+      ) {
+        throw err;
+      }
       const message =
         err instanceof Error ? err.message : "Error al cargar verificaciones";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
     } finally {
-      this.#abortController = null;
+      if (this.#abortController === controller) {
+        this.#abortController = null;
+      }
     }
   }
 
   async loadCaseDetails(
-    token: AccessToken,
     id: string,
+    signal?: AbortSignal,
   ): Promise<VerificationCase | null> {
+    const { epoch, signal: activeSignal } = this.#createSignal(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
       const [currentCase, history, evidence] = await Promise.all([
-        this.#port.getVerification(token, id),
-        this.#port.listHistory(token, id),
-        this.#port.listEvidence(token, id),
+        this.#port.getVerification(id, activeSignal),
+        this.#port.listHistory(id, activeSignal),
+        this.#port.listEvidence(id, activeSignal),
       ]);
+
+      if (!this.#isCurrent(epoch, activeSignal)) {
+        return null;
+      }
 
       this.#setSnapshot({
         currentCase,
@@ -127,6 +171,9 @@ export class VerificationFacade {
       });
       return currentCase;
     } catch (err) {
+      if (!this.#isCurrent(epoch, activeSignal)) {
+        throw err;
+      }
       const message =
         err instanceof Error ? err.message : "Error al cargar caso";
       this.#setSnapshot({ loading: false, error: message });
@@ -135,18 +182,21 @@ export class VerificationFacade {
   }
 
   async startVerification(
-    token: AccessToken,
     idempotencyKey: string,
     type: VerificationType,
+    signal?: AbortSignal,
   ): Promise<VerificationCase> {
+    const { epoch, signal: activeSignal } = this.#createSignal(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
       const created = await this.#port.startVerification(
-        token,
         idempotencyKey,
         type,
+        activeSignal,
       );
-      const verifications = await this.#port.listVerifications(token);
+      this.#guard(epoch, activeSignal);
+      const verifications = await this.#port.listVerifications(activeSignal);
+      this.#guard(epoch, activeSignal);
       this.#setSnapshot({
         verifications: Object.freeze(verifications),
         currentCase: created,
@@ -155,6 +205,9 @@ export class VerificationFacade {
       });
       return created;
     } catch (err) {
+      if (!this.#isCurrent(epoch, activeSignal)) {
+        throw err;
+      }
       const message =
         err instanceof Error ? err.message : "Error al iniciar verificación";
       this.#setSnapshot({ loading: false, error: message });
@@ -163,20 +216,23 @@ export class VerificationFacade {
   }
 
   async retryVerification(
-    token: AccessToken,
     id: string,
     idempotencyKey: string,
     correctionCode: VerificationCorrectionCode,
+    signal?: AbortSignal,
   ): Promise<VerificationCase> {
+    const { epoch, signal: activeSignal } = this.#createSignal(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
       const retried = await this.#port.retryVerification(
-        token,
         id,
         idempotencyKey,
         correctionCode,
+        activeSignal,
       );
-      const verifications = await this.#port.listVerifications(token);
+      this.#guard(epoch, activeSignal);
+      const verifications = await this.#port.listVerifications(activeSignal);
+      this.#guard(epoch, activeSignal);
       this.#setSnapshot({
         verifications: Object.freeze(verifications),
         currentCase: retried,
@@ -185,6 +241,9 @@ export class VerificationFacade {
       });
       return retried;
     } catch (err) {
+      if (!this.#isCurrent(epoch, activeSignal)) {
+        throw err;
+      }
       const message =
         err instanceof Error ? err.message : "Error al reintentar verificación";
       this.#setSnapshot({ loading: false, error: message });
@@ -193,13 +252,16 @@ export class VerificationFacade {
   }
 
   async uploadEvidence(
-    token: AccessToken,
     id: string,
+    signal?: AbortSignal,
   ): Promise<SyntheticEvidence> {
+    const { epoch, signal: activeSignal } = this.#createSignal(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const uploaded = await this.#port.uploadEvidence(token, id);
-      const evidence = await this.#port.listEvidence(token, id);
+      const uploaded = await this.#port.uploadEvidence(id, activeSignal);
+      this.#guard(epoch, activeSignal);
+      const evidence = await this.#port.listEvidence(id, activeSignal);
+      this.#guard(epoch, activeSignal);
       this.#setSnapshot({
         evidence: Object.freeze(evidence),
         loading: false,
@@ -207,6 +269,9 @@ export class VerificationFacade {
       });
       return uploaded;
     } catch (err) {
+      if (!this.#isCurrent(epoch, activeSignal)) {
+        throw err;
+      }
       const message =
         err instanceof Error ? err.message : "Error al cargar evidencia";
       this.#setSnapshot({ loading: false, error: message });
@@ -215,20 +280,26 @@ export class VerificationFacade {
   }
 
   async deleteEvidence(
-    token: AccessToken,
     id: string,
     evidenceId: string,
+    signal?: AbortSignal,
   ): Promise<void> {
+    const { epoch, signal: activeSignal } = this.#createSignal(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.deleteEvidence(token, id, evidenceId);
-      const evidence = await this.#port.listEvidence(token, id);
+      await this.#port.deleteEvidence(id, evidenceId, activeSignal);
+      this.#guard(epoch, activeSignal);
+      const evidence = await this.#port.listEvidence(id, activeSignal);
+      this.#guard(epoch, activeSignal);
       this.#setSnapshot({
         evidence: Object.freeze(evidence),
         loading: false,
         error: null,
       });
     } catch (err) {
+      if (!this.#isCurrent(epoch, activeSignal)) {
+        throw err;
+      }
       const message =
         err instanceof Error ? err.message : "Error al eliminar evidencia";
       this.#setSnapshot({ loading: false, error: message });
@@ -237,14 +308,26 @@ export class VerificationFacade {
   }
 
   async getEvidenceContent(
-    token: AccessToken,
     id: string,
     evidenceId: string,
+    signal?: AbortSignal,
   ): Promise<Blob | null> {
-    return this.#port.getEvidenceContent(token, id, evidenceId);
+    const { epoch, signal: activeSignal } = this.#createSignal(signal);
+    const content = await this.#port.getEvidenceContent(
+      id,
+      evidenceId,
+      activeSignal,
+    );
+    if (!this.#isCurrent(epoch, activeSignal)) {
+      return null;
+    }
+    return content;
   }
 
   clear(): void {
+    this.#epoch++;
+    this.#sessionController.abort();
+    this.#sessionController = new AbortController();
     this.cancel();
     this.#setSnapshot(initialSnapshot);
   }

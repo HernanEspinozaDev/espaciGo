@@ -6,6 +6,7 @@ import {
   type Route,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { createBffFixtureState } from "./helpers/bff-fixture";
 import type {
   AdminCapability,
   AdminDamageClaim,
@@ -266,8 +267,6 @@ function createAdminStore(): TestAdminStore {
             account_id: canonicalAdminId,
             roles: ["administrador_global"],
             capabilities: store.me.capabilities,
-            access_token: "synthetic-phase9-admin-token-777",
-            token_type: "Bearer",
             expires_at: new Date(Date.now() + 3600_000).toISOString(),
             restricted_mode: false,
           },
@@ -513,8 +512,12 @@ function createAdminStore(): TestAdminStore {
         return { status: 200, body: { data: { items: store.notices } } };
       }
 
-      if (pathname === "/api/backend/admin/spaces" && method === "GET") {
-        return { status: 200, body: { items: [] } };
+      if (
+        (pathname === "/api/backend/admin/local/published-spaces" ||
+          pathname === "/api/backend/admin/spaces") &&
+        method === "GET"
+      ) {
+        return { status: 200, body: { data: { items: [] } } };
       }
 
       return null;
@@ -525,13 +528,15 @@ function createAdminStore(): TestAdminStore {
 }
 
 async function installMockGateway(page: Page, handler: MockHandler) {
+  const bff = createBffFixtureState();
   await page.route("**/api/backend/**", async (route) => {
     const request = route.request();
-    const result = await handler(route, request);
+    const result = bff.adapt(request, await handler(route, request));
     if (result) {
       await route.fulfill({
         status: result.status ?? 200,
         contentType: result.contentType ?? "application/json",
+        headers: result.headers,
         body:
           typeof result.body === "string"
             ? result.body
@@ -548,7 +553,7 @@ async function loginAndNavigate(page: Page, destination = "/administracion") {
   await page.goto(`/acceso?return_to=${encodeURIComponent(pathname)}`);
   await page
     .getByLabel("Correo electrónico")
-    .fill("administrador.global@espacigo.cl");
+    .fill("administrador.global@example.invalid");
   await page.getByLabel("Contraseña", { exact: true }).fill("SecureAdmin123!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await page.waitForURL((url) => url.pathname === pathname);

@@ -6,6 +6,7 @@ import {
   type Route,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { createBffFixtureState } from "./helpers/bff-fixture";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -37,10 +38,15 @@ async function mockGateway(
   page: Page,
   responder: GatewayResponder,
 ): Promise<void> {
+  const bff = createBffFixtureState();
   await page.route("**/api/backend/**", async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    const result = await responder(pathname, request.method(), request);
+    const result = bff.adapt(
+      request,
+      await responder(pathname, request.method(), request),
+    );
+    if (!result) throw new Error("Missing controlled BFF reply");
     const isBinary =
       Buffer.isBuffer(result.body) || typeof result.body === "string";
     await route.fulfill({
@@ -78,7 +84,6 @@ function apiError(
 }
 
 const accountId = "770e8400-e29b-41d4-a716-446655440000";
-const sessionToken = "synthetic-phase7-session-token-941";
 
 async function loginAndNavigate(
   page: Page,
@@ -105,8 +110,6 @@ function handleAuthRequests(
         account_id: accountId,
         roles: ["arrendatario", "anfitrion"],
         capabilities: [],
-        access_token: sessionToken,
-        token_type: "Bearer",
         expires_at: new Date(Date.now() + 3600_000).toISOString(),
         restricted_mode: false,
       },
@@ -1095,4 +1098,177 @@ test("@phase7 @a11y auditoría de accesibilidad Axe y verificación estricta de 
       ).toEqual([]);
     }
   }
+});
+
+test("@phase7 @controlled session-boundary: el formulario de nuevo espacio aísla el estado local y se reinicia cuando la sesión cambia de Actor A a Actor B", async ({
+  page,
+}) => {
+  const accountIdA = "770e8400-e29b-41d4-a716-44665544000a";
+  const accountIdB = "770e8400-e29b-41d4-a716-44665544000b";
+  const fixedExpiry = new Date(Date.now() + 3600_000).toISOString();
+
+  let currentActorSession = {
+    account_id: accountIdA,
+    roles: ["arrendatario", "anfitrion"],
+    capabilities: [] as string[],
+    restricted_mode: false,
+    expires_at: fixedExpiry,
+  };
+
+  const categories = [{ code: "oficina", name: "Oficinas y Cowork" }];
+  const categorySchema = {
+    category_code: "oficina",
+    schema_version: 2,
+    attributes: [
+      {
+        code: "has_wifi",
+        label: "Wi-Fi corporativo de alta velocidad",
+        type: "boolean",
+        required: false,
+        order: 1,
+        filter_candidate: true,
+      },
+    ],
+  };
+
+  await mockGateway(page, async (pathname, method) => {
+    if (pathname === "/api/backend/auth/login" && method === "POST") {
+      return {
+        status: 200,
+        body: currentActorSession,
+      };
+    }
+    if (pathname === "/api/backend/auth/session" && method === "GET") {
+      return {
+        status: 200,
+        body: currentActorSession,
+      };
+    }
+    if (pathname === "/api/backend/spaces/categories" && method === "GET") {
+      return {
+        status: 200,
+        body: { items: categories },
+      };
+    }
+    if (
+      (pathname === "/api/backend/spaces/categories/oficina/attributes" ||
+        pathname === "/api/backend/spaces/categories/oficina/attributes/2") &&
+      method === "GET"
+    ) {
+      return {
+        status: 200,
+        body: categorySchema,
+      };
+    }
+
+    return apiError(404, "not_found");
+  });
+
+  await loginAndNavigate(page, "/anfitrion/espacios/nuevo");
+  await expect(page.locator("h1")).toHaveText("Publicar un nuevo espacio");
+
+  // Llenar campos en Paso 1 como Actor A sin crear el espacio
+  await expect(page.locator("#wizard-title")).toBeVisible();
+  await page.locator("#wizard-title").fill("Oficina Confidencial de Actor A");
+  await page
+    .locator("#wizard-description")
+    .fill("Descripción privada anfitrión A");
+  await expect(page.locator("#wizard-title")).toHaveValue(
+    "Oficina Confidencial de Actor A",
+  );
+
+  // Cambiar sesión a Actor B con DTO de 5 campos y expiry coherente
+  currentActorSession = {
+    account_id: accountIdB,
+    roles: ["arrendatario", "anfitrion"],
+    capabilities: [],
+    restricted_mode: false,
+    expires_at: fixedExpiry,
+  };
+
+  // Disparar evento de focus para forzar verificación de sesión
+  const sessionCheckPromise = page.waitForResponse(
+    (res) =>
+      res.url().includes("/api/backend/auth/session") &&
+      res.request().method() === "GET",
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  const sessionRes = await sessionCheckPromise;
+  expect(sessionRes.status()).toBe(200);
+  const sessionBody = (await sessionRes.json()) as Record<string, unknown>;
+  expect(sessionBody.account_id).toBe(accountIdB);
+
+  // El estado local del formulario de borrador debe vaciarse sin dejar rastros de Actor A
+  await expect(page.locator("#wizard-title")).toHaveValue("");
+  await expect(page.locator("#wizard-description")).toHaveValue("");
+});
+
+test("@phase7 @controlled session-boundary: el formulario de nuevo espacio aísla el estado local ante cambios de permisos del mismo actor", async ({
+  page,
+}) => {
+  const actorId = "770e8400-e29b-41d4-a716-44665544000c";
+  const fixedExpiry = new Date(Date.now() + 3600_000).toISOString();
+
+  let currentActorSession = {
+    account_id: actorId,
+    roles: ["arrendatario", "anfitrion"],
+    capabilities: [] as string[],
+    restricted_mode: false,
+    expires_at: fixedExpiry,
+  };
+
+  const categories = [{ code: "oficina", name: "Oficinas y Cowork" }];
+
+  await mockGateway(page, async (pathname, method) => {
+    if (pathname === "/api/backend/auth/login" && method === "POST") {
+      return {
+        status: 200,
+        body: currentActorSession,
+      };
+    }
+    if (pathname === "/api/backend/auth/session" && method === "GET") {
+      return {
+        status: 200,
+        body: currentActorSession,
+      };
+    }
+    if (pathname === "/api/backend/spaces/categories" && method === "GET") {
+      return {
+        status: 200,
+        body: { items: categories },
+      };
+    }
+
+    return apiError(404, "not_found");
+  });
+
+  await loginAndNavigate(page, "/anfitrion/espacios/nuevo");
+  await expect(page.locator("h1")).toHaveText("Publicar un nuevo espacio");
+
+  await expect(page.locator("#wizard-title")).toBeVisible();
+  await page.locator("#wizard-title").fill("Borrador con permisos previos");
+  await expect(page.locator("#wizard-title")).toHaveValue(
+    "Borrador con permisos previos",
+  );
+
+  // Mismo actor recibe actualización de capabilities en backend
+  currentActorSession = {
+    account_id: actorId,
+    roles: ["arrendatario", "anfitrion"],
+    capabilities: ["spaces:restricted_compliance"],
+    restricted_mode: false,
+    expires_at: fixedExpiry,
+  };
+
+  const sessionCheckPromise = page.waitForResponse(
+    (res) =>
+      res.url().includes("/api/backend/auth/session") &&
+      res.request().method() === "GET",
+  );
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  const sessionRes = await sessionCheckPromise;
+  expect(sessionRes.status()).toBe(200);
+
+  // El límite de sesión debe reiniciar el árbol reactivo al detectar cambio en la tupla de sesión
+  await expect(page.locator("#wizard-title")).toHaveValue("");
 });

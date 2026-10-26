@@ -17,7 +17,11 @@ interface BookingReviewsPanelProps {
 export function BookingReviewsPanel({
   reservationId,
 }: BookingReviewsPanelProps) {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
+  const isAuthenticated = authSnapshot.status === "authenticated";
+  const accountId = authSnapshot.accountId;
+  const expiresAt = authSnapshot.expiresAt;
+
   const {
     reviews,
     actionLoading,
@@ -43,11 +47,27 @@ export function BookingReviewsPanel({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
+  const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
+
+  if (prevAccountKey !== accountKey) {
+    setPrevAccountKey(accountKey);
+    setRating(5);
+    setHoverRating(null);
+    setComment("");
+    setTargetType("espacio");
+    setReportingReviewId(null);
+    setReportReason("ajeno_experiencia");
+    setReportComment("");
+    setStatusMessage(null);
+    setValidationError(null);
+  }
+
   useEffect(() => {
-    if (accessToken && reservationId) {
-      loadReviews(accessToken, reservationId).catch(() => {});
+    if (isAuthenticated && reservationId) {
+      loadReviews(reservationId).catch(() => {});
     }
-  }, [accessToken, reservationId, loadReviews]);
+  }, [isAuthenticated, accountId, expiresAt, reservationId, loadReviews]);
 
   const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -67,13 +87,13 @@ export function BookingReviewsPanel({
       return;
     }
 
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setValidationError("Debes iniciar sesión para publicar una reseña.");
       return;
     }
 
     try {
-      await submitReview(accessToken, reservationId, {
+      await submitReview(reservationId, {
         rating,
         comment: commentValidation.sanitized,
         target_type: targetType,
@@ -88,9 +108,9 @@ export function BookingReviewsPanel({
   };
 
   const handleReport = async (reviewId: string) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     try {
-      await reportReview(accessToken, reservationId, reviewId, {
+      await reportReview(reservationId, reviewId, {
         reason_code: reportReason,
         comment: reportComment,
       });
@@ -228,7 +248,7 @@ export function BookingReviewsPanel({
 
         <Button
           type="submit"
-          disabled={actionLoading || !accessToken}
+          disabled={actionLoading || !isAuthenticated}
           size="sm"
           className="inline-flex items-center gap-1.5"
         >

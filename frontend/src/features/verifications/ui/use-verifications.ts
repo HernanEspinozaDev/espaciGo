@@ -3,7 +3,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { verificationRuntime } from "../verification-runtime";
 import type { VerificationSnapshot } from "../application/verification-facade";
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type {
   SyntheticEvidence,
   VerificationCase,
@@ -13,32 +12,32 @@ import type {
 
 export interface VerificationView {
   snapshot: VerificationSnapshot;
-  loadOverview(token: AccessToken): Promise<VerificationSnapshot>;
+  loadOverview(signal?: AbortSignal): Promise<VerificationSnapshot>;
   loadCaseDetails(
-    token: AccessToken,
     id: string,
+    signal?: AbortSignal,
   ): Promise<VerificationCase | null>;
   startVerification(
-    token: AccessToken,
     idempotencyKey: string,
     type: VerificationType,
+    signal?: AbortSignal,
   ): Promise<VerificationCase>;
   retryVerification(
-    token: AccessToken,
     id: string,
     idempotencyKey: string,
     correctionCode: VerificationCorrectionCode,
+    signal?: AbortSignal,
   ): Promise<VerificationCase>;
-  uploadEvidence(token: AccessToken, id: string): Promise<SyntheticEvidence>;
+  uploadEvidence(id: string, signal?: AbortSignal): Promise<SyntheticEvidence>;
   deleteEvidence(
-    token: AccessToken,
     id: string,
     evidenceId: string,
+    signal?: AbortSignal,
   ): Promise<void>;
   getEvidenceContent(
-    token: AccessToken,
     id: string,
     evidenceId: string,
+    signal?: AbortSignal,
   ): Promise<Blob | null>;
   clear(): void;
 }
@@ -51,47 +50,47 @@ export function useVerifications(): VerificationView {
   );
 
   const loadOverview = useCallback(
-    (token: AccessToken) => verificationRuntime.loadOverview(token),
+    (signal?: AbortSignal) => verificationRuntime.loadOverview(signal),
     [],
   );
   const loadCaseDetails = useCallback(
-    (token: AccessToken, id: string) =>
-      verificationRuntime.loadCaseDetails(token, id),
+    (id: string, signal?: AbortSignal) =>
+      verificationRuntime.loadCaseDetails(id, signal),
     [],
   );
   const startVerification = useCallback(
-    (token: AccessToken, idempotencyKey: string, type: VerificationType) =>
-      verificationRuntime.startVerification(token, idempotencyKey, type),
+    (idempotencyKey: string, type: VerificationType, signal?: AbortSignal) =>
+      verificationRuntime.startVerification(idempotencyKey, type, signal),
     [],
   );
   const retryVerification = useCallback(
     (
-      token: AccessToken,
       id: string,
       idempotencyKey: string,
       correctionCode: VerificationCorrectionCode,
+      signal?: AbortSignal,
     ) =>
       verificationRuntime.retryVerification(
-        token,
         id,
         idempotencyKey,
         correctionCode,
+        signal,
       ),
     [],
   );
   const uploadEvidence = useCallback(
-    (token: AccessToken, id: string) =>
-      verificationRuntime.uploadEvidence(token, id),
+    (id: string, signal?: AbortSignal) =>
+      verificationRuntime.uploadEvidence(id, signal),
     [],
   );
   const deleteEvidence = useCallback(
-    (token: AccessToken, id: string, evidenceId: string) =>
-      verificationRuntime.deleteEvidence(token, id, evidenceId),
+    (id: string, evidenceId: string, signal?: AbortSignal) =>
+      verificationRuntime.deleteEvidence(id, evidenceId, signal),
     [],
   );
   const getEvidenceContent = useCallback(
-    (token: AccessToken, id: string, evidenceId: string) =>
-      verificationRuntime.getEvidenceContent(token, id, evidenceId),
+    (id: string, evidenceId: string, signal?: AbortSignal) =>
+      verificationRuntime.getEvidenceContent(id, evidenceId, signal),
     [],
   );
   const clear = useCallback(() => verificationRuntime.clear(), []);

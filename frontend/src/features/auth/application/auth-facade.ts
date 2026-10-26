@@ -9,13 +9,13 @@ import {
 } from "@/lib/api/errors";
 import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 import type {
-  AccessToken,
   AuthPort,
   CurrentAuthSession,
   LoginRequest,
   SessionCapabilities,
   SessionRoles,
 } from "./auth.port";
+import { broadcastAuthEvent } from "./auth-lifecycle";
 
 export type AuthStatus = "anonymous" | "checking" | "authenticated";
 
@@ -50,56 +50,37 @@ const checkingSnapshot: AuthSnapshot = Object.freeze({
 const rfc3339Timestamp =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
-const SESSION_STORAGE_KEY = "espacigo_auth_session";
+const LEGACY_SESSION_STORAGE_KEY = "espacigo_auth_session";
+const LOGOUT_PENDING_KEY = "espacigo_logout_pending";
 
-interface StoredSession {
-  readonly accessToken: AccessToken;
-  readonly session: CurrentAuthSession;
-  readonly expiresAt: string;
-}
-
-function loadStoredSession(): StoredSession | null {
-  if (typeof window === "undefined" || !window.sessionStorage) return null;
-  try {
-    const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (
-      typeof parsed?.accessToken === "string" &&
-      typeof parsed?.expiresAt === "string" &&
-      typeof parsed?.session?.accountId === "string" &&
-      Array.isArray(parsed?.session?.roles) &&
-      Array.isArray(parsed?.session?.capabilities) &&
-      typeof parsed?.session?.restrictedMode === "boolean"
-    ) {
-      const exp = Date.parse(parsed.expiresAt);
-      if (Number.isFinite(exp) && exp > Date.now()) {
-        return parsed as StoredSession;
-      }
-    }
-    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function saveStoredSession(stored: StoredSession): void {
+function cleanLegacySessionStorage(): void {
   if (typeof window === "undefined" || !window.sessionStorage) return;
   try {
-    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(stored));
+    window.sessionStorage.removeItem(LEGACY_SESSION_STORAGE_KEY);
+  } catch {}
+}
+
+function isLogoutPending(): boolean {
+  if (typeof window === "undefined" || !window.localStorage) return false;
+  try {
+    return window.localStorage.getItem(LOGOUT_PENDING_KEY) === "1";
   } catch {
-    // ignore storage quota errors
+    return false;
   }
 }
 
-function clearStoredSession(): void {
-  if (typeof window === "undefined" || !window.sessionStorage) return;
+function setLogoutPending(): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
   try {
-    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-  } catch {
-    // ignore
-  }
+    window.localStorage.setItem(LOGOUT_PENDING_KEY, "1");
+  } catch {}
+}
+
+function clearLogoutPending(): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    window.localStorage.removeItem(LOGOUT_PENDING_KEY);
+  } catch {}
 }
 
 function expiryMillis(value: string): number {
@@ -121,42 +102,31 @@ function apiAuthError(status: 401 | 403): ApiError {
   });
 }
 
-function snapshotFromSession(
-  session: CurrentAuthSession,
-  expiresAt: string,
-): AuthSnapshot {
+function snapshotFromSession(session: CurrentAuthSession): AuthSnapshot {
   return Object.freeze({
     status: "authenticated",
     accountId: session.accountId,
     roles: Object.freeze([...session.roles]),
     capabilities: Object.freeze([...session.capabilities]),
     restrictedMode: session.restrictedMode,
-    expiresAt,
+    expiresAt: session.expiresAt,
   });
 }
 
 export class AuthFacade {
-  #accessToken: AccessToken | null = null;
   #generation = 0;
   #sessionController = new AbortController();
-  #operationController: AbortController | null = null;
+  #loginController: AbortController | null = null;
+  #checkController: AbortController | null = null;
   #expiryTimer: ReturnType<typeof setTimeout> | null = null;
-  #snapshot: AuthSnapshot = anonymousSnapshot;
+  #snapshot: AuthSnapshot = checkingSnapshot;
   #listeners = new Set<() => void>();
+  #checkSessionPromise: Promise<boolean> | null = null;
 
   constructor(private readonly port: AuthPort) {
-    const stored = loadStoredSession();
-    if (stored) {
-      this.#accessToken = stored.accessToken;
-      this.#snapshot = snapshotFromSession(stored.session, stored.expiresAt);
-      try {
-        const exp = expiryMillis(stored.expiresAt);
-        this.#scheduleExpiry(this.#generation, exp);
-      } catch {
-        this.#accessToken = null;
-        this.#snapshot = anonymousSnapshot;
-        clearStoredSession();
-      }
+    cleanLegacySessionStorage();
+    if (isLogoutPending()) {
+      this.#snapshot = anonymousSnapshot;
     }
   }
 
@@ -168,7 +138,7 @@ export class AuthFacade {
   getSnapshot = (): AuthSnapshot => {
     const expiresAt = this.#snapshot.expiresAt;
     if (
-      this.#accessToken &&
+      this.#snapshot.status === "authenticated" &&
       expiresAt &&
       Number.isFinite(Date.parse(expiresAt)) &&
       Date.now() >= Date.parse(expiresAt)
@@ -178,141 +148,140 @@ export class AuthFacade {
     return this.#snapshot;
   };
 
-  getServerSnapshot = (): AuthSnapshot => anonymousSnapshot;
-
-  getAccessToken = (): AccessToken | null => {
-    this.#expireIfNeeded();
-    return this.#accessToken;
-  };
+  getServerSnapshot = (): AuthSnapshot => checkingSnapshot;
 
   async login(input: LoginRequest): Promise<boolean> {
     const generation = this.#advanceGeneration();
-    this.#accessToken = null;
     this.#publish(checkingSnapshot);
     const controller = new AbortController();
-    this.#operationController = controller;
+    this.#loginController = controller;
 
     try {
-      const result = await this.port.login(input, controller.signal);
+      const session = await this.port.login(input, controller.signal);
       if (generation !== this.#generation || controller.signal.aborted) {
         return false;
       }
-      const session = await this.port.currentSession(
-        result.accessToken,
-        controller.signal,
-      );
-      if (generation !== this.#generation || controller.signal.aborted) {
-        return false;
-      }
-      const expiresAt = expiryMillis(result.session.expiresAt);
-      this.#accessToken = result.accessToken;
-      this.#publish(snapshotFromSession(session, result.session.expiresAt));
-      this.#scheduleExpiry(generation, expiresAt);
-      saveStoredSession({
-        accessToken: result.accessToken,
-        session,
-        expiresAt: result.session.expiresAt,
-      });
+      const exp = expiryMillis(session.expiresAt);
+      clearLogoutPending();
+      this.#publish(snapshotFromSession(session));
+      this.#scheduleExpiry(generation, exp);
+      broadcastAuthEvent({ type: "session_changed" });
       return true;
     } catch (error) {
       if (generation === this.#generation) this.#clearIfCurrent(generation);
       throw error;
     } finally {
-      if (this.#operationController === controller) {
-        this.#operationController = null;
+      if (this.#loginController === controller) {
+        this.#loginController = null;
       }
     }
   }
 
-  async checkSession(): Promise<boolean> {
+  checkSession(): Promise<boolean> {
     this.#expireIfNeeded();
-    if (!this.#accessToken) {
-      const stored = loadStoredSession();
-      if (stored) {
-        this.#accessToken = stored.accessToken;
-        this.#publish(snapshotFromSession(stored.session, stored.expiresAt));
-        try {
-          const exp = expiryMillis(stored.expiresAt);
-          this.#scheduleExpiry(this.#generation, exp);
-        } catch {
-          this.#clearIfCurrent(this.#generation);
-          return false;
-        }
-      }
-    }
-    const accessToken = this.#accessToken;
-    const expiresAt = this.#snapshot.expiresAt;
-    const generation = this.#generation;
-    if (!accessToken || !expiresAt) {
-      if (this.#snapshot.status !== "anonymous")
-        this.#publish(anonymousSnapshot);
-      return false;
+    if (this.#checkSessionPromise) {
+      return this.#checkSessionPromise;
     }
 
+    if (isLogoutPending()) {
+      return (async () => {
+        const controller = new AbortController();
+        try {
+          const result = await this.port.logout(controller.signal);
+          if (result.cookieCleared) {
+            clearLogoutPending();
+          }
+        } catch {
+          // network or server error during pending logout cleanup
+        }
+        if (this.#snapshot.status !== "anonymous") {
+          this.#publish(anonymousSnapshot);
+        }
+        return false;
+      })();
+    }
+
+    const generation = this.#generation;
     const controller = new AbortController();
     const signal = AbortSignal.any([
       this.#sessionController.signal,
       controller.signal,
     ]);
-    this.#operationController?.abort();
-    this.#operationController = controller;
+    this.#checkController?.abort();
+    this.#checkController = controller;
 
-    try {
-      const session = await this.port.currentSession(accessToken, signal);
-      if (
-        generation !== this.#generation ||
-        signal.aborted ||
-        accessToken !== this.#accessToken
-      ) {
-        return false;
+    const promise = (async (): Promise<boolean> => {
+      try {
+        const session = await this.port.currentSession(signal);
+        if (generation !== this.#generation || signal.aborted) {
+          return false;
+        }
+        const prevAccountId = this.#snapshot.accountId;
+        if (prevAccountId && prevAccountId !== session.accountId) {
+          privateBlobUrls.clear();
+        }
+        const exp = expiryMillis(session.expiresAt);
+        this.#publish(snapshotFromSession(session));
+        this.#scheduleExpiry(generation, exp);
+        return true;
+      } catch (error) {
+        if (generation !== this.#generation || signal.aborted) return false;
+        if (
+          error instanceof ApiError &&
+          (error.status === 401 || error.status === 403)
+        ) {
+          this.#clearIfCurrent(generation);
+          return false;
+        }
+        throw error;
+      } finally {
+        this.#checkSessionPromise = null;
+        if (this.#checkController === controller) {
+          this.#checkController = null;
+        }
       }
-      this.#publish(snapshotFromSession(session, expiresAt));
-      saveStoredSession({
-        accessToken,
-        session,
-        expiresAt,
-      });
-      return true;
-    } catch (error) {
-      if (generation !== this.#generation || signal.aborted) return false;
-      if (
-        error instanceof ApiError &&
-        (error.status === 401 || error.status === 403)
-      ) {
-        this.#clearIfCurrent(generation);
-        return false;
-      }
-      throw error;
-    } finally {
-      if (this.#operationController === controller) {
-        this.#operationController = null;
-      }
-    }
+    })();
+
+    this.#checkSessionPromise = promise;
+    return promise;
   }
 
   async logout(): Promise<void> {
-    const accessToken = this.#accessToken;
-    if (!accessToken) {
-      this.#clearIfCurrent(this.#generation);
-      return;
-    }
-
     this.#advanceGeneration();
-    this.#accessToken = null;
-    clearStoredSession();
+    setLogoutPending();
     this.#publish(anonymousSnapshot);
+    broadcastAuthEvent({ type: "logout" });
+
     const controller = new AbortController();
     try {
-      await this.port.logout(accessToken, controller.signal);
+      const result = await this.port.logout(controller.signal);
+      if (result.cookieCleared) {
+        clearLogoutPending();
+      }
+      if (!result.revocationConfirmed) {
+        throw new ApiError({
+          status: 502,
+          code: "remote_logout_unconfirmed",
+          requestId: null,
+          retryAfter: null,
+          fields: [],
+        });
+      }
     } catch (error) {
       if (
         error instanceof ApiError &&
         (error.status === 401 || error.status === 403)
       ) {
+        clearLogoutPending();
         return;
       }
       throw error;
     }
+  }
+
+  handlePeerLogout(): void {
+    this.#advanceGeneration();
+    this.#publish(anonymousSnapshot);
   }
 
   hasCapability(capability: Capability): boolean {
@@ -328,41 +297,39 @@ export class AuthFacade {
   }
 
   async runAuthenticated<T>(
-    request: (
-      accessToken: AccessToken,
-      signal: AbortSignal,
-    ) => Promise<{ response: Response; value: T }>,
+    request: (signal: AbortSignal) => Promise<{ response: Response; value: T }>,
   ): Promise<T> {
     this.#expireIfNeeded();
-    const accessToken = this.#accessToken;
+    if (this.#snapshot.status !== "authenticated") throw apiAuthError(401);
     const generation = this.#generation;
-    if (!accessToken) throw apiAuthError(401);
     const signal = this.#sessionController.signal;
 
     try {
-      const result = await request(accessToken, signal);
-      if (
-        generation !== this.#generation ||
-        signal.aborted ||
-        accessToken !== this.#accessToken
-      ) {
+      const result = await request(signal);
+      if (generation !== this.#generation || signal.aborted) {
         throw new DOMException(
           "The session changed during the request.",
           "AbortError",
         );
       }
-      if (result.response.status === 401 || result.response.status === 403) {
+      if (result.response.status === 401) {
         this.#clearIfCurrent(generation);
+        throw normalizeApiError(result.response, null);
+      }
+      if (result.response.status === 403) {
+        privateBlobUrls.clear();
+        void this.checkSession().catch(() => false);
         throw normalizeApiError(result.response, null);
       }
       return result.value;
     } catch (error) {
-      if (
-        generation === this.#generation &&
-        error instanceof ApiError &&
-        (error.status === 401 || error.status === 403)
-      ) {
-        this.#clearIfCurrent(generation);
+      if (generation === this.#generation && error instanceof ApiError) {
+        if (error.status === 401) {
+          this.#clearIfCurrent(generation);
+        } else if (error.status === 403) {
+          privateBlobUrls.clear();
+          void this.checkSession().catch(() => false);
+        }
       }
       throw error;
     }
@@ -373,8 +340,10 @@ export class AuthFacade {
     privateBlobUrls.clear();
     this.#sessionController.abort();
     this.#sessionController = new AbortController();
-    this.#operationController?.abort();
-    this.#operationController = null;
+    this.#loginController?.abort();
+    this.#loginController = null;
+    this.#checkController?.abort();
+    this.#checkController = null;
     if (this.#expiryTimer !== null) clearTimeout(this.#expiryTimer);
     this.#expiryTimer = null;
     return this.#generation;
@@ -383,15 +352,13 @@ export class AuthFacade {
   #clearIfCurrent(generation: number): void {
     if (generation !== this.#generation) return;
     this.#advanceGeneration();
-    this.#accessToken = null;
-    clearStoredSession();
     this.#publish(anonymousSnapshot);
   }
 
   #expireIfNeeded(): void {
     const expiresAt = this.#snapshot.expiresAt;
     if (
-      this.#accessToken &&
+      this.#snapshot.status === "authenticated" &&
       expiresAt &&
       Number.isFinite(Date.parse(expiresAt)) &&
       Date.now() >= Date.parse(expiresAt)
@@ -412,6 +379,9 @@ export class AuthFacade {
         schedule,
         Math.min(remaining, 2_147_000_000),
       );
+      if (typeof this.#expiryTimer?.unref === "function") {
+        this.#expiryTimer.unref();
+      }
     };
     schedule();
   }

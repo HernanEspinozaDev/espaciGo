@@ -27,7 +27,7 @@ import type { RightsRequestKind } from "../domain/privacy";
 import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 
 export function PrivacyCard() {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
   const {
     snapshot,
     requestDataRight,
@@ -39,12 +39,12 @@ export function PrivacyCard() {
   const [error, setError] = useState<string | null>(null);
 
   const handleRequest = async (kind: RightsRequestKind) => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setError(null);
     setMessage(null);
     setLoadingAction(kind);
     try {
-      await requestDataRight(accessToken, kind);
+      await requestDataRight(kind);
       setMessage(
         kind === "supresion"
           ? "Solicitud de supresión de datos registrada exitosamente."
@@ -77,12 +77,12 @@ export function PrivacyCard() {
   };
 
   const handleExportJson = async () => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setError(null);
     setMessage(null);
     setLoadingAction("export-json");
     try {
-      const blob = await exportIdentityBlob(accessToken);
+      const blob = await exportIdentityBlob();
       if (!blob) {
         setError("No se pudo obtener el archivo de exportación JSON.");
         return;
@@ -105,12 +105,12 @@ export function PrivacyCard() {
   };
 
   const handleDownloadArchive = async () => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setError(null);
     setMessage(null);
     setLoadingAction("export-archive");
     try {
-      const blob = await downloadIdentityArchive(accessToken);
+      const blob = await downloadIdentityArchive();
       if (!blob) {
         setError("No se pudo obtener el archivo comprimido ZIP.");
         return;
@@ -175,7 +175,10 @@ export function PrivacyCard() {
               type="button"
               variant="outline"
               onClick={() => handleRequest("acceso")}
-              disabled={Boolean(loadingAction) || !accessToken}
+              disabled={
+                Boolean(loadingAction) ||
+                authSnapshot.status !== "authenticated"
+              }
             >
               {loadingAction === "acceso" ? (
                 <Loader2
@@ -193,7 +196,10 @@ export function PrivacyCard() {
               variant="outline"
               className="border-destructive/40 text-destructive hover:bg-destructive/10"
               onClick={() => handleRequest("supresion")}
-              disabled={Boolean(loadingAction) || !accessToken}
+              disabled={
+                Boolean(loadingAction) ||
+                authSnapshot.status !== "authenticated"
+              }
             >
               {loadingAction === "supresion" ? (
                 <Loader2
@@ -252,7 +258,10 @@ export function PrivacyCard() {
               type="button"
               variant="outline"
               onClick={handleExportJson}
-              disabled={Boolean(loadingAction) || !accessToken}
+              disabled={
+                Boolean(loadingAction) ||
+                authSnapshot.status !== "authenticated"
+              }
             >
               {loadingAction === "export-json" ? (
                 <Loader2
@@ -269,7 +278,10 @@ export function PrivacyCard() {
               type="button"
               variant="outline"
               onClick={handleDownloadArchive}
-              disabled={Boolean(loadingAction) || !accessToken}
+              disabled={
+                Boolean(loadingAction) ||
+                authSnapshot.status !== "authenticated"
+              }
             >
               {loadingAction === "export-archive" ? (
                 <Loader2

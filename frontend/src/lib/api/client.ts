@@ -5,6 +5,6 @@ import type { paths } from "./generated/openapi";
 
 export const apiClient = createClient<paths>({
   baseUrl: "/api/backend",
-  credentials: "omit",
+  credentials: "same-origin",
   cache: "no-store",
 });

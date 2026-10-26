@@ -23,7 +23,7 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { useAccount } from "./use-account";
 
 export function SyntheticPayoutCard() {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
   const { snapshot, createOrReplacePayoutAccount, revokePayoutAccount } =
     useAccount();
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
@@ -31,13 +31,13 @@ export function SyntheticPayoutCard() {
   const [error, setError] = useState<string | null>(null);
 
   const handleCreate = async () => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setError(null);
     setMessage(null);
     setLoadingAction("create");
     try {
       const idempotencyKey = crypto.randomUUID();
-      await createOrReplacePayoutAccount(accessToken, idempotencyKey);
+      await createOrReplacePayoutAccount(idempotencyKey);
       setMessage("Cuenta de cobro sintética configurada para ensayos.");
     } catch (err) {
       setError(
@@ -51,13 +51,13 @@ export function SyntheticPayoutCard() {
   };
 
   const handleRevoke = async () => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setError(null);
     setMessage(null);
     setLoadingAction("revoke");
     try {
       const idempotencyKey = crypto.randomUUID();
-      await revokePayoutAccount(accessToken, idempotencyKey);
+      await revokePayoutAccount(idempotencyKey);
       setMessage("Cuenta de cobro sintética revocada.");
     } catch (err) {
       setError(
@@ -145,7 +145,10 @@ export function SyntheticPayoutCard() {
                 type="button"
                 variant="destructive"
                 onClick={handleRevoke}
-                disabled={Boolean(loadingAction) || !accessToken}
+                disabled={
+                  Boolean(loadingAction) ||
+                  authSnapshot.status !== "authenticated"
+                }
               >
                 {loadingAction === "revoke" ? (
                   <Loader2
@@ -167,7 +170,10 @@ export function SyntheticPayoutCard() {
             <Button
               type="button"
               onClick={handleCreate}
-              disabled={Boolean(loadingAction) || !accessToken}
+              disabled={
+                Boolean(loadingAction) ||
+                authSnapshot.status !== "authenticated"
+              }
             >
               {loadingAction === "create" ? (
                 <Loader2

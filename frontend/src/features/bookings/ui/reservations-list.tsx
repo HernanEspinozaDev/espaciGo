@@ -136,16 +136,29 @@ export function ReservationsList({
   title,
   description,
 }: ReservationsListProps) {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
+  const isAuthenticated = authSnapshot.status === "authenticated";
+  const accountId = authSnapshot.accountId;
+  const expiresAt = authSnapshot.expiresAt;
+
   const { reservations, loading, error, loadReservations } = useBookings();
   const [activeTab, setActiveTab] = useState<ReservationFilterGroup>("todas");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
+  const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
+
+  if (prevAccountKey !== accountKey) {
+    setPrevAccountKey(accountKey);
+    setActiveTab("todas");
+    setSearchQuery("");
+  }
+
   useEffect(() => {
-    if (accessToken) {
-      loadReservations(accessToken).catch(() => {});
+    if (isAuthenticated) {
+      loadReservations().catch(() => {});
     }
-  }, [accessToken, loadReservations]);
+  }, [isAuthenticated, accountId, expiresAt, loadReservations]);
 
   const filteredReservations = useMemo(() => {
     return reservations.filter((reservation) => {
@@ -190,11 +203,11 @@ export function ReservationsList({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          {accessToken && (
+          {isAuthenticated && (
             <Button
               variant="outline"
               size="sm"
-              onClick={() => loadReservations(accessToken)}
+              onClick={() => loadReservations()}
               disabled={loading}
               className="inline-flex items-center gap-2"
             >

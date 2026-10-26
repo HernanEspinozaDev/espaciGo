@@ -6,6 +6,7 @@ import {
   type Route,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { createBffFixtureState } from "./helpers/bff-fixture";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -26,7 +27,6 @@ const privacyId = "660e8400-e29b-41d4-a716-446655440000";
 const actionToken = "synthetic-ui-action-token-7629";
 const replacementTokenId = "880e8400-e29b-41d4-a716-446655440000";
 const replacementActionToken = "synthetic-ui-action-token-replacement-9041";
-const sessionToken = "synthetic-ui-session-token-3821";
 const accountId = "770e8400-e29b-41d4-a716-446655440000";
 
 function completeDocuments() {
@@ -95,10 +95,15 @@ async function mockGateway(
   page: Page,
   responder: GatewayResponder,
 ): Promise<void> {
+  const bff = createBffFixtureState();
   await page.route("**/api/backend/**", async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    const result = await responder(pathname, request.method(), request);
+    const result = bff.adapt(
+      request,
+      await responder(pathname, request.method(), request),
+    );
+    if (!result) throw new Error("Missing controlled BFF reply");
     await route.fulfill({
       status: result.status,
       headers: {
@@ -735,8 +740,6 @@ test("@phase5 @controlled login 401 is generic and confirmed login honors only a
           account_id: accountId,
           roles: ["arrendatario"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
           expires_at: new Date(Date.now() + 60_000).toISOString(),
           restricted_mode: false,
         },
@@ -782,7 +785,8 @@ test("@phase5 @controlled login 401 is generic and confirmed login honors only a
   await page.getByLabel("Contraseña", { exact: true }).fill("ABC123!!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page).toHaveURL(
-    (url) => url.pathname === "/" && url.hostname === "127.0.0.1",
+    // main already uses Mi cuenta as its safe fallback; keep the external URL rejected.
+    (url) => url.pathname === "/mi-cuenta" && url.hostname === "127.0.0.1",
   );
 });
 

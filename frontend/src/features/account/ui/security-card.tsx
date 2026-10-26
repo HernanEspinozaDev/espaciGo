@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -19,23 +19,55 @@ import {
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { authFacade } from "@/features/auth/auth-runtime";
+import type { AuthSnapshot } from "@/features/auth/application/auth-facade";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { inspectPassword } from "@/features/auth/domain/password-policy";
 import { apiClient } from "@/lib/api/client";
 import { normalizeApiError } from "@/lib/api/errors";
 
+function sessionFingerprint(snapshot: AuthSnapshot): string {
+  return JSON.stringify([
+    snapshot.status,
+    snapshot.accountId,
+    snapshot.roles,
+    snapshot.capabilities,
+    snapshot.restrictedMode,
+    snapshot.expiresAt,
+  ]);
+}
+
 export function SecurityCard() {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
+  const sessionKey = sessionFingerprint(authSnapshot);
+
+  return <SecurityCardContent key={sessionKey} authSnapshot={authSnapshot} />;
+}
+
+function SecurityCardContent({ authSnapshot }: { authSnapshot: AuthSnapshot }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!accessToken) return;
+    const freshSnapshot = authFacade.getSnapshot();
+    if (
+      freshSnapshot.status !== "authenticated" ||
+      sessionFingerprint(freshSnapshot) !== sessionFingerprint(authSnapshot)
+    ) {
+      return;
+    }
 
     setError(null);
     setSuccess(null);
@@ -53,21 +85,35 @@ export function SecurityCard() {
       return;
     }
 
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       setIsSubmitting(true);
-      const result = await apiClient.POST("/auth/password/change", {
-        headers: {
-          Authorization: ["Bearer", accessToken].join(" "),
-        },
-        body: {
-          current_password: currentPassword,
-          new_password: newPassword,
-          confirm_password: confirmPassword,
-        },
+      await authFacade.runAuthenticated(async (signal) => {
+        const combinedSignal = AbortSignal.any([signal, controller.signal]);
+        const result = await apiClient.POST("/auth/password/change", {
+          body: {
+            current_password: currentPassword,
+            new_password: newPassword,
+            confirm_password: confirmPassword,
+          },
+          signal: combinedSignal,
+        });
+
+        if (!result.response.ok) {
+          throw normalizeApiError(result.response, result.error);
+        }
+
+        return { response: result.response, value: result.data };
       });
 
-      if (!result.response.ok) {
-        throw normalizeApiError(result.response, result.error);
+      if (
+        controller.signal.aborted ||
+        abortControllerRef.current !== controller
+      ) {
+        return;
       }
 
       setSuccess("Tu contraseña ha sido actualizada con éxito.");
@@ -75,11 +121,24 @@ export function SecurityCard() {
       setNewPassword("");
       setConfirmPassword("");
     } catch (err) {
+      if (
+        controller.signal.aborted ||
+        abortControllerRef.current !== controller ||
+        (err instanceof DOMException && err.name === "AbortError") ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        return;
+      }
       setError(
         err instanceof Error ? err.message : "Error al cambiar la contraseña",
       );
     } finally {
-      setIsSubmitting(false);
+      if (
+        abortControllerRef.current === controller &&
+        !controller.signal.aborted
+      ) {
+        setIsSubmitting(false);
+      }
     }
   };
 
@@ -165,7 +224,12 @@ export function SecurityCard() {
             </div>
 
             <div className="pt-2 flex justify-start">
-              <Button type="submit" disabled={isSubmitting || !accessToken}>
+              <Button
+                type="submit"
+                disabled={
+                  isSubmitting || authSnapshot.status !== "authenticated"
+                }
+              >
                 {isSubmitting && (
                   <Loader2
                     className="mr-2 size-4 animate-spin"
@@ -195,10 +259,10 @@ export function SecurityCard() {
           <div className="flex items-center gap-3 rounded-lg border p-4 bg-muted/30">
             <KeyRound className="size-5 text-muted-foreground shrink-0" />
             <div className="text-sm">
-              <p className="font-medium">Sesión criptográficamente firmada</p>
+              <p className="font-medium">Sesión confirmada por Go</p>
               <p className="text-muted-foreground text-xs mt-0.5">
-                Tus tokens de acceso residen en memoria protegida del cliente
-                durante la sesión activa.
+                La credencial viaja mediante una cookie HttpOnly al BFF y no se
+                expone a JavaScript.
               </p>
             </div>
           </div>

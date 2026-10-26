@@ -1,6 +1,11 @@
 import { gatewayOperations } from "@/lib/api/generated/gateway-operations";
 import { getApiBackendBaseUrl } from "@/lib/api/server-config";
-import { getCloudRunIdentityHeaders } from "@/lib/api/cloud-run-identity";
+import { getCloudRunIdentityHeadersForBackend } from "@/lib/api/cloud-run-identity";
+import {
+  buildClearSessionCookies,
+  parseSessionCookies,
+  validateCsrfOrigin,
+} from "@/lib/api/server-session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -123,50 +128,6 @@ function validHeaderValue(value: string, maximumLength: number): boolean {
   return value.length <= maximumLength && safeHeaderValue.test(value);
 }
 
-function isSameOriginRequest(request: Request, origin: string): boolean {
-  const host = request.headers.get("host");
-  if (
-    !host ||
-    host !== host.trim() ||
-    host.length > 255 ||
-    /[\s,/@\\?#]/.test(host) ||
-    origin.length > 512
-  ) {
-    return false;
-  }
-
-  try {
-    const parsedOrigin = new URL(origin);
-    if (
-      parsedOrigin.protocol !== "http:" &&
-      parsedOrigin.protocol !== "https:"
-    ) {
-      return false;
-    }
-    if (
-      parsedOrigin.username !== "" ||
-      parsedOrigin.password !== "" ||
-      parsedOrigin.pathname !== "/" ||
-      parsedOrigin.search !== "" ||
-      parsedOrigin.hash !== "" ||
-      parsedOrigin.origin !== origin
-    ) {
-      return false;
-    }
-    const requestOrigin = new URL(`${parsedOrigin.protocol}//${host}`);
-    return (
-      requestOrigin.username === "" &&
-      requestOrigin.password === "" &&
-      requestOrigin.pathname === "/" &&
-      requestOrigin.search === "" &&
-      requestOrigin.hash === "" &&
-      requestOrigin.origin === parsedOrigin.origin
-    );
-  } catch {
-    return false;
-  }
-}
-
 function validateQuery(requestUrl: URL, operation: GatewayOperation): boolean {
   const allowed = new Map<string, boolean>(
     operation.query.map((parameter) => [
@@ -194,12 +155,30 @@ function collectHeaders(
   const headers = new Headers();
   const operationHeaders = new Set<string>(operation.headers);
 
-  if (request.headers.has("cookie")) {
-    return { error: errorResponse(400, "cookies_not_supported", requestId) };
+  if (request.headers.has("authorization")) {
+    return {
+      error: errorResponse(400, "authorization_not_allowed", requestId),
+    };
   }
-  const origin = request.headers.get("origin");
-  if (origin && !isSameOriginRequest(request, origin)) {
+
+  const isMutation =
+    (operation.method as string) !== "GET" &&
+    (operation.method as string) !== "HEAD";
+  if (!validateCsrfOrigin(request, { isMutation })) {
     return { error: errorResponse(403, "origin_not_allowed", requestId) };
+  }
+
+  if (operation.bearer) {
+    const cookieHeader = request.headers.get("cookie");
+    const session = parseSessionCookies(cookieHeader);
+    if (!session) {
+      const [c1, c2] = buildClearSessionCookies();
+      const res = errorResponse(401, "unauthenticated", requestId);
+      res.headers.append("set-cookie", c1);
+      res.headers.append("set-cookie", c2);
+      return { error: res };
+    }
+    headers.set("authorization", `Bearer ${session.token}`);
   }
 
   for (const [rawName, value] of request.headers) {
@@ -376,9 +355,7 @@ async function proxy(
   upstreamUrl.search = requestUrl.search;
 
   const upstreamHeaders = new Headers(collected.headers);
-  const idHeaders = await getCloudRunIdentityHeaders(
-    process.env.API_SERVICE_AUDIENCE?.trim() || baseUrl.origin,
-  );
+  const idHeaders = await getCloudRunIdentityHeadersForBackend(baseUrl);
   if (idHeaders["X-Serverless-Authorization"]) {
     upstreamHeaders.set(
       "X-Serverless-Authorization",
@@ -420,6 +397,11 @@ async function proxy(
   }
 
   const outgoingHeaders = new Headers();
+  if (upstream.status === 401 && operation.bearer) {
+    const [clear1, clear2] = buildClearSessionCookies();
+    outgoingHeaders.append("set-cookie", clear1);
+    outgoingHeaders.append("set-cookie", clear2);
+  }
   for (const name of responseHeaders) {
     const value = upstream.headers.get(name);
     if (value !== null) outgoingHeaders.set(name, value);

@@ -78,8 +78,23 @@ function renderStateBadge(state: VerificationState) {
   }
 }
 
+function isAbortError(err: unknown): boolean {
+  return (
+    (err instanceof Error ||
+      (typeof err === "object" && err !== null && "name" in err)) &&
+    (err as { name?: string }).name === "AbortError"
+  );
+}
+
 export function VerificationsView() {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
+  const isAuthenticated = authSnapshot.status === "authenticated";
+  const accountId = authSnapshot.accountId;
+  const rolesKey = authSnapshot.roles.join(",");
+  const capabilitiesKey = authSnapshot.capabilities.join(",");
+  const restrictedMode = authSnapshot.restrictedMode;
+  const expiresAt = authSnapshot.expiresAt;
+
   const {
     snapshot,
     loadOverview,
@@ -100,13 +115,41 @@ export function VerificationsView() {
     null,
   );
 
-  useEffect(() => {
-    if (accessToken) {
-      loadOverview(accessToken).catch(() => {
-        // Ignored
-      });
+  const identityKey = `${isAuthenticated}:${accountId}:${rolesKey}:${capabilitiesKey}:${restrictedMode}:${expiresAt}`;
+  const [prevIdentityKey, setPrevIdentityKey] = useState(identityKey);
+
+  if (prevIdentityKey !== identityKey) {
+    setPrevIdentityKey(identityKey);
+    setSelectedCaseId(null);
+    setLoadingAction(null);
+    setMessage(null);
+    setError(null);
+    setPreviewEvidenceId(null);
+    if (previewBlobUrl) {
+      privateBlobUrls.revoke(previewBlobUrl);
+      setPreviewBlobUrl(null);
     }
-  }, [accessToken, loadOverview]);
+  }
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      const controller = new AbortController();
+      loadOverview(controller.signal).catch((err) => {
+        if (isAbortError(err)) return;
+      });
+      return () => {
+        controller.abort();
+      };
+    }
+  }, [
+    isAuthenticated,
+    accountId,
+    rolesKey,
+    capabilitiesKey,
+    restrictedMode,
+    expiresAt,
+    loadOverview,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -117,7 +160,7 @@ export function VerificationsView() {
   }, [previewBlobUrl]);
 
   const handleSelectCase = async (id: string) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     setSelectedCaseId(id);
     setError(null);
     setMessage(null);
@@ -127,8 +170,9 @@ export function VerificationsView() {
       setPreviewEvidenceId(null);
     }
     try {
-      await loadCaseDetails(accessToken, id);
+      await loadCaseDetails(id);
     } catch (err) {
+      if (isAbortError(err)) return;
       setError(
         err instanceof Error ? err.message : "Error al cargar detalle del caso",
       );
@@ -136,16 +180,17 @@ export function VerificationsView() {
   };
 
   const handleStartVerification = async (type: VerificationType) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     setError(null);
     setMessage(null);
     setLoadingAction(`start-${type}`);
     try {
       const key = crypto.randomUUID();
-      const created = await startVerification(accessToken, key, type);
+      const created = await startVerification(key, type);
       setMessage(`Verificación ${type.toUpperCase()} iniciada correctamente.`);
       setSelectedCaseId(created.id);
     } catch (err) {
+      if (isAbortError(err)) return;
       setError(
         err instanceof Error ? err.message : "Error al iniciar verificación",
       );
@@ -155,15 +200,16 @@ export function VerificationsView() {
   };
 
   const handleRetry = async (id: string, code: VerificationCorrectionCode) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     setError(null);
     setMessage(null);
     setLoadingAction(`retry-${id}`);
     try {
       const key = crypto.randomUUID();
-      await retryVerification(accessToken, id, key, code);
+      await retryVerification(id, key, code);
       setMessage("Caso reintentado correctamente con nueva evidencia.");
     } catch (err) {
+      if (isAbortError(err)) return;
       setError(err instanceof Error ? err.message : "Error al reintentar caso");
     } finally {
       setLoadingAction(null);
@@ -171,16 +217,17 @@ export function VerificationsView() {
   };
 
   const handleUploadEvidence = async (id: string) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     setError(null);
     setMessage(null);
     setLoadingAction(`upload-${id}`);
     try {
-      await uploadEvidence(accessToken, id);
+      await uploadEvidence(id);
       setMessage(
         "Evidencia sintética ('synthetic-png-v1') cargada exitosamente.",
       );
     } catch (err) {
+      if (isAbortError(err)) return;
       setError(
         err instanceof Error ? err.message : "Error al cargar evidencia",
       );
@@ -190,7 +237,7 @@ export function VerificationsView() {
   };
 
   const handleDeleteEvidence = async (id: string, evidenceId: string) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     setError(null);
     setMessage(null);
     setLoadingAction(`delete-ev-${evidenceId}`);
@@ -200,9 +247,10 @@ export function VerificationsView() {
       setPreviewEvidenceId(null);
     }
     try {
-      await deleteEvidence(accessToken, id, evidenceId);
+      await deleteEvidence(id, evidenceId);
       setMessage("Evidencia eliminada.");
     } catch (err) {
+      if (isAbortError(err)) return;
       setError(
         err instanceof Error ? err.message : "Error al eliminar evidencia",
       );
@@ -212,7 +260,7 @@ export function VerificationsView() {
   };
 
   const handleViewEvidence = async (id: string, evidenceId: string) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     setError(null);
     setLoadingAction(`view-ev-${evidenceId}`);
     try {
@@ -221,7 +269,7 @@ export function VerificationsView() {
         setPreviewBlobUrl(null);
         setPreviewEvidenceId(null);
       }
-      const blob = await getEvidenceContent(accessToken, id, evidenceId);
+      const blob = await getEvidenceContent(id, evidenceId);
       if (!blob) {
         setError("No se pudo descargar el contenido de la evidencia.");
         return;
@@ -230,6 +278,7 @@ export function VerificationsView() {
       setPreviewBlobUrl(registered.url);
       setPreviewEvidenceId(evidenceId);
     } catch (err) {
+      if (isAbortError(err)) return;
       setError(
         err instanceof Error ? err.message : "Error al previsualizar evidencia",
       );
@@ -239,11 +288,11 @@ export function VerificationsView() {
   };
 
   const handleDownloadEvidence = async (id: string, evidenceId: string) => {
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
     setError(null);
     setLoadingAction(`dl-ev-${evidenceId}`);
     try {
-      const blob = await getEvidenceContent(accessToken, id, evidenceId);
+      const blob = await getEvidenceContent(id, evidenceId);
       if (!blob) {
         setError("No se pudo descargar el archivo de evidencia.");
         return;
@@ -257,6 +306,7 @@ export function VerificationsView() {
       document.body.removeChild(link);
       setTimeout(() => registered.revoke(), 2000);
     } catch (err) {
+      if (isAbortError(err)) return;
       setError(
         err instanceof Error ? err.message : "Error al descargar evidencia",
       );
@@ -344,7 +394,7 @@ export function VerificationsView() {
                       }
                       disabled={
                         Boolean(loadingAction) ||
-                        !accessToken ||
+                        !isAuthenticated ||
                         verifications.some(
                           (v) =>
                             v.type === item.type && v.state === "en_revision",
@@ -405,8 +455,8 @@ export function VerificationsView() {
               type="button"
               size="sm"
               variant="ghost"
-              onClick={() => accessToken && loadOverview(accessToken)}
-              disabled={snapshot.loading || !accessToken}
+              onClick={() => isAuthenticated && loadOverview()}
+              disabled={snapshot.loading || !isAuthenticated}
               aria-label="Actualizar listado de verificaciones"
             >
               <RefreshCw
@@ -519,7 +569,8 @@ export function VerificationsView() {
                     handleRetry(currentCase.id, "fixture_vigente_actualizado")
                   }
                   disabled={
-                    loadingAction === `retry-${currentCase.id}` || !accessToken
+                    loadingAction === `retry-${currentCase.id}` ||
+                    !isAuthenticated
                   }
                 >
                   {loadingAction === `retry-${currentCase.id}` ? (
@@ -542,7 +593,8 @@ export function VerificationsView() {
                   variant="outline"
                   onClick={() => handleUploadEvidence(currentCase.id)}
                   disabled={
-                    loadingAction === `upload-${currentCase.id}` || !accessToken
+                    loadingAction === `upload-${currentCase.id}` ||
+                    !isAuthenticated
                   }
                 >
                   {loadingAction === `upload-${currentCase.id}` ? (
@@ -589,7 +641,7 @@ export function VerificationsView() {
                           onClick={() =>
                             handleViewEvidence(currentCase.id, ev.id)
                           }
-                          disabled={Boolean(loadingAction) || !accessToken}
+                          disabled={Boolean(loadingAction) || !isAuthenticated}
                         >
                           <Eye className="mr-1 size-3" />
                           Ver
@@ -602,7 +654,7 @@ export function VerificationsView() {
                           onClick={() =>
                             handleDownloadEvidence(currentCase.id, ev.id)
                           }
-                          disabled={Boolean(loadingAction) || !accessToken}
+                          disabled={Boolean(loadingAction) || !isAuthenticated}
                         >
                           <Download className="mr-1 size-3" />
                           Descargar
@@ -615,7 +667,7 @@ export function VerificationsView() {
                           onClick={() =>
                             handleDeleteEvidence(currentCase.id, ev.id)
                           }
-                          disabled={Boolean(loadingAction) || !accessToken}
+                          disabled={Boolean(loadingAction) || !isAuthenticated}
                         >
                           <Trash2 className="size-3" />
                         </Button>

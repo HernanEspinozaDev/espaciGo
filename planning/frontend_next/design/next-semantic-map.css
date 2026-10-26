@@ -1,0 +1,33 @@
+/* Phase 1 reference adapter: intentionally NOT imported by frontend runtime.
+ * Load prefixed tokens.css first. Apply this scope deliberately in the UI phase.
+ * Do not import the generic theme.css wholesale: its color names are primitives,
+ * while current Next/Shadcn variables such as muted/secondary/accent are surfaces.
+ */
+.espacigo-theme-v1 {
+  --background: var(--espacigo-color-canvas);
+  --foreground: var(--espacigo-color-ink);
+  --card: var(--espacigo-color-surface);
+  --card-foreground: var(--espacigo-color-ink);
+  --popover: var(--espacigo-color-surface);
+  --popover-foreground: var(--espacigo-color-ink);
+  --primary: var(--espacigo-color-primary);
+  --primary-foreground: var(--espacigo-color-surface);
+  --secondary: var(--espacigo-color-surface-subtle);
+  --secondary-foreground: var(--espacigo-color-ink);
+  --muted: var(--espacigo-color-surface-subtle);
+  --muted-foreground: var(--espacigo-color-muted);
+  --accent: var(--espacigo-color-primary-soft);
+  --accent-foreground: var(--espacigo-color-primary-active);
+  --destructive: var(--espacigo-color-error);
+  --border: var(--espacigo-color-border);
+  --input: var(--espacigo-color-control-border);
+  --ring: var(--espacigo-color-focus);
+  --sidebar-background: var(--espacigo-color-surface);
+  --sidebar-foreground: var(--espacigo-color-ink);
+  --sidebar-primary: var(--espacigo-color-primary);
+  --sidebar-primary-foreground: var(--espacigo-color-surface);
+  --sidebar-accent: var(--espacigo-color-primary-soft);
+  --sidebar-accent-foreground: var(--espacigo-color-primary-active);
+  --sidebar-border: var(--espacigo-color-border);
+  --sidebar-ring: var(--espacigo-color-focus);
+}

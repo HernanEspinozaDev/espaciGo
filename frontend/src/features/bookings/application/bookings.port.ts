@@ -1,4 +1,3 @@
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type {
   BookingDetail,
   BookingQuote,
@@ -21,33 +20,26 @@ import type {
 
 export interface BookingsPort {
   quote(
-    token: AccessToken,
     input: { space_id: string; start_at: string; end_at: string },
     signal?: AbortSignal,
   ): Promise<BookingQuote>;
 
-  getFixture(token: AccessToken, signal?: AbortSignal): Promise<unknown>;
+  getFixture(signal?: AbortSignal): Promise<unknown>;
 
-  listReservations(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<BookingReservation[]>;
+  listReservations(signal?: AbortSignal): Promise<BookingReservation[]>;
 
   getReservation(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<BookingDetail | null>;
 
   createReservation(
-    token: AccessToken,
     idempotencyKey: string,
     quoteId: string,
     signal?: AbortSignal,
   ): Promise<BookingReservation>;
 
   decideReservation(
-    token: AccessToken,
     reservationId: string,
     decision: "aprobar" | "rechazar",
     reason?: string,
@@ -55,13 +47,11 @@ export interface BookingsPort {
   ): Promise<BookingReservation>;
 
   previewCancellation(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<CancellationPreview>;
 
   cancelReservation(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     reason?: string,
@@ -69,7 +59,6 @@ export interface BookingsPort {
   ): Promise<BookingReservation>;
 
   simulatePayment(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     outcome: SimulatedPaymentOutcome,
@@ -77,7 +66,6 @@ export interface BookingsPort {
   ): Promise<BookingReservation>;
 
   simulateRefund(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     outcome: "exito" | "fallo" | "sin_respuesta",
@@ -85,37 +73,31 @@ export interface BookingsPort {
   ): Promise<BookingReservation>;
 
   createOrGetContract(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<SyntheticContract>;
 
   getContract(
-    token: AccessToken,
     contractId: string,
     signal?: AbortSignal,
   ): Promise<SyntheticContract | null>;
 
   signContract(
-    token: AccessToken,
     contractId: string,
     signal?: AbortSignal,
   ): Promise<SyntheticContract>;
 
   rejectContract(
-    token: AccessToken,
     contractId: string,
     signal?: AbortSignal,
   ): Promise<SyntheticContract>;
 
   downloadContractPdf(
-    token: AccessToken,
     contractId: string,
     signal?: AbortSignal,
   ): Promise<Blob | null>;
 
   recordCheckIn(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -129,7 +111,6 @@ export interface BookingsPort {
   ): Promise<RentalOperation>;
 
   recordCheckOut(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -143,7 +124,6 @@ export interface BookingsPort {
   ): Promise<RentalOperation>;
 
   recordReception(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -155,27 +135,23 @@ export interface BookingsPort {
   ): Promise<RentalOperation>;
 
   listOperations(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<RentalOperation[]>;
 
   downloadEvidence(
-    token: AccessToken,
     reservationId: string,
     evidenceId: string,
     signal?: AbortSignal,
   ): Promise<Blob | null>;
 
   listMessages(
-    token: AccessToken,
     reservationId: string,
     query?: { before?: number | string; limit?: number },
     signal?: AbortSignal,
   ): Promise<ReservationMessage[]>;
 
   sendMessage(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     body: string,
@@ -183,20 +159,17 @@ export interface BookingsPort {
   ): Promise<ReservationMessage>;
 
   advanceReadCursor(
-    token: AccessToken,
     reservationId: string,
     throughSequence: number | string,
     signal?: AbortSignal,
   ): Promise<{ sequence: number }>;
 
   listReviews(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<ReservationReview[]>;
 
   createReview(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -208,7 +181,6 @@ export interface BookingsPort {
   ): Promise<ReservationReview>;
 
   reportReview(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     reviewId: string,
@@ -221,13 +193,11 @@ export interface BookingsPort {
   ): Promise<ReviewReport>;
 
   listDisputes(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<TrialDispute[]>;
 
   openDispute(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     reasonCode: string,
@@ -235,19 +205,16 @@ export interface BookingsPort {
   ): Promise<TrialDispute>;
 
   getDisputeHistory(
-    token: AccessToken,
     disputeId: string,
     signal?: AbortSignal,
   ): Promise<TrialDisputeTransition[]>;
 
   getDamageClaim(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<DamageClaim | null>;
 
   openDamageClaim(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     description: string,
@@ -255,7 +222,6 @@ export interface BookingsPort {
   ): Promise<DamageClaim>;
 
   submitDamageClaimDefense(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     description: string,
@@ -263,20 +229,17 @@ export interface BookingsPort {
   ): Promise<DamageClaim>;
 
   createDamageClaimDefenseEvidence(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<RentalOperation>;
 
   getGuarantee(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<Guarantee | null>;
 
   executeGuaranteeOperation(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -288,13 +251,11 @@ export interface BookingsPort {
   ): Promise<Guarantee>;
 
   getSettlement(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<Settlement | null>;
 
   requestSettlement(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     outcome?: SimulatedPaymentOutcome,
@@ -302,20 +263,15 @@ export interface BookingsPort {
   ): Promise<Settlement>;
 
   reconcileSettlement(
-    token: AccessToken,
     reservationId: string,
     outcome: "exito" | "rechazo",
     signal?: AbortSignal,
   ): Promise<Settlement>;
 
   getSettlementReceipt(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<SettlementReceipt | null>;
 
-  getBusinessClock(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<BusinessClock>;
+  getBusinessClock(signal?: AbortSignal): Promise<BusinessClock>;
 }

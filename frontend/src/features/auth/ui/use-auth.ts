@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { authFacade } from "../auth-runtime";
+import { retainAuthLifecycle } from "../application/auth-lifecycle";
 import type { AuthSnapshot } from "../application/auth-facade";
 import type {
-  AccessToken,
   LoginRequest,
   SessionCapabilities,
 } from "../application/auth.port";
@@ -13,8 +13,6 @@ type Capability = SessionCapabilities[number];
 
 export interface AuthView {
   snapshot: AuthSnapshot;
-  accessToken: AccessToken | null;
-  getAccessToken(): AccessToken | null;
   login(input: LoginRequest): Promise<boolean>;
   checkSession(): Promise<boolean>;
   logout(): Promise<void>;
@@ -23,6 +21,10 @@ export interface AuthView {
 }
 
 export function useAuth(): AuthView {
+  useEffect(() => {
+    return retainAuthLifecycle(authFacade);
+  }, []);
+
   const snapshot = useSyncExternalStore(
     authFacade.subscribe,
     authFacade.getSnapshot,
@@ -42,12 +44,9 @@ export function useAuth(): AuthView {
     (capability: Capability) => authFacade.canRenderCapability(capability),
     [],
   );
-  const getAccessToken = useCallback(() => authFacade.getAccessToken(), []);
 
   return {
     snapshot,
-    accessToken: authFacade.getAccessToken(),
-    getAccessToken,
     login,
     checkSession,
     logout,

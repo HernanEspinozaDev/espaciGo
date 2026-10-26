@@ -20,7 +20,11 @@ interface BookingDisputesPanelProps {
 export function BookingDisputesPanel({
   reservationId,
 }: BookingDisputesPanelProps) {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
+  const isAuthenticated = authSnapshot.status === "authenticated";
+  const accountId = authSnapshot.accountId;
+  const expiresAt = authSnapshot.expiresAt;
+
   const {
     disputes,
     damageClaim,
@@ -41,12 +45,31 @@ export function BookingDisputesPanel({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
+  const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
+
+  if (prevAccountKey !== accountKey) {
+    setPrevAccountKey(accountKey);
+    setReasonCode("condiciones_diferentes");
+    setClaimDescription("");
+    setDefenseText("");
+    setStatusMessage(null);
+    setValidationError(null);
+  }
+
   useEffect(() => {
-    if (accessToken && reservationId) {
-      loadDisputes(accessToken, reservationId).catch(() => {});
-      loadDamageClaim(accessToken, reservationId).catch(() => {});
+    if (isAuthenticated && reservationId) {
+      loadDisputes(reservationId).catch(() => {});
+      loadDamageClaim(reservationId).catch(() => {});
     }
-  }, [accessToken, reservationId, loadDisputes, loadDamageClaim]);
+  }, [
+    isAuthenticated,
+    accountId,
+    expiresAt,
+    reservationId,
+    loadDisputes,
+    loadDamageClaim,
+  ]);
 
   const handleOpenDispute = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,13 +81,13 @@ export function BookingDisputesPanel({
       return;
     }
 
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setValidationError("Debes iniciar sesión para abrir una disputa.");
       return;
     }
 
     try {
-      await openDispute(accessToken, reservationId, reasonCode);
+      await openDispute(reservationId, reasonCode);
       setStatusMessage(
         "Disputa abierta formalmente bajo entorno seguro de mediación.",
       );
@@ -85,14 +108,10 @@ export function BookingDisputesPanel({
       return;
     }
 
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     try {
-      await claimSecurityDeposit(
-        accessToken,
-        reservationId,
-        claimDescription.trim(),
-      );
+      await claimSecurityDeposit(reservationId, claimDescription.trim());
       setStatusMessage(
         "Reclamo de garantía registrado para resolución arbitral.",
       );
@@ -114,14 +133,10 @@ export function BookingDisputesPanel({
       return;
     }
 
-    if (!accessToken) return;
+    if (!isAuthenticated) return;
 
     try {
-      await submitDamageClaimDefense(
-        accessToken,
-        reservationId,
-        defenseText.trim(),
-      );
+      await submitDamageClaimDefense(reservationId, defenseText.trim());
       setStatusMessage("Descargo registrado exitosamente.");
       setDefenseText("");
     } catch (err) {
@@ -216,7 +231,7 @@ export function BookingDisputesPanel({
               type="submit"
               variant="destructive"
               size="sm"
-              disabled={actionLoading || !accessToken}
+              disabled={actionLoading || !isAuthenticated}
               className="w-full"
             >
               {actionLoading ? (
@@ -262,7 +277,7 @@ export function BookingDisputesPanel({
               variant="outline"
               size="sm"
               disabled={
-                actionLoading || !accessToken || !claimDescription.trim()
+                actionLoading || !isAuthenticated || !claimDescription.trim()
               }
               className="w-full text-destructive hover:bg-destructive/10 border-destructive/30"
             >
@@ -365,7 +380,7 @@ export function BookingDisputesPanel({
                   type="submit"
                   size="sm"
                   disabled={
-                    actionLoading || !accessToken || !defenseText.trim()
+                    actionLoading || !isAuthenticated || !defenseText.trim()
                   }
                 >
                   Enviar Descargo

@@ -20,7 +20,11 @@ interface BookingConversationPanelProps {
 export function BookingConversationPanel({
   reservationId,
 }: BookingConversationPanelProps) {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
+  const isAuthenticated = authSnapshot.status === "authenticated";
+  const accountId = authSnapshot.accountId;
+  const expiresAt = authSnapshot.expiresAt;
+
   const {
     messages,
     actionLoading,
@@ -34,22 +38,38 @@ export function BookingConversationPanel({
   const [validationError, setValidationError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Load messages on mount and interval
+  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
+  const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
+
+  if (prevAccountKey !== accountKey) {
+    setPrevAccountKey(accountKey);
+    setBody("");
+    setValidationError(null);
+  }
+
+  // Load messages on mount
   useEffect(() => {
-    if (accessToken && reservationId) {
-      loadMessages(accessToken, reservationId).catch(() => {});
+    if (isAuthenticated && reservationId) {
+      loadMessages(reservationId).catch(() => {});
     }
-  }, [accessToken, reservationId, loadMessages]);
+  }, [isAuthenticated, accountId, expiresAt, reservationId, loadMessages]);
 
   // Advance read cursor if messages exist
   useEffect(() => {
-    if (accessToken && reservationId && messages.length > 0) {
+    if (isAuthenticated && reservationId && messages.length > 0) {
       const lastSeq = Math.max(...messages.map((m) => m.sequence));
       if (lastSeq > 0) {
-        markMessagesRead(accessToken, reservationId, lastSeq).catch(() => {});
+        markMessagesRead(reservationId, lastSeq).catch(() => {});
       }
     }
-  }, [accessToken, reservationId, messages, markMessagesRead]);
+  }, [
+    isAuthenticated,
+    accountId,
+    expiresAt,
+    reservationId,
+    messages,
+    markMessagesRead,
+  ]);
 
   // Auto scroll to bottom
   useEffect(() => {
@@ -66,13 +86,13 @@ export function BookingConversationPanel({
       return;
     }
 
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setValidationError("Debes iniciar sesión para enviar mensajes.");
       return;
     }
 
     try {
-      await sendMessage(accessToken, reservationId, validation.sanitized);
+      await sendMessage(reservationId, validation.sanitized);
       setBody("");
     } catch (err) {
       setValidationError(
@@ -157,11 +177,11 @@ export function BookingConversationPanel({
           placeholder="Escribe un mensaje seguro (máx. 2000 caracteres)..."
           maxLength={2000}
           className="flex-1 rounded-lg border border-input bg-background px-3.5 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-          disabled={actionLoading || !accessToken}
+          disabled={actionLoading || !isAuthenticated}
         />
         <Button
           type="submit"
-          disabled={actionLoading || !accessToken || !body.trim()}
+          disabled={actionLoading || !isAuthenticated || !body.trim()}
           className="inline-flex items-center gap-1.5"
         >
           {actionLoading ? (

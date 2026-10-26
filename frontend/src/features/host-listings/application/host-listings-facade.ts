@@ -2,7 +2,6 @@
 
 import "client-only";
 
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type {
   Category,
   CategoryProfileSchema,
@@ -19,7 +18,39 @@ import type {
   ScheduleData,
   ScheduleInput,
 } from "../domain/types";
+import type { AuthSnapshot } from "@/features/auth/application/auth-facade";
 import type { HostListingsPort } from "./host-listings.port";
+
+export type HostListingsAuthSource = {
+  getSnapshot: () => AuthSnapshot;
+  subscribe: (listener: () => void) => () => void;
+  checkSession: () => Promise<unknown>;
+};
+
+export type HostListingsPrivatePurgeListener =
+  | (() => void)
+  | {
+      onPrivatePurge?: () => void;
+    };
+
+function isAuthError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as {
+    status?: unknown;
+    statusCode?: unknown;
+    code?: unknown;
+  };
+  return (
+    candidate.status === 401 ||
+    candidate.status === 403 ||
+    candidate.statusCode === 401 ||
+    candidate.statusCode === 403 ||
+    candidate.code === "unauthorized" ||
+    candidate.code === "forbidden" ||
+    candidate.code === "UNAUTHORIZED" ||
+    candidate.code === "FORBIDDEN"
+  );
+}
 
 export interface HostListingsSnapshot {
   readonly categories: readonly Category[];
@@ -56,12 +87,97 @@ const initialSnapshot: HostListingsSnapshot = Object.freeze({
 
 export class HostListingsFacade {
   #port: HostListingsPort;
+  #authSource?: HostListingsAuthSource;
+  #onPrivatePurge?: () => void;
+  #authUnsubscribe: (() => void) | null = null;
+  #lastAuthSnapshot: AuthSnapshot | null = null;
   #abortController: AbortController | null = null;
+  #selectAbortController: AbortController | null = null;
+  #draftAbortController: AbortController | null = null;
+  #pricingAbortController: AbortController | null = null;
+  #sessionControllers = new Set<AbortController>();
   #snapshot: HostListingsSnapshot = initialSnapshot;
   #listeners = new Set<() => void>();
+  #epoch = 0;
 
-  constructor(port: HostListingsPort) {
+  constructor(
+    port: HostListingsPort,
+    authSource?: HostListingsAuthSource,
+    onPrivatePurge?: HostListingsPrivatePurgeListener,
+  ) {
     this.#port = port;
+    this.#authSource = authSource;
+    this.#onPrivatePurge =
+      typeof onPrivatePurge === "function"
+        ? onPrivatePurge
+        : onPrivatePurge?.onPrivatePurge?.bind(onPrivatePurge);
+
+    if (this.#authSource) {
+      this.#lastAuthSnapshot = this.#authSource.getSnapshot();
+      this.#authUnsubscribe = this.#authSource.subscribe(() => {
+        this.#syncWithAuthSource();
+      });
+    }
+  }
+
+  #sameSession(prev: AuthSnapshot | null, current: AuthSnapshot): boolean {
+    if (!prev) return false;
+    if (prev.status !== "authenticated" || current.status !== "authenticated") {
+      return false;
+    }
+    if (prev.accountId !== current.accountId) {
+      return false;
+    }
+    if (prev.restrictedMode !== current.restrictedMode) {
+      return false;
+    }
+    if (prev.expiresAt !== current.expiresAt) {
+      return false;
+    }
+    const prevRoles = prev.roles ?? [];
+    const currRoles = current.roles ?? [];
+    if (
+      prevRoles.length !== currRoles.length ||
+      prevRoles.some((r: string, i: number) => r !== currRoles[i])
+    ) {
+      return false;
+    }
+    const prevCaps = prev.capabilities ?? [];
+    const currCaps = current.capabilities ?? [];
+    if (
+      prevCaps.length !== currCaps.length ||
+      prevCaps.some((c: string, i: number) => c !== currCaps[i])
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  #syncWithAuthSource(): void {
+    if (!this.#authSource) return;
+    const current = this.#authSource.getSnapshot();
+    const prev = this.#lastAuthSnapshot;
+
+    if (prev?.status === "authenticated") {
+      if (
+        current.status !== "authenticated" ||
+        !this.#sameSession(prev, current)
+      ) {
+        this.clear();
+      }
+    } else if (current.status === "authenticated") {
+      this.clear();
+    }
+    this.#lastAuthSnapshot = current;
+  }
+
+  #handleAuthError(): void {
+    this.clear();
+    try {
+      void this.#authSource?.checkSession().catch(() => undefined);
+    } catch {
+      // best-effort session check
+    }
   }
 
   getSnapshot = (): HostListingsSnapshot => {
@@ -79,11 +195,47 @@ export class HostListingsFacade {
     };
   };
 
+  #beginSessionOperation(callerSignal?: AbortSignal): {
+    epoch: number;
+    controller: AbortController;
+    signal: AbortSignal;
+  } {
+    const epoch = this.#epoch;
+    const controller = new AbortController();
+    this.#sessionControllers.add(controller);
+    const signal = callerSignal
+      ? AbortSignal.any([callerSignal, controller.signal])
+      : controller.signal;
+    return { epoch, controller, signal };
+  }
+
+  #isSessionValid(scope: { epoch: number; signal: AbortSignal }): boolean {
+    return this.#epoch === scope.epoch && !scope.signal.aborted;
+  }
+
+  #endSessionOperation(scope: { controller: AbortController }): void {
+    this.#sessionControllers.delete(scope.controller);
+  }
+
   cancel(): void {
     if (this.#abortController) {
       this.#abortController.abort();
       this.#abortController = null;
     }
+    if (this.#selectAbortController) {
+      this.#selectAbortController.abort();
+      this.#selectAbortController = null;
+    }
+    if (this.#draftAbortController) {
+      this.#draftAbortController.abort();
+      this.#draftAbortController = null;
+    }
+    if (this.#pricingAbortController) {
+      this.#pricingAbortController.abort();
+      this.#pricingAbortController = null;
+    }
+    this.#sessionControllers.forEach((c) => c.abort());
+    this.#sessionControllers.clear();
   }
 
   #setSnapshot(partial: Partial<HostListingsSnapshot>): void {
@@ -106,18 +258,39 @@ export class HostListingsFacade {
   }
 
   async loadCategories(signal?: AbortSignal): Promise<readonly Category[]> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return [];
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     try {
-      const categories = await this.#port.listCategories(signal);
+      const categories = await this.#port.listCategories(scope.signal);
+      if (!this.#isSessionValid(scope)) {
+        return [];
+      }
       this.#setSnapshot({
         categories: Object.freeze(categories),
       });
       return categories;
     } catch (err) {
-      if (signal?.aborted) throw err;
+      if (!this.#isSessionValid(scope)) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        return [];
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al cargar categorías";
       this.#setSnapshot({ error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
@@ -126,18 +299,29 @@ export class HostListingsFacade {
     version?: number,
     signal?: AbortSignal,
   ): Promise<CategoryProfileSchema | null> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return null;
+    }
+
     const cacheKey =
       version !== undefined ? `${categoryCode}@${version}` : categoryCode;
     if (this.#snapshot.categorySchemas[cacheKey]) {
       return this.#snapshot.categorySchemas[cacheKey];
     }
 
+    const scope = this.#beginSessionOperation(signal);
     try {
       const schema = await this.#port.getCategoryProfile(
         categoryCode,
         version,
-        signal,
+        scope.signal,
       );
+      if (!this.#isSessionValid(scope)) {
+        return null;
+      }
       if (schema) {
         this.#setSnapshot({
           categorySchemas: Object.freeze({
@@ -149,27 +333,51 @@ export class HostListingsFacade {
       }
       return schema;
     } catch (err) {
-      if (signal?.aborted) throw err;
+      if (!this.#isSessionValid(scope)) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        return null;
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error
           ? err.message
           : `Error al cargar perfil para ${categoryCode}`;
       this.#setSnapshot({ error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
-  async loadListings(
-    token: AccessToken,
-    filter?: { status?: ListingState },
-  ): Promise<readonly ListingSummary[]> {
-    this.cancel();
-    this.#abortController = new AbortController();
-    const signal = this.#abortController.signal;
+  async loadListings(filter?: {
+    status?: ListingState;
+  }): Promise<readonly ListingSummary[]> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return [];
+    }
+
+    const epoch = this.#epoch;
+    if (this.#abortController) {
+      this.#abortController.abort();
+      this.#abortController = null;
+    }
+    const controller = new AbortController();
+    this.#abortController = controller;
+    const signal = controller.signal;
 
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const listings = await this.#port.listListings(token, filter, signal);
+      const listings = await this.#port.listListings(filter, signal);
+      if (this.#epoch !== epoch || signal.aborted) {
+        return [];
+      }
       this.#setSnapshot({
         listings: Object.freeze(listings),
         loading: false,
@@ -177,28 +385,64 @@ export class HostListingsFacade {
       });
       return listings;
     } catch (err) {
-      if (signal.aborted) throw err;
+      if (this.#epoch !== epoch || signal.aborted) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        return [];
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al cargar publicaciones";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
     } finally {
-      this.#abortController = null;
+      if (this.#abortController === controller) {
+        this.#abortController = null;
+      }
     }
   }
 
-  async selectListing(
-    token: AccessToken,
-    listingId: string,
-  ): Promise<ListingDetail | null> {
+  async selectListing(listingId: string): Promise<ListingDetail | null> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return null;
+    }
+
+    const epoch = this.#epoch;
+    if (this.#selectAbortController) {
+      this.#selectAbortController.abort();
+      this.#selectAbortController = null;
+    }
+    const controller = new AbortController();
+    this.#selectAbortController = controller;
+    const signal = controller.signal;
+
     this.#setSnapshot({ loading: true, error: null });
     try {
       const [detail, tariff, schedule, photos] = await Promise.all([
-        this.#port.getListing(token, listingId),
-        this.#port.getPricing(token, listingId).catch(() => null),
-        this.#port.getWeeklySchedule(token, listingId).catch(() => null),
-        this.#port.listPhotos(token, listingId).catch(() => []),
+        this.#port.getListing(listingId, signal),
+        this.#port.getPricing(listingId, signal).catch((err) => {
+          if (isAuthError(err)) throw err;
+          return null;
+        }),
+        this.#port.getWeeklySchedule(listingId, signal).catch((err) => {
+          if (isAuthError(err)) throw err;
+          return null;
+        }),
+        this.#port.listPhotos(listingId, signal).catch((err) => {
+          if (isAuthError(err)) throw err;
+          return [];
+        }),
       ]);
+
+      if (this.#epoch !== epoch || signal.aborted) {
+        return null;
+      }
 
       this.#setSnapshot({
         selectedListing: detail,
@@ -210,23 +454,58 @@ export class HostListingsFacade {
       });
       return detail;
     } catch (err) {
+      if (this.#epoch !== epoch || signal.aborted) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        return null;
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error
           ? err.message
           : `Error al cargar publicación ${listingId}`;
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      if (this.#selectAbortController === controller) {
+        this.#selectAbortController = null;
+      }
     }
   }
 
   async createDraft(
-    token: AccessToken,
     input: ListingDraftInput,
     idempotencyKey?: string,
   ): Promise<ListingDetail> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const epoch = this.#epoch;
+    if (this.#draftAbortController) {
+      this.#draftAbortController.abort();
+      this.#draftAbortController = null;
+    }
+    const controller = new AbortController();
+    this.#draftAbortController = controller;
+    const signal = controller.signal;
+
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const detail = await this.#port.createDraft(token, input, idempotencyKey);
+      const detail = await this.#port.createDraft(
+        input,
+        idempotencyKey,
+        signal,
+      );
+      if (this.#epoch !== epoch || signal.aborted) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const updatedListings = [
         {
           id: detail.id,
@@ -253,27 +532,48 @@ export class HostListingsFacade {
       });
       return detail;
     } catch (err) {
+      if (this.#epoch !== epoch || signal.aborted) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al crear borrador";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      if (this.#draftAbortController === controller) {
+        this.#draftAbortController = null;
+      }
     }
   }
 
   async updateDraft(
-    token: AccessToken,
     listingId: string,
     input: ListingDraftInput,
     ifMatch?: string,
+    signal?: AbortSignal,
   ): Promise<ListingDetail> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
       const detail = await this.#port.updateDraft(
-        token,
         listingId,
         input,
         ifMatch,
+        scope.signal,
       );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const updatedListings = this.#snapshot.listings.map((item) =>
         item.id === listingId
           ? {
@@ -298,20 +598,39 @@ export class HostListingsFacade {
       });
       return detail;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al actualizar borrador";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async deleteListing(
-    token: AccessToken,
     listingId: string,
+    signal?: AbortSignal,
   ): Promise<ListingDeletionReceipt> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const receipt = await this.#port.deleteListing(token, listingId);
+      const receipt = await this.#port.deleteListing(listingId, scope.signal);
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const remaining = this.#snapshot.listings.filter(
         (item) => item.id !== listingId,
       );
@@ -326,27 +645,46 @@ export class HostListingsFacade {
       });
       return receipt;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al retirar publicación";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async updateContent(
-    token: AccessToken,
     listingId: string,
     input: ContentUpdateInput,
     ifMatch?: string,
+    signal?: AbortSignal,
   ): Promise<ListingDetail> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
       const detail = await this.#port.updateContent(
-        token,
         listingId,
         input,
         ifMatch,
+        scope.signal,
       );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const updatedListings = this.#snapshot.listings.map((item) =>
         item.id === listingId
           ? {
@@ -367,21 +705,44 @@ export class HostListingsFacade {
       });
       return detail;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al actualizar contenido";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async publishListing(
-    token: AccessToken,
     listingId: string,
     ifMatch?: string,
+    signal?: AbortSignal,
   ): Promise<ListingDetail> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const detail = await this.#port.publishListing(token, listingId, ifMatch);
+      const detail = await this.#port.publishListing(
+        listingId,
+        ifMatch,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const updatedListings = this.#snapshot.listings.map((item) =>
         item.id === listingId ? { ...item, state: "activa" as const } : item,
       );
@@ -393,21 +754,44 @@ export class HostListingsFacade {
       });
       return detail;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al publicar espacio";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async archiveListing(
-    token: AccessToken,
     listingId: string,
     ifMatch?: string,
+    signal?: AbortSignal,
   ): Promise<ListingDetail> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const detail = await this.#port.archiveListing(token, listingId, ifMatch);
+      const detail = await this.#port.archiveListing(
+        listingId,
+        ifMatch,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const updatedListings = this.#snapshot.listings.map((item) =>
         item.id === listingId ? { ...item, state: "oculta" as const } : item,
       );
@@ -419,43 +803,91 @@ export class HostListingsFacade {
       });
       return detail;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al ocultar espacio";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
-  async loadPricing(
-    token: AccessToken,
-    listingId: string,
-  ): Promise<PricingHistoryItem | null> {
+  async loadPricing(listingId: string): Promise<PricingHistoryItem | null> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return null;
+    }
+
+    const epoch = this.#epoch;
+    if (this.#pricingAbortController) {
+      this.#pricingAbortController.abort();
+      this.#pricingAbortController = null;
+    }
+    const controller = new AbortController();
+    this.#pricingAbortController = controller;
+    const signal = controller.signal;
+
     try {
-      const tariff = await this.#port.getPricing(token, listingId);
+      const tariff = await this.#port.getPricing(listingId, signal);
+      if (this.#epoch !== epoch || signal.aborted) {
+        return null;
+      }
       this.#setSnapshot({ activeTariff: tariff });
       return tariff;
     } catch (err) {
+      if (this.#epoch !== epoch || signal.aborted) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        return null;
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al cargar tarifa";
       this.#setSnapshot({ error: message });
       throw err;
+    } finally {
+      if (this.#pricingAbortController === controller) {
+        this.#pricingAbortController = null;
+      }
     }
   }
 
   async updatePricing(
-    token: AccessToken,
     listingId: string,
     input: PricingInput,
     ifMatch?: string,
+    signal?: AbortSignal,
   ): Promise<PricingHistoryItem> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
       const updated = await this.#port.updatePricing(
-        token,
         listingId,
         input,
         ifMatch,
+        scope.signal,
       );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       this.#setSnapshot({
         activeTariff: updated,
         tariffHistory: Object.freeze([
@@ -467,40 +899,89 @@ export class HostListingsFacade {
       });
       return updated;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al actualizar tarifa";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async loadPricingHistory(
-    token: AccessToken,
     listingId: string,
+    signal?: AbortSignal,
   ): Promise<readonly PricingHistoryItem[]> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return [];
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     try {
-      const history = await this.#port.listPricingHistory(token, listingId);
+      const history = await this.#port.listPricingHistory(
+        listingId,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) {
+        return [];
+      }
       this.#setSnapshot({ tariffHistory: Object.freeze(history) });
       return history;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        return [];
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error
           ? err.message
           : "Error al cargar historial de tarifas";
       this.#setSnapshot({ error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async configureTimeZone(
-    token: AccessToken,
     listingId: string,
     timeZone: string,
     ifMatch?: string,
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.configureTimeZone(token, listingId, timeZone, ifMatch);
+      await this.#port.configureTimeZone(
+        listingId,
+        timeZone,
+        ifMatch,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       if (this.#snapshot.selectedListing?.id === listingId) {
         this.#setSnapshot({
           selectedListing: {
@@ -511,43 +992,87 @@ export class HostListingsFacade {
       }
       this.#setSnapshot({ loading: false, error: null });
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al configurar zona horaria";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async loadWeeklySchedule(
-    token: AccessToken,
     listingId: string,
+    signal?: AbortSignal,
   ): Promise<ScheduleData | null> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return null;
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     try {
-      const schedule = await this.#port.getWeeklySchedule(token, listingId);
+      const schedule = await this.#port.getWeeklySchedule(
+        listingId,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) {
+        return null;
+      }
       this.#setSnapshot({ weeklySchedule: schedule });
       return schedule;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        return null;
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al cargar horario semanal";
       this.#setSnapshot({ error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async updateWeeklySchedule(
-    token: AccessToken,
     listingId: string,
     input: ScheduleInput,
     ifMatch?: string,
+    signal?: AbortSignal,
   ): Promise<ScheduleData> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
       const schedule = await this.#port.updateWeeklySchedule(
-        token,
         listingId,
         input,
         ifMatch,
+        scope.signal,
       );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       this.#setSnapshot({
         weeklySchedule: schedule,
         loading: false,
@@ -555,43 +1080,84 @@ export class HostListingsFacade {
       });
       return schedule;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al actualizar horario";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async loadPhotos(
-    token: AccessToken,
     listingId: string,
+    signal?: AbortSignal,
   ): Promise<readonly GalleryPhoto[]> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return [];
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     try {
-      const photos = await this.#port.listPhotos(token, listingId);
+      const photos = await this.#port.listPhotos(listingId, scope.signal);
+      if (!this.#isSessionValid(scope)) {
+        return [];
+      }
       this.#setSnapshot({ photos: Object.freeze(photos) });
       return photos;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        if (err instanceof Error && err.name === "AbortError") {
+          throw err;
+        }
+        return [];
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al cargar fotos";
       this.#setSnapshot({ error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async uploadPhoto(
-    token: AccessToken,
     listingId: string,
     input?: PhotoUploadInput,
     idempotencyKey?: string,
+    signal?: AbortSignal,
   ): Promise<GalleryPhoto> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
       const photo = await this.#port.uploadPhoto(
-        token,
         listingId,
         input,
         idempotencyKey,
+        scope.signal,
       );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const updatedPhotos = [...this.#snapshot.photos, photo];
       this.#setSnapshot({
         photos: Object.freeze(updatedPhotos),
@@ -600,21 +1166,40 @@ export class HostListingsFacade {
       });
       return photo;
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al subir foto";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async setCoverPhoto(
-    token: AccessToken,
     listingId: string,
     photoId: string,
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.setCoverPhoto(token, listingId, photoId);
+      await this.#port.setCoverPhoto(listingId, photoId, scope.signal);
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const updated = this.#snapshot.photos.map((p) => ({
         ...p,
         is_cover: p.id === photoId,
@@ -629,21 +1214,40 @@ export class HostListingsFacade {
         error: null,
       });
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al definir foto de portada";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async removePhoto(
-    token: AccessToken,
     listingId: string,
     photoId: string,
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.removePhoto(token, listingId, photoId);
+      await this.#port.removePhoto(listingId, photoId, scope.signal);
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const updated = this.#snapshot.photos.filter((p) => p.id !== photoId);
       this.#setSnapshot({
         photos: Object.freeze(updated),
@@ -655,21 +1259,40 @@ export class HostListingsFacade {
         error: null,
       });
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al eliminar foto";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   async reorderPhotos(
-    token: AccessToken,
     listingId: string,
     photoIds: string[],
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.reorderPhotos(token, listingId, photoIds);
+      await this.#port.reorderPhotos(listingId, photoIds, scope.signal);
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
       const idMap = new Map<string, number>();
       photoIds.forEach((id, idx) => idMap.set(id, idx + 1));
       const updated = [...this.#snapshot.photos]
@@ -684,15 +1307,29 @@ export class HostListingsFacade {
         error: null,
       });
     } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
       const message =
         err instanceof Error ? err.message : "Error al reordenar fotos";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
+    } finally {
+      this.#endSessionOperation(scope);
     }
   }
 
   clear(): void {
+    this.#epoch += 1;
     this.cancel();
     this.#setSnapshot(initialSnapshot);
+    try {
+      this.#onPrivatePurge?.();
+    } catch {
+      // non-blocking purge listener
+    }
   }
 }

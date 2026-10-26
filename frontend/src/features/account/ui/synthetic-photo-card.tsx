@@ -23,7 +23,7 @@ import { useAccount } from "./use-account";
 import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 
 export function SyntheticPhotoCard() {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
   const { snapshot, generateSyntheticPhoto, removeProfilePhoto } = useAccount();
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -37,13 +37,13 @@ export function SyntheticPhotoCard() {
   }, []);
 
   const handleGenerate = async () => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setError(null);
     setMessage(null);
     setLoadingAction("generate");
     try {
       const idempotencyKey = crypto.randomUUID();
-      await generateSyntheticPhoto(accessToken, idempotencyKey);
+      await generateSyntheticPhoto(idempotencyKey);
       setMessage("Foto sintética de ensayo generada con éxito.");
     } catch (err) {
       setError(
@@ -55,13 +55,13 @@ export function SyntheticPhotoCard() {
   };
 
   const handleDelete = async () => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setError(null);
     setMessage(null);
     setLoadingAction("delete");
     try {
       const idempotencyKey = crypto.randomUUID();
-      await removeProfilePhoto(accessToken, idempotencyKey);
+      await removeProfilePhoto(idempotencyKey);
       setMessage("Foto de perfil eliminada.");
     } catch (err) {
       setError(
@@ -142,7 +142,10 @@ export function SyntheticPhotoCard() {
             <Button
               type="button"
               onClick={handleGenerate}
-              disabled={Boolean(loadingAction) || !accessToken}
+              disabled={
+                Boolean(loadingAction) ||
+                authSnapshot.status !== "authenticated"
+              }
             >
               {loadingAction === "generate" ? (
                 <Loader2
@@ -160,7 +163,10 @@ export function SyntheticPhotoCard() {
                 type="button"
                 variant="destructive"
                 onClick={handleDelete}
-                disabled={Boolean(loadingAction) || !accessToken}
+                disabled={
+                  Boolean(loadingAction) ||
+                  authSnapshot.status !== "authenticated"
+                }
               >
                 {loadingAction === "delete" ? (
                   <Loader2

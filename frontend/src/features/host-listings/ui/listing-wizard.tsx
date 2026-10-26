@@ -66,7 +66,7 @@ const DAYS_MAP = [
 
 export function ListingWizard() {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
   const {
     snapshot,
     loadCategories,
@@ -263,7 +263,7 @@ export function ListingWizard() {
   };
 
   const handleCreateDraft = async () => {
-    if (!accessToken) {
+    if (authSnapshot.status !== "authenticated") {
       setStepError("Sesión no disponible. Inicia sesión nuevamente.");
       return;
     }
@@ -303,21 +303,15 @@ export function ListingWizard() {
 
     try {
       const idempotencyKey = generateIdempotencyKey();
-      const created = await createDraft(
-        accessToken,
-        draftPayload,
-        idempotencyKey,
-      );
+      const created = await createDraft(draftPayload, idempotencyKey);
 
       // Configurar zona horaria y horario semanal si se definió
       if (timeZone) {
-        await configureTimeZone(accessToken, created.id, timeZone).catch(
-          () => {},
-        );
+        await configureTimeZone(created.id, timeZone).catch(() => {});
       }
 
       if (scheduleEnabled && slots.length > 0) {
-        await updateWeeklySchedule(accessToken, created.id, {
+        await updateWeeklySchedule(created.id, {
           timezone: timeZone,
           enabled: true,
           weekly_slots: slots,

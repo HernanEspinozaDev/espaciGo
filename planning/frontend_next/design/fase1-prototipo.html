@@ -1,0 +1,1567 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EspaciGo — Maqueta Navegable Fase 1</title>
+    <style>
+      :root {
+        --brand-primary: #a44731;
+        --brand-primary-hover: #843522;
+        --brand-primary-active: #702a1b;
+        --brand-primary-soft: #f5e3db;
+        --brand-secondary: #8a6a4d;
+        --brand-accent: #d97745;
+        --surface-canvas: #fbf7f2;
+        --surface-card: #ffffff;
+        --surface-subtle: #f5eee6;
+        --text-primary: #332720;
+        --text-muted: #66574e;
+        --border-default: #ded5cc;
+        --border-control: #8a796b;
+        --focus-ring: #1d4ed8;
+        --status-success: #15803d;
+        --status-success-bg: #f0fdf4;
+        --status-warning: #b45309;
+        --status-warning-bg: #fffbeb;
+        --status-error: #b91c1c;
+        --status-error-bg: #fef2f2;
+        --status-info: #1d4ed8;
+        --status-info-bg: #eff6ff;
+        --font-family:
+          system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Oxygen, Ubuntu, Cantarell, sans-serif;
+        --radius-sm: 10px;
+        --radius-md: 12px;
+        --radius-lg: 16px;
+        --space-1: 4px;
+        --space-2: 8px;
+        --space-3: 12px;
+        --space-4: 16px;
+        --space-6: 24px;
+        --space-8: 32px;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: var(--font-family);
+        background-color: var(--surface-canvas);
+        color: var(--text-primary);
+        line-height: 1.5;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      button {
+        min-height: 44px;
+        min-width: 44px;
+      }
+      .scenario-btn {
+        min-height: 44px;
+      }
+      .greeting-title .identity-id {
+        display: block;
+        margin-top: var(--space-2);
+        font:
+          14px/1.5 ui-monospace,
+          SFMono-Regular,
+          Consolas,
+          monospace;
+        color: var(--text-muted);
+        overflow-wrap: anywhere;
+      }
+
+      /* Visible focus styles */
+      a:focus-visible,
+      button:focus-visible,
+      input:focus-visible {
+        outline: 3px solid var(--focus-ring);
+        outline-offset: 2px;
+      }
+
+      /* Persistent synthetic warning */
+      .prototype-banner {
+        background: var(--surface-subtle);
+        color: var(--text-muted);
+        font-size: 13px;
+        padding: var(--space-2) var(--space-4);
+        text-align: center;
+        border-bottom: 1px solid var(--border-default);
+        font-weight: 500;
+      }
+
+      /* Scenario simulation strip (Escenarios de diseño) */
+      .scenario-strip {
+        background: #ffffff;
+        border-bottom: 1px solid var(--border-default);
+        padding: var(--space-2) var(--space-4);
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+        font-size: 13px;
+      }
+      .scenario-title {
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-right: var(--space-2);
+      }
+      .scenario-btn {
+        background: var(--surface-canvas);
+        border: 1px solid var(--border-control);
+        color: var(--text-primary);
+        padding: 6px 12px;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 500;
+        min-height: 44px;
+        transition:
+          background 0.15s,
+          border-color 0.15s;
+      }
+      .scenario-btn:hover {
+        background: var(--surface-subtle);
+        border-color: var(--brand-primary);
+      }
+      .scenario-btn[aria-pressed="true"] {
+        background: var(--brand-primary-soft);
+        border-color: var(--brand-primary);
+        color: var(--brand-primary);
+        font-weight: 600;
+      }
+
+      /* Global interactive header */
+      .app-header {
+        background: var(--surface-card);
+        border-bottom: 1px solid var(--border-default);
+        padding: var(--space-3) var(--space-4);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        position: sticky;
+        top: 0;
+        z-index: 100;
+      }
+      .header-left {
+        display: flex;
+        align-items: center;
+        gap: var(--space-6);
+      }
+      .brand-logo-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        background: none;
+        border: none;
+        cursor: pointer;
+        padding: var(--space-1);
+        text-decoration: none;
+        border-radius: var(--radius-sm);
+      }
+      .brand-logo-svg {
+        width: 36px;
+        height: 36px;
+        flex-shrink: 0;
+      }
+      .brand-name {
+        font-size: 20px;
+        font-weight: 700;
+        color: var(--brand-primary);
+        letter-spacing: -0.5px;
+      }
+      .header-nav {
+        display: flex;
+        align-items: center;
+        gap: var(--space-4);
+      }
+      .nav-link-btn {
+        background: none;
+        border: none;
+        color: var(--text-muted);
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        padding: var(--space-2);
+        border-radius: var(--radius-sm);
+      }
+      .nav-link-btn:hover {
+        color: var(--text-primary);
+      }
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+      }
+
+      /* Buttons */
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 18px;
+        font-size: 14px;
+        font-weight: 600;
+        border-radius: var(--radius-sm);
+        border: 1px solid transparent;
+        cursor: pointer;
+        min-height: 44px;
+        min-width: 44px;
+        text-decoration: none;
+        transition:
+          background-color 0.15s,
+          border-color 0.15s,
+          color 0.15s;
+      }
+      .btn-primary {
+        background-color: var(--brand-primary);
+        color: #ffffff;
+      }
+      .btn-primary:hover {
+        background-color: var(--brand-primary-hover);
+      }
+      .btn-primary:active {
+        background-color: var(--brand-primary-active);
+      }
+      .btn-outline {
+        background-color: transparent;
+        border-color: var(--brand-primary);
+        color: var(--brand-primary);
+      }
+      .btn-outline:hover {
+        background-color: var(--brand-primary-soft);
+      }
+      .btn-secondary {
+        background-color: var(--surface-subtle);
+        border-color: var(--border-control);
+        color: var(--text-primary);
+      }
+      .btn-secondary:hover {
+        background-color: var(--border-default);
+      }
+
+      /* User badge in header */
+      .user-identity-badge {
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        background: var(--surface-subtle);
+        border: 1px solid var(--border-default);
+        padding: 6px 12px;
+        border-radius: var(--radius-sm);
+        font-size: 13px;
+        max-width: 280px;
+      }
+      .user-identity-text {
+        font-weight: 500;
+        color: var(--text-primary);
+        word-break: break-all;
+        overflow-wrap: anywhere;
+      }
+
+      /* Session checking spinner */
+      .checking-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--space-2);
+        font-size: 13px;
+        color: var(--text-muted);
+        padding: 8px 12px;
+      }
+      .spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid var(--border-default);
+        border-top-color: var(--brand-primary);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* Status live alert area */
+      .status-live-container {
+        padding: var(--space-3) var(--space-4) 0;
+        max-width: 1040px;
+        width: 100%;
+        margin: 0 auto;
+      }
+      .alert-banner {
+        padding: var(--space-3) var(--space-4);
+        border-radius: var(--radius-sm);
+        font-size: 14px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: var(--space-3);
+        margin-bottom: var(--space-3);
+      }
+      .alert-banner.info {
+        background-color: var(--status-info-bg);
+        border: 1px solid var(--status-info);
+        color: #1e3a8a;
+      }
+      .alert-banner.warning {
+        background-color: var(--status-warning-bg);
+        border: 1px solid var(--status-warning);
+        color: #78350f;
+      }
+      .alert-banner.error {
+        background-color: var(--status-error-bg);
+        border: 1px solid var(--status-error);
+        color: #7f1d1d;
+      }
+      .alert-banner.success {
+        background-color: var(--status-success-bg);
+        border: 1px solid var(--status-success);
+        color: #064e3b;
+      }
+      .alert-close-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-weight: 700;
+        color: inherit;
+        font-size: 16px;
+        min-width: 44px;
+        min-height: 44px;
+        line-height: 1;
+      }
+
+      /* Main Content Containers */
+      main {
+        flex: 1;
+        padding: var(--space-6) var(--space-4);
+        max-width: 1120px;
+        width: 100%;
+        margin: 0 auto;
+      }
+      .view-panel {
+        display: none;
+      }
+      .view-panel.active {
+        display: block;
+      }
+
+      /* Card surface */
+      .card {
+        background: var(--surface-card);
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-md);
+        padding: var(--space-6);
+        box-shadow: 0 1px 3px rgba(51, 39, 32, 0.05);
+      }
+
+      /* EXPLORE / HOME VIEW */
+      .home-hero {
+        margin-bottom: var(--space-8);
+        text-align: left;
+      }
+      .home-hero h1 {
+        font-size: 28px;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: var(--space-2);
+      }
+      .home-hero p {
+        font-size: 16px;
+        color: var(--text-muted);
+        max-width: 680px;
+      }
+      .home-features-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: var(--space-4);
+        margin-top: var(--space-6);
+      }
+      .feature-card {
+        background: var(--surface-card);
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-md);
+        padding: var(--space-4);
+      }
+      .feature-card h2 {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: var(--space-2);
+      }
+      .feature-card p {
+        font-size: 14px;
+        color: var(--text-muted);
+      }
+
+      /* ACCESS VIEW */
+      .access-container {
+        max-width: 440px;
+        margin: 0 auto;
+      }
+      .access-header {
+        text-align: center;
+        margin-bottom: var(--space-6);
+      }
+      .access-header .brand-logo-svg {
+        width: 48px;
+        height: 48px;
+        margin-bottom: var(--space-2);
+      }
+      .access-header h1 {
+        font-size: 24px;
+        font-weight: 700;
+        color: var(--text-primary);
+      }
+      .access-header p {
+        font-size: 14px;
+        color: var(--text-muted);
+        margin-top: var(--space-1);
+      }
+      .form-group {
+        margin-bottom: var(--space-4);
+      }
+      .form-label {
+        display: block;
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        margin-bottom: var(--space-1);
+      }
+      .form-input {
+        width: 100%;
+        padding: 10px 14px;
+        font-size: 14px;
+        font-family: inherit;
+        border: 1px solid var(--border-control);
+        border-radius: var(--radius-sm);
+        background: var(--surface-card);
+        color: var(--text-primary);
+        min-height: 44px;
+      }
+      .form-input:disabled {
+        background: var(--surface-subtle);
+        color: var(--text-muted);
+        cursor: not-allowed;
+        border-color: var(--border-default);
+      }
+      .form-hint {
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-top: var(--space-1);
+      }
+      .access-actions {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        margin-top: var(--space-6);
+      }
+
+      /* MI CUENTA / CONFIGURE VIEW */
+      .account-layout {
+        display: grid;
+        grid-template-columns: 240px 1fr;
+        gap: var(--space-6);
+        align-items: start;
+      }
+      .account-sidebar {
+        background: var(--surface-card);
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-md);
+        padding: var(--space-2);
+      }
+      .sidebar-menu {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-1);
+      }
+      .sidebar-item-btn {
+        width: 100%;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: 10px 14px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-muted);
+        border: none;
+        border-radius: var(--radius-sm);
+        background: transparent;
+        cursor: pointer;
+        min-height: 44px;
+        transition:
+          background 0.15s,
+          color 0.15s;
+      }
+      .sidebar-item-btn:hover {
+        background: var(--surface-subtle);
+        color: var(--text-primary);
+      }
+      .sidebar-item-btn[aria-current="page"] {
+        background: var(--brand-primary-soft);
+        color: var(--brand-primary);
+        font-weight: 600;
+      }
+      .sidebar-item-btn[aria-current="page"]::before {
+        content: "";
+        display: inline-block;
+        width: 4px;
+        height: 16px;
+        background: var(--brand-primary);
+        border-radius: 2px;
+        margin-right: 4px;
+      }
+
+      .account-content {
+        min-width: 0;
+      }
+      .account-greeting-card {
+        background: var(--surface-card);
+        border: 1px solid var(--border-default);
+        border-radius: var(--radius-md);
+        padding: var(--space-6);
+        margin-bottom: var(--space-6);
+      }
+      .greeting-title {
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--text-primary);
+        margin-bottom: var(--space-1);
+        word-break: break-all;
+        overflow-wrap: anywhere;
+      }
+      .greeting-subtitle {
+        font-size: 14px;
+        color: var(--text-muted);
+      }
+      .profile-badge {
+        display: inline-block;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: var(--radius-sm);
+        margin-top: var(--space-2);
+        background: var(--surface-subtle);
+        color: var(--text-muted);
+        border: 1px solid var(--border-default);
+      }
+      .profile-badge.complete {
+        background: var(--status-success-bg);
+        color: var(--status-success);
+        border-color: #86efac;
+      }
+
+      .section-disclaimer {
+        background: var(--surface-subtle);
+        border: 1px dashed var(--border-control);
+        border-radius: var(--radius-sm);
+        padding: var(--space-4);
+        font-size: 14px;
+        color: var(--text-muted);
+        margin-top: var(--space-4);
+      }
+
+      /* Mobile Responsive Adjustments */
+      @media (max-width: 768px) {
+        .app-header {
+          padding: var(--space-2) var(--space-3);
+        }
+        .header-nav {
+          display: none; /* Keep mobile header concise */
+        }
+        .brand-name {
+          font-size: 18px;
+        }
+        .account-layout {
+          grid-template-columns: 1fr;
+        }
+        .account-sidebar {
+          margin-bottom: var(--space-4);
+        }
+        .sidebar-menu {
+          flex-direction: row;
+          flex-wrap: wrap;
+        }
+        .sidebar-item-btn {
+          width: auto;
+          padding: 8px 12px;
+        }
+        .user-identity-badge {
+          max-width: 160px;
+          font-size: 12px;
+          padding: 4px 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 1. Synthetic data persistent reminder -->
+    <div class="prototype-banner" role="region" aria-label="Aviso de prototipo">
+      Prototipo local · datos sintéticos · sin conexión a la API
+    </div>
+
+    <!-- 2. Design Scenarios Toolstrip (Escenarios de diseño) -->
+    <div class="scenario-strip" role="region" aria-label="Escenarios de diseño">
+      <div role="toolbar" aria-label="Controles de simulación de diseño">
+        <span class="scenario-title">Escenarios de diseño:</span>
+        <button
+          type="button"
+          class="scenario-btn"
+          id="sc-guest"
+          data-testid="sc-guest"
+        >
+          Invitado
+        </button>
+        <button
+          type="button"
+          class="scenario-btn"
+          id="sc-auth-id"
+          data-testid="sc-auth-id"
+        >
+          Autenticado (Solo ID)
+        </button>
+        <button
+          type="button"
+          class="scenario-btn"
+          id="sc-auth-named"
+          data-testid="sc-auth-named"
+        >
+          Autenticado (Con nombre)
+        </button>
+        <button
+          type="button"
+          class="scenario-btn"
+          id="sc-checking"
+          data-testid="sc-checking"
+        >
+          Simular: Comprobando
+        </button>
+        <button
+          type="button"
+          class="scenario-btn"
+          id="sc-expired"
+          data-testid="sc-expired"
+        >
+          Simular: Sesión expirada (8h)
+        </button>
+        <button
+          type="button"
+          class="scenario-btn"
+          id="sc-error"
+          data-testid="sc-error"
+        >
+          Simular: Error red / 503
+        </button>
+      </div>
+    </div>
+
+    <!-- 3. Status announcements live region -->
+    <div class="status-live-container">
+      <div id="status-live-region" role="status" aria-live="polite"></div>
+    </div>
+
+    <!-- 4. Global Adaptive Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <button
+          type="button"
+          class="brand-logo-btn"
+          id="brand-logo-btn"
+          data-testid="brand-logo"
+          aria-label="EspaciGo inicio"
+        >
+          <!-- Inlined official SVG mark from frontend/public/espacigo-mark.svg -->
+          <svg
+            class="brand-logo-svg"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="154 130 512 512"
+            aria-hidden="true"
+          >
+            <defs>
+              <linearGradient
+                id="terracotta-header"
+                x1="295"
+                y1="175"
+                x2="535"
+                y2="553"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop stop-color="#EE8953" />
+                <stop offset="0.48" stop-color="#D46236" />
+                <stop offset="1" stop-color="#B94628" />
+              </linearGradient>
+              <linearGradient
+                id="fold-header"
+                x1="328"
+                y1="516"
+                x2="516"
+                y2="433"
+                gradientUnits="userSpaceOnUse"
+              >
+                <stop stop-color="#C04C2B" />
+                <stop offset="1" stop-color="#E67B46" />
+              </linearGradient>
+            </defs>
+            <path
+              fill="url(#terracotta-header)"
+              d="M592 204C548 166 489 150 433 156C315 164 218 255 217 363C214 418 233 460 272 491L402 612Q409 622 416 612C456 566 519 535 561 488C595 450 605 404 603 356Q603 335 582 335H511Q500 335 491 328L439 286Q426 275 414 284L329 352Q317 362 317 377V410Q325 431 340 444C310 420 298 392 298 369C298 293 358 231 433 231C466 230 496 243 532 265Q540 270 548 262L592 218Q599 211 592 204Z"
+            />
+            <path
+              fill="url(#fold-header)"
+              d="M272 491C340 537 425 532 489 475C524 444 550 442 578 451C556 501 499 538 455 572L416 612Q409 622 402 612Z"
+            />
+            <path
+              fill="#FFF"
+              d="M340 444V401Q340 389 350 381L407 340Q417 332 427 340L491 389Q501 398 514 400V428C514 441 508 450 498 458C456 492 393 499 350 474Q344 470 340 466Z"
+            />
+            <g fill="#CA5732">
+              <rect x="394" y="387" width="21" height="20" rx="4" />
+              <rect x="421" y="387" width="21" height="20" rx="4" />
+              <rect x="394" y="414" width="21" height="21" rx="4" />
+              <rect x="421" y="414" width="21" height="21" rx="4" />
+            </g>
+          </svg>
+          <span class="brand-name">EspaciGo</span>
+        </button>
+        <nav class="header-nav" aria-label="Navegación principal">
+          <button type="button" class="nav-link-btn" id="nav-explore-btn">
+            Explorar espacios
+          </button>
+          <button type="button" class="nav-link-btn" id="nav-help-btn">
+            Cómo funciona
+          </button>
+        </nav>
+      </div>
+      <div class="header-right" id="header-right-container">
+        <!-- Dynamic identity/session UI injected here -->
+      </div>
+    </header>
+
+    <!-- 5. Main Content Area -->
+    <main id="main-content">
+      <!-- VIEW A: Home / Marketplace público -->
+      <section
+        class="view-panel active"
+        id="view-home"
+        aria-labelledby="home-heading"
+      >
+        <div class="home-hero">
+          <h1 id="home-heading">Inicio público de EspaciGo</h1>
+          <p>
+            Prototipo navegable de la Fase 1: Especificación visual, logo
+            oficial y navegación adaptada a la sesión.
+          </p>
+        </div>
+
+        <div class="card">
+          <h2 style="font-size: 18px; margin-bottom: var(--space-2)">
+            Estado de la sesión en el portal público
+          </h2>
+          <p
+            id="home-session-status-desc"
+            style="
+              font-size: 14px;
+              color: var(--text-muted);
+              margin-bottom: var(--space-4);
+            "
+          >
+            Actualmente estás navegando como invitado. La cabecera ofrece
+            «Ingresar a EspaciGo».
+          </p>
+          <div style="display: flex; gap: var(--space-3); flex-wrap: wrap">
+            <button
+              type="button"
+              class="btn btn-primary"
+              id="btn-home-cta"
+              data-testid="home-cta"
+            >
+              Ingresar ahora
+            </button>
+          </div>
+        </div>
+
+        <p style="margin-top: var(--space-6); color: var(--text-muted)">
+          Esta vista solo representa el regreso al inicio y el cambio entre
+          «Ingresar» y «Mi cuenta». No muestra catálogo, disponibilidad ni
+          condiciones de arriendo.
+        </p>
+      </section>
+
+      <!-- VIEW B: Acceso (/acceso) -->
+      <section
+        class="view-panel"
+        id="view-acceso"
+        aria-labelledby="acceso-heading"
+      >
+        <div class="access-container">
+          <div class="card">
+            <div class="access-header">
+              <!-- Embedded official SVG mark -->
+              <svg
+                class="brand-logo-svg"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="154 130 512 512"
+                aria-hidden="true"
+              >
+                <defs>
+                  <linearGradient
+                    id="terracotta-access"
+                    x1="295"
+                    y1="175"
+                    x2="535"
+                    y2="553"
+                    gradientUnits="userSpaceOnUse"
+                  >
+                    <stop stop-color="#EE8953" />
+                    <stop offset="0.48" stop-color="#D46236" />
+                    <stop offset="1" stop-color="#B94628" />
+                  </linearGradient>
+                  <linearGradient
+                    id="fold-access"
+                    x1="328"
+                    y1="516"
+                    x2="516"
+                    y2="433"
+                    gradientUnits="userSpaceOnUse"
+                  >
+                    <stop stop-color="#C04C2B" />
+                    <stop offset="1" stop-color="#E67B46" />
+                  </linearGradient>
+                </defs>
+                <path
+                  fill="url(#terracotta-access)"
+                  d="M592 204C548 166 489 150 433 156C315 164 218 255 217 363C214 418 233 460 272 491L402 612Q409 622 416 612C456 566 519 535 561 488C595 450 605 404 603 356Q603 335 582 335H511Q500 335 491 328L439 286Q426 275 414 284L329 352Q317 362 317 377V410Q325 431 340 444C310 420 298 392 298 369C298 293 358 231 433 231C466 230 496 243 532 265Q540 270 548 262L592 218Q599 211 592 204Z"
+                />
+                <path
+                  fill="url(#fold-access)"
+                  d="M272 491C340 537 425 532 489 475C524 444 550 442 578 451C556 501 499 538 455 572L416 612Q409 622 402 612Z"
+                />
+                <path
+                  fill="#FFF"
+                  d="M340 444V401Q340 389 350 381L407 340Q417 332 427 340L491 389Q501 398 514 400V428C514 441 508 450 498 458C456 492 393 499 350 474Q344 470 340 466Z"
+                />
+                <g fill="#CA5732">
+                  <rect x="394" y="387" width="21" height="20" rx="4" />
+                  <rect x="421" y="387" width="21" height="20" rx="4" />
+                  <rect x="394" y="414" width="21" height="21" rx="4" />
+                  <rect x="421" y="414" width="21" height="21" rx="4" />
+                </g>
+              </svg>
+              <h1 id="acceso-heading">Accede a EspaciGo</h1>
+              <p>
+                Ingreso simulado de interfaz — sin recopilación de credenciales
+              </p>
+            </div>
+
+            <form id="form-acceso-mock" onsubmit="return false;">
+              <div class="form-group">
+                <label class="form-label" for="input-mock-email"
+                  >Correo electrónico (sintético)</label
+                >
+                <input
+                  type="email"
+                  class="form-input"
+                  id="input-mock-email"
+                  value="usuario.demo@espacigo.local"
+                  disabled
+                  aria-describedby="email-hint"
+                />
+                <p class="form-hint" id="email-hint">
+                  Dato fijado en prototipo para demostración visual.
+                </p>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="input-mock-password"
+                  >Contraseña (simulada)</label
+                >
+                <input
+                  type="password"
+                  class="form-input"
+                  id="input-mock-password"
+                  value="••••••••••••"
+                  disabled
+                  aria-describedby="password-hint"
+                />
+                <p class="form-hint" id="password-hint">
+                  Por seguridad, este prototipo no solicita contraseñas reales.
+                </p>
+              </div>
+
+              <div class="access-actions">
+                <button
+                  type="button"
+                  class="btn btn-primary"
+                  id="btn-do-login"
+                  data-testid="do-login"
+                >
+                  Iniciar sesión simulada
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  id="btn-cancel-access"
+                >
+                  Volver al inicio
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW C: Mi cuenta / Workspace (/mi-cuenta) -->
+      <section
+        class="view-panel"
+        id="view-cuenta"
+        aria-labelledby="cuenta-heading"
+      >
+        <!-- Greeting card -->
+        <div class="account-greeting-card">
+          <h1 id="cuenta-heading" class="greeting-title">
+            <span id="greeting-prefix">Mi cuenta</span>
+            <span id="greeting-display-name" data-testid="greeting-name"></span>
+          </h1>
+          <p class="greeting-subtitle">
+            Gestiona la información personal y configuración de tu cuenta en
+            EspaciGo.
+          </p>
+          <div>
+            <span
+              id="profile-status-badge"
+              class="profile-badge"
+              data-testid="profile-status-badge"
+              >Perfil por completar</span
+            >
+          </div>
+        </div>
+
+        <div class="account-layout">
+          <!-- Responsive Tab Sidebar -->
+          <aside class="account-sidebar" aria-label="Menú de cuenta">
+            <nav>
+              <ul class="sidebar-menu">
+                <li>
+                  <button
+                    type="button"
+                    class="sidebar-item-btn"
+                    id="tab-general"
+                    data-testid="tab-general"
+                    aria-current="page"
+                  >
+                    General
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="sidebar-item-btn"
+                    id="tab-seguridad"
+                    data-testid="tab-seguridad"
+                  >
+                    Seguridad
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="sidebar-item-btn"
+                    id="tab-privacidad"
+                    data-testid="tab-privacidad"
+                  >
+                    Privacidad
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="sidebar-item-btn"
+                    id="tab-verificaciones"
+                    data-testid="tab-verificaciones"
+                  >
+                    Verificaciones
+                  </button>
+                </li>
+              </ul>
+            </nav>
+          </aside>
+
+          <!-- Tab Contents -->
+          <div class="account-content">
+            <!-- Tab 1: General (Profile Form) -->
+            <div id="panel-general" class="card">
+              <h2
+                style="
+                  font-size: 18px;
+                  font-weight: 700;
+                  margin-bottom: var(--space-4);
+                "
+              >
+                Perfil de usuario
+              </h2>
+
+              <form id="form-profile" onsubmit="return false;">
+                <div class="form-group">
+                  <label class="form-label" for="input-account-id"
+                    >Identificador de cuenta (Go ID)</label
+                  >
+                  <input
+                    type="text"
+                    class="form-input"
+                    id="input-account-id"
+                    readonly
+                    aria-describedby="account-id-hint"
+                  />
+                  <p class="form-hint" id="account-id-hint">
+                    Identidad inmutable confirmada por el servicio de
+                    autenticación.
+                  </p>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label" for="input-display-name"
+                    >Nombre para mostrar</label
+                  >
+                  <input
+                    type="text"
+                    class="form-input"
+                    id="input-display-name"
+                    data-testid="input-display-name"
+                    placeholder="Ingresa tu nombre o carga el fixture"
+                    maxlength="80"
+                    aria-describedby="name-hint"
+                  />
+                  <p class="form-hint" id="name-hint">
+                    Este nombre se reflejará inmediatamente en la cabecera y el
+                    saludo.
+                  </p>
+                </div>
+
+                <div
+                  style="
+                    display: flex;
+                    gap: var(--space-3);
+                    flex-wrap: wrap;
+                    margin-top: var(--space-6);
+                  "
+                >
+                  <button
+                    type="button"
+                    class="btn btn-primary"
+                    id="btn-save-profile"
+                    data-testid="btn-save-profile"
+                  >
+                    Guardar nombre
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    id="btn-load-fixture-name"
+                    data-testid="btn-load-fixture-name"
+                  >
+                    Cargar fixture: Camila Demo
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-secondary"
+                    id="btn-reset-name"
+                    data-testid="btn-reset-name"
+                  >
+                    Limpiar nombre (solo ID)
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <!-- Tab 2: Seguridad -->
+            <div id="panel-seguridad" class="card" style="display: none">
+              <h2
+                style="
+                  font-size: 18px;
+                  font-weight: 700;
+                  margin-bottom: var(--space-2);
+                "
+              >
+                Seguridad y credenciales
+              </h2>
+              <p style="font-size: 14px; color: var(--text-muted)">
+                Control de sesión y accesos.
+              </p>
+              <div
+                class="section-disclaimer"
+                data-testid="disclaimer-seguridad"
+              >
+                <strong>Sección no implementada en Fase 1</strong><br />
+                No presenta funciones reales ni métricas inventadas. La
+                persistencia y revocación de sesión corresponden a la Fase 2
+                (autoridad Go).
+              </div>
+            </div>
+
+            <!-- Tab 3: Privacidad -->
+            <div id="panel-privacidad" class="card" style="display: none">
+              <h2
+                style="
+                  font-size: 18px;
+                  font-weight: 700;
+                  margin-bottom: var(--space-2);
+                "
+              >
+                Privacidad y derechos ARCO
+              </h2>
+              <p style="font-size: 14px; color: var(--text-muted)">
+                Descarga y control de datos personales.
+              </p>
+              <div
+                class="section-disclaimer"
+                data-testid="disclaimer-privacidad"
+              >
+                <strong>Sección no implementada en Fase 1</strong><br />
+                No presenta funciones reales ni métricas inventadas. La gestión
+                de privacidad se integrará con las APIs certificadas.
+              </div>
+            </div>
+
+            <!-- Tab 4: Verificaciones -->
+            <div id="panel-verificaciones" class="card" style="display: none">
+              <h2
+                style="
+                  font-size: 18px;
+                  font-weight: 700;
+                  margin-bottom: var(--space-2);
+                "
+              >
+                Verificaciones de identidad
+              </h2>
+              <p style="font-size: 14px; color: var(--text-muted)">
+                Estado de validación de identidad para anfitriones y
+                arrendatarios.
+              </p>
+              <div
+                class="section-disclaimer"
+                data-testid="disclaimer-verificaciones"
+              >
+                <strong>Sección no implementada en Fase 1</strong><br />
+                No presenta funciones reales ni métricas inventadas. No se
+                simulan aprobaciones falsas ni estados KYC ficticios.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      (function () {
+        "use strict";
+
+        // Constants & Fixtures
+        const FIXTURE_USER_ID = "7b2f694e-9d8a-4d92-bfa3-e3a1f81d5a77";
+        const FIXTURE_NAME = "Camila Demo";
+
+        // Reactive In-Memory State
+        const state = {
+          session: "guest", // 'guest' | 'checking' | 'authenticated'
+          userId: FIXTURE_USER_ID,
+          displayName: "",
+          view: "home", // 'home' | 'acceso' | 'cuenta'
+          activeTab: "general", // 'general' | 'seguridad' | 'privacidad' | 'verificaciones'
+        };
+
+        // DOM Element Cache
+        const brandLogoBtn = document.getElementById("brand-logo-btn");
+        const navExploreBtn = document.getElementById("nav-explore-btn");
+        const headerRight = document.getElementById("header-right-container");
+        const statusLiveRegion = document.getElementById("status-live-region");
+
+        const viewHome = document.getElementById("view-home");
+        const viewAcceso = document.getElementById("view-acceso");
+        const viewCuenta = document.getElementById("view-cuenta");
+
+        const scGuest = document.getElementById("sc-guest");
+        const scAuthId = document.getElementById("sc-auth-id");
+        const scAuthNamed = document.getElementById("sc-auth-named");
+        const scChecking = document.getElementById("sc-checking");
+        const scExpired = document.getElementById("sc-expired");
+        const scError = document.getElementById("sc-error");
+
+        const btnHomeCta = document.getElementById("btn-home-cta");
+        const btnDoLogin = document.getElementById("btn-do-login");
+        const btnCancelAccess = document.getElementById("btn-cancel-access");
+
+        const greetingDisplayName = document.getElementById(
+          "greeting-display-name",
+        );
+        const profileStatusBadge = document.getElementById(
+          "profile-status-badge",
+        );
+        const inputAccountId = document.getElementById("input-account-id");
+        const inputDisplayName = document.getElementById("input-display-name");
+        const btnSaveProfile = document.getElementById("btn-save-profile");
+        const btnLoadFixtureName = document.getElementById(
+          "btn-load-fixture-name",
+        );
+        const btnResetName = document.getElementById("btn-reset-name");
+
+        const tabs = {
+          general: document.getElementById("tab-general"),
+          seguridad: document.getElementById("tab-seguridad"),
+          privacidad: document.getElementById("tab-privacidad"),
+          verificaciones: document.getElementById("tab-verificaciones"),
+        };
+
+        const panels = {
+          general: document.getElementById("panel-general"),
+          seguridad: document.getElementById("panel-seguridad"),
+          privacidad: document.getElementById("panel-privacidad"),
+          verificaciones: document.getElementById("panel-verificaciones"),
+        };
+
+        // Safe Feedback Announcement
+        function showFeedback(type, message) {
+          // Clear previous content safely
+          while (statusLiveRegion.firstChild) {
+            statusLiveRegion.removeChild(statusLiveRegion.firstChild);
+          }
+          if (!message) return;
+
+          const banner = document.createElement("div");
+          banner.className = "alert-banner " + type;
+          banner.setAttribute("role", "status");
+
+          const textSpan = document.createElement("span");
+          textSpan.textContent = message;
+          banner.appendChild(textSpan);
+
+          const closeBtn = document.createElement("button");
+          closeBtn.type = "button";
+          closeBtn.className = "alert-close-btn";
+          closeBtn.setAttribute("aria-label", "Cerrar notificación");
+          closeBtn.textContent = "×";
+          closeBtn.addEventListener("click", function () {
+            if (banner.parentNode) {
+              banner.parentNode.removeChild(banner);
+            }
+          });
+          banner.appendChild(closeBtn);
+
+          statusLiveRegion.appendChild(banner);
+        }
+
+        // Navigation controller
+        function navigateTo(targetView) {
+          state.view = targetView;
+          viewHome.classList.toggle("active", targetView === "home");
+          viewAcceso.classList.toggle("active", targetView === "acceso");
+          viewCuenta.classList.toggle("active", targetView === "cuenta");
+          renderHeader();
+          if (targetView === "cuenta") {
+            renderCuenta();
+          }
+        }
+
+        // Tab controller
+        function switchTab(tabKey) {
+          state.activeTab = tabKey;
+          Object.keys(tabs).forEach(function (key) {
+            if (key === tabKey) {
+              tabs[key].setAttribute("aria-current", "page");
+              panels[key].style.display = "block";
+            } else {
+              tabs[key].removeAttribute("aria-current");
+              panels[key].style.display = "none";
+            }
+          });
+        }
+
+        // Render Cuenta view details
+        function renderCuenta() {
+          inputAccountId.value = state.userId;
+          inputDisplayName.value = state.displayName;
+
+          const hasName = Boolean(
+            state.displayName && state.displayName.trim(),
+          );
+          document.getElementById("greeting-prefix").textContent = hasName
+            ? "Hola,"
+            : "Mi cuenta";
+          greetingDisplayName.classList.toggle("identity-id", !hasName);
+          if (state.displayName && state.displayName.trim() !== "") {
+            greetingDisplayName.textContent = state.displayName;
+            profileStatusBadge.textContent = "Perfil completado";
+            profileStatusBadge.className = "profile-badge complete";
+          } else {
+            greetingDisplayName.textContent = state.userId;
+            profileStatusBadge.textContent = "Perfil por completar";
+            profileStatusBadge.className = "profile-badge";
+          }
+        }
+
+        // Render Adaptive Header
+        function renderHeader() {
+          while (headerRight.firstChild) {
+            headerRight.removeChild(headerRight.firstChild);
+          }
+
+          // Update scenario button active indicators
+          scGuest.setAttribute("aria-pressed", state.session === "guest");
+          scAuthId.setAttribute(
+            "aria-pressed",
+            state.session === "authenticated" && !state.displayName,
+          );
+          scAuthNamed.setAttribute(
+            "aria-pressed",
+            state.session === "authenticated" && !!state.displayName,
+          );
+          scChecking.setAttribute("aria-pressed", state.session === "checking");
+
+          if (state.session === "checking") {
+            const checkingEl = document.createElement("div");
+            checkingEl.className = "checking-indicator";
+            checkingEl.setAttribute("role", "status");
+            checkingEl.id = "checking-status-indicator";
+
+            const spinner = document.createElement("span");
+            spinner.className = "spinner";
+            spinner.setAttribute("aria-hidden", "true");
+
+            const text = document.createElement("span");
+            text.textContent = "Comprobando sesión…";
+
+            checkingEl.appendChild(spinner);
+            checkingEl.appendChild(text);
+            headerRight.appendChild(checkingEl);
+            return;
+          }
+
+          if (state.session === "guest") {
+            const btnLogin = document.createElement("button");
+            btnLogin.type = "button";
+            btnLogin.className = "btn btn-outline";
+            btnLogin.id = "btn-header-login";
+            btnLogin.setAttribute("data-testid", "header-login");
+            btnLogin.textContent = "Ingresar a EspaciGo";
+            btnLogin.addEventListener("click", function () {
+              navigateTo("acceso");
+            });
+            headerRight.appendChild(btnLogin);
+            return;
+          }
+
+          // Authenticated
+          const identityLabel =
+            state.displayName && state.displayName.trim() !== ""
+              ? state.displayName
+              : state.userId;
+
+          if (state.view === "cuenta") {
+            // Inside Workspace/Mi cuenta:
+            // Requirements: NO 'Acceso' link; show [Nombre o ID] and [Cerrar sesión]
+            const userBadge = document.createElement("div");
+            userBadge.className = "user-identity-badge";
+            userBadge.setAttribute("data-testid", "user-identity");
+            userBadge.setAttribute("title", "Identidad de cuenta");
+
+            const badgeText = document.createElement("span");
+            badgeText.className = "user-identity-text";
+            badgeText.id = "header-user-display";
+            badgeText.textContent = identityLabel;
+            userBadge.appendChild(badgeText);
+
+            const btnLogout = document.createElement("button");
+            btnLogout.type = "button";
+            btnLogout.className = "btn btn-secondary";
+            btnLogout.id = "btn-header-logout";
+            btnLogout.setAttribute("data-testid", "header-logout");
+            btnLogout.textContent = "Cerrar sesión";
+            btnLogout.addEventListener("click", function () {
+              logout();
+            });
+
+            headerRight.appendChild(userBadge);
+            headerRight.appendChild(btnLogout);
+          } else {
+            // Inside Public Marketplace:
+            // Requirements: show 'Mi cuenta' -> goes DIRECTLY to /mi-cuenta (no /acceso)
+            const btnMyAccount = document.createElement("button");
+            btnMyAccount.type = "button";
+            btnMyAccount.className = "btn btn-outline";
+            btnMyAccount.id = "btn-header-myaccount";
+            btnMyAccount.setAttribute("data-testid", "header-myaccount");
+            btnMyAccount.textContent = "Mi cuenta";
+            btnMyAccount.addEventListener("click", function () {
+              navigateTo("cuenta");
+            });
+
+            const btnLogout = document.createElement("button");
+            btnLogout.type = "button";
+            btnLogout.className = "btn btn-secondary";
+            btnLogout.textContent = "Cerrar sesión";
+            btnLogout.addEventListener("click", function () {
+              logout();
+            });
+
+            headerRight.appendChild(btnMyAccount);
+            headerRight.appendChild(btnLogout);
+          }
+        }
+
+        // Session actions
+        function login(withName) {
+          state.session = "authenticated";
+          state.displayName = withName ? FIXTURE_NAME : "";
+          showFeedback(
+            "success",
+            "Sesión iniciada con éxito (simulación de fixture).",
+          );
+          navigateTo("cuenta");
+        }
+
+        function clearIdentityPresentation() {
+          state.displayName = "";
+          inputDisplayName.value = "";
+          inputAccountId.value = "";
+          greetingDisplayName.textContent = "";
+          profileStatusBadge.textContent = "Perfil por completar";
+          profileStatusBadge.className = "profile-badge";
+          switchTab("general");
+        }
+
+        function logout() {
+          state.session = "guest";
+          clearIdentityPresentation();
+          showFeedback(
+            "info",
+            "Sesión cerrada correctamente (simulación). Ahora navegas como invitado.",
+          );
+          navigateTo("home");
+        }
+
+        // Event Listeners for Header and Navigation
+        brandLogoBtn.addEventListener("click", function () {
+          // Logo always navigates home while preserving current session
+          navigateTo("home");
+        });
+
+        navExploreBtn.addEventListener("click", function () {
+          navigateTo("home");
+        });
+
+        btnHomeCta.addEventListener("click", function () {
+          if (state.session === "authenticated") {
+            navigateTo("cuenta");
+          } else {
+            navigateTo("acceso");
+          }
+        });
+
+        btnDoLogin.addEventListener("click", function () {
+          login(false);
+        });
+
+        btnCancelAccess.addEventListener("click", function () {
+          navigateTo("home");
+        });
+
+        // Profile form events
+        btnLoadFixtureName.addEventListener("click", function () {
+          inputDisplayName.value = FIXTURE_NAME;
+        });
+
+        btnResetName.addEventListener("click", function () {
+          inputDisplayName.value = "";
+          state.displayName = "";
+          renderCuenta();
+          renderHeader();
+          showFeedback(
+            "info",
+            "Nombre eliminado. Se muestra el ID de cuenta confirmado por Go.",
+          );
+        });
+
+        btnSaveProfile.addEventListener("click", function () {
+          const newName = inputDisplayName.value.trim();
+          state.displayName = newName;
+          renderCuenta();
+          renderHeader();
+          showFeedback(
+            "success",
+            "Nombre de perfil actualizado correctamente sin recargar la página.",
+          );
+        });
+
+        // Sidebar tab events
+        Object.keys(tabs).forEach(function (key) {
+          tabs[key].addEventListener("click", function () {
+            switchTab(key);
+          });
+        });
+
+        // Scenario toolbar buttons
+        scGuest.addEventListener("click", function () {
+          state.session = "guest";
+          clearIdentityPresentation();
+          showFeedback("info", "Escenario activado: Invitado sin sesión.");
+          renderHeader();
+          if (state.view === "cuenta") navigateTo("home");
+        });
+
+        scAuthId.addEventListener("click", function () {
+          state.session = "authenticated";
+          state.displayName = "";
+          showFeedback(
+            "info",
+            "Escenario activado: Autenticado únicamente con ID de Go.",
+          );
+          navigateTo("cuenta");
+        });
+
+        scAuthNamed.addEventListener("click", function () {
+          state.session = "authenticated";
+          state.displayName = FIXTURE_NAME;
+          showFeedback(
+            "info",
+            "Escenario activado: Autenticado con nombre de perfil confirmado.",
+          );
+          navigateTo("cuenta");
+        });
+
+        scChecking.addEventListener("click", function () {
+          state.session = "checking";
+          showFeedback("info", "Comprobando sesión con Go en segundo plano…");
+          renderHeader();
+        });
+
+        scExpired.addEventListener("click", function () {
+          state.session = "guest";
+          clearIdentityPresentation();
+          showFeedback(
+            "warning",
+            "Tu sesión ha expirado tras 8 horas de vigencia (Go authority). Debes ingresar nuevamente.",
+          );
+          renderHeader();
+          if (state.view === "cuenta") navigateTo("home");
+        });
+
+        scError.addEventListener("click", function () {
+          showFeedback(
+            "error",
+            "Error 503: Servicio de autenticación no disponible temporalmente. Intente nuevamente.",
+          );
+        });
+
+        // Initial Render
+        inputAccountId.value = state.userId;
+        renderHeader();
+      })();
+    </script>
+  </body>
+</html>

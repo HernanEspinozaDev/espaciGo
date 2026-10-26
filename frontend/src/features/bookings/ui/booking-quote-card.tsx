@@ -34,7 +34,11 @@ export function BookingQuoteCard({
   onReservationCreated,
 }: BookingQuoteCardProps) {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
+  const isAuthenticated = authSnapshot.status === "authenticated";
+  const accountId = authSnapshot.accountId;
+  const expiresAt = authSnapshot.expiresAt;
+
   const {
     quote,
     actionLoading,
@@ -60,6 +64,17 @@ export function BookingQuoteCard({
   >(null);
   const [, startTransition] = useTransition();
 
+  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
+  const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
+
+  if (prevAccountKey !== accountKey) {
+    setPrevAccountKey(accountKey);
+    setLocalError(null);
+    setCreatedReservationId(null);
+    clearQuote();
+    clearError();
+  }
+
   // Calculate end_at based on start_at, rateUnit, and durationUnits
   const calculateEndAt = (
     startIso: string,
@@ -83,7 +98,7 @@ export function BookingQuoteCard({
     setLocalError(null);
     clearError();
 
-    if (!accessToken) {
+    if (!isAuthenticated) {
       setLocalError("Debes iniciar sesión para cotizar una reserva.");
       return;
     }
@@ -97,7 +112,7 @@ export function BookingQuoteCard({
     const endAtIso = calculateEndAt(startDate, rateUnit, durationUnits);
 
     try {
-      await requestQuote(accessToken, {
+      await requestQuote({
         space_id: targetSpaceId,
         start_at: startAtIso,
         end_at: endAtIso,
@@ -110,17 +125,13 @@ export function BookingQuoteCard({
   };
 
   const handleConfirmReservation = async () => {
-    if (!quote || !accessToken) return;
+    if (!quote || !isAuthenticated) return;
     setLocalError(null);
     clearError();
 
     try {
       const idempotencyKey = generateIdempotencyKey();
-      const reservation = await createReservation(
-        accessToken,
-        quote.id,
-        idempotencyKey,
-      );
+      const reservation = await createReservation(quote.id, idempotencyKey);
       setCreatedReservationId(reservation.id);
       clearQuote();
       if (onReservationCreated) {
@@ -289,7 +300,7 @@ export function BookingQuoteCard({
           type="submit"
           variant="secondary"
           className="w-full"
-          disabled={actionLoading || !accessToken}
+          disabled={actionLoading || !isAuthenticated}
         >
           {actionLoading ? (
             <>

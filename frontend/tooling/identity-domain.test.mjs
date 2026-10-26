@@ -70,6 +70,10 @@ await writeFile(
   path.join(scratch, "private-blob-urls.mjs"),
   "export const privateBlobUrls = { clear() {} };",
 );
+await writeFile(
+  path.join(scratch, "auth-lifecycle.mjs"),
+  "export function broadcastAuthEvent() {}",
+);
 const authFacadePath = await compile(
   "src/features/auth/application/auth-facade.ts",
   "auth-facade.mjs",
@@ -77,6 +81,7 @@ const authFacadePath = await compile(
     ['import "client-only";', ""],
     ["@/lib/api/errors", "./api-errors.mjs"],
     ["@/lib/api/private-blob-urls", "./private-blob-urls.mjs"],
+    ["./auth-lifecycle", "./auth-lifecycle.mjs"],
   ],
 );
 const returnTarget = await import(pathToFileURL(returnPath));
@@ -327,27 +332,24 @@ test("facade discards a stale result after cancel", async () => {
 
 test("auth session is confirmed by the session port and expires without retaining usable auth", async () => {
   const expiresAt = new Date(Date.now() + 100).toISOString();
-  const accessToken = "synthetic-memory-only-session-token";
   let notifications = 0;
   let authenticatedRequestCalled = false;
   const auth = new AuthFacade({
     login: async () => ({
-      accessToken,
-      session: {
-        accountId: uuid,
-        roles: [],
-        capabilities: [],
-        restrictedMode: false,
-        expiresAt,
-      },
+      accountId: uuid,
+      roles: [],
+      capabilities: [],
+      restrictedMode: false,
+      expiresAt,
     }),
     currentSession: async () => ({
       accountId: uuid,
       roles: [],
       capabilities: [],
       restrictedMode: false,
+      expiresAt,
     }),
-    logout: async () => {},
+    logout: async () => ({ cookieCleared: true, revocationConfirmed: true }),
   });
   auth.subscribe(() => {
     notifications += 1;
@@ -360,7 +362,7 @@ test("auth session is confirmed by the session port and expires without retainin
   assert.equal(auth.getSnapshot().status, "authenticated");
   await new Promise((resolve) => setTimeout(resolve, 175));
   assert.equal(auth.getSnapshot().status, "anonymous");
-  assert.ok(notifications >= 3);
+  assert.ok(notifications >= 2);
   await assert.rejects(
     auth.runAuthenticated(async () => {
       authenticatedRequestCalled = true;

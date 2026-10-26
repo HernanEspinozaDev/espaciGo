@@ -1,4 +1,3 @@
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type {
   SyntheticEvidence,
   VerificationCase,
@@ -9,26 +8,20 @@ import type {
 } from "../domain/verification";
 
 export interface VerificationPort {
-  listVerifications(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<VerificationCase[]>;
+  listVerifications(signal?: AbortSignal): Promise<VerificationCase[]>;
 
   getVerification(
-    token: AccessToken,
     id: string,
     signal?: AbortSignal,
   ): Promise<VerificationCase | null>;
 
   startVerification(
-    token: AccessToken,
     idempotencyKey: string,
     type: VerificationType,
     signal?: AbortSignal,
   ): Promise<VerificationCase>;
 
   retryVerification(
-    token: AccessToken,
     id: string,
     idempotencyKey: string,
     correctionCode: VerificationCorrectionCode,
@@ -36,39 +29,25 @@ export interface VerificationPort {
   ): Promise<VerificationCase>;
 
   listHistory(
-    token: AccessToken,
     id: string,
     signal?: AbortSignal,
   ): Promise<VerificationHistoryEntry[]>;
 
-  listEvidence(
-    token: AccessToken,
-    id: string,
-    signal?: AbortSignal,
-  ): Promise<SyntheticEvidence[]>;
+  listEvidence(id: string, signal?: AbortSignal): Promise<SyntheticEvidence[]>;
 
-  uploadEvidence(
-    token: AccessToken,
-    id: string,
-    signal?: AbortSignal,
-  ): Promise<SyntheticEvidence>;
+  uploadEvidence(id: string, signal?: AbortSignal): Promise<SyntheticEvidence>;
 
   deleteEvidence(
-    token: AccessToken,
     id: string,
     evidenceId: string,
     signal?: AbortSignal,
   ): Promise<void>;
 
   getEvidenceContent(
-    token: AccessToken,
     id: string,
     evidenceId: string,
     signal?: AbortSignal,
   ): Promise<Blob | null>;
 
-  getEligibility(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<VerificationEligibilityItem[]>;
+  getEligibility(signal?: AbortSignal): Promise<VerificationEligibilityItem[]>;
 }

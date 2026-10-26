@@ -35,7 +35,7 @@ type FilterStatus = "all" | "borrador" | "activa" | "oculta";
 const PAGE_SIZE = 6;
 
 export function HostListingsList() {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
   const {
     snapshot,
     loadListings,
@@ -52,12 +52,12 @@ export function HostListingsList() {
   const [operatingId, setOperatingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (accessToken) {
-      loadListings(accessToken).catch(() => {
+    if (authSnapshot.status === "authenticated") {
+      loadListings().catch(() => {
         // Error is set in snapshot.error
       });
     }
-  }, [accessToken, loadListings]);
+  }, [authSnapshot.status, loadListings]);
 
   const allListings = snapshot.listings;
   const filteredListings = allListings.filter((item) => {
@@ -82,13 +82,13 @@ export function HostListingsList() {
   };
 
   const handlePublish = async (listingId: string) => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setActionError(null);
     setActionSuccess(null);
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        await publishListing(accessToken, listingId);
+        await publishListing(listingId);
         setActionSuccess("Espacio publicado exitosamente con estado activo.");
       } catch (err) {
         const message =
@@ -103,13 +103,13 @@ export function HostListingsList() {
   };
 
   const handleArchive = async (listingId: string) => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setActionError(null);
     setActionSuccess(null);
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        await archiveListing(accessToken, listingId);
+        await archiveListing(listingId);
         setActionSuccess(
           "Espacio archivado. Ya no será visible en el catálogo público.",
         );
@@ -126,7 +126,7 @@ export function HostListingsList() {
   };
 
   const handleDeleteDraft = async (listingId: string, title: string) => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     const confirmed = window.confirm(
       `¿Estás seguro de eliminar el borrador "${title}"? Esta acción no se puede deshacer.`,
     );
@@ -137,7 +137,7 @@ export function HostListingsList() {
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        await deleteListing(accessToken, listingId);
+        await deleteListing(listingId);
         setActionSuccess("Borrador eliminado correctamente.");
       } catch (err) {
         const message =

@@ -1,6 +1,5 @@
 import "client-only";
 
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import { apiClient } from "@/lib/api/client";
 import { ApiProtocolError, normalizeApiError } from "@/lib/api/errors";
 import { serializeExactJson } from "@/lib/api/exact-json";
@@ -27,12 +26,10 @@ import type {
 
 export class OpenApiBookingsAdapter implements BookingsPort {
   async quote(
-    token: AccessToken,
     input: { space_id: string; start_at: string; end_at: string },
     signal?: AbortSignal,
   ): Promise<BookingQuote> {
     const result = await apiClient.POST("/local/booking-trial/quotes", {
-      headers: { Authorization: `Bearer ${token}` },
       body: input,
       bodySerializer: serializeExactJson,
       signal,
@@ -44,9 +41,8 @@ export class OpenApiBookingsAdapter implements BookingsPort {
     return result.data.data as unknown as BookingQuote;
   }
 
-  async getFixture(token: AccessToken, signal?: AbortSignal): Promise<unknown> {
+  async getFixture(signal?: AbortSignal): Promise<unknown> {
     const result = await apiClient.GET("/local/booking-trial/fixture", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -55,12 +51,8 @@ export class OpenApiBookingsAdapter implements BookingsPort {
     return result.data;
   }
 
-  async listReservations(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<BookingReservation[]> {
+  async listReservations(signal?: AbortSignal): Promise<BookingReservation[]> {
     const result = await apiClient.GET("/local/booking-trial/reservations", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -70,7 +62,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async getReservation(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<BookingDetail | null> {
@@ -78,7 +69,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -90,14 +80,12 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async createReservation(
-    token: AccessToken,
     idempotencyKey: string,
     quoteId: string,
     signal?: AbortSignal,
   ): Promise<BookingReservation> {
     const result = await apiClient.POST("/local/booking-trial/reservations", {
       params: { header: { "Idempotency-Key": idempotencyKey } },
-      headers: { Authorization: `Bearer ${token}` },
       body: { quote_id: quoteId },
       bodySerializer: serializeExactJson,
       signal,
@@ -110,7 +98,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async decideReservation(
-    token: AccessToken,
     reservationId: string,
     decision: "aprobar" | "rechazar",
     reason?: string,
@@ -126,7 +113,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}/decision",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         body,
         bodySerializer: serializeExactJson,
         signal,
@@ -140,7 +126,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async previewCancellation(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<CancellationPreview> {
@@ -148,7 +133,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}/cancellation-preview",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -169,7 +153,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async cancelReservation(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     reason?: string,
@@ -182,7 +165,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: { reason },
         bodySerializer: serializeExactJson,
         signal,
@@ -196,7 +178,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async simulatePayment(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     outcome: SimulatedPaymentOutcome,
@@ -209,7 +190,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: { outcome },
         bodySerializer: serializeExactJson,
         signal,
@@ -223,7 +203,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async simulateRefund(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     outcome: "exito" | "fallo" | "sin_respuesta",
@@ -236,7 +215,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: { outcome },
         bodySerializer: serializeExactJson,
         signal,
@@ -245,13 +223,12 @@ export class OpenApiBookingsAdapter implements BookingsPort {
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
-    const updated = await this.getReservation(token, reservationId, signal);
+    const updated = await this.getReservation(reservationId, signal);
     if (updated) return updated;
     throw new ApiProtocolError();
   }
 
   async createOrGetContract(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<SyntheticContract> {
@@ -259,7 +236,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}/contract",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -271,7 +247,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async getContract(
-    token: AccessToken,
     contractId: string,
     signal?: AbortSignal,
   ): Promise<SyntheticContract | null> {
@@ -279,7 +254,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/contracts/{contractId}",
       {
         params: { path: { contractId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -291,7 +265,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async signContract(
-    token: AccessToken,
     contractId: string,
     signal?: AbortSignal,
   ): Promise<SyntheticContract> {
@@ -299,7 +272,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/contracts/{contractId}/sign",
       {
         params: { path: { contractId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -311,7 +283,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async rejectContract(
-    token: AccessToken,
     contractId: string,
     signal?: AbortSignal,
   ): Promise<SyntheticContract> {
@@ -319,7 +290,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/contracts/{contractId}/reject",
       {
         params: { path: { contractId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -331,7 +301,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async downloadContractPdf(
-    token: AccessToken,
     contractId: string,
     signal?: AbortSignal,
   ): Promise<Blob | null> {
@@ -339,7 +308,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/contracts/{contractId}/document",
       {
         params: { path: { contractId } },
-        headers: { Authorization: `Bearer ${token}` },
         parseAs: "blob",
         signal,
       },
@@ -352,7 +320,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async recordCheckIn(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -371,7 +338,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationID: reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -385,7 +351,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async recordCheckOut(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -404,7 +369,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationID: reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -418,7 +382,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async recordReception(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -435,7 +398,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationID: reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -449,7 +411,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async listOperations(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<RentalOperation[]> {
@@ -457,7 +418,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationID}/operations",
       {
         params: { path: { reservationID: reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -468,7 +428,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async downloadEvidence(
-    token: AccessToken,
     reservationId: string,
     evidenceId: string,
     signal?: AbortSignal,
@@ -479,7 +438,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
         params: {
           path: { reservationID: reservationId, evidenceID: evidenceId },
         },
-        headers: { Authorization: `Bearer ${token}` },
         parseAs: "blob",
         signal,
       },
@@ -492,7 +450,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async listMessages(
-    token: AccessToken,
     reservationId: string,
     query?: { before?: number | string; limit?: number },
     signal?: AbortSignal,
@@ -504,7 +461,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationId },
           query,
         },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -515,7 +471,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async sendMessage(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     body: string,
@@ -528,7 +483,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: { body },
         bodySerializer: serializeExactJson,
         signal,
@@ -542,7 +496,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async advanceReadCursor(
-    token: AccessToken,
     reservationId: string,
     throughSequence: number | string,
     signal?: AbortSignal,
@@ -551,7 +504,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}/messages/read",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: { through_sequence: throughSequence },
         bodySerializer: serializeExactJson,
         signal,
@@ -565,7 +517,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async listReviews(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<ReservationReview[]> {
@@ -573,7 +524,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationID}/reviews",
       {
         params: { path: { reservationID: reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -584,7 +534,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async createReview(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -601,7 +550,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationID: reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -615,7 +563,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async reportReview(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     reviewId: string,
@@ -633,7 +580,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationID: reservationId, reviewID: reviewId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -647,7 +593,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async listDisputes(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<TrialDispute[]> {
@@ -655,7 +600,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservation_id}/disputes",
       {
         params: { path: { reservation_id: reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -666,7 +610,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async openDispute(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     _reasonCode: string,
@@ -679,7 +622,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservation_id: reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: { reason_code: "ensayo_privacidad" },
         bodySerializer: serializeExactJson,
         signal,
@@ -693,7 +635,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async getDisputeHistory(
-    token: AccessToken,
     disputeId: string,
     signal?: AbortSignal,
   ): Promise<TrialDisputeTransition[]> {
@@ -701,7 +642,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/disputes/{dispute_id}/history",
       {
         params: { path: { dispute_id: disputeId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -712,7 +652,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async getDamageClaim(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<DamageClaim | null> {
@@ -720,7 +659,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationID}/damage-claim",
       {
         params: { path: { reservationID: reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -732,7 +670,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async openDamageClaim(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     description: string,
@@ -745,7 +682,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationID: reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: { description },
         bodySerializer: serializeExactJson,
         signal,
@@ -759,7 +695,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async submitDamageClaimDefense(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     description: string,
@@ -772,7 +707,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationID: reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: { description },
         bodySerializer: serializeExactJson,
         signal,
@@ -781,13 +715,12 @@ export class OpenApiBookingsAdapter implements BookingsPort {
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
-    const updated = await this.getDamageClaim(token, reservationId, signal);
+    const updated = await this.getDamageClaim(reservationId, signal);
     if (updated) return updated;
     throw new ApiProtocolError();
   }
 
   async createDamageClaimDefenseEvidence(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     signal?: AbortSignal,
@@ -799,7 +732,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationID: reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: {},
         bodySerializer: serializeExactJson,
         signal,
@@ -813,7 +745,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async getGuarantee(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<Guarantee | null> {
@@ -821,7 +752,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}/guarantee",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -833,7 +763,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async executeGuaranteeOperation(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     input: {
@@ -850,7 +779,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: {
           kind: input.kind,
           amount_clp: input.amount_clp,
@@ -868,7 +796,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async getSettlement(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<Settlement | null> {
@@ -876,7 +803,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}/settlement",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -888,7 +814,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async requestSettlement(
-    token: AccessToken,
     idempotencyKey: string,
     reservationId: string,
     outcome?: SimulatedPaymentOutcome,
@@ -901,7 +826,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
           path: { reservationId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: { Authorization: `Bearer ${token}` },
         body: { outcome: outcome ?? "exito" },
         bodySerializer: serializeExactJson,
         signal,
@@ -915,7 +839,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async reconcileSettlement(
-    token: AccessToken,
     reservationId: string,
     outcome: "exito" | "rechazo",
     signal?: AbortSignal,
@@ -924,7 +847,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}/settlement-reconcile",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: { outcome },
         bodySerializer: serializeExactJson,
         signal,
@@ -938,7 +860,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
   }
 
   async getSettlementReceipt(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<SettlementReceipt | null> {
@@ -946,7 +867,6 @@ export class OpenApiBookingsAdapter implements BookingsPort {
       "/local/booking-trial/reservations/{reservationId}/receipt",
       {
         params: { path: { reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -970,12 +890,8 @@ export class OpenApiBookingsAdapter implements BookingsPort {
     };
   }
 
-  async getBusinessClock(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<BusinessClock> {
+  async getBusinessClock(signal?: AbortSignal): Promise<BusinessClock> {
     const result = await apiClient.GET("/local/booking-trial/business-clock", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {

@@ -69,7 +69,7 @@ const DAYS_MAP = [
 
 export function ListingEditor({ listingId }: ListingEditorProps) {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
   const {
     snapshot,
     selectListing,
@@ -117,9 +117,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
   // Carga inicial de datos del espacio
   useEffect(() => {
-    if (!accessToken || !listingId) return;
+    if (authSnapshot.status !== "authenticated" || !listingId) return;
 
-    selectListing(accessToken, listingId)
+    selectListing(listingId)
       .then(async (detail) => {
         if (detail) {
           setTitle(detail.title);
@@ -171,9 +171,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         setFeedbackError(msg);
       });
 
-    loadPricingHistory(accessToken, listingId).catch(() => {});
+    loadPricingHistory(listingId).catch(() => {});
   }, [
-    accessToken,
+    authSnapshot.status,
     listingId,
     selectListing,
     loadCategorySchema,
@@ -190,7 +190,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   // Guardar Pestaña 1: Contenido y atributos
   const handleSaveContent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken || !currentListing) return;
+    if (authSnapshot.status !== "authenticated" || !currentListing) return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
@@ -211,7 +211,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     startTransition(async () => {
       try {
         if (currentListing.state === "borrador") {
-          await updateDraft(accessToken, listingId, {
+          await updateDraft(listingId, {
             category_code: currentListing.category_code,
             title: title.trim(),
             description: description.trim(),
@@ -227,7 +227,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             attributes,
           });
         } else {
-          await updateContent(accessToken, listingId, {
+          await updateContent(listingId, {
             title: title.trim(),
             description: description.trim(),
             capacity: Number(capacity),
@@ -249,7 +249,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   // Guardar Pestaña 2: Tarifas
   const handleSavePricing = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
@@ -262,11 +262,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
     startTransition(async () => {
       try {
-        await updatePricing(accessToken, listingId, {
+        await updatePricing(listingId, {
           rate_unit: rateUnit,
           base_price: Number(basePrice),
         });
-        await loadPricingHistory(accessToken, listingId);
+        await loadPricingHistory(listingId);
         setFeedbackSuccess("Tarifa actualizada y registrada en el historial.");
       } catch (err) {
         const msg =
@@ -279,7 +279,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   // Guardar Pestaña 3: Horarios
   const handleSaveSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
@@ -302,8 +302,8 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
     startTransition(async () => {
       try {
-        await configureTimeZone(accessToken, listingId, timeZone);
-        await updateWeeklySchedule(accessToken, listingId, {
+        await configureTimeZone(listingId, timeZone);
+        await updateWeeklySchedule(listingId, {
           timezone: timeZone,
           enabled: scheduleEnabled,
           weekly_slots: scheduleSlots,
@@ -321,13 +321,13 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
   // Pestaña 4: Fotos
   const handleUploadSyntheticPhoto = async () => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
     startTransition(async () => {
       try {
-        await uploadPhoto(accessToken, listingId, {
+        await uploadPhoto(listingId, {
           caption: `Foto de ensayo para ${currentListing?.title || "espacio"}`,
           is_cover: snapshot.photos.length === 0,
         });
@@ -342,10 +342,10 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   };
 
   const handleSetCover = async (photoId: string) => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     startTransition(async () => {
       try {
-        await setCoverPhoto(accessToken, listingId, photoId);
+        await setCoverPhoto(listingId, photoId);
         setFeedbackSuccess("Foto de portada actualizada.");
       } catch (err) {
         const msg =
@@ -356,10 +356,10 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   };
 
   const handleRemovePhoto = async (photoId: string) => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     startTransition(async () => {
       try {
-        await removePhoto(accessToken, listingId, photoId);
+        await removePhoto(listingId, photoId);
         setFeedbackSuccess("Foto eliminada de la galería.");
       } catch (err) {
         const msg =
@@ -370,7 +370,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   };
 
   const handleMovePhoto = async (index: number, direction: "up" | "down") => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= snapshot.photos.length) return;
 
@@ -382,7 +382,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     const photoIds = newOrder.map((p) => p.id);
     startTransition(async () => {
       try {
-        await reorderPhotos(accessToken, listingId, photoIds);
+        await reorderPhotos(listingId, photoIds);
         setFeedbackSuccess("Orden de fotografías actualizado.");
       } catch (err) {
         const msg =
@@ -394,7 +394,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
   // Acciones Globales: Publicar / Archivar / Eliminar
   const handleGlobalPublish = async () => {
-    if (!accessToken || !currentListing) return;
+    if (authSnapshot.status !== "authenticated" || !currentListing) return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
@@ -408,7 +408,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
     startTransition(async () => {
       try {
-        await publishListing(accessToken, listingId);
+        await publishListing(listingId);
         setFeedbackSuccess(
           "¡El espacio ha sido publicado exitosamente y está activo en el catálogo!",
         );
@@ -421,10 +421,10 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   };
 
   const handleGlobalArchive = async () => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     startTransition(async () => {
       try {
-        await archiveListing(accessToken, listingId);
+        await archiveListing(listingId);
         setFeedbackSuccess(
           "El espacio ha sido archivado (oculto del catálogo público).",
         );
@@ -437,7 +437,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   };
 
   const handleGlobalDelete = async () => {
-    if (!accessToken || !currentListing) return;
+    if (authSnapshot.status !== "authenticated" || !currentListing) return;
     const confirmed = window.confirm(
       `¿Eliminar definitivamente el borrador "${currentListing.title}"?`,
     );
@@ -445,7 +445,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
     startTransition(async () => {
       try {
-        await deleteListing(accessToken, listingId);
+        await deleteListing(listingId);
         router.push("/anfitrion/espacios");
       } catch (err) {
         const msg =

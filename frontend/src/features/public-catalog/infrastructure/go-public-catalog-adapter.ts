@@ -1,10 +1,7 @@
 import "server-only";
 
 import { getApiBackendBaseUrl } from "@/lib/api/server-config";
-import {
-  getCloudRunIdentityHeaders,
-  getTargetAudience,
-} from "@/lib/api/cloud-run-identity";
+import { getCloudRunIdentityHeadersForBackend } from "@/lib/api/cloud-run-identity";
 import { serializeCatalogQuery } from "../domain/query-state";
 import type {
   CatalogFailure,
@@ -33,9 +30,7 @@ async function requestJson<T>(path: string): Promise<CatalogResult<T>> {
       `${base.pathname.replace(/\/$/, "")}${path}`,
       base.origin,
     );
-    const idHeaders = await getCloudRunIdentityHeaders(
-      getTargetAudience(base.origin),
-    );
+    const idHeaders = await getCloudRunIdentityHeadersForBackend(base);
     const response = await fetch(url, {
       method: "GET",
       headers: {

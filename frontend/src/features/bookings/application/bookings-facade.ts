@@ -1,8 +1,5 @@
 "use client";
-
 import "client-only";
-
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import {
   deduplicateById,
   generateIdempotencyKey,
@@ -26,8 +23,18 @@ import type {
   TrialDispute,
   TrialDisputeTransition,
 } from "../domain/types";
+import type { AuthSnapshot } from "@/features/auth/application/auth-facade";
 import type { BookingsPort } from "./bookings.port";
-
+interface AuthSourceLike {
+  getSnapshot(): AuthSnapshot;
+  subscribe(listener: () => void): () => void;
+  checkSession(): Promise<unknown>;
+}
+interface BookingSessionScope {
+  epoch: number;
+  signal: AbortSignal;
+  signals: AbortSignal[];
+}
 export interface BookingsSnapshot {
   readonly quote: BookingQuote | null;
   readonly reservations: readonly BookingReservation[];
@@ -48,7 +55,6 @@ export interface BookingsSnapshot {
   readonly actionLoading: boolean;
   readonly error: string | null;
 }
-
 const initialSnapshot: BookingsSnapshot = Object.freeze({
   quote: null,
   reservations: Object.freeze([]),
@@ -69,39 +75,114 @@ const initialSnapshot: BookingsSnapshot = Object.freeze({
   actionLoading: false,
   error: null,
 });
-
 export class BookingsFacade {
   #port: BookingsPort;
   #abortController: AbortController | null = null;
   #snapshot: BookingsSnapshot = initialSnapshot;
   #listeners = new Set<() => void>();
-
-  constructor(port: BookingsPort) {
+  #epoch = 0;
+  #sessionController = new AbortController();
+  #authSource?: AuthSourceLike;
+  #onPrivatePurge?: () => void;
+  constructor(
+    port: BookingsPort,
+    authSource?: AuthSourceLike,
+    onPrivatePurge?: () => void,
+  ) {
     this.#port = port;
+    this.#authSource = authSource;
+    this.#onPrivatePurge = onPrivatePurge;
+    if (authSource) {
+      let identity = JSON.stringify(authSource.getSnapshot());
+      authSource.subscribe(() => {
+        const next = JSON.stringify(authSource.getSnapshot());
+        if (identity !== next) {
+          identity = next;
+          this.clear();
+        }
+      });
+    }
   }
-
+  clear(): void {
+    this.#epoch++;
+    this.#sessionController.abort();
+    this.#sessionController = new AbortController();
+    this.cancel();
+    this.#snapshot = initialSnapshot;
+    this.#onPrivatePurge?.();
+    for (const listener of this.#listeners) listener();
+  }
+  #captureSession(): BookingSessionScope {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+    return {
+      epoch: this.#epoch,
+      signal: this.#sessionController.signal,
+      signals: [],
+    };
+  }
+  #isSessionCurrent(scope: BookingSessionScope): boolean {
+    return (
+      scope.epoch === this.#epoch &&
+      !scope.signal.aborted &&
+      !scope.signals.some((signal) => signal.aborted)
+    );
+  }
+  #sessionSignal(
+    scope: BookingSessionScope,
+    existing?: AbortSignal,
+  ): AbortSignal {
+    const signal = existing
+      ? AbortSignal.any([scope.signal, existing])
+      : scope.signal;
+    scope.signals.push(signal);
+    return signal;
+  }
+  async #waitSession<T>(
+    value: T | Promise<T>,
+    scope: BookingSessionScope,
+  ): Promise<T> {
+    const result = await value;
+    if (!this.#isSessionCurrent(scope))
+      throw new DOMException("Session changed", "AbortError");
+    return result;
+  }
+  #sessionError(error: unknown): void {
+    const status =
+      typeof error === "object" && error !== null && "status" in error
+        ? error.status
+        : null;
+    if (status === 401 || status === 403) {
+      this.clear();
+      try {
+        void this.#authSource?.checkSession().catch(() => undefined);
+      } catch {
+        /* revalidation is best-effort */
+      }
+    }
+  }
   getSnapshot = (): BookingsSnapshot => {
     return this.#snapshot;
   };
-
   getServerSnapshot = (): BookingsSnapshot => {
     return initialSnapshot;
   };
-
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
     return () => {
       this.#listeners.delete(listener);
     };
   };
-
   cancel(): void {
     if (this.#abortController) {
       this.#abortController.abort();
       this.#abortController = null;
     }
   }
-
   #setSnapshot(partial: Partial<BookingsSnapshot>): void {
     this.#snapshot = Object.freeze({
       ...this.#snapshot,
@@ -111,17 +192,14 @@ export class BookingsFacade {
       listener();
     }
   }
-
   clearError(): void {
     if (this.#snapshot.error) {
       this.#setSnapshot({ error: null });
     }
   }
-
   clearQuote(): void {
     this.#setSnapshot({ quote: null });
   }
-
   clearCurrentReservation(): void {
     this.#setSnapshot({
       currentReservation: null,
@@ -136,52 +214,59 @@ export class BookingsFacade {
       cancellationPreview: null,
     });
   }
-
-  async loadReservations(
-    token: AccessToken,
-  ): Promise<readonly BookingReservation[]> {
+  async loadReservations(): Promise<readonly BookingReservation[]> {
+    const _sessionScope = this.#captureSession();
     this.cancel();
     this.#abortController = new AbortController();
     this.#setSnapshot({ loading: true, error: null });
-
     try {
-      const reservations = await this.#port.listReservations(
-        token,
-        this.#abortController.signal,
+      const reservations = await this.#waitSession(
+        this.#port.listReservations(
+          this.#sessionSignal(_sessionScope, this.#abortController.signal),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         reservations: Object.freeze(reservations),
         loading: false,
       });
-      return reservations;
+      return await this.#waitSession(reservations, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        return [];
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cargar reservas";
       this.#setSnapshot({ loading: false, error });
       throw err;
     }
   }
-
   async loadReservationDetail(
-    token: AccessToken,
     reservationId: string,
   ): Promise<BookingDetail | null> {
+    const _sessionScope = this.#captureSession();
     this.cancel();
     this.#abortController = new AbortController();
     this.#setSnapshot({ loading: true, error: null });
-
     try {
-      const detail = await this.#port.getReservation(
-        token,
-        reservationId,
-        this.#abortController.signal,
+      const detail = await this.#waitSession(
+        this.#port.getReservation(
+          reservationId,
+          this.#sessionSignal(_sessionScope, this.#abortController.signal),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         currentReservation: detail,
         loading: false,
       });
-      return detail;
+      return await this.#waitSession(detail, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        return null;
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -190,38 +275,48 @@ export class BookingsFacade {
       throw err;
     }
   }
-
-  async requestQuote(
-    token: AccessToken,
-    input: { space_id: string; start_at: string; end_at: string },
-  ): Promise<BookingQuote> {
+  async requestQuote(input: {
+    space_id: string;
+    start_at: string;
+    end_at: string;
+  }): Promise<BookingQuote> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const quote = await this.#port.quote(token, input);
+      const quote = await this.#waitSession(
+        this.#port.quote(input, this.#sessionSignal(_sessionScope, undefined)),
+        _sessionScope,
+      );
       this.#setSnapshot({
         quote,
         actionLoading: false,
       });
-      return quote;
+      return await this.#waitSession(quote, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cotizar reserva";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async createReservation(
-    token: AccessToken,
     quoteId: string,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<BookingReservation> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const reservation = await this.#port.createReservation(
-        token,
-        idempotencyKey,
-        quoteId,
+      const reservation = await this.#waitSession(
+        this.#port.createReservation(
+          idempotencyKey,
+          quoteId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         reservations: Object.freeze([
@@ -230,28 +325,34 @@ export class BookingsFacade {
         ]),
         actionLoading: false,
       });
-      return reservation;
+      return await this.#waitSession(reservation, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al crear reserva";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async decideReservation(
-    token: AccessToken,
     reservationId: string,
     decision: "aprobar" | "rechazar",
     reason?: string,
   ): Promise<BookingReservation> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const updated = await this.#port.decideReservation(
-        token,
-        reservationId,
-        decision,
-        reason,
+      const updated = await this.#waitSession(
+        this.#port.decideReservation(
+          reservationId,
+          decision,
+          reason,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       const nextReservations = this.#snapshot.reservations.map((r) =>
         r.id === updated.id ? updated : r,
@@ -265,8 +366,12 @@ export class BookingsFacade {
         currentReservation: nextCurrent,
         actionLoading: false,
       });
-      return updated;
+      return await this.#waitSession(updated, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -275,23 +380,29 @@ export class BookingsFacade {
       throw err;
     }
   }
-
   async previewCancellation(
-    token: AccessToken,
     reservationId: string,
   ): Promise<CancellationPreview> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const preview = await this.#port.previewCancellation(
-        token,
-        reservationId,
+      const preview = await this.#waitSession(
+        this.#port.previewCancellation(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         cancellationPreview: preview,
         actionLoading: false,
       });
-      return preview;
+      return await this.#waitSession(preview, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -300,20 +411,22 @@ export class BookingsFacade {
       throw err;
     }
   }
-
   async cancelReservation(
-    token: AccessToken,
     reservationId: string,
     reason?: string,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<BookingReservation> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const updated = await this.#port.cancelReservation(
-        token,
-        idempotencyKey,
-        reservationId,
-        reason,
+      const updated = await this.#waitSession(
+        this.#port.cancelReservation(
+          idempotencyKey,
+          reservationId,
+          reason,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       const nextReservations = this.#snapshot.reservations.map((r) =>
         r.id === updated.id ? updated : r,
@@ -327,28 +440,34 @@ export class BookingsFacade {
         currentReservation: nextCurrent,
         actionLoading: false,
       });
-      return updated;
+      return await this.#waitSession(updated, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cancelar reserva";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async simulatePayment(
-    token: AccessToken,
     reservationId: string,
     outcome: SimulatedPaymentOutcome,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<BookingReservation> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const updated = await this.#port.simulatePayment(
-        token,
-        idempotencyKey,
-        reservationId,
-        outcome,
+      const updated = await this.#waitSession(
+        this.#port.simulatePayment(
+          idempotencyKey,
+          reservationId,
+          outcome,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       const nextReservations = this.#snapshot.reservations.map((r) =>
         r.id === updated.id ? updated : r,
@@ -362,28 +481,34 @@ export class BookingsFacade {
         currentReservation: nextCurrent,
         actionLoading: false,
       });
-      return updated;
+      return await this.#waitSession(updated, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al procesar pago simulado";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async simulateRefund(
-    token: AccessToken,
     reservationId: string,
     outcome: "exito" | "fallo" | "sin_respuesta",
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<BookingReservation> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const updated = await this.#port.simulateRefund(
-        token,
-        idempotencyKey,
-        reservationId,
-        outcome,
+      const updated = await this.#waitSession(
+        this.#port.simulateRefund(
+          idempotencyKey,
+          reservationId,
+          outcome,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       const nextReservations = this.#snapshot.reservations.map((r) =>
         r.id === updated.id ? updated : r,
@@ -397,8 +522,12 @@ export class BookingsFacade {
         currentReservation: nextCurrent,
         actionLoading: false,
       });
-      return updated;
+      return await this.#waitSession(updated, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -407,77 +536,102 @@ export class BookingsFacade {
       throw err;
     }
   }
-
-  async loadContract(
-    token: AccessToken,
-    reservationId: string,
-  ): Promise<SyntheticContract> {
+  async loadContract(reservationId: string): Promise<SyntheticContract> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const contract = await this.#port.createOrGetContract(
-        token,
-        reservationId,
+      const contract = await this.#waitSession(
+        this.#port.createOrGetContract(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         contract,
         actionLoading: false,
       });
-      return contract;
+      return await this.#waitSession(contract, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cargar contrato";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
-  async signContract(
-    token: AccessToken,
-    contractId: string,
-  ): Promise<SyntheticContract> {
+  async signContract(contractId: string): Promise<SyntheticContract> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const updated = await this.#port.signContract(token, contractId);
+      const updated = await this.#waitSession(
+        this.#port.signContract(
+          contractId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         contract: updated,
         actionLoading: false,
       });
-      return updated;
+      return await this.#waitSession(updated, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al firmar contrato";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
-  async rejectContract(
-    token: AccessToken,
-    contractId: string,
-  ): Promise<SyntheticContract> {
+  async rejectContract(contractId: string): Promise<SyntheticContract> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const updated = await this.#port.rejectContract(token, contractId);
+      const updated = await this.#waitSession(
+        this.#port.rejectContract(
+          contractId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         contract: updated,
         actionLoading: false,
       });
-      return updated;
+      return await this.#waitSession(updated, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al rechazar contrato";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
-  async downloadContractPdf(
-    token: AccessToken,
-    contractId: string,
-  ): Promise<Blob | null> {
+  async downloadContractPdf(contractId: string): Promise<Blob | null> {
+    const _sessionScope = this.#captureSession();
     try {
-      return await this.#port.downloadContractPdf(token, contractId);
+      return await this.#waitSession(
+        this.#port.downloadContractPdf(
+          contractId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        return null;
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -486,27 +640,34 @@ export class BookingsFacade {
       throw err;
     }
   }
-
   async loadOperations(
-    token: AccessToken,
     reservationId: string,
   ): Promise<readonly RentalOperation[]> {
+    const _sessionScope = this.#captureSession();
     try {
-      const operations = await this.#port.listOperations(token, reservationId);
+      const operations = await this.#waitSession(
+        this.#port.listOperations(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         operations: Object.freeze(operations),
       });
-      return operations;
+      return await this.#waitSession(operations, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al listar operaciones";
       this.#setSnapshot({ error });
       throw err;
     }
   }
-
   async recordCheckIn(
-    token: AccessToken,
     reservationId: string,
     input: {
       occurred_at?: string;
@@ -517,29 +678,35 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<RentalOperation> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const op = await this.#port.recordCheckIn(
-        token,
-        idempotencyKey,
-        reservationId,
-        input,
+      const op = await this.#waitSession(
+        this.#port.recordCheckIn(
+          idempotencyKey,
+          reservationId,
+          input,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         operations: Object.freeze([...this.#snapshot.operations, op]),
         actionLoading: false,
       });
-      return op;
+      return await this.#waitSession(op, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al registrar check-in";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async recordCheckOut(
-    token: AccessToken,
     reservationId: string,
     input: {
       occurred_at?: string;
@@ -550,29 +717,35 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<RentalOperation> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const op = await this.#port.recordCheckOut(
-        token,
-        idempotencyKey,
-        reservationId,
-        input,
+      const op = await this.#waitSession(
+        this.#port.recordCheckOut(
+          idempotencyKey,
+          reservationId,
+          input,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         operations: Object.freeze([...this.#snapshot.operations, op]),
         actionLoading: false,
       });
-      return op;
+      return await this.#waitSession(op, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al registrar check-out";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async recordReception(
-    token: AccessToken,
     reservationId: string,
     input: {
       result?:
@@ -581,37 +754,50 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<RentalOperation> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const op = await this.#port.recordReception(
-        token,
-        idempotencyKey,
-        reservationId,
-        input,
+      const op = await this.#waitSession(
+        this.#port.recordReception(
+          idempotencyKey,
+          reservationId,
+          input,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         operations: Object.freeze([...this.#snapshot.operations, op]),
         actionLoading: false,
       });
-      return op;
+      return await this.#waitSession(op, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al registrar recepción";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async loadMessages(
-    token: AccessToken,
     reservationId: string,
-    query?: { before?: number | string; limit?: number },
+    query?: {
+      before?: number | string;
+      limit?: number;
+    },
   ): Promise<readonly ReservationMessage[]> {
+    const _sessionScope = this.#captureSession();
     try {
-      const messages = await this.#port.listMessages(
-        token,
-        reservationId,
-        query,
+      const messages = await this.#waitSession(
+        this.#port.listMessages(
+          reservationId,
+          query,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       const deduplicated = deduplicateById([
         ...this.#snapshot.messages,
@@ -620,53 +806,67 @@ export class BookingsFacade {
       this.#setSnapshot({
         messages: Object.freeze(deduplicated),
       });
-      return deduplicated;
+      return await this.#waitSession(deduplicated, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cargar mensajes";
       this.#setSnapshot({ error });
       throw err;
     }
   }
-
   async sendMessage(
-    token: AccessToken,
     reservationId: string,
     body: string,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<ReservationMessage> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const msg = await this.#port.sendMessage(
-        token,
-        idempotencyKey,
-        reservationId,
-        body,
+      const msg = await this.#waitSession(
+        this.#port.sendMessage(
+          idempotencyKey,
+          reservationId,
+          body,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       const deduplicated = deduplicateById([...this.#snapshot.messages, msg]);
       this.#setSnapshot({
         messages: Object.freeze(deduplicated),
         actionLoading: false,
       });
-      return msg;
+      return await this.#waitSession(msg, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al enviar mensaje";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async markMessagesRead(
-    token: AccessToken,
     reservationId: string,
     throughSequence: number | string,
-  ): Promise<{ sequence: number }> {
+  ): Promise<{
+    sequence: number;
+  }> {
+    const _sessionScope = this.#captureSession();
     try {
-      const res = await this.#port.advanceReadCursor(
-        token,
-        reservationId,
-        throughSequence,
+      const res = await this.#waitSession(
+        this.#port.advanceReadCursor(
+          reservationId,
+          throughSequence,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       if (this.#snapshot.currentReservation?.id === reservationId) {
         this.#setSnapshot({
@@ -676,8 +876,12 @@ export class BookingsFacade {
           },
         });
       }
-      return res;
+      return await this.#waitSession(res, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -686,27 +890,34 @@ export class BookingsFacade {
       throw err;
     }
   }
-
   async loadReviews(
-    token: AccessToken,
     reservationId: string,
   ): Promise<readonly ReservationReview[]> {
+    const _sessionScope = this.#captureSession();
     try {
-      const reviews = await this.#port.listReviews(token, reservationId);
+      const reviews = await this.#waitSession(
+        this.#port.listReviews(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         reviews: Object.freeze(reviews),
       });
-      return reviews;
+      return await this.#waitSession(reviews, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cargar reseñas";
       this.#setSnapshot({ error });
       throw err;
     }
   }
-
   async submitReview(
-    token: AccessToken,
     reservationId: string,
     input: {
       rating: number;
@@ -715,29 +926,35 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<ReservationReview> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const review = await this.#port.createReview(
-        token,
-        idempotencyKey,
-        reservationId,
-        input,
+      const review = await this.#waitSession(
+        this.#port.createReview(
+          idempotencyKey,
+          reservationId,
+          input,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         reviews: Object.freeze([...this.#snapshot.reviews, review]),
         actionLoading: false,
       });
-      return review;
+      return await this.#waitSession(review, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al publicar reseña";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async reportReview(
-    token: AccessToken,
     reservationId: string,
     reviewId: string,
     input: {
@@ -747,162 +964,207 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<ReviewReport> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const report = await this.#port.reportReview(
-        token,
-        idempotencyKey,
-        reservationId,
-        reviewId,
-        input,
+      const report = await this.#waitSession(
+        this.#port.reportReview(
+          idempotencyKey,
+          reservationId,
+          reviewId,
+          input,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({ actionLoading: false });
-      return report;
+      return await this.#waitSession(report, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al reportar reseña";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
-  async loadDisputes(
-    token: AccessToken,
-    reservationId: string,
-  ): Promise<readonly TrialDispute[]> {
+  async loadDisputes(reservationId: string): Promise<readonly TrialDispute[]> {
+    const _sessionScope = this.#captureSession();
     try {
-      const disputes = await this.#port.listDisputes(token, reservationId);
+      const disputes = await this.#waitSession(
+        this.#port.listDisputes(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         disputes: Object.freeze(disputes),
       });
-      return disputes;
+      return await this.#waitSession(disputes, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cargar disputas";
       this.#setSnapshot({ error });
       throw err;
     }
   }
-
   async openDispute(
-    token: AccessToken,
     reservationId: string,
     reasonCode = "ensayo_privacidad",
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<TrialDispute> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const dispute = await this.#port.openDispute(
-        token,
-        idempotencyKey,
-        reservationId,
-        reasonCode,
+      const dispute = await this.#waitSession(
+        this.#port.openDispute(
+          idempotencyKey,
+          reservationId,
+          reasonCode,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         disputes: Object.freeze([...this.#snapshot.disputes, dispute]),
         actionLoading: false,
       });
-      return dispute;
+      return await this.#waitSession(dispute, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al abrir disputa";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
-  async loadDamageClaim(
-    token: AccessToken,
-    reservationId: string,
-  ): Promise<DamageClaim | null> {
+  async loadDamageClaim(reservationId: string): Promise<DamageClaim | null> {
+    const _sessionScope = this.#captureSession();
     try {
-      const claim = await this.#port.getDamageClaim(token, reservationId);
+      const claim = await this.#waitSession(
+        this.#port.getDamageClaim(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         damageClaim: claim,
       });
-      return claim;
+      return await this.#waitSession(claim, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cargar reclamo de daños";
       this.#setSnapshot({ error });
       throw err;
     }
   }
-
   async openDamageClaim(
-    token: AccessToken,
     reservationId: string,
     description: string,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<DamageClaim> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const claim = await this.#port.openDamageClaim(
-        token,
-        idempotencyKey,
-        reservationId,
-        description,
+      const claim = await this.#waitSession(
+        this.#port.openDamageClaim(
+          idempotencyKey,
+          reservationId,
+          description,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         damageClaim: claim,
         actionLoading: false,
       });
-      return claim;
+      return await this.#waitSession(claim, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al abrir reclamo de daños";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async submitDamageClaimDefense(
-    token: AccessToken,
     reservationId: string,
     description: string,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<DamageClaim> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const claim = await this.#port.submitDamageClaimDefense(
-        token,
-        idempotencyKey,
-        reservationId,
-        description,
+      const claim = await this.#waitSession(
+        this.#port.submitDamageClaimDefense(
+          idempotencyKey,
+          reservationId,
+          description,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         damageClaim: claim,
         actionLoading: false,
       });
-      return claim;
+      return await this.#waitSession(claim, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al registrar descargo";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
-  async loadGuarantee(
-    token: AccessToken,
-    reservationId: string,
-  ): Promise<Guarantee | null> {
+  async loadGuarantee(reservationId: string): Promise<Guarantee | null> {
+    const _sessionScope = this.#captureSession();
     try {
-      const guarantee = await this.#port.getGuarantee(token, reservationId);
+      const guarantee = await this.#waitSession(
+        this.#port.getGuarantee(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         guarantee,
       });
-      return guarantee;
+      return await this.#waitSession(guarantee, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cargar garantía";
       this.#setSnapshot({ error });
       throw err;
     }
   }
-
   async executeGuaranteeOperation(
-    token: AccessToken,
     reservationId: string,
     input: {
       kind: "autorizacion" | "captura" | "liberacion";
@@ -911,20 +1173,28 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<Guarantee> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const guarantee = await this.#port.executeGuaranteeOperation(
-        token,
-        idempotencyKey,
-        reservationId,
-        input,
+      const guarantee = await this.#waitSession(
+        this.#port.executeGuaranteeOperation(
+          idempotencyKey,
+          reservationId,
+          input,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         guarantee,
         actionLoading: false,
       });
-      return guarantee;
+      return await this.#waitSession(guarantee, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -933,91 +1203,116 @@ export class BookingsFacade {
       throw err;
     }
   }
-
-  async loadSettlement(
-    token: AccessToken,
-    reservationId: string,
-  ): Promise<Settlement | null> {
+  async loadSettlement(reservationId: string): Promise<Settlement | null> {
+    const _sessionScope = this.#captureSession();
     try {
-      const settlement = await this.#port.getSettlement(token, reservationId);
+      const settlement = await this.#waitSession(
+        this.#port.getSettlement(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         settlement,
       });
-      return settlement;
+      return await this.#waitSession(settlement, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al cargar liquidación";
       this.#setSnapshot({ error });
       throw err;
     }
   }
-
   async requestSettlement(
-    token: AccessToken,
     reservationId: string,
     outcome?: SimulatedPaymentOutcome,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<Settlement> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const settlement = await this.#port.requestSettlement(
-        token,
-        idempotencyKey,
-        reservationId,
-        outcome,
+      const settlement = await this.#waitSession(
+        this.#port.requestSettlement(
+          idempotencyKey,
+          reservationId,
+          outcome,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         settlement,
         actionLoading: false,
       });
-      return settlement;
+      return await this.#waitSession(settlement, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al solicitar liquidación";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async reconcileSettlement(
-    token: AccessToken,
     reservationId: string,
     outcome: "exito" | "rechazo",
   ): Promise<Settlement> {
+    const _sessionScope = this.#captureSession();
     this.#setSnapshot({ actionLoading: true, error: null });
     try {
-      const settlement = await this.#port.reconcileSettlement(
-        token,
-        reservationId,
-        outcome,
+      const settlement = await this.#waitSession(
+        this.#port.reconcileSettlement(
+          reservationId,
+          outcome,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         settlement,
         actionLoading: false,
       });
-      return settlement;
+      return await this.#waitSession(settlement, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error ? err.message : "Error al conciliar liquidación";
       this.#setSnapshot({ actionLoading: false, error });
       throw err;
     }
   }
-
   async loadSettlementReceipt(
-    token: AccessToken,
     reservationId: string,
   ): Promise<SettlementReceipt | null> {
+    const _sessionScope = this.#captureSession();
     try {
-      const receipt = await this.#port.getSettlementReceipt(
-        token,
-        reservationId,
+      const receipt = await this.#waitSession(
+        this.#port.getSettlementReceipt(
+          reservationId,
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
       );
       this.#setSnapshot({
         settlementReceipt: receipt,
       });
-      return receipt;
+      return await this.#waitSession(receipt, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -1026,15 +1321,24 @@ export class BookingsFacade {
       throw err;
     }
   }
-
-  async loadBusinessClock(token: AccessToken): Promise<BusinessClock> {
+  async loadBusinessClock(): Promise<BusinessClock> {
+    const _sessionScope = this.#captureSession();
     try {
-      const clock = await this.#port.getBusinessClock(token);
+      const clock = await this.#waitSession(
+        this.#port.getBusinessClock(
+          this.#sessionSignal(_sessionScope, undefined),
+        ),
+        _sessionScope,
+      );
       this.#setSnapshot({
         businessClock: clock,
       });
-      return clock;
+      return await this.#waitSession(clock, _sessionScope);
     } catch (err) {
+      if (!this.#isSessionCurrent(_sessionScope)) {
+        throw new DOMException("Session changed", "AbortError");
+      }
+      this.#sessionError(err);
       const error =
         err instanceof Error
           ? err.message
@@ -1043,48 +1347,56 @@ export class BookingsFacade {
       throw err;
     }
   }
-
   async selectReservation(
-    token: AccessToken,
     reservationId: string,
   ): Promise<BookingDetail | null> {
-    return this.loadReservationDetail(token, reservationId);
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.loadReservationDetail(reservationId),
+      _sessionScope,
+    );
   }
-
   async submitSimulatedPayment(
-    token: AccessToken,
     reservationId: string,
     outcome: SimulatedPaymentOutcome,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<BookingReservation> {
-    return this.simulatePayment(token, reservationId, outcome, idempotencyKey);
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.simulatePayment(reservationId, outcome, idempotencyKey),
+      _sessionScope,
+    );
   }
-
   async acceptReservation(
-    token: AccessToken,
     reservationId: string,
     reason?: string,
   ): Promise<BookingReservation> {
-    return this.decideReservation(token, reservationId, "aprobar", reason);
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.decideReservation(reservationId, "aprobar", reason),
+      _sessionScope,
+    );
   }
-
   async rejectReservation(
-    token: AccessToken,
     reservationId: string,
     reason?: string,
   ): Promise<BookingReservation> {
-    return this.decideReservation(token, reservationId, "rechazar", reason);
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.decideReservation(reservationId, "rechazar", reason),
+      _sessionScope,
+    );
   }
-
   async requestCancellationPreview(
-    token: AccessToken,
     reservationId: string,
   ): Promise<CancellationPreview> {
-    return this.previewCancellation(token, reservationId);
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.previewCancellation(reservationId),
+      _sessionScope,
+    );
   }
-
   async performCheckIn(
-    token: AccessToken,
     reservationId: string,
     input: {
       occurred_at?: string;
@@ -1095,11 +1407,13 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<RentalOperation> {
-    return this.recordCheckIn(token, reservationId, input, idempotencyKey);
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.recordCheckIn(reservationId, input, idempotencyKey),
+      _sessionScope,
+    );
   }
-
   async performCheckOut(
-    token: AccessToken,
     reservationId: string,
     input: {
       occurred_at?: string;
@@ -1110,11 +1424,13 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<RentalOperation> {
-    return this.recordCheckOut(token, reservationId, input, idempotencyKey);
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.recordCheckOut(reservationId, input, idempotencyKey),
+      _sessionScope,
+    );
   }
-
   async performReception(
-    token: AccessToken,
     reservationId: string,
     input: {
       result?:
@@ -1123,40 +1439,39 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<RentalOperation> {
-    return this.recordReception(token, reservationId, input, idempotencyKey);
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.recordReception(reservationId, input, idempotencyKey),
+      _sessionScope,
+    );
   }
-
   async claimSecurityDeposit(
-    token: AccessToken,
     reservationId: string,
     description: string,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<DamageClaim> {
-    return this.openDamageClaim(
-      token,
-      reservationId,
-      description,
-      idempotencyKey,
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.openDamageClaim(reservationId, description, idempotencyKey),
+      _sessionScope,
     );
   }
-
-  async loadReceipt(
-    token: AccessToken,
-    reservationId: string,
-  ): Promise<SettlementReceipt | null> {
-    return this.loadSettlementReceipt(token, reservationId);
+  async loadReceipt(reservationId: string): Promise<SettlementReceipt | null> {
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.loadSettlementReceipt(reservationId),
+      _sessionScope,
+    );
   }
-
-  async getBusinessClock(token: AccessToken): Promise<BusinessClock> {
-    return this.loadBusinessClock(token);
+  async getBusinessClock(): Promise<BusinessClock> {
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(this.loadBusinessClock(), _sessionScope);
   }
-
-  async advanceBusinessClock(token: AccessToken): Promise<BusinessClock> {
-    return this.loadBusinessClock(token);
+  async advanceBusinessClock(): Promise<BusinessClock> {
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(this.loadBusinessClock(), _sessionScope);
   }
-
   async reconcileGuarantee(
-    token: AccessToken,
     reservationId: string,
     input: {
       kind: "autorizacion" | "captura" | "liberacion";
@@ -1165,33 +1480,31 @@ export class BookingsFacade {
     },
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<Guarantee> {
-    return this.executeGuaranteeOperation(
-      token,
-      reservationId,
-      input,
-      idempotencyKey,
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.executeGuaranteeOperation(reservationId, input, idempotencyKey),
+      _sessionScope,
     );
   }
-
   async submitFinancialDecision(
-    token: AccessToken,
     reservationId: string,
     outcome?: SimulatedPaymentOutcome,
     idempotencyKey = generateIdempotencyKey(),
   ): Promise<Settlement> {
-    return this.requestSettlement(
-      token,
-      reservationId,
-      outcome,
-      idempotencyKey,
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.requestSettlement(reservationId, outcome, idempotencyKey),
+      _sessionScope,
     );
   }
-
   getDisputeHistory(): readonly TrialDisputeTransition[] {
     return this.#snapshot.currentDisputeHistory;
   }
-
-  async fetchFixture(token: AccessToken): Promise<unknown> {
-    return this.#port.getFixture(token);
+  async fetchFixture(): Promise<unknown> {
+    const _sessionScope = this.#captureSession();
+    return await this.#waitSession(
+      this.#port.getFixture(this.#sessionSignal(_sessionScope, undefined)),
+      _sessionScope,
+    );
   }
 }

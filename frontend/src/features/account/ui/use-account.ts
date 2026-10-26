@@ -4,37 +4,26 @@ import { useCallback, useSyncExternalStore } from "react";
 import { accountFacade } from "../account-runtime";
 import type { AccountSnapshot } from "../application/account-facade";
 import type { RightsRequestKind } from "../domain/privacy";
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type { Profile } from "../domain/profile";
 import type { SyntheticPayoutAccount } from "../domain/payout-account";
 import type { RightsRequest } from "../domain/privacy";
 
 export interface AccountView {
   snapshot: AccountSnapshot;
-  loadOverview(token: AccessToken): Promise<AccountSnapshot>;
-  updateProfile(
-    token: AccessToken,
-    input: { displayName: string; phone?: string },
-  ): Promise<Profile>;
-  generateSyntheticPhoto(
-    token: AccessToken,
-    idempotencyKey: string,
-  ): Promise<void>;
-  removeProfilePhoto(token: AccessToken, idempotencyKey: string): Promise<void>;
+  loadOverview(): Promise<AccountSnapshot>;
+  updateProfile(input: {
+    displayName: string;
+    phone?: string;
+  }): Promise<Profile>;
+  generateSyntheticPhoto(idempotencyKey: string): Promise<void>;
+  removeProfilePhoto(idempotencyKey: string): Promise<void>;
   createOrReplacePayoutAccount(
-    token: AccessToken,
     idempotencyKey: string,
   ): Promise<SyntheticPayoutAccount>;
-  revokePayoutAccount(
-    token: AccessToken,
-    idempotencyKey: string,
-  ): Promise<void>;
-  requestDataRight(
-    token: AccessToken,
-    kind: RightsRequestKind,
-  ): Promise<RightsRequest>;
-  exportIdentityBlob(token: AccessToken): Promise<Blob | null>;
-  downloadIdentityArchive(token: AccessToken): Promise<Blob | null>;
+  revokePayoutAccount(idempotencyKey: string): Promise<void>;
+  requestDataRight(kind: RightsRequestKind): Promise<RightsRequest>;
+  exportIdentityBlob(): Promise<Blob | null>;
+  downloadIdentityArchive(): Promise<Blob | null>;
   clear(): void;
 }
 
@@ -45,46 +34,42 @@ export function useAccount(): AccountView {
     accountFacade.getServerSnapshot,
   );
 
-  const loadOverview = useCallback(
-    (token: AccessToken) => accountFacade.loadOverview(token),
-    [],
-  );
+  const loadOverview = useCallback(() => accountFacade.loadOverview(), []);
   const updateProfile = useCallback(
-    (token: AccessToken, input: { displayName: string; phone?: string }) =>
-      accountFacade.updateProfile(token, input),
+    (input: { displayName: string; phone?: string }) =>
+      accountFacade.updateProfile(input),
     [],
   );
   const generateSyntheticPhoto = useCallback(
-    (token: AccessToken, idempotencyKey: string) =>
-      accountFacade.generateSyntheticPhoto(token, idempotencyKey),
+    (idempotencyKey: string) =>
+      accountFacade.generateSyntheticPhoto(idempotencyKey),
     [],
   );
   const removeProfilePhoto = useCallback(
-    (token: AccessToken, idempotencyKey: string) =>
-      accountFacade.removeProfilePhoto(token, idempotencyKey),
+    (idempotencyKey: string) =>
+      accountFacade.removeProfilePhoto(idempotencyKey),
     [],
   );
   const createOrReplacePayoutAccount = useCallback(
-    (token: AccessToken, idempotencyKey: string) =>
-      accountFacade.createOrReplacePayoutAccount(token, idempotencyKey),
+    (idempotencyKey: string) =>
+      accountFacade.createOrReplacePayoutAccount(idempotencyKey),
     [],
   );
   const revokePayoutAccount = useCallback(
-    (token: AccessToken, idempotencyKey: string) =>
-      accountFacade.revokePayoutAccount(token, idempotencyKey),
+    (idempotencyKey: string) =>
+      accountFacade.revokePayoutAccount(idempotencyKey),
     [],
   );
   const requestDataRight = useCallback(
-    (token: AccessToken, kind: RightsRequestKind) =>
-      accountFacade.requestDataRight(token, kind),
+    (kind: RightsRequestKind) => accountFacade.requestDataRight(kind),
     [],
   );
   const exportIdentityBlob = useCallback(
-    (token: AccessToken) => accountFacade.exportIdentityBlob(token),
+    () => accountFacade.exportIdentityBlob(),
     [],
   );
   const downloadIdentityArchive = useCallback(
-    (token: AccessToken) => accountFacade.downloadIdentityArchive(token),
+    () => accountFacade.downloadIdentityArchive(),
     [],
   );
   const clear = useCallback(() => accountFacade.clear(), []);

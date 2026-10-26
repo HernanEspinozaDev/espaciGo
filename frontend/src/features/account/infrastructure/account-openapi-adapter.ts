@@ -3,7 +3,6 @@ import "client-only";
 import { apiClient } from "@/lib/api/client";
 import { ApiProtocolError, normalizeApiError } from "@/lib/api/errors";
 import { serializeExactJson } from "@/lib/api/exact-json";
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type { AccountPort } from "../application/account.port";
 import type { Profile } from "../domain/profile";
 import type { ProfilePhotoMetadata } from "../domain/photo";
@@ -18,12 +17,8 @@ import type {
 } from "../domain/privacy";
 
 export class OpenApiAccountAdapter implements AccountPort {
-  async getProfile(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<Profile | null> {
+  async getProfile(signal?: AbortSignal): Promise<Profile | null> {
     const result = await apiClient.GET("/profile", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return null;
@@ -39,12 +34,10 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async updateProfile(
-    token: AccessToken,
     payload: { displayName: string; phone?: string },
     signal?: AbortSignal,
   ): Promise<Profile> {
     const result = await apiClient.PUT("/profile", {
-      headers: { Authorization: `Bearer ${token}` },
       body: {
         display_name: payload.displayName,
         ...(payload.phone !== undefined ? { phone: payload.phone } : {}),
@@ -64,11 +57,9 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async getProfilePhoto(
-    token: AccessToken,
     signal?: AbortSignal,
   ): Promise<ProfilePhotoMetadata | null> {
     const result = await apiClient.GET("/profile/photo", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return null;
@@ -110,7 +101,6 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async generateSyntheticPhoto(
-    token: AccessToken,
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -120,9 +110,6 @@ export class OpenApiAccountAdapter implements AccountPort {
           "Idempotency-Key": idempotencyKey,
         },
       },
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
       signal,
     });
     if (!result.response.ok) {
@@ -131,7 +118,6 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async uploadProfilePhoto(
-    token: AccessToken,
     idempotencyKey: string,
     imageFile: Blob | File,
     signal?: AbortSignal,
@@ -144,9 +130,6 @@ export class OpenApiAccountAdapter implements AccountPort {
           "Idempotency-Key": idempotencyKey,
         },
       },
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
       body: formData as unknown as { image: string },
       signal,
     });
@@ -156,7 +139,6 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async removeProfilePhoto(
-    token: AccessToken,
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -166,9 +148,6 @@ export class OpenApiAccountAdapter implements AccountPort {
           "Idempotency-Key": idempotencyKey,
         },
       },
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
       signal,
     });
     if (result.response.status === 404) return;
@@ -177,12 +156,8 @@ export class OpenApiAccountAdapter implements AccountPort {
     }
   }
 
-  async getProfilePhotoContent(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<Blob | null> {
+  async getProfilePhotoContent(signal?: AbortSignal): Promise<Blob | null> {
     const result = await apiClient.GET("/profile/photo/content", {
-      headers: { Authorization: `Bearer ${token}` },
       parseAs: "blob",
       signal,
     });
@@ -194,11 +169,9 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async getPayoutAccount(
-    token: AccessToken,
     signal?: AbortSignal,
   ): Promise<SyntheticPayoutAccount | null> {
     const result = await apiClient.GET("/payout-account", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return null;
@@ -209,7 +182,6 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async createOrReplacePayoutAccount(
-    token: AccessToken,
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<SyntheticPayoutAccount> {
@@ -218,9 +190,6 @@ export class OpenApiAccountAdapter implements AccountPort {
         header: {
           "Idempotency-Key": idempotencyKey,
         },
-      },
-      headers: {
-        Authorization: `Bearer ${token}`,
       },
       signal,
     });
@@ -239,7 +208,6 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async revokePayoutAccount(
-    token: AccessToken,
     idempotencyKey: string,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -249,9 +217,6 @@ export class OpenApiAccountAdapter implements AccountPort {
           "Idempotency-Key": idempotencyKey,
         },
       },
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
       signal,
     });
     if (result.response.status === 404) return;
@@ -260,12 +225,8 @@ export class OpenApiAccountAdapter implements AccountPort {
     }
   }
 
-  async listRightsRequests(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<RightsRequest[]> {
+  async listRightsRequests(signal?: AbortSignal): Promise<RightsRequest[]> {
     const result = await apiClient.GET("/rights-requests", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -275,12 +236,10 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async requestDataRight(
-    token: AccessToken,
     kind: RightsRequestKind,
     signal?: AbortSignal,
   ): Promise<RightsRequest> {
     const result = await apiClient.POST("/rights-requests", {
-      headers: { Authorization: `Bearer ${token}` },
       body: { type: kind },
       bodySerializer: serializeExactJson,
       signal,
@@ -293,11 +252,9 @@ export class OpenApiAccountAdapter implements AccountPort {
   }
 
   async exportIdentityData(
-    token: AccessToken,
     signal?: AbortSignal,
   ): Promise<OwnIdentityExport | null> {
     const result = await apiClient.GET("/privacy/export", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return null;
@@ -307,12 +264,8 @@ export class OpenApiAccountAdapter implements AccountPort {
     return result.data ?? null;
   }
 
-  async exportIdentityBlob(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<Blob | null> {
+  async exportIdentityBlob(signal?: AbortSignal): Promise<Blob | null> {
     const result = await apiClient.GET("/privacy/export", {
-      headers: { Authorization: `Bearer ${token}` },
       parseAs: "blob",
       signal,
     });
@@ -323,12 +276,8 @@ export class OpenApiAccountAdapter implements AccountPort {
     return (result.data as Blob) ?? (await result.response.blob());
   }
 
-  async downloadIdentityArchive(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<Blob | null> {
+  async downloadIdentityArchive(signal?: AbortSignal): Promise<Blob | null> {
     const result = await apiClient.GET("/privacy/export/archive", {
-      headers: { Authorization: `Bearer ${token}` },
       parseAs: "blob",
       signal,
     });

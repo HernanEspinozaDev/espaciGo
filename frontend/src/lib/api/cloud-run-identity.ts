@@ -45,6 +45,26 @@ export async function getCloudRunIdentityHeaders(
   return {};
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const h = hostname.toLowerCase();
+  return (
+    h === "localhost" || h === "[::1]" || h === "::1" || h.startsWith("127.")
+  );
+}
+
+export async function getCloudRunIdentityHeadersForBackend(
+  backend: URL,
+  fetchImpl: typeof fetch = fetch,
+): Promise<Record<string, string>> {
+  if (isLoopbackHost(backend.hostname)) {
+    return {};
+  }
+  return getCloudRunIdentityHeaders(
+    getTargetAudience(backend.origin),
+    fetchImpl,
+  );
+}
+
 export function clearCloudRunIdentityCacheForTests() {
   tokenCache.clear();
 }

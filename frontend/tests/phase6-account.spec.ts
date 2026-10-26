@@ -6,6 +6,7 @@ import {
   type Route,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { createBffFixtureState } from "./helpers/bff-fixture";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -37,10 +38,15 @@ async function mockGateway(
   page: Page,
   responder: GatewayResponder,
 ): Promise<void> {
+  const bff = createBffFixtureState();
   await page.route("**/api/backend/**", async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    const result = await responder(pathname, request.method(), request);
+    const result = bff.adapt(
+      request,
+      await responder(pathname, request.method(), request),
+    );
+    if (!result) throw new Error("Missing controlled BFF reply");
     const isBinary =
       Buffer.isBuffer(result.body) || typeof result.body === "string";
     await route.fulfill({
@@ -78,7 +84,6 @@ function apiError(
 }
 
 const accountId = "770e8400-e29b-41d4-a716-446655440000";
-const sessionToken = "synthetic-phase6-session-token-941";
 const samplePngBuffer = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
   "base64",
@@ -120,8 +125,6 @@ test("@phase6 @controlled /mi-cuenta: 404 inicial muestra estado sin configurar 
           account_id: accountId,
           roles: ["arrendatario", "anfitrion"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
           expires_at: new Date(Date.now() + 3600_000).toISOString(),
           restricted_mode: false,
         },
@@ -226,8 +229,6 @@ test("@phase6 @controlled foto sintética: generar foto (PUT /profile/photo) car
           account_id: accountId,
           roles: ["arrendatario"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
           expires_at: new Date(Date.now() + 3600_000).toISOString(),
           restricted_mode: false,
         },
@@ -276,7 +277,7 @@ test("@phase6 @controlled foto sintética: generar foto (PUT /profile/photo) car
     }
     if (pathname === "/api/backend/profile/photo/content" && method === "GET") {
       getContentCount += 1;
-      expect(request.headers()["authorization"]).toBe(`Bearer ${sessionToken}`);
+      expect(request.headers()["authorization"]).toBeUndefined();
       return {
         status: 200,
         headers: { "content-type": "image/png" },
@@ -351,8 +352,6 @@ test("@phase6 @controlled cuenta de cobro fake: PUT /payout-account crea referen
           account_id: accountId,
           roles: ["anfitrion"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
           expires_at: new Date(Date.now() + 3600_000).toISOString(),
           restricted_mode: false,
         },
@@ -486,8 +485,6 @@ test("@phase6 @controlled /mi-cuenta/privacidad: registrar solicitud ARCO (POST 
           account_id: accountId,
           roles: ["arrendatario"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
           expires_at: new Date(Date.now() + 3600_000).toISOString(),
           restricted_mode: false,
         },
@@ -530,7 +527,7 @@ test("@phase6 @controlled /mi-cuenta/privacidad: registrar solicitud ARCO (POST 
     }
     if (pathname === "/api/backend/privacy/export" && method === "GET") {
       jsonExportCount += 1;
-      expect(request.headers()["authorization"]).toBe(`Bearer ${sessionToken}`);
+      expect(request.headers()["authorization"]).toBeUndefined();
       return {
         status: 200,
         headers: { "content-type": "application/json" },
@@ -546,7 +543,7 @@ test("@phase6 @controlled /mi-cuenta/privacidad: registrar solicitud ARCO (POST 
       method === "GET"
     ) {
       zipExportCount += 1;
-      expect(request.headers()["authorization"]).toBe(`Bearer ${sessionToken}`);
+      expect(request.headers()["authorization"]).toBeUndefined();
       return {
         status: 200,
         headers: { "content-type": "application/zip" },
@@ -615,8 +612,6 @@ test("@phase6 @controlled /mi-cuenta/seguridad: actualizar contraseña (POST /au
           account_id: accountId,
           roles: ["arrendatario"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
           expires_at: new Date(Date.now() + 3600_000).toISOString(),
           restricted_mode: false,
         },
@@ -645,7 +640,7 @@ test("@phase6 @controlled /mi-cuenta/seguridad: actualizar contraseña (POST /au
     }
     if (pathname === "/api/backend/auth/password/change" && method === "POST") {
       changePasswordCount += 1;
-      expect(request.headers()["authorization"]).toBe(`Bearer ${sessionToken}`);
+      expect(request.headers()["authorization"]).toBeUndefined();
       lastChangePayload = JSON.parse(request.postData() ?? "{}");
       return { status: 200, body: {} };
     }
@@ -707,8 +702,6 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: visualización de elegibili
           account_id: accountId,
           roles: ["anfitrion"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
           expires_at: new Date(Date.now() + 3600_000).toISOString(),
           restricted_mode: false,
         },
@@ -931,8 +924,6 @@ test("@phase6 @a11y account routes fit both viewports and have no Axe violations
           account_id: accountId,
           roles: ["arrendatario", "anfitrion"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
           expires_at: new Date(Date.now() + 3600_000).toISOString(),
           restricted_mode: false,
         },

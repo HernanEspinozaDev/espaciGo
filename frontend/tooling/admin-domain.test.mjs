@@ -257,7 +257,7 @@ test("admin facade: snapshot immutability, reactivity, and pure validation gate"
   });
 
   // Load global me
-  await facade.loadGlobalMe("test-token");
+  await facade.loadGlobalMe();
   assert.ok(notifications > 0);
   const afterLoad = facade.getSnapshot();
   assert.equal(
@@ -272,7 +272,6 @@ test("admin facade: snapshot immutability, reactivity, and pure validation gate"
   // Pure validation: short reason rejected before calling port
   calls = [];
   const blockOk = await facade.setGlobalAccountBlocked(
-    "test-token",
     "account-1",
     true,
     "abc", // Less than 5 chars!
@@ -282,15 +281,11 @@ test("admin facade: snapshot immutability, reactivity, and pure validation gate"
   assert.ok(facade.getSnapshot().error?.includes("al menos 5 caracteres"));
 
   // Concurrency check: invalid expected_updated_at rejected
-  const updateOk = await facade.updateGlobalAccountProfile(
-    "test-token",
-    "account-1",
-    {
-      display_name: "Nuevo Nombre",
-      expected_updated_at: "not-a-date",
-      reason: "correccion_perfil",
-    },
-  );
+  const updateOk = await facade.updateGlobalAccountProfile("account-1", {
+    display_name: "Nuevo Nombre",
+    expected_updated_at: "not-a-date",
+    reason: "correccion_perfil",
+  });
   assert.equal(updateOk, false);
   assert.equal(calls.length, 0);
   assert.ok(facade.getSnapshot().error?.includes("expected_updated_at"));
@@ -322,15 +317,11 @@ test("admin facade: gate 428 recent auth, 409 conflict, and 403 memory purge", a
 
   // Gate 428: Precondition Required (Recent Auth)
   errorToThrow = { status: 428, code: "precondition_required" };
-  const ok428 = await facade.updateGlobalAccountProfile(
-    "test-token",
-    "account-1",
-    {
-      display_name: "Admin",
-      expected_updated_at: "2026-10-25T14:30:00Z",
-      reason: "correccion_perfil",
-    },
-  );
+  const ok428 = await facade.updateGlobalAccountProfile("account-1", {
+    display_name: "Admin",
+    expected_updated_at: "2026-10-25T14:30:00Z",
+    reason: "correccion_perfil",
+  });
   assert.equal(ok428, false);
   assert.equal(facade.getSnapshot().recentAuthRequired, true);
   assert.ok(facade.getSnapshot().error?.includes("428"));
@@ -341,28 +332,24 @@ test("admin facade: gate 428 recent auth, 409 conflict, and 403 memory purge", a
 
   // Gate 409: Concurrency Conflict
   errorToThrow = { status: 409, code: "concurrency_conflict" };
-  const ok409 = await facade.updateGlobalAccountProfile(
-    "test-token",
-    "account-1",
-    {
-      display_name: "Admin",
-      expected_updated_at: "2026-10-25T14:30:00Z",
-      reason: "correccion_perfil",
-    },
-  );
+  const ok409 = await facade.updateGlobalAccountProfile("account-1", {
+    display_name: "Admin",
+    expected_updated_at: "2026-10-25T14:30:00Z",
+    reason: "correccion_perfil",
+  });
   assert.equal(ok409, false);
   assert.equal(facade.getSnapshot().concurrencyConflict, true);
   assert.ok(facade.getSnapshot().error?.includes("409"));
 
   // Populate some private data first
   errorToThrow = null;
-  await facade.loadOverview("test-token");
+  await facade.loadOverview();
   assert.notEqual(facade.getSnapshot().overview, null);
 
   // Gate 403: Forbidden triggers immediate memory purge of private data
   const clearBefore = privateBlobUrls.clearCount;
   errorToThrow = { status: 403, code: "forbidden" };
-  await facade.loadOverview("test-token");
+  await facade.loadOverview();
 
   // Snapshot must have private data purged
   assert.equal(facade.getSnapshot().overview, null);

@@ -1,0 +1,64 @@
+{
+  "cli": "@google/design.md@0.4.0",
+  "spec_sha256": "a3af5da469790769d4fdaa05bd97d27a746b9807d4e6ae16e18be7a33e944904",
+  "lint": {
+    "findings": [
+      {
+        "severity": "warning",
+        "path": "colors.accent",
+        "message": "'accent' is defined but never referenced by any component.",
+        "rule": "orphaned-tokens"
+      },
+      {
+        "severity": "warning",
+        "path": "colors.border",
+        "message": "'border' is defined but never referenced by any component.",
+        "rule": "orphaned-tokens"
+      },
+      {
+        "severity": "warning",
+        "path": "colors.control-border",
+        "message": "'control-border' is defined but never referenced by any component.",
+        "rule": "orphaned-tokens"
+      },
+      {
+        "severity": "warning",
+        "path": "colors.focus",
+        "message": "'focus' is defined but never referenced by any component.",
+        "rule": "orphaned-tokens"
+      },
+      {
+        "severity": "info",
+        "message": "Design system defines 22 colors, 14 components.",
+        "rule": "token-summary"
+      },
+      {
+        "severity": "info",
+        "path": "spacing",
+        "message": "No 'spacing' section defined. Layout spacing will fall back to agent defaults.",
+        "rule": "missing-sections"
+      },
+      {
+        "severity": "info",
+        "path": "rounded",
+        "message": "No 'rounded' section defined. Corner rounding will fall back to agent defaults.",
+        "rule": "missing-sections"
+      },
+      {
+        "severity": "warning",
+        "path": "typography",
+        "message": "No typography tokens defined. Agents will use default font choices, reducing your control over the design system's typographic identity.",
+        "rule": "missing-typography"
+      }
+    ],
+    "summary": {
+      "errors": 0,
+      "warnings": 5,
+      "infos": 3
+    }
+  },
+  "export_color_count": 22,
+  "runtime_imported": false,
+  "scope": "colors-only; no geometry/typography exported; rejected proposal archived under rejected/",
+  "known_warnings": "Typography, spacing and rounding intentionally inherited unchanged from Next source, never agent defaults. Other warnings are decorative/border/focus color roles."
+}

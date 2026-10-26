@@ -34,7 +34,11 @@ interface ReservationLifecyclePanelProps {
 export function ReservationLifecyclePanel({
   reservationId,
 }: ReservationLifecyclePanelProps) {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
+  const isAuthenticated = authSnapshot.status === "authenticated";
+  const accountId = authSnapshot.accountId;
+  const expiresAt = authSnapshot.expiresAt;
+
   const {
     currentReservation,
     contract,
@@ -83,18 +87,34 @@ export function ReservationLifecyclePanel({
   >("sin_evidencia");
   const [localFeedback, setLocalFeedback] = useState<string | null>(null);
 
+  const accountKey = `${authSnapshot.status}:${accountId}:${expiresAt}`;
+  const [prevAccountKey, setPrevAccountKey] = useState(accountKey);
+
+  if (prevAccountKey !== accountKey) {
+    setPrevAccountKey(accountKey);
+    setRejectReason("");
+    setCancelReason("");
+    setOperationComments("");
+    setReceptionObservations("");
+    setReceptionResult("recepcion_conforme");
+    setEvidenceCode("sin_evidencia");
+    setLocalFeedback(null);
+  }
+
   // Initial load
   useEffect(() => {
-    if (accessToken && reservationId) {
-      loadReservationDetail(accessToken, reservationId).catch(() => {});
-      loadContract(accessToken, reservationId).catch(() => {});
-      loadOperations(accessToken, reservationId).catch(() => {});
-      loadGuarantee(accessToken, reservationId).catch(() => {});
-      loadSettlement(accessToken, reservationId).catch(() => {});
-      getBusinessClock(accessToken).catch(() => {});
+    if (isAuthenticated && reservationId) {
+      loadReservationDetail(reservationId).catch(() => {});
+      loadContract(reservationId).catch(() => {});
+      loadOperations(reservationId).catch(() => {});
+      loadGuarantee(reservationId).catch(() => {});
+      loadSettlement(reservationId).catch(() => {});
+      getBusinessClock().catch(() => {});
     }
   }, [
-    accessToken,
+    isAuthenticated,
+    accountId,
+    expiresAt,
     reservationId,
     loadReservationDetail,
     loadContract,
@@ -120,9 +140,9 @@ export function ReservationLifecyclePanel({
 
   // Download contract PDF with private Blob cleanup
   const handleDownloadPdf = async () => {
-    if (!accessToken || !contract) return;
+    if (!isAuthenticated || !contract) return;
     try {
-      const blob = await downloadContractPdf(accessToken, contract.id);
+      const blob = await downloadContractPdf(contract.id);
       if (!blob) throw new Error("El archivo no está disponible.");
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -309,9 +329,8 @@ export function ReservationLifecyclePanel({
               <div className="flex flex-wrap gap-3">
                 <Button
                   onClick={async () => {
-                    if (!accessToken) return;
+                    if (!isAuthenticated) return;
                     await submitSimulatedPayment(
-                      accessToken,
                       currentReservation.id,
                       "exito",
                     );
@@ -325,9 +344,8 @@ export function ReservationLifecyclePanel({
                 <Button
                   variant="destructive"
                   onClick={async () => {
-                    if (!accessToken) return;
+                    if (!isAuthenticated) return;
                     await submitSimulatedPayment(
-                      accessToken,
                       currentReservation.id,
                       "rechazo",
                     );
@@ -340,9 +358,8 @@ export function ReservationLifecyclePanel({
                 <Button
                   variant="outline"
                   onClick={async () => {
-                    if (!accessToken) return;
+                    if (!isAuthenticated) return;
                     await submitSimulatedPayment(
-                      accessToken,
                       currentReservation.id,
                       "sin_respuesta",
                     );
@@ -384,8 +401,8 @@ export function ReservationLifecyclePanel({
             <div className="flex flex-wrap gap-3">
               <Button
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await acceptReservation(accessToken, currentReservation.id);
+                  if (!isAuthenticated) return;
+                  await acceptReservation(currentReservation.id);
                 }}
                 disabled={actionLoading}
                 className="bg-indigo-600 text-white hover:bg-indigo-700"
@@ -414,9 +431,8 @@ export function ReservationLifecyclePanel({
                 <Button
                   variant="destructive"
                   onClick={async () => {
-                    if (!accessToken) return;
+                    if (!isAuthenticated) return;
                     await rejectReservation(
-                      accessToken,
                       currentReservation.id,
                       rejectReason,
                     );
@@ -443,7 +459,7 @@ export function ReservationLifecyclePanel({
         "cancelada_arrendatario",
       ].includes(currentReservation.state) && (
         <section className="rounded-2xl border border-border bg-card p-4 sm:p-6 shadow-sm">
-          <div className="border-b border-border pb-3 flex items-center justify-between">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
             <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <LogOut className="h-5 w-5 text-destructive" />
               Cancelación de Reserva y Reembolso
@@ -452,11 +468,8 @@ export function ReservationLifecyclePanel({
               variant="outline"
               size="sm"
               onClick={async () => {
-                if (!accessToken) return;
-                await requestCancellationPreview(
-                  accessToken,
-                  currentReservation.id,
-                );
+                if (!isAuthenticated) return;
+                await requestCancellationPreview(currentReservation.id);
               }}
               disabled={actionLoading}
             >
@@ -516,12 +529,8 @@ export function ReservationLifecyclePanel({
               <Button
                 variant="destructive"
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await cancelReservation(
-                    accessToken,
-                    currentReservation.id,
-                    cancelReason,
-                  );
+                  if (!isAuthenticated) return;
+                  await cancelReservation(currentReservation.id, cancelReason);
                 }}
                 disabled={actionLoading}
               >
@@ -556,12 +565,8 @@ export function ReservationLifecyclePanel({
                   variant="outline"
                   className="mt-2"
                   onClick={async () => {
-                    if (!accessToken) return;
-                    await simulateRefund(
-                      accessToken,
-                      currentReservation.id,
-                      "exito",
-                    );
+                    if (!isAuthenticated) return;
+                    await simulateRefund(currentReservation.id, "exito");
                   }}
                   disabled={actionLoading}
                 >
@@ -658,12 +663,9 @@ export function ReservationLifecyclePanel({
               <div className="flex flex-wrap gap-3 pt-2">
                 <Button
                   onClick={async () => {
-                    if (!accessToken) return;
-                    await signContract(accessToken, contract.id);
-                    await loadReservationDetail(
-                      accessToken,
-                      currentReservation.id,
-                    );
+                    if (!isAuthenticated) return;
+                    await signContract(contract.id);
+                    await loadReservationDetail(currentReservation.id);
                   }}
                   disabled={actionLoading}
                   className="bg-indigo-600 text-white hover:bg-indigo-700"
@@ -674,8 +676,8 @@ export function ReservationLifecyclePanel({
                 <Button
                   variant="outline"
                   onClick={async () => {
-                    if (!accessToken) return;
-                    await rejectContract(accessToken, contract.id);
+                    if (!isAuthenticated) return;
+                    await rejectContract(contract.id);
                   }}
                   disabled={actionLoading}
                 >
@@ -751,15 +753,12 @@ export function ReservationLifecyclePanel({
               </div>
               <Button
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await performCheckIn(accessToken, currentReservation.id, {
+                  if (!isAuthenticated) return;
+                  await performCheckIn(currentReservation.id, {
                     comments: operationComments,
                     fixture_evidence_code: evidenceCode,
                   });
-                  await loadReservationDetail(
-                    accessToken,
-                    currentReservation.id,
-                  );
+                  await loadReservationDetail(currentReservation.id);
                   setOperationComments("");
                 }}
                 disabled={actionLoading}
@@ -816,15 +815,12 @@ export function ReservationLifecyclePanel({
               </div>
               <Button
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await performCheckOut(accessToken, currentReservation.id, {
+                  if (!isAuthenticated) return;
+                  await performCheckOut(currentReservation.id, {
                     comments: operationComments,
                     fixture_evidence_code: evidenceCode,
                   });
-                  await loadReservationDetail(
-                    accessToken,
-                    currentReservation.id,
-                  );
+                  await loadReservationDetail(currentReservation.id);
                   setOperationComments("");
                 }}
                 disabled={actionLoading}
@@ -884,15 +880,12 @@ export function ReservationLifecyclePanel({
               </div>
               <Button
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await performReception(accessToken, currentReservation.id, {
+                  if (!isAuthenticated) return;
+                  await performReception(currentReservation.id, {
                     result: receptionResult,
                     observations: receptionObservations,
                   });
-                  await loadReservationDetail(
-                    accessToken,
-                    currentReservation.id,
-                  );
+                  await loadReservationDetail(currentReservation.id);
                   setReceptionObservations("");
                 }}
                 disabled={actionLoading}
@@ -1011,8 +1004,8 @@ export function ReservationLifecyclePanel({
                 size="sm"
                 variant="outline"
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await reconcileGuarantee(accessToken, currentReservation.id, {
+                  if (!isAuthenticated) return;
+                  await reconcileGuarantee(currentReservation.id, {
                     kind: "autorizacion",
                     amount_clp:
                       currentReservation.guarantee_expected_clp || 50000,
@@ -1027,8 +1020,8 @@ export function ReservationLifecyclePanel({
                 size="sm"
                 variant="outline"
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await reconcileGuarantee(accessToken, currentReservation.id, {
+                  if (!isAuthenticated) return;
+                  await reconcileGuarantee(currentReservation.id, {
                     kind: "liberacion",
                     amount_clp:
                       currentReservation.guarantee_expected_clp || 50000,
@@ -1081,12 +1074,8 @@ export function ReservationLifecyclePanel({
                 size="sm"
                 variant="outline"
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await submitFinancialDecision(
-                    accessToken,
-                    currentReservation.id,
-                    "exito",
-                  );
+                  if (!isAuthenticated) return;
+                  await submitFinancialDecision(currentReservation.id, "exito");
                 }}
                 disabled={actionLoading}
               >
@@ -1096,13 +1085,9 @@ export function ReservationLifecyclePanel({
                 size="sm"
                 variant="outline"
                 onClick={async () => {
-                  if (!accessToken) return;
-                  await reconcileSettlement(
-                    accessToken,
-                    currentReservation.id,
-                    "exito",
-                  );
-                  await loadReceipt(accessToken, currentReservation.id);
+                  if (!isAuthenticated) return;
+                  await reconcileSettlement(currentReservation.id, "exito");
+                  await loadReceipt(currentReservation.id);
                 }}
                 disabled={actionLoading}
               >

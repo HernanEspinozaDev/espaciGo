@@ -1,6 +1,5 @@
 import "client-only";
 
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import { apiClient } from "@/lib/api/client";
 import { ApiProtocolError, normalizeApiError } from "@/lib/api/errors";
 import { serializeExactJson } from "@/lib/api/exact-json";
@@ -31,10 +30,6 @@ import {
   convertSlotsToWeeklyDays,
   generateIdempotencyKey,
 } from "../domain/validation";
-
-function authHeader(token: AccessToken): { Authorization: string } {
-  return { Authorization: `Bearer ${token}` };
-}
 
 function mapSpaceCategory(item: OpenApiSpaceCategory): Category {
   return {
@@ -212,12 +207,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async listListings(
-    token: AccessToken,
     filter?: { status?: ListingState },
     signal?: AbortSignal,
   ): Promise<ListingSummary[]> {
     const result = await apiClient.GET("/spaces", {
-      headers: authHeader(token),
       signal,
     });
     if (!result.response.ok) {
@@ -232,7 +225,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async getListing(
-    token: AccessToken,
     listingId: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail | null> {
@@ -240,7 +232,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: authHeader(token),
       signal,
     });
     if (result.response.status === 404) return null;
@@ -252,7 +243,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async createDraft(
-    token: AccessToken,
     input: ListingDraftInput,
     idempotencyKey?: string,
     signal?: AbortSignal,
@@ -260,7 +250,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     const key = idempotencyKey ?? generateIdempotencyKey();
     const result = await apiClient.POST("/spaces", {
       headers: {
-        ...authHeader(token),
         "Idempotency-Key": key,
       },
       body: {
@@ -289,7 +278,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async updateDraft(
-    token: AccessToken,
     listingId: string,
     input: ListingDraftInput,
     ifMatch?: string,
@@ -299,10 +287,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: {
-        ...authHeader(token),
-        ...(ifMatch ? { "If-Match": ifMatch } : {}),
-      },
+      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: {
         category_code: input.category_code,
         title: input.title,
@@ -329,7 +314,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async deleteListing(
-    token: AccessToken,
     listingId: string,
     signal?: AbortSignal,
   ): Promise<ListingDeletionReceipt> {
@@ -337,7 +321,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: authHeader(token),
       signal,
     });
     if (!result.response.ok) {
@@ -356,7 +339,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async updateContent(
-    token: AccessToken,
     listingId: string,
     input: ContentUpdateInput,
     ifMatch?: string,
@@ -368,10 +350,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         params: {
           path: { spaceId: listingId },
         },
-        headers: {
-          ...authHeader(token),
-          ...(ifMatch ? { "If-Match": ifMatch } : {}),
-        },
+        headers: ifMatch ? { "If-Match": ifMatch } : undefined,
         body: {
           title: input.title,
           description: input.description,
@@ -393,7 +372,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async publishListing(
-    token: AccessToken,
     listingId: string,
     ifMatch?: string,
     signal?: AbortSignal,
@@ -402,10 +380,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: {
-        ...authHeader(token),
-        ...(ifMatch ? { "If-Match": ifMatch } : {}),
-      },
+      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: { state: "activa" },
       bodySerializer: serializeExactJson,
       signal,
@@ -418,7 +393,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async archiveListing(
-    token: AccessToken,
     listingId: string,
     ifMatch?: string,
     signal?: AbortSignal,
@@ -427,10 +401,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: {
-        ...authHeader(token),
-        ...(ifMatch ? { "If-Match": ifMatch } : {}),
-      },
+      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: { state: "oculta" },
       bodySerializer: serializeExactJson,
       signal,
@@ -443,7 +414,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async getPricing(
-    token: AccessToken,
     listingId: string,
     signal?: AbortSignal,
   ): Promise<PricingHistoryItem | null> {
@@ -451,7 +421,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: authHeader(token),
       signal,
     });
     if (result.response.status === 404) return null;
@@ -463,7 +432,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async updatePricing(
-    token: AccessToken,
     listingId: string,
     input: PricingInput,
     ifMatch?: string,
@@ -473,10 +441,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: {
-        ...authHeader(token),
-        ...(ifMatch ? { "If-Match": ifMatch } : {}),
-      },
+      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: {
         rate_unit: input.rate_unit,
         base_price: input.base_price,
@@ -492,7 +457,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async listPricingHistory(
-    token: AccessToken,
     listingId: string,
     signal?: AbortSignal,
   ): Promise<PricingHistoryItem[]> {
@@ -500,7 +464,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: authHeader(token),
       signal,
     });
     if (!result.response.ok) {
@@ -511,7 +474,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async configureTimeZone(
-    token: AccessToken,
     listingId: string,
     timeZone: string,
     ifMatch?: string,
@@ -521,10 +483,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: {
-        ...authHeader(token),
-        ...(ifMatch ? { "If-Match": ifMatch } : {}),
-      },
+      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: { time_zone: timeZone },
       bodySerializer: serializeExactJson,
       signal,
@@ -540,7 +499,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async getWeeklySchedule(
-    token: AccessToken,
     listingId: string,
     signal?: AbortSignal,
   ): Promise<ScheduleData | null> {
@@ -550,7 +508,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         params: {
           path: { spaceId: listingId },
         },
-        headers: authHeader(token),
         signal,
       },
     );
@@ -563,7 +520,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async updateWeeklySchedule(
-    token: AccessToken,
     listingId: string,
     input: ScheduleInput,
     ifMatch?: string,
@@ -578,10 +534,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         params: {
           path: { spaceId: listingId },
         },
-        headers: {
-          ...authHeader(token),
-          ...(ifMatch ? { "If-Match": ifMatch } : {}),
-        },
+        headers: ifMatch ? { "If-Match": ifMatch } : undefined,
         body: {
           enabled: input.enabled ?? true,
           days: days.map((d) => ({
@@ -604,7 +557,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async listPhotos(
-    token: AccessToken,
     listingId: string,
     signal?: AbortSignal,
   ): Promise<GalleryPhoto[]> {
@@ -612,7 +564,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: authHeader(token),
       signal,
     });
     if (result.response.status === 404) return [];
@@ -624,7 +575,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async uploadPhoto(
-    token: AccessToken,
     listingId: string,
     input?: PhotoUploadInput,
     idempotencyKey?: string,
@@ -647,7 +597,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
           spaceId: listingId,
         },
       },
-      headers: authHeader(token),
       body: bodyParam,
       signal,
     });
@@ -657,13 +606,12 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     if (!result.data?.photo) throw new ApiProtocolError();
     const photo = mapPhotoToGalleryPhoto(result.data.photo);
     if (input?.is_cover) {
-      await this.setCoverPhoto(token, listingId, photo.id, signal);
+      await this.setCoverPhoto(listingId, photo.id, signal);
     }
     return photo;
   }
 
   async setCoverPhoto(
-    token: AccessToken,
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
@@ -672,7 +620,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       params: {
         path: { spaceId: listingId },
       },
-      headers: authHeader(token),
       body: { photo_id: photoId },
       bodySerializer: serializeExactJson,
       signal,
@@ -683,7 +630,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async removePhoto(
-    token: AccessToken,
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
@@ -694,7 +640,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         params: {
           path: { spaceId: listingId, photoId },
         },
-        headers: authHeader(token),
         signal,
       },
     );
@@ -705,7 +650,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async reorderPhotos(
-    token: AccessToken,
     listingId: string,
     photoIds: string[],
     signal?: AbortSignal,
@@ -718,7 +662,6 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
           params: {
             path: { spaceId: listingId, photoId },
           },
-          headers: authHeader(token),
           body: { position: index + 1 },
           bodySerializer: serializeExactJson,
           signal,

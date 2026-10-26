@@ -6,6 +6,7 @@ import {
   type Route,
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
+import { createBffFixtureState } from "./helpers/bff-fixture";
 import type {
   BookingDetail,
   BookingQuote,
@@ -52,20 +53,22 @@ async function loginAndNavigate(page: Page, destination = "/reservas") {
   await page.goto(`/acceso?return_to=${encodeURIComponent(pathname)}`);
   await page
     .getByLabel("Correo electrónico")
-    .fill("arrendatario.test@espacigo.cl");
+    .fill("arrendatario.test@example.invalid");
   await page.getByLabel("Contraseña", { exact: true }).fill("SecurePass123!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await page.waitForURL((url) => url.pathname === pathname);
 }
 
 async function installMockGateway(page: Page, handler: MockHandler) {
+  const bff = createBffFixtureState();
   await page.route("**/api/backend/**", async (route) => {
     const request = route.request();
-    const result = await handler(route, request);
+    const result = bff.adapt(request, await handler(route, request));
     if (result) {
       await route.fulfill({
         status: result.status ?? 200,
         contentType: result.contentType ?? "application/json",
+        headers: result.headers,
         body:
           typeof result.body === "string"
             ? result.body
@@ -242,8 +245,6 @@ function createBookingStore() {
             account_id: canonicalAccountId,
             roles: ["arrendatario", "anfitrion"],
             capabilities: [],
-            access_token: "synthetic-phase8-session-token-941",
-            token_type: "Bearer",
             expires_at: new Date(Date.now() + 3600_000).toISOString(),
             restricted_mode: false,
           },
@@ -845,6 +846,18 @@ test.describe("Phase 8 Bookings — Controlled E2E Suite", () => {
       for (const route of targetRoutes) {
         await loginAndNavigate(page, route);
         await page.waitForLoadState("domcontentloaded");
+
+        if (
+          route === "/reservas/res-test-1" ||
+          route === "/anfitrion/reservas/res-test-1"
+        ) {
+          await expect(
+            page.getByRole("button", {
+              name: "Consultar Política de Reembolso",
+            }),
+          ).toBeVisible();
+          await page.evaluate(() => document.fonts.ready);
+        }
 
         // Verify no horizontal overflow
         const hasOverflow = await page.evaluate(() => {

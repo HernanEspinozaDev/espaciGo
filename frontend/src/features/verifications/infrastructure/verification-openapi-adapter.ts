@@ -3,7 +3,6 @@ import "client-only";
 import { apiClient } from "@/lib/api/client";
 import { ApiProtocolError, normalizeApiError } from "@/lib/api/errors";
 import { serializeExactJson } from "@/lib/api/exact-json";
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type { VerificationPort } from "../application/verification.port";
 import type {
   SyntheticEvidence,
@@ -15,12 +14,8 @@ import type {
 } from "../domain/verification";
 
 export class OpenApiVerificationAdapter implements VerificationPort {
-  async listVerifications(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<VerificationCase[]> {
+  async listVerifications(signal?: AbortSignal): Promise<VerificationCase[]> {
     const result = await apiClient.GET("/verifications", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -30,7 +25,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async getVerification(
-    token: AccessToken,
     id: string,
     signal?: AbortSignal,
   ): Promise<VerificationCase | null> {
@@ -38,7 +32,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
       params: {
         path: { id },
       },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return null;
@@ -49,7 +42,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async startVerification(
-    token: AccessToken,
     idempotencyKey: string,
     type: VerificationType,
     signal?: AbortSignal,
@@ -59,9 +51,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
         header: {
           "Idempotency-Key": idempotencyKey,
         },
-      },
-      headers: {
-        Authorization: `Bearer ${token}`,
       },
       body: { type },
       bodySerializer: serializeExactJson,
@@ -75,7 +64,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async retryVerification(
-    token: AccessToken,
     id: string,
     idempotencyKey: string,
     correctionCode: VerificationCorrectionCode,
@@ -87,9 +75,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
         header: {
           "Idempotency-Key": idempotencyKey,
         },
-      },
-      headers: {
-        Authorization: `Bearer ${token}`,
       },
       body: {
         correction_code: correctionCode as
@@ -108,7 +93,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async listHistory(
-    token: AccessToken,
     id: string,
     signal?: AbortSignal,
   ): Promise<VerificationHistoryEntry[]> {
@@ -116,7 +100,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
       params: {
         path: { id },
       },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return [];
@@ -127,7 +110,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async listEvidence(
-    token: AccessToken,
     id: string,
     signal?: AbortSignal,
   ): Promise<SyntheticEvidence[]> {
@@ -135,7 +117,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
       params: {
         path: { id },
       },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return [];
@@ -146,7 +127,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async uploadEvidence(
-    token: AccessToken,
     id: string,
     signal?: AbortSignal,
   ): Promise<SyntheticEvidence> {
@@ -154,7 +134,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
       params: {
         path: { id },
       },
-      headers: { Authorization: `Bearer ${token}` },
       body: { fixture_code: "synthetic-png-v1" },
       bodySerializer: serializeExactJson,
       signal,
@@ -167,7 +146,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async deleteEvidence(
-    token: AccessToken,
     id: string,
     evidenceId: string,
     signal?: AbortSignal,
@@ -178,7 +156,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
         params: {
           path: { id, evidenceId },
         },
-        headers: { Authorization: ["Bearer", token].join(" ") },
         signal,
       },
     );
@@ -189,7 +166,6 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async getEvidenceContent(
-    token: AccessToken,
     id: string,
     evidenceId: string,
     signal?: AbortSignal,
@@ -200,8 +176,8 @@ export class OpenApiVerificationAdapter implements VerificationPort {
         params: {
           path: { id, evidenceId },
         },
-        headers: { Authorization: ["Bearer", token].join(" ") },
         parseAs: "blob",
+        credentials: "same-origin",
         signal,
       },
     );
@@ -213,11 +189,9 @@ export class OpenApiVerificationAdapter implements VerificationPort {
   }
 
   async getEligibility(
-    token: AccessToken,
     signal?: AbortSignal,
   ): Promise<VerificationEligibilityItem[]> {
     const result = await apiClient.GET("/verifications/eligibility", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {

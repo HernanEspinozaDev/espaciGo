@@ -3,8 +3,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { adminFacade } from "../admin-runtime";
 import type { AdminSnapshot } from "../application/admin-facade";
-import { useAuth } from "@/features/auth/ui/use-auth";
-import type { AccessToken } from "@/features/auth/application/auth.port";
+import { authFacade } from "@/features/auth/auth-runtime";
 import { canAccessSection, hasCapability } from "../domain/admin-rules";
 import type {
   AdminCapability,
@@ -23,25 +22,17 @@ export interface AdminView {
   activeRole: AdminRole | null;
 
   // Global admin
-  loadGlobalMe(token?: AccessToken | null): Promise<void>;
-  loadMe(token?: AccessToken | null): Promise<void>;
-  loadOverview(token?: AccessToken | null): Promise<void>;
-  loadKPIs(
-    query: { from: string; until: string; time_zone: string },
-    token?: AccessToken | null,
-  ): Promise<void>;
-  loadGlobalAccounts(
-    query?: GlobalAdminAccountQuery,
-    token?: AccessToken | null,
-  ): Promise<void>;
-  loadAccounts(
-    query?: GlobalAdminAccountQuery,
-    token?: AccessToken | null,
-  ): Promise<void>;
-  selectGlobalAccount(
-    accountId: string,
-    token?: AccessToken | null,
-  ): Promise<void>;
+  loadGlobalMe(): Promise<void>;
+  loadMe(): Promise<void>;
+  loadOverview(): Promise<void>;
+  loadKPIs(query: {
+    from: string;
+    until: string;
+    time_zone: string;
+  }): Promise<void>;
+  loadGlobalAccounts(query?: GlobalAdminAccountQuery): Promise<void>;
+  loadAccounts(query?: GlobalAdminAccountQuery): Promise<void>;
+  selectGlobalAccount(accountId: string): Promise<void>;
   updateGlobalAccountProfile(
     accountId: string,
     input: {
@@ -51,7 +42,6 @@ export interface AdminView {
       reason:
         "correccion_perfil" | "revision_administrativa" | "gestion_operativa";
     },
-    token?: AccessToken | null,
   ): Promise<boolean>;
   setGlobalAccountRole(
     accountId: string,
@@ -59,7 +49,6 @@ export interface AdminView {
     granted: boolean,
     reason:
       "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
-    token?: AccessToken | null,
   ): Promise<boolean>;
   updateAccountRole(
     accountId: string,
@@ -67,7 +56,6 @@ export interface AdminView {
     granted: boolean,
     reason:
       "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
-    token?: AccessToken | null,
   ): Promise<boolean>;
   setGlobalLegacyAdminRole(
     accountId: string,
@@ -76,44 +64,26 @@ export interface AdminView {
       | "aprovisionamiento_sintetico"
       | "revision_administrativa"
       | "retirada_acceso",
-    token?: AccessToken | null,
   ): Promise<boolean>;
   revokeGlobalAccountSessions(
     accountId: string,
     reason:
       "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
-    token?: AccessToken | null,
   ): Promise<boolean>;
   revokeAccountSessions(
     accountId: string,
     reason:
       "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
-    token?: AccessToken | null,
   ): Promise<boolean>;
   setGlobalAccountBlocked(
     accountId: string,
     blocked: boolean,
     reason: string,
-    token?: AccessToken | null,
   ): Promise<boolean>;
-  blockAccount(
-    accountId: string,
-    reason: string,
-    token?: AccessToken | null,
-  ): Promise<boolean>;
-  unblockAccount(
-    accountId: string,
-    reason: string,
-    token?: AccessToken | null,
-  ): Promise<boolean>;
-  loadGlobalPublications(
-    query?: GlobalAdminPublicationQuery,
-    token?: AccessToken | null,
-  ): Promise<void>;
-  loadPublications(
-    query?: GlobalAdminPublicationQuery,
-    token?: AccessToken | null,
-  ): Promise<void>;
+  blockAccount(accountId: string, reason: string): Promise<boolean>;
+  unblockAccount(accountId: string, reason: string): Promise<boolean>;
+  loadGlobalPublications(query?: GlobalAdminPublicationQuery): Promise<void>;
+  loadPublications(query?: GlobalAdminPublicationQuery): Promise<void>;
   setGlobalPublicationState(
     publicationId: string,
     input: {
@@ -122,7 +92,6 @@ export interface AdminView {
       reason:
         "correccion_perfil" | "revision_administrativa" | "gestion_operativa";
     },
-    token?: AccessToken | null,
   ): Promise<boolean>;
   updatePublicationState(
     publicationId: string,
@@ -132,7 +101,6 @@ export interface AdminView {
       reason:
         "correccion_perfil" | "revision_administrativa" | "gestion_operativa";
     },
-    token?: AccessToken | null,
   ): Promise<boolean>;
   retireGlobalPublication(
     publicationId: string,
@@ -141,7 +109,6 @@ export interface AdminView {
       expected_updated_at: string;
       reason: string;
     },
-    token?: AccessToken | null,
   ): Promise<boolean>;
   retirePublication(
     publicationId: string,
@@ -150,47 +117,31 @@ export interface AdminView {
       expected_updated_at: string;
       reason: string;
     },
-    token?: AccessToken | null,
   ): Promise<boolean>;
-  loadGlobalAuditEvents(
-    query: AuditEventsQuery,
-    token?: AccessToken | null,
-  ): Promise<void>;
-  loadAuditEvents(
-    query: AuditEventsQuery,
-    token?: AccessToken | null,
-  ): Promise<void>;
-  exportGlobalAuditEvents(
-    query: AuditEventsQuery,
-    token?: AccessToken | null,
-  ): Promise<Blob | null>;
-  exportAuditEvents(
-    query: AuditEventsQuery,
-    token?: AccessToken | null,
-  ): Promise<Blob | null>;
+  loadGlobalAuditEvents(query: AuditEventsQuery): Promise<void>;
+  loadAuditEvents(query: AuditEventsQuery): Promise<void>;
+  exportGlobalAuditEvents(query: AuditEventsQuery): Promise<Blob | null>;
+  exportAuditEvents(query: AuditEventsQuery): Promise<Blob | null>;
 
   // Local admin
-  loadVerifications(token?: AccessToken | null): Promise<void>;
-  loadRejectedVerifications(token?: AccessToken | null): Promise<void>;
+  loadVerifications(): Promise<void>;
+  loadRejectedVerifications(): Promise<void>;
   reviewVerification(
     id: string,
     decision: "aprobar" | "rechazar",
     reason?: string,
-    token?: AccessToken | null,
   ): Promise<boolean>;
   revokeVerification(
     id: string,
     reason_code:
       "aprobacion_fixture_incorrecta" | "revision_fixture_actualizada",
-    token?: AccessToken | null,
   ): Promise<boolean>;
-  loadDisputes(token?: AccessToken | null): Promise<void>;
+  loadDisputes(): Promise<void>;
   closeDispute(
     disputeId: string,
     reason_code: "ensayo_finalizado" | "registro_erroneo" | "duplicada",
-    token?: AccessToken | null,
   ): Promise<boolean>;
-  loadReviewReports(token?: AccessToken | null): Promise<void>;
+  loadReviewReports(): Promise<void>;
   moderateReviewReport(
     reportId: string,
     action: "dismiss" | "hide",
@@ -200,7 +151,6 @@ export interface AdminView {
       | "duplicado"
       | "error_registro",
     correlation_id?: string,
-    token?: AccessToken | null,
   ): Promise<boolean>;
   handleReviewReport(
     reportId: string,
@@ -211,56 +161,37 @@ export interface AdminView {
       | "duplicado"
       | "error_registro",
     correlation_id?: string,
-    token?: AccessToken | null,
   ): Promise<boolean>;
-  loadNotices(token?: AccessToken | null): Promise<void>;
+  loadNotices(): Promise<void>;
   reopenNotice(
     noticeId: string,
     reason_code: "smtp_restaurado" | "reintento_operativo",
     correlation_id?: string,
-    token?: AccessToken | null,
   ): Promise<boolean>;
-  loadLocalAccount(
-    accountId: string,
-    token?: AccessToken | null,
-  ): Promise<void>;
-  blockLocalAccount(
-    accountId: string,
-    reason: string,
-    token?: AccessToken | null,
-  ): Promise<boolean>;
-  unblockLocalAccount(
-    accountId: string,
-    reason: string,
-    token?: AccessToken | null,
-  ): Promise<boolean>;
-  loadPublishedSpaces(token?: AccessToken | null): Promise<void>;
-  loadReports(
-    query: { from: string; until: string; timezone: string },
-    token?: AccessToken | null,
-  ): Promise<void>;
-  loadLocalReservations(
-    query?: {
-      reservation_id?: string;
-      state?: string;
-      created_from?: string;
-      created_to?: string;
-      page_size?: number;
-      cursor?: string;
-    },
-    token?: AccessToken | null,
-  ): Promise<void>;
-  loadLocalReservation(
-    reservationId: string,
-    token?: AccessToken | null,
-  ): Promise<void>;
-  loadDamageClaims(token?: AccessToken | null): Promise<void>;
-  loadLocalDamageClaims(token?: AccessToken | null): Promise<void>;
-  loadDamageClaim(claimId: string, token?: AccessToken | null): Promise<void>;
+  loadLocalAccount(accountId: string): Promise<void>;
+  blockLocalAccount(accountId: string, reason: string): Promise<boolean>;
+  unblockLocalAccount(accountId: string, reason: string): Promise<boolean>;
+  loadPublishedSpaces(): Promise<void>;
+  loadReports(query: {
+    from: string;
+    until: string;
+    timezone: string;
+  }): Promise<void>;
+  loadLocalReservations(query?: {
+    reservation_id?: string;
+    state?: string;
+    created_from?: string;
+    created_to?: string;
+    page_size?: number;
+    cursor?: string;
+  }): Promise<void>;
+  loadLocalReservation(reservationId: string): Promise<void>;
+  loadDamageClaims(): Promise<void>;
+  loadLocalDamageClaims(): Promise<void>;
+  loadDamageClaim(claimId: string): Promise<void>;
   resolveDamageClaim(
     claimId: string,
     input: AdminDamageClaimResolutionInput,
-    token?: AccessToken | null,
   ): Promise<boolean>;
 
   // Memory & error gates
@@ -275,19 +206,22 @@ export function useAdmin(): AdminView {
     adminFacade.getSnapshot,
     adminFacade.getServerSnapshot,
   );
-  const { getAccessToken, snapshot: authSnapshot } = useAuth();
-
-  const resolveToken = useCallback(
-    (explicitToken?: AccessToken | null): AccessToken | null => {
-      return explicitToken ?? getAccessToken();
-    },
-    [getAccessToken],
+  const authSnapshot = useSyncExternalStore(
+    authFacade.subscribe,
+    authFacade.getSnapshot,
+    authFacade.getServerSnapshot,
   );
 
   // Only one role shown in UI per session
   const activeRole: AdminRole | null = ((): AdminRole | null => {
-    const roles =
-      snapshot.me?.roles ?? (authSnapshot.roles as readonly AdminRole[]);
+    if (authSnapshot.status !== "authenticated" || !authSnapshot.accountId) {
+      return null;
+    }
+    const me =
+      snapshot.me && snapshot.me.account_id === authSnapshot.accountId
+        ? snapshot.me
+        : null;
+    const roles = (me?.roles ?? authSnapshot.roles) as readonly AdminRole[];
     if (roles.includes("administrador_global")) return "administrador_global";
     if (roles.includes("administrador")) return "administrador";
     if (roles.includes("arrendador")) return "arrendador";
@@ -297,11 +231,16 @@ export function useAdmin(): AdminView {
 
   const canAccess = useCallback(
     (section: AdminSection): boolean => {
-      const capabilities =
-        snapshot.me?.capabilities ??
-        (authSnapshot.capabilities as readonly AdminCapability[]);
-      const roles =
-        snapshot.me?.roles ?? (authSnapshot.roles as readonly AdminRole[]);
+      if (authSnapshot.status !== "authenticated" || !authSnapshot.accountId) {
+        return false;
+      }
+      const me =
+        snapshot.me && snapshot.me.account_id === authSnapshot.accountId
+          ? snapshot.me
+          : null;
+      const capabilities = (me?.capabilities ??
+        authSnapshot.capabilities) as readonly AdminCapability[];
+      const roles = (me?.roles ?? authSnapshot.roles) as readonly AdminRole[];
       return canAccessSection(capabilities, section, roles);
     },
     [snapshot.me, authSnapshot],
@@ -309,61 +248,60 @@ export function useAdmin(): AdminView {
 
   const hasAdminCapability = useCallback(
     (capability: AdminCapability): boolean => {
-      const capabilities =
-        snapshot.me?.capabilities ??
-        (authSnapshot.capabilities as readonly AdminCapability[]);
+      if (authSnapshot.status !== "authenticated" || !authSnapshot.accountId) {
+        return false;
+      }
+      const me =
+        snapshot.me && snapshot.me.account_id === authSnapshot.accountId
+          ? snapshot.me
+          : null;
+      const capabilities = (me?.capabilities ??
+        authSnapshot.capabilities) as readonly AdminCapability[];
       return hasCapability(capabilities, capability);
     },
     [snapshot.me, authSnapshot],
   );
 
-  const loadGlobalMe = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadGlobalMe(tok);
-    },
-    [resolveToken],
-  );
+  const loadGlobalMe = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadGlobalMe();
+  }, []);
 
-  const loadOverview = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadOverview(tok);
-    },
-    [resolveToken],
-  );
+  const loadOverview = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadOverview();
+  }, []);
 
   const loadKPIs = useCallback(
-    async (
-      query: { from: string; until: string; time_zone: string },
-      token?: AccessToken | null,
-    ) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadKPIs(tok, query);
+    async (query: { from: string; until: string; time_zone: string }) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return;
+      await adminFacade.loadKPIs(query);
     },
-    [resolveToken],
+    [],
   );
 
   const loadGlobalAccounts = useCallback(
-    async (query?: GlobalAdminAccountQuery, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadGlobalAccounts(tok, query);
+    async (query?: GlobalAdminAccountQuery) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return;
+      await adminFacade.loadGlobalAccounts(query);
     },
-    [resolveToken],
+    [],
   );
 
-  const selectGlobalAccount = useCallback(
-    async (accountId: string, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.selectGlobalAccount(tok, accountId);
-    },
-    [resolveToken],
-  );
+  const selectGlobalAccount = useCallback(async (accountId: string) => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.selectGlobalAccount(accountId);
+  }, []);
 
   const updateGlobalAccountProfile = useCallback(
     async (
@@ -375,13 +313,13 @@ export function useAdmin(): AdminView {
         reason:
           "correccion_perfil" | "revision_administrativa" | "gestion_operativa";
       },
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.updateGlobalAccountProfile(tok, accountId, input);
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.updateGlobalAccountProfile(accountId, input);
     },
-    [resolveToken],
+    [],
   );
 
   const setGlobalAccountRole = useCallback(
@@ -391,19 +329,13 @@ export function useAdmin(): AdminView {
       granted: boolean,
       reason:
         "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.setGlobalAccountRole(
-        tok,
-        accountId,
-        role,
-        granted,
-        reason,
-      );
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.setGlobalAccountRole(accountId, role, granted, reason);
     },
-    [resolveToken],
+    [],
   );
 
   const setGlobalLegacyAdminRole = useCallback(
@@ -414,18 +346,13 @@ export function useAdmin(): AdminView {
         | "aprovisionamiento_sintetico"
         | "revision_administrativa"
         | "retirada_acceso",
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.setGlobalLegacyAdminRole(
-        tok,
-        accountId,
-        granted,
-        reason,
-      );
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.setGlobalLegacyAdminRole(accountId, granted, reason);
     },
-    [resolveToken],
+    [],
   );
 
   const revokeGlobalAccountSessions = useCallback(
@@ -433,59 +360,53 @@ export function useAdmin(): AdminView {
       accountId: string,
       reason:
         "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.revokeGlobalAccountSessions(tok, accountId, reason);
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.revokeGlobalAccountSessions(accountId, reason);
     },
-    [resolveToken],
+    [],
   );
 
   const setGlobalAccountBlocked = useCallback(
-    async (
-      accountId: string,
-      blocked: boolean,
-      reason: string,
-      token?: AccessToken | null,
-    ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.setGlobalAccountBlocked(
-        tok,
-        accountId,
-        blocked,
-        reason,
-      );
+    async (accountId: string, blocked: boolean, reason: string) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.setGlobalAccountBlocked(accountId, blocked, reason);
     },
-    [resolveToken],
+    [],
   );
 
   const blockAccount = useCallback(
-    async (accountId: string, reason: string, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.setGlobalAccountBlocked(tok, accountId, true, reason);
+    async (accountId: string, reason: string) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.setGlobalAccountBlocked(accountId, true, reason);
     },
-    [resolveToken],
+    [],
   );
 
   const unblockAccount = useCallback(
-    async (accountId: string, reason: string, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.setGlobalAccountBlocked(tok, accountId, false, reason);
+    async (accountId: string, reason: string) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.setGlobalAccountBlocked(accountId, false, reason);
     },
-    [resolveToken],
+    [],
   );
 
   const loadGlobalPublications = useCallback(
-    async (query?: GlobalAdminPublicationQuery, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadGlobalPublications(tok, query);
+    async (query?: GlobalAdminPublicationQuery) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return;
+      await adminFacade.loadGlobalPublications(query);
     },
-    [resolveToken],
+    [],
   );
 
   const setGlobalPublicationState = useCallback(
@@ -497,13 +418,13 @@ export function useAdmin(): AdminView {
         reason:
           "correccion_perfil" | "revision_administrativa" | "gestion_operativa";
       },
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.setGlobalPublicationState(tok, publicationId, input);
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.setGlobalPublicationState(publicationId, input);
     },
-    [resolveToken],
+    [],
   );
 
   const retireGlobalPublication = useCallback(
@@ -514,63 +435,54 @@ export function useAdmin(): AdminView {
         expected_updated_at: string;
         reason: string;
       },
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.retireGlobalPublication(tok, publicationId, input);
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.retireGlobalPublication(publicationId, input);
     },
-    [resolveToken],
+    [],
   );
 
-  const loadGlobalAuditEvents = useCallback(
-    async (query: AuditEventsQuery, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadGlobalAuditEvents(tok, query);
-    },
-    [resolveToken],
-  );
+  const loadGlobalAuditEvents = useCallback(async (query: AuditEventsQuery) => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadGlobalAuditEvents(query);
+  }, []);
 
   const exportGlobalAuditEvents = useCallback(
-    async (query: AuditEventsQuery, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return null;
-      return adminFacade.exportGlobalAuditEvents(tok, query);
+    async (query: AuditEventsQuery) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return null;
+      return adminFacade.exportGlobalAuditEvents(query);
     },
-    [resolveToken],
+    [],
   );
 
-  const loadVerifications = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadVerifications(tok);
-    },
-    [resolveToken],
-  );
+  const loadVerifications = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadVerifications();
+  }, []);
 
-  const loadRejectedVerifications = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadRejectedVerifications(tok);
-    },
-    [resolveToken],
-  );
+  const loadRejectedVerifications = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadRejectedVerifications();
+  }, []);
 
   const reviewVerification = useCallback(
-    async (
-      id: string,
-      decision: "aprobar" | "rechazar",
-      reason?: string,
-      token?: AccessToken | null,
-    ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.reviewVerification(tok, id, decision, reason);
+    async (id: string, decision: "aprobar" | "rechazar", reason?: string) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.reviewVerification(id, decision, reason);
     },
-    [resolveToken],
+    [],
   );
 
   const revokeVerification = useCallback(
@@ -578,45 +490,41 @@ export function useAdmin(): AdminView {
       id: string,
       reason_code:
         "aprobacion_fixture_incorrecta" | "revision_fixture_actualizada",
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.revokeVerification(tok, id, reason_code);
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.revokeVerification(id, reason_code);
     },
-    [resolveToken],
+    [],
   );
 
-  const loadDisputes = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadDisputes(tok);
-    },
-    [resolveToken],
-  );
+  const loadDisputes = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadDisputes();
+  }, []);
 
   const closeDispute = useCallback(
     async (
       disputeId: string,
       reason_code: "ensayo_finalizado" | "registro_erroneo" | "duplicada",
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.closeDispute(tok, disputeId, reason_code);
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.closeDispute(disputeId, reason_code);
     },
-    [resolveToken],
+    [],
   );
 
-  const loadReviewReports = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadReviewReports(tok);
-    },
-    [resolveToken],
-  );
+  const loadReviewReports = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadReviewReports();
+  }, []);
 
   const moderateReviewReport = useCallback(
     async (
@@ -628,154 +536,131 @@ export function useAdmin(): AdminView {
         | "duplicado"
         | "error_registro",
       correlation_id?: string,
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
       return adminFacade.moderateReviewReport(
-        tok,
         reportId,
         action,
         reason_code,
         correlation_id,
       );
     },
-    [resolveToken],
+    [],
   );
 
-  const loadNotices = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadNotices(tok);
-    },
-    [resolveToken],
-  );
+  const loadNotices = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadNotices();
+  }, []);
 
   const reopenNotice = useCallback(
     async (
       noticeId: string,
       reason_code: "smtp_restaurado" | "reintento_operativo",
       correlation_id?: string,
-      token?: AccessToken | null,
     ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.reopenNotice(
-        tok,
-        noticeId,
-        reason_code,
-        correlation_id,
-      );
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.reopenNotice(noticeId, reason_code, correlation_id);
     },
-    [resolveToken],
+    [],
   );
 
-  const loadLocalAccount = useCallback(
-    async (accountId: string, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadLocalAccount(tok, accountId);
-    },
-    [resolveToken],
-  );
+  const loadLocalAccount = useCallback(async (accountId: string) => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadLocalAccount(accountId);
+  }, []);
 
   const blockLocalAccount = useCallback(
-    async (accountId: string, reason: string, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.blockLocalAccount(tok, accountId, reason);
+    async (accountId: string, reason: string) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.blockLocalAccount(accountId, reason);
     },
-    [resolveToken],
+    [],
   );
 
   const unblockLocalAccount = useCallback(
-    async (accountId: string, reason: string, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.unblockLocalAccount(tok, accountId, reason);
+    async (accountId: string, reason: string) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.unblockLocalAccount(accountId, reason);
     },
-    [resolveToken],
+    [],
   );
 
-  const loadPublishedSpaces = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadPublishedSpaces(tok);
-    },
-    [resolveToken],
-  );
+  const loadPublishedSpaces = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadPublishedSpaces();
+  }, []);
 
   const loadReports = useCallback(
-    async (
-      query: { from: string; until: string; timezone: string },
-      token?: AccessToken | null,
-    ) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadReports(tok, query);
+    async (query: { from: string; until: string; timezone: string }) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return;
+      await adminFacade.loadReports(query);
     },
-    [resolveToken],
+    [],
   );
 
   const loadLocalReservations = useCallback(
-    async (
-      query?: {
-        reservation_id?: string;
-        state?: string;
-        created_from?: string;
-        created_to?: string;
-        page_size?: number;
-        cursor?: string;
-      },
-      token?: AccessToken | null,
-    ) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadLocalReservations(tok, query);
+    async (query?: {
+      reservation_id?: string;
+      state?: string;
+      created_from?: string;
+      created_to?: string;
+      page_size?: number;
+      cursor?: string;
+    }) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return;
+      await adminFacade.loadLocalReservations(query);
     },
-    [resolveToken],
+    [],
   );
 
-  const loadLocalReservation = useCallback(
-    async (reservationId: string, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadLocalReservation(tok, reservationId);
-    },
-    [resolveToken],
-  );
+  const loadLocalReservation = useCallback(async (reservationId: string) => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadLocalReservation(reservationId);
+  }, []);
 
-  const loadDamageClaims = useCallback(
-    async (token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadDamageClaims(tok);
-    },
-    [resolveToken],
-  );
+  const loadDamageClaims = useCallback(async () => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadDamageClaims();
+  }, []);
 
-  const loadDamageClaim = useCallback(
-    async (claimId: string, token?: AccessToken | null) => {
-      const tok = resolveToken(token);
-      if (!tok) return;
-      await adminFacade.loadDamageClaim(tok, claimId);
-    },
-    [resolveToken],
-  );
+  const loadDamageClaim = useCallback(async (claimId: string) => {
+    const isConfirmedSession =
+      authFacade.getSnapshot().status === "authenticated";
+    if (!isConfirmedSession) return;
+    await adminFacade.loadDamageClaim(claimId);
+  }, []);
 
   const resolveDamageClaim = useCallback(
-    async (
-      claimId: string,
-      input: AdminDamageClaimResolutionInput,
-      token?: AccessToken | null,
-    ) => {
-      const tok = resolveToken(token);
-      if (!tok) return false;
-      return adminFacade.resolveDamageClaim(tok, claimId, input);
+    async (claimId: string, input: AdminDamageClaimResolutionInput) => {
+      const isConfirmedSession =
+        authFacade.getSnapshot().status === "authenticated";
+      if (!isConfirmedSession) return false;
+      return adminFacade.resolveDamageClaim(claimId, input);
     },
-    [resolveToken],
+    [],
   );
 
   const clearError = useCallback(() => {

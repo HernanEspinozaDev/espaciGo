@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Button } from "@/components/workspace/ui/button";
+import { PrivateSessionBoundary } from "@/features/auth/ui/private-session-boundary";
 
 function Header() {
   return (
@@ -44,7 +45,7 @@ export default function WorkspaceLayout({
     <div className="flex flex-col min-h-screen bg-white">
       <Header />
       <div id="main-content" className="flex-1" tabIndex={-1}>
-        {children}
+        <PrivateSessionBoundary>{children}</PrivateSessionBoundary>
       </div>
     </div>
   );

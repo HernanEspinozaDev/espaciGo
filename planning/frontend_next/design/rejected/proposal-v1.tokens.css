@@ -1,0 +1,34 @@
+:root {
+  --espacigo-color-primary: #a44731;
+  --espacigo-color-primary-hover: #843522;
+  --espacigo-color-primary-active: #702a1b;
+  --espacigo-color-primary-soft: #f5e3db;
+  --espacigo-color-secondary: #8a6a4d;
+  --espacigo-color-accent: #d97745;
+  --espacigo-color-canvas: #fbf7f2;
+  --espacigo-color-surface: #ffffff;
+  --espacigo-color-surface-subtle: #f5eee6;
+  --espacigo-color-ink: #332720;
+  --espacigo-color-muted: #66574e;
+  --espacigo-color-border: #ded5cc;
+  --espacigo-color-control-border: #8a796b;
+  --espacigo-color-focus: #1d4ed8;
+  --espacigo-color-success: #15803d;
+  --espacigo-color-success-soft: #f0fdf4;
+  --espacigo-color-warning: #b45309;
+  --espacigo-color-warning-soft: #fffbeb;
+  --espacigo-color-error: #b91c1c;
+  --espacigo-color-error-soft: #fef2f2;
+  --espacigo-color-info: #1d4ed8;
+  --espacigo-color-info-soft: #eff6ff;
+  --espacigo-spacing-xs: 4px;
+  --espacigo-spacing-sm: 8px;
+  --espacigo-spacing-md: 16px;
+  --espacigo-spacing-lg: 24px;
+  --espacigo-spacing-xl: 32px;
+  --espacigo-spacing-section: 48px;
+  --espacigo-rounded-sm: 6px;
+  --espacigo-rounded-md: 10px;
+  --espacigo-rounded-lg: 12px;
+  --espacigo-rounded-xl: 16px;
+}

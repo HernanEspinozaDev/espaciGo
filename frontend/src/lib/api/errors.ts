@@ -111,6 +111,8 @@ export function authErrorMessage(error: unknown): string {
       return "Los documentos cambiaron. Vuelve a revisarlos antes de continuar.";
     case "restricted_mode":
       return "La cuenta tiene acceso restringido a operaciones permitidas por el servicio.";
+    case "remote_logout_unconfirmed":
+      return "La sesión local se cerró, pero no se pudo confirmar la revocación remota en el servicio.";
     case "service_unavailable":
     case "api_unavailable":
     case "api_not_configured":

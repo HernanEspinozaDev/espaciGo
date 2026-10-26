@@ -1,0 +1,52 @@
+/* Tailwind v4 color configuration, not a replacement stylesheet.
+ * Keep all existing JSX classes, geometry and fonts unchanged.
+ * Semantic state palettes (red, amber, blue, emerald) remain independent.
+ */
+:root {
+  --brand-primary: #a44731;
+  --brand-primary-hover: #843522;
+  --brand-primary-active: #702a1b;
+  --brand-primary-soft: #f5e3db;
+  --brand-accent: #d97745;
+  --brand-canvas: #fbf7f2;
+  --brand-surface: #ffffff;
+  --brand-surface-subtle: #f5eee6;
+  --brand-ink: #332720;
+  --brand-muted: #66574e;
+  --brand-border: #ded5cc;
+  --brand-control-border: #8a796b;
+  --brand-focus: #1d4ed8;
+  --brand-error: #b91c1c;
+  --brand-success: #15803d;
+}
+
+/* Preserve the template's existing gray/orange class names and variants.
+ * These aliases generate ordinary Tailwind utilities with warm brand colors.
+ * orange-500 stays decorative; existing active auth CTAs use orange-700.
+ */
+@theme inline {
+  --color-gray-50: var(--brand-canvas);
+  --color-gray-100: var(--brand-surface-subtle);
+  --color-gray-200: var(--brand-border);
+  --color-gray-300: var(--brand-border);
+  --color-gray-400: var(--brand-control-border);
+  --color-gray-500: var(--brand-muted);
+  --color-gray-600: var(--brand-muted);
+  --color-gray-700: var(--brand-ink);
+  --color-gray-800: var(--brand-ink);
+  --color-gray-900: var(--brand-ink);
+  --color-gray-950: var(--brand-ink);
+  --color-orange-50: var(--brand-canvas);
+  --color-orange-100: var(--brand-primary-soft);
+  --color-orange-200: var(--brand-primary-soft);
+  --color-orange-300: var(--brand-accent);
+  --color-orange-400: var(--brand-accent);
+  --color-orange-500: var(--brand-accent);
+  --color-orange-600: var(--brand-primary);
+  --color-orange-700: var(--brand-primary);
+  --color-orange-800: var(--brand-primary-hover);
+  --color-orange-900: var(--brand-primary-active);
+  --color-orange-950: var(--brand-primary-active);
+  /* Keep success green, with readable normal-size white labels. */
+  --color-emerald-600: var(--brand-success);
+}

@@ -117,25 +117,25 @@ function ProfileForm({
 }
 
 export function ProfileCard() {
-  const { accessToken } = useAuth();
+  const { snapshot: authSnapshot } = useAuth();
   const { snapshot, loadOverview, updateProfile } = useAccount();
   const [clientError, setClientError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (accessToken) {
-      loadOverview(accessToken).catch(() => {
+    if (authSnapshot.status === "authenticated") {
+      loadOverview().catch(() => {
         // Ignored: snapshot captures error or 404 handled gracefully
       });
     }
-  }, [accessToken, loadOverview]);
+  }, [authSnapshot.status, loadOverview]);
 
   const handleFormSubmit = async (
     trimmedName: string,
     trimmedPhone: string,
   ) => {
-    if (!accessToken) return;
+    if (authSnapshot.status !== "authenticated") return;
     setClientError(null);
     setSuccessMessage(null);
 
@@ -143,7 +143,7 @@ export function ProfileCard() {
 
     try {
       setIsSubmitting(true);
-      await updateProfile(accessToken, {
+      await updateProfile({
         displayName: trimmedName,
         phone: normalizedPhone ?? undefined,
       });
@@ -201,7 +201,7 @@ export function ProfileCard() {
           </div>
         )}
 
-        {accessToken ? (
+        {authSnapshot.status === "authenticated" ? (
           <ProfileForm
             key={snapshot.profile?.updatedAt ?? "empty"}
             initialName={snapshot.profile?.displayName ?? ""}

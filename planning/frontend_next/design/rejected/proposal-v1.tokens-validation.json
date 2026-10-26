@@ -1,0 +1,45 @@
+{
+  "cli": "@google/design.md@0.4.0",
+  "spec_sha256": "2e0e682d472ade54b737fca35cb0ac0258abbb6f3fe7f46df336533b65a69a32",
+  "lint": {
+    "findings": [
+      {
+        "severity": "warning",
+        "path": "colors.accent",
+        "message": "'accent' is defined but never referenced by any component.",
+        "rule": "orphaned-tokens"
+      },
+      {
+        "severity": "warning",
+        "path": "colors.border",
+        "message": "'border' is defined but never referenced by any component.",
+        "rule": "orphaned-tokens"
+      },
+      {
+        "severity": "warning",
+        "path": "colors.control-border",
+        "message": "'control-border' is defined but never referenced by any component.",
+        "rule": "orphaned-tokens"
+      },
+      {
+        "severity": "warning",
+        "path": "colors.focus",
+        "message": "'focus' is defined but never referenced by any component.",
+        "rule": "orphaned-tokens"
+      },
+      {
+        "severity": "info",
+        "message": "Design system defines 22 colors, 5 typography scales, 4 rounding levels, 6 spacing tokens, 14 components.",
+        "rule": "token-summary"
+      }
+    ],
+    "summary": {
+      "errors": 0,
+      "warnings": 4,
+      "infos": 1
+    }
+  },
+  "export_color_count": 22,
+  "runtime_imported": false,
+  "known_warnings": "accent/border/control-border/focus son tokens de decoracion, borde o foco; el esquema YAML no expresa esas propiedades como pares texto/fondo."
+}

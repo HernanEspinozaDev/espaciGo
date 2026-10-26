@@ -1,6 +1,5 @@
 import "client-only";
 
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import { apiClient } from "@/lib/api/client";
 import { ApiProtocolError, normalizeApiError } from "@/lib/api/errors";
 import { serializeExactJson } from "@/lib/api/exact-json";
@@ -35,12 +34,8 @@ export class OpenApiAdminAdapter implements AdminPort {
   // Global Admin
   // -----------------------------------------------------
 
-  async getGlobalAdminMe(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<GlobalAdminMe> {
+  async getGlobalAdminMe(signal?: AbortSignal): Promise<GlobalAdminMe> {
     const result = await apiClient.GET("/admin/global/me", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -51,11 +46,9 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getGlobalAdminOverview(
-    token: AccessToken,
     signal?: AbortSignal,
   ): Promise<GlobalAdminOverview> {
     const result = await apiClient.GET("/admin/global/overview", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -66,13 +59,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getGlobalAdminKPIs(
-    token: AccessToken,
     query: { from: string; until: string; time_zone: string },
     signal?: AbortSignal,
   ): Promise<GlobalAdminKPIs> {
     const result = await apiClient.GET("/admin/global/kpis", {
       params: { query },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -83,7 +74,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async listGlobalAuditEvents(
-    token: AccessToken,
     query: AuditEventsQuery,
     signal?: AbortSignal,
   ): Promise<AuditEvent[]> {
@@ -91,7 +81,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       params: {
         query: query as never,
       },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -107,7 +96,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async exportGlobalAuditEvents(
-    token: AccessToken,
     query: AuditEventsQuery,
     signal?: AbortSignal,
   ): Promise<Blob> {
@@ -118,7 +106,6 @@ export class OpenApiAdminAdapter implements AdminPort {
           snapshot_cutoff: query.snapshot_cutoff ?? new Date().toISOString(),
         } as never,
       },
-      headers: { Authorization: `Bearer ${token}` },
       parseAs: "blob",
       signal,
     });
@@ -129,13 +116,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async listGlobalAccounts(
-    token: AccessToken,
     query?: GlobalAdminAccountQuery,
     signal?: AbortSignal,
   ): Promise<{ items: GlobalAdminAccount[]; next_cursor?: string }> {
     const result = await apiClient.GET("/admin/global/accounts", {
       params: { query: query as never },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -149,13 +134,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getGlobalAccount(
-    token: AccessToken,
     accountId: string,
     signal?: AbortSignal,
   ): Promise<GlobalAdminAccount | null> {
     const result = await apiClient.GET("/admin/global/accounts/{accountID}", {
       params: { path: { accountID: accountId } },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return null;
@@ -166,7 +149,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async updateGlobalAccountProfile(
-    token: AccessToken,
     accountId: string,
     input: {
       display_name: string;
@@ -181,7 +163,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/global/accounts/{accountID}/profile",
       {
         params: { path: { accountID: accountId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -193,7 +174,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async setGlobalAccountRole(
-    token: AccessToken,
     accountId: string,
     role: "arrendatario" | "arrendador",
     granted: boolean,
@@ -205,7 +185,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/global/accounts/{accountID}/roles/{role}",
       {
         params: { path: { accountID: accountId, role } },
-        headers: { Authorization: `Bearer ${token}` },
         body: { granted, reason },
         bodySerializer: serializeExactJson,
         signal,
@@ -217,7 +196,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async setGlobalLegacyAdminRole(
-    token: AccessToken,
     accountId: string,
     granted: boolean,
     reason:
@@ -230,7 +208,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/global/accounts/{accountID}/legacy-administrator",
       {
         params: { path: { accountID: accountId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: { granted, reason },
         bodySerializer: serializeExactJson,
         signal,
@@ -242,7 +219,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async revokeGlobalAccountSessions(
-    token: AccessToken,
     accountId: string,
     reason:
       "correccion_perfil" | "revision_administrativa" | "gestion_operativa",
@@ -252,7 +228,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/global/accounts/{accountID}/sessions/revoke",
       {
         params: { path: { accountID: accountId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: { reason },
         bodySerializer: serializeExactJson,
         signal,
@@ -264,7 +239,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async setGlobalAccountBlocked(
-    token: AccessToken,
     accountId: string,
     blocked: boolean,
     reason: string,
@@ -274,7 +248,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/global/accounts/{accountID}/block",
       {
         params: { path: { accountID: accountId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: {
           blocked,
           reason: reason as never,
@@ -289,13 +262,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async listGlobalPublications(
-    token: AccessToken,
     query?: GlobalAdminPublicationQuery,
     signal?: AbortSignal,
   ): Promise<GlobalAdminPublication[]> {
     const result = await apiClient.GET("/admin/global/publications", {
       params: { query: query as never },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -307,7 +278,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async setGlobalPublicationState(
-    token: AccessToken,
     publicationId: string,
     input: {
       state: "activa" | "oculta";
@@ -321,7 +291,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/global/publications/{publicationID}/state",
       {
         params: { path: { publicationID: publicationId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -333,7 +302,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async retireGlobalPublication(
-    token: AccessToken,
     publicationId: string,
     input: {
       owner_id: string;
@@ -346,7 +314,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/global/publications/{publicationID}/retire",
       {
         params: { path: { publicationID: publicationId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: input as never,
         bodySerializer: serializeExactJson,
         signal,
@@ -362,11 +329,9 @@ export class OpenApiAdminAdapter implements AdminPort {
   // -----------------------------------------------------
 
   async listVerifications(
-    token: AccessToken,
     signal?: AbortSignal,
   ): Promise<AdminVerificationCase[]> {
     const result = await apiClient.GET("/admin/verifications", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -379,11 +344,9 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async listRejectedVerifications(
-    token: AccessToken,
     signal?: AbortSignal,
   ): Promise<AdminVerificationCase[]> {
     const result = await apiClient.GET("/admin/verifications/failed", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -396,7 +359,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async reviewVerification(
-    token: AccessToken,
     id: string,
     decision: "aprobar" | "rechazar",
     reason?: string,
@@ -404,7 +366,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   ): Promise<AdminVerificationCase> {
     const result = await apiClient.POST("/admin/verifications/{id}/review", {
       params: { path: { id } },
-      headers: { Authorization: `Bearer ${token}` },
       body: { decision, reason } as never,
       bodySerializer: serializeExactJson,
       signal,
@@ -416,7 +377,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async revokeVerification(
-    token: AccessToken,
     id: string,
     idempotencyKey: string,
     reason_code:
@@ -428,9 +388,6 @@ export class OpenApiAdminAdapter implements AdminPort {
         path: { id },
         header: { "Idempotency-Key": idempotencyKey },
       },
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
       body: { reason_code },
       bodySerializer: serializeExactJson,
       signal,
@@ -441,12 +398,8 @@ export class OpenApiAdminAdapter implements AdminPort {
     return result.data as unknown as AdminVerificationCase;
   }
 
-  async listDisputes(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<AdminLocalDispute[]> {
+  async listDisputes(signal?: AbortSignal): Promise<AdminLocalDispute[]> {
     const result = await apiClient.GET("/admin/disputes", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -458,14 +411,12 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async closeDispute(
-    token: AccessToken,
     disputeId: string,
     reason_code: "ensayo_finalizado" | "registro_erroneo" | "duplicada",
     signal?: AbortSignal,
   ): Promise<AdminLocalDispute> {
     const result = await apiClient.POST("/admin/disputes/{dispute_id}/close", {
       params: { path: { dispute_id: disputeId } },
-      headers: { Authorization: `Bearer ${token}` },
       body: { reason_code },
       bodySerializer: serializeExactJson,
       signal,
@@ -476,12 +427,8 @@ export class OpenApiAdminAdapter implements AdminPort {
     return result.data as unknown as AdminLocalDispute;
   }
 
-  async listReviewReports(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<AdminReviewReport[]> {
+  async listReviewReports(signal?: AbortSignal): Promise<AdminReviewReport[]> {
     const result = await apiClient.GET("/admin/local/review-reports", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -491,7 +438,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async moderateReviewReport(
-    token: AccessToken,
     reportId: string,
     action: "dismiss" | "hide",
     idempotencyKey: string,
@@ -512,9 +458,6 @@ export class OpenApiAdminAdapter implements AdminPort {
           path: { reportID: reportId, action },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -526,12 +469,8 @@ export class OpenApiAdminAdapter implements AdminPort {
     return result.data?.data as unknown as AdminReviewReport;
   }
 
-  async listNotices(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<AdminLocalNotice[]> {
+  async listNotices(signal?: AbortSignal): Promise<AdminLocalNotice[]> {
     const result = await apiClient.GET("/admin/local/notices", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -541,7 +480,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async reopenNotice(
-    token: AccessToken,
     noticeId: string,
     idempotencyKey: string,
     input: {
@@ -557,9 +495,6 @@ export class OpenApiAdminAdapter implements AdminPort {
           path: { noticeID: noticeId },
           header: { "Idempotency-Key": idempotencyKey },
         },
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
         body: input,
         bodySerializer: serializeExactJson,
         signal,
@@ -572,7 +507,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async listLocalAuditEvents(
-    token: AccessToken,
     query: {
       from: string;
       until: string;
@@ -586,7 +520,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   ): Promise<AuditEvent[]> {
     const result = await apiClient.GET("/admin/local/audit-events", {
       params: { query: query as never },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -596,7 +529,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async exportLocalAuditEvents(
-    token: AccessToken,
     query: {
       from: string;
       until: string;
@@ -610,7 +542,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   ): Promise<Blob> {
     const result = await apiClient.GET("/admin/local/audit-events/export", {
       params: { query: query as never },
-      headers: { Authorization: `Bearer ${token}` },
       parseAs: "blob",
       signal,
     });
@@ -621,13 +552,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getLocalAccount(
-    token: AccessToken,
     accountId: string,
     signal?: AbortSignal,
   ): Promise<AdminLocalAccount | null> {
     const result = await apiClient.GET("/admin/local/accounts/{accountID}", {
       params: { path: { accountID: accountId } },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return null;
@@ -638,7 +567,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async blockLocalAccount(
-    token: AccessToken,
     accountId: string,
     reason: string,
     signal?: AbortSignal,
@@ -647,7 +575,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/local/accounts/{accountID}/block",
       {
         params: { path: { accountID: accountId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: { reason } as never,
         bodySerializer: serializeExactJson,
         signal,
@@ -660,7 +587,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async unblockLocalAccount(
-    token: AccessToken,
     accountId: string,
     reason: string,
     signal?: AbortSignal,
@@ -669,7 +595,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/local/accounts/{accountID}/unblock",
       {
         params: { path: { accountID: accountId } },
-        headers: { Authorization: `Bearer ${token}` },
         body: { reason } as never,
         bodySerializer: serializeExactJson,
         signal,
@@ -682,11 +607,9 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async listPublishedSpaces(
-    token: AccessToken,
     signal?: AbortSignal,
   ): Promise<AdminPublishedSpace[]> {
     const result = await apiClient.GET("/admin/local/published-spaces", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -696,7 +619,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getPublishedSpace(
-    token: AccessToken,
     spaceId: string,
     signal?: AbortSignal,
   ): Promise<AdminPublishedSpace | null> {
@@ -704,7 +626,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/local/published-spaces/{spaceID}",
       {
         params: { path: { spaceID: spaceId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -716,13 +637,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getReservationsReport(
-    token: AccessToken,
     query: { from: string; until: string; timezone: string },
     signal?: AbortSignal,
   ): Promise<AdminReservationsReport> {
     const result = await apiClient.GET("/admin/local/reports/reservations", {
       params: { query },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -733,13 +652,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getFinanceReport(
-    token: AccessToken,
     query: { from: string; until: string; timezone: string },
     signal?: AbortSignal,
   ): Promise<AdminFinanceReport> {
     const result = await apiClient.GET("/admin/local/reports/finance", {
       params: { query },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -750,13 +667,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getDisputesReport(
-    token: AccessToken,
     query: { from: string; until: string; timezone: string },
     signal?: AbortSignal,
   ): Promise<AdminDisputesReport> {
     const result = await apiClient.GET("/admin/local/reports/disputes", {
       params: { query },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -767,7 +682,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async listLocalReservations(
-    token: AccessToken,
     query?: {
       reservation_id?: string;
       state?: string;
@@ -780,7 +694,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   ): Promise<AdminReservationSummary[]> {
     const result = await apiClient.GET("/admin/local/reservations", {
       params: { query: query as never },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -792,7 +705,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getLocalReservation(
-    token: AccessToken,
     reservationId: string,
     signal?: AbortSignal,
   ): Promise<AdminReservationDetail | null> {
@@ -800,7 +712,6 @@ export class OpenApiAdminAdapter implements AdminPort {
       "/admin/local/reservations/{reservationID}",
       {
         params: { path: { reservationID: reservationId } },
-        headers: { Authorization: `Bearer ${token}` },
         signal,
       },
     );
@@ -811,12 +722,8 @@ export class OpenApiAdminAdapter implements AdminPort {
     return (result.data?.data as unknown as AdminReservationDetail) ?? null;
   }
 
-  async listDamageClaims(
-    token: AccessToken,
-    signal?: AbortSignal,
-  ): Promise<AdminDamageClaim[]> {
+  async listDamageClaims(signal?: AbortSignal): Promise<AdminDamageClaim[]> {
     const result = await apiClient.GET("/admin/local/damage-claims", {
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (!result.response.ok) {
@@ -826,13 +733,11 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async getDamageClaim(
-    token: AccessToken,
     claimId: string,
     signal?: AbortSignal,
   ): Promise<AdminDamageClaim | null> {
     const result = await apiClient.GET("/admin/local/damage-claims/{claimID}", {
       params: { path: { claimID: claimId } },
-      headers: { Authorization: `Bearer ${token}` },
       signal,
     });
     if (result.response.status === 404) return null;
@@ -843,7 +748,6 @@ export class OpenApiAdminAdapter implements AdminPort {
   }
 
   async resolveDamageClaim(
-    token: AccessToken,
     claimId: string,
     idempotencyKey: string,
     input: AdminDamageClaimResolutionInput,
@@ -855,9 +759,6 @@ export class OpenApiAdminAdapter implements AdminPort {
         params: {
           path: { claimID: claimId },
           header: { "Idempotency-Key": idempotencyKey },
-        },
-        headers: {
-          Authorization: `Bearer ${token}`,
         },
         body: input as never,
         bodySerializer: serializeExactJson,

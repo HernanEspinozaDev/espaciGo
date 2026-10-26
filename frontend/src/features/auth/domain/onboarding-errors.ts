@@ -35,6 +35,8 @@ export function onboardingErrorCopy(code: string): string {
     case "unauthenticated":
     case "unauthorized":
       return "El correo o la contraseña no son válidos.";
+    case "remote_logout_unconfirmed":
+      return "La sesión local se cerró, pero no se pudo confirmar la revocación remota en el servicio.";
     case "terms_unavailable":
       return "No pudimos cargar los documentos necesarios para el registro.";
     default:

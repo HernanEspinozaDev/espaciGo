@@ -3,7 +3,6 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { hostListingsFacade } from "../host-listings-runtime";
 import type { HostListingsSnapshot } from "../application/host-listings-facade";
-import type { AccessToken } from "@/features/auth/application/auth.port";
 import type {
   Category,
   CategoryProfileSchema,
@@ -29,100 +28,54 @@ export interface HostListingsView {
     version?: number,
     signal?: AbortSignal,
   ): Promise<CategoryProfileSchema | null>;
-  loadListings(
-    token: AccessToken,
-    filter?: { status?: ListingState },
-  ): Promise<readonly ListingSummary[]>;
-  selectListing(
-    token: AccessToken,
-    listingId: string,
-  ): Promise<ListingDetail | null>;
+  loadListings(filter?: {
+    status?: ListingState;
+  }): Promise<readonly ListingSummary[]>;
+  selectListing(listingId: string): Promise<ListingDetail | null>;
   createDraft(
-    token: AccessToken,
     input: ListingDraftInput,
     idempotencyKey?: string,
   ): Promise<ListingDetail>;
   updateDraft(
-    token: AccessToken,
     listingId: string,
     input: ListingDraftInput,
     ifMatch?: string,
   ): Promise<ListingDetail>;
-  deleteListing(
-    token: AccessToken,
-    listingId: string,
-  ): Promise<ListingDeletionReceipt>;
+  deleteListing(listingId: string): Promise<ListingDeletionReceipt>;
   updateContent(
-    token: AccessToken,
     listingId: string,
     input: ContentUpdateInput,
     ifMatch?: string,
   ): Promise<ListingDetail>;
-  publishListing(
-    token: AccessToken,
-    listingId: string,
-    ifMatch?: string,
-  ): Promise<ListingDetail>;
-  archiveListing(
-    token: AccessToken,
-    listingId: string,
-    ifMatch?: string,
-  ): Promise<ListingDetail>;
-  loadPricing(
-    token: AccessToken,
-    listingId: string,
-  ): Promise<PricingHistoryItem | null>;
+  publishListing(listingId: string, ifMatch?: string): Promise<ListingDetail>;
+  archiveListing(listingId: string, ifMatch?: string): Promise<ListingDetail>;
+  loadPricing(listingId: string): Promise<PricingHistoryItem | null>;
   updatePricing(
-    token: AccessToken,
     listingId: string,
     input: PricingInput,
     ifMatch?: string,
   ): Promise<PricingHistoryItem>;
-  loadPricingHistory(
-    token: AccessToken,
-    listingId: string,
-  ): Promise<readonly PricingHistoryItem[]>;
+  loadPricingHistory(listingId: string): Promise<readonly PricingHistoryItem[]>;
   configureTimeZone(
-    token: AccessToken,
     listingId: string,
     timeZone: string,
     ifMatch?: string,
   ): Promise<void>;
-  loadWeeklySchedule(
-    token: AccessToken,
-    listingId: string,
-  ): Promise<ScheduleData | null>;
+  loadWeeklySchedule(listingId: string): Promise<ScheduleData | null>;
   updateWeeklySchedule(
-    token: AccessToken,
     listingId: string,
     input: ScheduleInput,
     ifMatch?: string,
   ): Promise<ScheduleData>;
-  loadPhotos(
-    token: AccessToken,
-    listingId: string,
-  ): Promise<readonly GalleryPhoto[]>;
+  loadPhotos(listingId: string): Promise<readonly GalleryPhoto[]>;
   uploadPhoto(
-    token: AccessToken,
     listingId: string,
     input?: PhotoUploadInput,
     idempotencyKey?: string,
   ): Promise<GalleryPhoto>;
-  setCoverPhoto(
-    token: AccessToken,
-    listingId: string,
-    photoId: string,
-  ): Promise<void>;
-  removePhoto(
-    token: AccessToken,
-    listingId: string,
-    photoId: string,
-  ): Promise<void>;
-  reorderPhotos(
-    token: AccessToken,
-    listingId: string,
-    photoIds: string[],
-  ): Promise<void>;
+  setCoverPhoto(listingId: string, photoId: string): Promise<void>;
+  removePhoto(listingId: string, photoId: string): Promise<void>;
+  reorderPhotos(listingId: string, photoIds: string[]): Promise<void>;
   setFilter(filter: Partial<HostListingsSnapshot["filter"]>): void;
   clear(): void;
 }
@@ -146,143 +99,110 @@ export function useHostListings(): HostListingsView {
   );
 
   const loadListings = useCallback(
-    (token: AccessToken, filter?: { status?: ListingState }) =>
-      hostListingsFacade.loadListings(token, filter),
+    (filter?: { status?: ListingState }) =>
+      hostListingsFacade.loadListings(filter),
     [],
   );
 
   const selectListing = useCallback(
-    (token: AccessToken, listingId: string) =>
-      hostListingsFacade.selectListing(token, listingId),
+    (listingId: string) => hostListingsFacade.selectListing(listingId),
     [],
   );
 
   const createDraft = useCallback(
-    (token: AccessToken, input: ListingDraftInput, idempotencyKey?: string) =>
-      hostListingsFacade.createDraft(token, input, idempotencyKey),
+    (input: ListingDraftInput, idempotencyKey?: string) =>
+      hostListingsFacade.createDraft(input, idempotencyKey),
     [],
   );
 
   const updateDraft = useCallback(
-    (
-      token: AccessToken,
-      listingId: string,
-      input: ListingDraftInput,
-      ifMatch?: string,
-    ) => hostListingsFacade.updateDraft(token, listingId, input, ifMatch),
+    (listingId: string, input: ListingDraftInput, ifMatch?: string) =>
+      hostListingsFacade.updateDraft(listingId, input, ifMatch),
     [],
   );
 
   const deleteListing = useCallback(
-    (token: AccessToken, listingId: string) =>
-      hostListingsFacade.deleteListing(token, listingId),
+    (listingId: string) => hostListingsFacade.deleteListing(listingId),
     [],
   );
 
   const updateContent = useCallback(
-    (
-      token: AccessToken,
-      listingId: string,
-      input: ContentUpdateInput,
-      ifMatch?: string,
-    ) => hostListingsFacade.updateContent(token, listingId, input, ifMatch),
+    (listingId: string, input: ContentUpdateInput, ifMatch?: string) =>
+      hostListingsFacade.updateContent(listingId, input, ifMatch),
     [],
   );
 
   const publishListing = useCallback(
-    (token: AccessToken, listingId: string, ifMatch?: string) =>
-      hostListingsFacade.publishListing(token, listingId, ifMatch),
+    (listingId: string, ifMatch?: string) =>
+      hostListingsFacade.publishListing(listingId, ifMatch),
     [],
   );
 
   const archiveListing = useCallback(
-    (token: AccessToken, listingId: string, ifMatch?: string) =>
-      hostListingsFacade.archiveListing(token, listingId, ifMatch),
+    (listingId: string, ifMatch?: string) =>
+      hostListingsFacade.archiveListing(listingId, ifMatch),
     [],
   );
 
   const loadPricing = useCallback(
-    (token: AccessToken, listingId: string) =>
-      hostListingsFacade.loadPricing(token, listingId),
+    (listingId: string) => hostListingsFacade.loadPricing(listingId),
     [],
   );
 
   const updatePricing = useCallback(
-    (
-      token: AccessToken,
-      listingId: string,
-      input: PricingInput,
-      ifMatch?: string,
-    ) => hostListingsFacade.updatePricing(token, listingId, input, ifMatch),
+    (listingId: string, input: PricingInput, ifMatch?: string) =>
+      hostListingsFacade.updatePricing(listingId, input, ifMatch),
     [],
   );
 
   const loadPricingHistory = useCallback(
-    (token: AccessToken, listingId: string) =>
-      hostListingsFacade.loadPricingHistory(token, listingId),
+    (listingId: string) => hostListingsFacade.loadPricingHistory(listingId),
     [],
   );
 
   const configureTimeZone = useCallback(
-    (
-      token: AccessToken,
-      listingId: string,
-      timeZone: string,
-      ifMatch?: string,
-    ) =>
-      hostListingsFacade.configureTimeZone(token, listingId, timeZone, ifMatch),
+    (listingId: string, timeZone: string, ifMatch?: string) =>
+      hostListingsFacade.configureTimeZone(listingId, timeZone, ifMatch),
     [],
   );
 
   const loadWeeklySchedule = useCallback(
-    (token: AccessToken, listingId: string) =>
-      hostListingsFacade.loadWeeklySchedule(token, listingId),
+    (listingId: string) => hostListingsFacade.loadWeeklySchedule(listingId),
     [],
   );
 
   const updateWeeklySchedule = useCallback(
-    (
-      token: AccessToken,
-      listingId: string,
-      input: ScheduleInput,
-      ifMatch?: string,
-    ) =>
-      hostListingsFacade.updateWeeklySchedule(token, listingId, input, ifMatch),
+    (listingId: string, input: ScheduleInput, ifMatch?: string) =>
+      hostListingsFacade.updateWeeklySchedule(listingId, input, ifMatch),
     [],
   );
 
   const loadPhotos = useCallback(
-    (token: AccessToken, listingId: string) =>
-      hostListingsFacade.loadPhotos(token, listingId),
+    (listingId: string) => hostListingsFacade.loadPhotos(listingId),
     [],
   );
 
   const uploadPhoto = useCallback(
-    (
-      token: AccessToken,
-      listingId: string,
-      input?: PhotoUploadInput,
-      idempotencyKey?: string,
-    ) =>
-      hostListingsFacade.uploadPhoto(token, listingId, input, idempotencyKey),
+    (listingId: string, input?: PhotoUploadInput, idempotencyKey?: string) =>
+      hostListingsFacade.uploadPhoto(listingId, input, idempotencyKey),
     [],
   );
 
   const setCoverPhoto = useCallback(
-    (token: AccessToken, listingId: string, photoId: string) =>
-      hostListingsFacade.setCoverPhoto(token, listingId, photoId),
+    (listingId: string, photoId: string) =>
+      hostListingsFacade.setCoverPhoto(listingId, photoId),
     [],
   );
 
   const removePhoto = useCallback(
-    (token: AccessToken, listingId: string, photoId: string) =>
-      hostListingsFacade.removePhoto(token, listingId, photoId),
+    (listingId: string, photoId: string) =>
+      hostListingsFacade.removePhoto(listingId, photoId),
     [],
   );
 
   const reorderPhotos = useCallback(
-    (token: AccessToken, listingId: string, photoIds: string[]) =>
-      hostListingsFacade.reorderPhotos(token, listingId, photoIds),
+    (listingId: string, photoIds: string[]) =>
+      hostListingsFacade.reorderPhotos(listingId, photoIds),
     [],
   );
 
