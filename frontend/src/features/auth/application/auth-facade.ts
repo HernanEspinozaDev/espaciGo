@@ -50,6 +50,58 @@ const checkingSnapshot: AuthSnapshot = Object.freeze({
 const rfc3339Timestamp =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
 
+const SESSION_STORAGE_KEY = "espacigo_auth_session";
+
+interface StoredSession {
+  readonly accessToken: AccessToken;
+  readonly session: CurrentAuthSession;
+  readonly expiresAt: string;
+}
+
+function loadStoredSession(): StoredSession | null {
+  if (typeof window === "undefined" || !window.sessionStorage) return null;
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      typeof parsed?.accessToken === "string" &&
+      typeof parsed?.expiresAt === "string" &&
+      typeof parsed?.session?.accountId === "string" &&
+      Array.isArray(parsed?.session?.roles) &&
+      Array.isArray(parsed?.session?.capabilities) &&
+      typeof parsed?.session?.restrictedMode === "boolean"
+    ) {
+      const exp = Date.parse(parsed.expiresAt);
+      if (Number.isFinite(exp) && exp > Date.now()) {
+        return parsed as StoredSession;
+      }
+    }
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredSession(stored: StoredSession): void {
+  if (typeof window === "undefined" || !window.sessionStorage) return;
+  try {
+    window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // ignore storage quota errors
+  }
+}
+
+function clearStoredSession(): void {
+  if (typeof window === "undefined" || !window.sessionStorage) return;
+  try {
+    window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
 function expiryMillis(value: string): number {
   if (!rfc3339Timestamp.test(value)) throw new ApiProtocolError();
   const result = Date.parse(value);
@@ -92,7 +144,21 @@ export class AuthFacade {
   #snapshot: AuthSnapshot = anonymousSnapshot;
   #listeners = new Set<() => void>();
 
-  constructor(private readonly port: AuthPort) {}
+  constructor(private readonly port: AuthPort) {
+    const stored = loadStoredSession();
+    if (stored) {
+      this.#accessToken = stored.accessToken;
+      this.#snapshot = snapshotFromSession(stored.session, stored.expiresAt);
+      try {
+        const exp = expiryMillis(stored.expiresAt);
+        this.#scheduleExpiry(this.#generation, exp);
+      } catch {
+        this.#accessToken = null;
+        this.#snapshot = anonymousSnapshot;
+        clearStoredSession();
+      }
+    }
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.#listeners.add(listener);
@@ -142,6 +208,11 @@ export class AuthFacade {
       this.#accessToken = result.accessToken;
       this.#publish(snapshotFromSession(session, result.session.expiresAt));
       this.#scheduleExpiry(generation, expiresAt);
+      saveStoredSession({
+        accessToken: result.accessToken,
+        session,
+        expiresAt: result.session.expiresAt,
+      });
       return true;
     } catch (error) {
       if (generation === this.#generation) this.#clearIfCurrent(generation);
@@ -155,6 +226,20 @@ export class AuthFacade {
 
   async checkSession(): Promise<boolean> {
     this.#expireIfNeeded();
+    if (!this.#accessToken) {
+      const stored = loadStoredSession();
+      if (stored) {
+        this.#accessToken = stored.accessToken;
+        this.#publish(snapshotFromSession(stored.session, stored.expiresAt));
+        try {
+          const exp = expiryMillis(stored.expiresAt);
+          this.#scheduleExpiry(this.#generation, exp);
+        } catch {
+          this.#clearIfCurrent(this.#generation);
+          return false;
+        }
+      }
+    }
     const accessToken = this.#accessToken;
     const expiresAt = this.#snapshot.expiresAt;
     const generation = this.#generation;
@@ -182,6 +267,11 @@ export class AuthFacade {
         return false;
       }
       this.#publish(snapshotFromSession(session, expiresAt));
+      saveStoredSession({
+        accessToken,
+        session,
+        expiresAt,
+      });
       return true;
     } catch (error) {
       if (generation !== this.#generation || signal.aborted) return false;
@@ -209,6 +299,7 @@ export class AuthFacade {
 
     this.#advanceGeneration();
     this.#accessToken = null;
+    clearStoredSession();
     this.#publish(anonymousSnapshot);
     const controller = new AbortController();
     try {
@@ -293,6 +384,7 @@ export class AuthFacade {
     if (generation !== this.#generation) return;
     this.#advanceGeneration();
     this.#accessToken = null;
+    clearStoredSession();
     this.#publish(anonymousSnapshot);
   }
 

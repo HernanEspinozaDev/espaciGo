@@ -477,7 +477,7 @@ export function CatalogFilters(props: {
   return (
     <>
       <aside className="hidden lg:block">
-        <div className="sticky top-24 rounded-2xl border border-border p-5">
+        <div className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto overscroll-contain rounded-2xl border border-border p-5 [scrollbar-gutter:stable]">
           <h2 className="mb-5 text-sm font-medium">Filtros</h2>
           <FilterForm {...props} />
         </div>

@@ -20,6 +20,7 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/workspace/ui/button";
 import { cn } from "@/lib/utils";
 import { useAdmin } from "./use-admin";
 import type { AdminSection } from "../domain/types";
@@ -149,6 +150,34 @@ export function AdminNavigation() {
           </Badge>
         </div>
       </div>
+
+      {activeRole !== "administrador" &&
+      activeRole !== "administrador_global" ? (
+        <aside
+          role="region"
+          aria-label="Aviso de autenticación administrativa"
+          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-sm dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200"
+        >
+          <div className="space-y-0.5">
+            <p className="font-semibold text-sm">
+              Se requiere autorización administrativa
+            </p>
+            <p className="text-xs text-amber-800 dark:text-amber-300">
+              Para ver métricas y gestionar la plataforma debes iniciar sesión
+              con una cuenta de administrador o administrador global.
+            </p>
+          </div>
+          <Button
+            asChild
+            size="sm"
+            className="rounded-full bg-orange-700 text-white hover:bg-orange-800 shrink-0 font-medium"
+          >
+            <Link href={`/acceso?return_to=${encodeURIComponent(pathname)}`}>
+              Iniciar sesión administrativa
+            </Link>
+          </Button>
+        </aside>
+      ) : null}
 
       {/* Pestañas de acceso por capacidades */}
       <nav
