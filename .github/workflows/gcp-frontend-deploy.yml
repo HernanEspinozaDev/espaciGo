@@ -31,7 +31,7 @@ jobs:
     name: Deploy Frontend to Cloud Run
     runs-on: ubuntu-latest
     environment:
-      name: ${{ inputs.environment || 'production' }}
+      name: testprod
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
