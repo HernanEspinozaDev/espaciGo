@@ -6,7 +6,7 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
 case "$role" in
-  development|review)
+  development|review|direct)
     if [[ "$role" == development ]]; then
       account=HernanMEC
     else
@@ -22,13 +22,13 @@ case "$role" in
     git config --local --add credential.https://github.com.helper '!gh auth git-credential'
     git config --local core.hooksPath .githooks
     ;;
-  check-development|status) ;;
-  *) echo 'Uso: scripts/git-role.sh development|review|check-development|status' >&2; exit 2 ;;
+  check-development|check-direct|status) ;;
+  *) echo 'Uso: scripts/git-role.sh development|review|direct|check-development|check-direct|status' >&2; exit 2 ;;
 esac
 
 expected=''
 [[ "$role" == development || "$role" == check-development ]] && expected=HernanMEC
-[[ "$role" == review ]] && expected=HernanEspinozaDev
+[[ "$role" == review || "$role" == direct || "$role" == check-direct ]] && expected=HernanEspinozaDev
 python3 - "$expected" <<'PY'
 import json, subprocess, sys, urllib.request
 
