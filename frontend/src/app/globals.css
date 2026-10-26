@@ -1,0 +1,171 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./workspace-template.css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --radius: 0.625rem;
+  --font-geist-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  /* The tint is the design; this lightness clears AA on --muted/--secondary (oklch(0.97)). */
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+.prose {
+  --tw-prose-body: var(--muted-foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-links: var(--foreground);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-bullets: var(--muted-foreground);
+  --tw-prose-counters: var(--muted-foreground);
+}
+
+/* Rendered Tiptap content, matching the editor (the platform's `.tiptap-result`). Merchants float
+   an image left/right and use empty lines as spacers under it: the editor shows an empty paragraph
+   as one line (ProseMirror's trailing <br>), the static renderer emits a bare <p></p>. Headings drop
+   below the float, and the wrapper contains a float that ends the content. */
+.tiptap-content {
+  display: flow-root;
+}
+
+.tiptap-content :where(h1, h2, h3, h4, h5, h6) {
+  clear: both;
+}
+
+.tiptap-content p:empty {
+  min-height: 1em;
+  overflow: hidden;
+}
+
+.yns-image-shimmer {
+  background: linear-gradient(
+    90deg,
+    oklch(0.9 0 0) 0%,
+    oklch(0.95 0 0) 40%,
+    oklch(1 0 0) 50%,
+    oklch(0.95 0 0) 60%,
+    oklch(0.9 0 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: yns-image-shimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes yns-image-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Store-chat assistant bubbles: compact Markdown, not document chrome. */
+.chat-markdown {
+  @apply min-w-0 space-y-2 text-sm;
+}
+
+.chat-markdown > :first-child {
+  @apply mt-0;
+}
+
+.chat-markdown > :last-child {
+  @apply mb-0;
+}
+
+.chat-markdown [data-streamdown^="heading-"] {
+  @apply mb-1 mt-2 text-sm font-semibold tracking-normal;
+}
+
+.chat-markdown [data-streamdown="ordered-list"],
+.chat-markdown [data-streamdown="unordered-list"] {
+  @apply my-1 space-y-0.5 pl-5 text-sm;
+}
+
+.chat-markdown [data-streamdown="list-item"] {
+  @apply py-0;
+}
+
+.chat-markdown [data-streamdown="inline-code"] {
+  @apply rounded-sm border bg-muted px-1 py-0.5 font-mono text-[0.85em];
+}
+
+.chat-markdown [data-streamdown="link"] {
+  @apply font-medium underline decoration-border underline-offset-2 hover:decoration-foreground;
+}

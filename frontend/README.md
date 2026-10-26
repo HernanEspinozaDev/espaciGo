@@ -1,17 +1,28 @@
-# Frontend Angular
+# Frontend Next.js de EspaciGo
 
-Angular 22 es la interfaz local predeterminada de EspaciGo. El servicio `angular-frontend` de `compose.yaml` sirve la aplicación SSR y CSR en `http://127.0.0.1:4200`; Go permanece en sus rutas `/api/v1` y valida readiness, sesión, roles y permisos. La configuración del navegador vive en `/config.json` y contiene únicamente la URL pública del API. Angular no recibe secretos ni acceso a la red de datos.
+Aplicación única con App Router, React, TypeScript estricto y pnpm. La Fase 2 entrega dos shells visuales —marketplace público y panel demostrativo— sobre tokens y componentes compartidos. Todo el contenido del panel es sintético; no hay API, sesión, gateway, autenticación ni persistencia conectados.
 
-## Desarrollo
+## Rutas de demostración
 
-Desde `frontend/`, usar Node 24.15+ compatible con Angular 22 y el lockfile: `npm ci`, `npm start`, `npm test -- --watch=false`, `npm run api:check` y `npm run build`. `npm start` ejecuta Angular SSR en `http://localhost:4200` y define valores locales confiables si no se exportan variables: API interno del servidor `http://127.0.0.1:8080/api/v1`, API público `http://localhost:8080/api/v1` y origen canónico SSR `http://localhost:4200`. El servidor Go debe estar disponible en el puerto 8080 para obtener SSR de catálogo/ficha; si no lo está, esas rutas devuelven 503.
+- `/`: shell público, categorías y tarjetas ilustrativas.
+- `/panel`: shell de administración responsive con estados de ejemplo.
+- `/design-system`: paleta, componentes, estados comunes y densidades.
 
-La configuración del navegador y la del SSR tienen fuentes distintas. En `npm start`, `/config.json` sale del asset versionado [`public/config.json`](public/config.json) y su `apiBaseUrl` debe ser alcanzable por el navegador; `siteOrigin` es el origen público confiable que usa la app. El SSR lee `API_INTERNAL_BASE_URL`, `API_PUBLIC_BASE_URL` y `FRONTEND_PUBLIC_ORIGIN` del proceso Node. Los overrides de SSR deben usar URLs HTTP(S) válidas y `FRONTEND_PUBLIC_ORIGIN` debe coincidir con el origen canónico previsto; nunca se calcula desde `Host`. La URL de API pública de navegador debe corresponder a `apiBaseUrl` en el asset. El arranque no edita ni genera archivos de configuración. Para un host/API distintos, configura esos valores explícitamente y mantén alineado el asset público local; Compose entrega `/config.json` dinámico con `API_PUBLIC_BASE_URL` y `FRONTEND_PUBLIC_ORIGIN` explícitos. No se debe exponer una URL Docker interna al navegador.
+## Comprobaciones locales
 
-Ejemplo de overrides SSR-only para una API local distinta: `API_INTERNAL_BASE_URL=http://127.0.0.1:8081/api/v1 API_PUBLIC_BASE_URL=http://localhost:8080/api/v1 FRONTEND_PUBLIC_ORIGIN=http://localhost:4200 npm start`. El API público de navegador de ese ejemplo continúa siendo el del asset (`localhost:8080`); cambia el asset público local de forma deliberada si también debe cambiar el destino del navegador.
+```sh
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm format:check
+pnpm build
+pnpm test:e2e
+pnpm test:a11y
+```
 
-El stack aislado del runner se controla con `scripts/local-docker-stack.sh up-frontend`, `verify-frontend`, `run-e2e`, `down-frontend`. La aplicación Angular es el servicio por defecto en Compose; el runner de verificación/E2E es opcional y se añade mediante overlays dedicados. `scripts/test-frontend-docker.sh` hace una instalación limpia con proyecto, volumen, puertos y archivos de estado desechables, y comprueba arranque, caída/restauración de Go, la sesión y el aislamiento de secretos. `FE15_PORT_BASE` elige el primer puerto libre y `FE15_KEEP_STACK=1` conserva el stack aislado para inspección.
+`pnpm test` incluye la comprobación de contraste de tokens; Playwright arranca un servidor standalone en `127.0.0.1:4203` (configurable con `PLAYWRIGHT_PORT`) y verifica teclado, skip link, estados, accesibilidad axe y overflow en `390×844` y `1365×900`. Las capturas de comprobación se guardan bajo `../.local/frontend-phase2/` y no se versionan.
 
-## Validación
+Para desarrollo visual usa `pnpm dev`. Después de `pnpm build`, `pnpm start:local` sirve la salida standalone en `127.0.0.1:4201`. La imagen Docker corre como usuario `node` en el puerto 4000 y no requiere backend, base de datos ni credenciales.
 
-Instalación limpia y regresión: `npm ci`, `npm test -- --watch=false`, `npm run api:check` (sin `ng serve` activo) y `npm run build`. QA local integral: `scripts/test-local-qa.sh` ejecuta QA Angular y luego Go. `scripts/test-local-qa-backend.sh` permite correr Go unitario, vet e integraciones desechables sin instalar ni invocar Node/npm; el backend no compila ni ejecuta un frontend. Los tests de UI que cubrían sesión, filtros, publicaciones, pagos, archivos, conversaciones y administración fueron sustituidos por pruebas Angular de servicios/componentes/fachadas con el SDK generado y, para recorridos completos, Playwright contra Go.
+Las plantillas locales en `.local/frontend-template-sources/` son referencias visuales/estructurales en los commits registrados en `../planning/frontend_next/plan_frontend_next_hermes.md`. No se incorporan sus plataformas, autenticación, dependencias de dominio ni persistencia.
