@@ -1,5 +1,6 @@
 import { gatewayOperations } from "@/lib/api/generated/gateway-operations";
 import { getApiBackendBaseUrl } from "@/lib/api/server-config";
+import { getCloudRunIdentityHeaders } from "@/lib/api/cloud-run-identity";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

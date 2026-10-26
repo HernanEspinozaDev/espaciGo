@@ -3,8 +3,8 @@ import "server-only";
 const expectedPath = "/api/v1";
 
 export function getApiBackendBaseUrl(): URL {
-  const raw = process.env.API_BACKEND_BASE_URL;
-  if (!raw) throw new Error("API_BACKEND_BASE_URL is required by the server");
+  const raw = process.env.API_BACKEND_BASE_URL || process.env.API_INTERNAL_BASE_URL;
+  if (!raw) throw new Error("API_BACKEND_BASE_URL is not set");
 
   let url: URL;
   try {
