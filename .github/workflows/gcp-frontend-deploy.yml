@@ -30,8 +30,6 @@ jobs:
   deploy:
     name: Deploy Frontend to Cloud Run
     runs-on: ubuntu-latest
-    environment:
-      name: testprod
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
