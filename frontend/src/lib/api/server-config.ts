@@ -13,17 +13,20 @@ export function getApiBackendBaseUrl(): URL {
     throw new Error("API_BACKEND_BASE_URL is invalid");
   }
 
-  if (
-    url.protocol !== "http:" ||
-    url.hostname !== "127.0.0.1" ||
-    url.port !== "18082" ||
-    url.pathname !== expectedPath ||
-    url.username !== "" ||
-    url.password !== "" ||
-    url.search !== "" ||
-    url.hash !== ""
-  ) {
-    throw new Error("API_BACKEND_BASE_URL is outside the local API allowlist");
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("API_BACKEND_BASE_URL must use http or https");
+  }
+
+  if (url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") {
+    throw new Error("API_BACKEND_BASE_URL must not contain credentials, query, or hash");
+  }
+
+  if (url.pathname !== expectedPath) {
+    if (url.pathname === "/" || url.pathname === "") {
+      url.pathname = expectedPath;
+    } else if (!url.pathname.endsWith(expectedPath)) {
+      url.pathname = `${url.pathname.replace(/\/$/, "")}${expectedPath}`;
+    }
   }
 
   return url;

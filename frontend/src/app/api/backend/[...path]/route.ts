@@ -16,16 +16,23 @@ const ignoredTransportHeaders = new Set([
   "accept-encoding",
   "accept-language",
   "cache-control",
+  "cdn-loop",
   "connection",
   "content-length",
+  "forwarded",
   "host",
   "keep-alive",
   "origin",
   "pragma",
   "priority",
   "referer",
+  "traceparent",
+  "tracestate",
   "transfer-encoding",
   "user-agent",
+  "via",
+  "x-client-data",
+  "x-cloud-trace-context",
   "x-forwarded-for",
   "x-forwarded-host",
   "x-forwarded-port",
@@ -198,7 +205,14 @@ function collectHeaders(
   for (const [rawName, value] of request.headers) {
     const name = rawName.toLowerCase();
     if (name === "cookie") continue;
-    if (ignoredTransportHeaders.has(name) || name.startsWith("sec-")) continue;
+    if (
+      ignoredTransportHeaders.has(name) ||
+      name.startsWith("sec-") ||
+      name.startsWith("x-cloud-") ||
+      name.startsWith("x-goog-") ||
+      name.startsWith("x-appengine-")
+    )
+      continue;
 
     const isOperationHeader = operationHeaders.has(name);
     const isStandardHeader = acceptedApplicationHeaders.has(name);
