@@ -344,22 +344,79 @@ async function main() {
       "botón Cerrar sesión debe estar visible en el navbar",
     );
     await logoutBtn.click();
-    await page.waitForFunction(
-      () =>
-        !document.querySelector("header")?.innerText.includes("Cerrar sesión"),
-      { timeout: 6000 },
-    );
-    const guestNavText = await page.locator("header").first().innerText();
+
+    // Debe navegar a la URL exacta /acceso
+    await page.waitForURL((url) => new URL(url).pathname === "/acceso", {
+      timeout: 6000,
+    });
     check(
-      /\bAcceso\b|Ingresar/i.test(guestNavText),
-      "navbar tras logout debe mostrar Acceso o Ingresar",
+      new URL(page.url()).pathname === "/acceso",
+      "logout debe navegar a la URL exacta /acceso",
+    );
+
+    // Formulario de acceso visible sin segundo login ni redirección a /mi-cuenta
+    const emailInput = page.locator("#email");
+    await emailInput.waitFor({ state: "visible", timeout: 6000 });
+    check(
+      await emailInput.isVisible(),
+      "formulario de acceso debe estar visible tras logout sin segundo login",
     );
     check(
-      !guestNavText.includes("Cuenta sintética") &&
-        !guestNavText.includes("Nombre Reactivo Actualizado") &&
-        !guestNavText.includes("770e8400"),
-      "navbar tras logout no debe retener identidad anterior",
+      new URL(page.url()).pathname === "/acceso",
+      "debe permanecer en /acceso sin redirección a /mi-cuenta",
     );
+    const accessBody = await page.innerText("body");
+    check(
+      !accessBody.includes("Cuenta sintética") &&
+        !accessBody.includes("Nombre Reactivo Actualizado") &&
+        !accessBody.includes("770e8400"),
+      "pantalla de acceso tras logout no debe retener identidad anterior",
+    );
+
+    // Recarga conserva estado de invitado
+    await page.reload();
+    await page.waitForURL((url) => new URL(url).pathname === "/acceso", {
+      timeout: 6000,
+    });
+    await emailInput.waitFor({ state: "visible", timeout: 6000 });
+    check(
+      await emailInput.isVisible(),
+      "formulario de acceso debe continuar visible tras recarga",
+    );
+    const reloadedBody = await page.innerText("body");
+    check(
+      !reloadedBody.includes("Cuenta sintética") &&
+        !reloadedBody.includes("Nombre Reactivo Actualizado") &&
+        !reloadedBody.includes("770e8400"),
+      "recarga en /acceso conserva estado de invitado",
+    );
+
+    // Volver atrás no debe revelar identidad privada visible
+    await page.goBack();
+    await page
+      .getByRole("link", { name: /^(Acceso|Ingresar a EspaciGo)$/ })
+      .or(page.getByLabel("Correo electrónico"))
+      .first()
+      .waitFor({ state: "visible", timeout: 6000 });
+    const backText = await page.innerText("body");
+    check(
+      !backText.includes("Cuenta sintética") &&
+        !backText.includes("Nombre Reactivo Actualizado") &&
+        !backText.includes("770e8400"),
+      "volver atrás no debe revelar identidad privada visible",
+    );
+    const headers = page.locator("header");
+    if ((await headers.count()) > 0) {
+      const navText = await headers.first().innerText();
+      check(
+        !navText.includes("Cerrar sesión"),
+        "navbar tras logout no debe mostrar Cerrar sesión",
+      );
+      check(
+        /\bAcceso\b|Ingresar/i.test(navText),
+        "navbar tras volver atrás debe reflejar estado invitado",
+      );
+    }
   });
 
   // 7. Purga entre 2 pestañas sincroniza estado invitado sin credenciales residuales

@@ -56,3 +56,13 @@ Se detuvo el fixture público propio y los runners cerraron sus servidores HTTP/
 **Corrección validada localmente.** Se publica siguiendo el push directo a `main` ya autorizado y el trigger web regional existente. Este documento no afirma anticipadamente despliegue o una prueba con cuenta de producción: verificar SHA remoto → Cloud Build → digest → revisión → tráfico y conservar el reporte de release en `.local/deployments/`. No se han pedido ni usado credenciales reales. Los colores quedan expresamente aceptados por el usuario y sin modificaciones en este corte.
 
 Pruebas exclusivamente locales y sintéticas; sin cuentas nuevas, recuperación, credenciales reales, navegador del usuario, modificación de `AGENTS.md` ni datos retenidos.
+
+## Corrección posterior: destino explícito después de cerrar sesión
+
+El usuario confirmó casi todo el flujo publicado en `bfa4fff7103525ac2d9f476f96516557a060c36d`, pero indicó que **Cerrar sesión debe terminar en `/acceso`**, no permanecer en `/mi-cuenta`. El escenario previo comprobaba la purga del navbar, no el destino. La lectura del padre confirmó que `handleLogout` esperaba el cierre pero no ejecutaba navegación.
+
+La entrega acotada `deleg_30983ee9` incorporó `useRouter` y `router.replace("/acceso")` en `finally`, después de `await logout()`. No cambia la revocación ni la limpieza existentes: también se navega cuando la limpieza local ya ocurrió y la confirmación remota falla, sin afirmar éxito remoto. No modifica colores, geometría, fachadas, backend, SQL ni IAM.
+
+El agente reportó RED previo: 10/11 escenarios HTTPS y 3/4 contratos de controles, fallando precisamente la navegación ausente. Después del build corregido, el padre inspeccionó el diff completo y ejecutó **229/229 unitarias, 69 E2E/Axe PASS / 45 SKIP / 0 FAIL y 11/11 HTTPS sobre Next/BFF real**. Tipos/lint/formato en verde. La prueba ahora exige ruta `/acceso`, formulario visible, permanencia tras recarga y ausencia de identidad privada al retroceder; se espera el DOM invitado real, sin sleeps arbitrarios. Se preservan el acceso directo sin segundo login y las dos pestañas.
+
+La paridad read-only vuelve a confirmar 447 archivos backend idénticos a la API activa. La publicación sigue el trigger web existente y requiere verificar nuevamente SHA → build → digest → revisión → tráfico → HTTP antes de declarar entrega. El reporte exacto de esa publicación queda en `.local/deployments/`, sin utilizar cuentas reales.

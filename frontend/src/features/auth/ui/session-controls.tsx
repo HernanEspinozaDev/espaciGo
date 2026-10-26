@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/workspace/ui/button";
 import { useAuth } from "./use-auth";
@@ -11,6 +12,7 @@ export interface SessionControlsProps {
 }
 
 export function SessionControls({ variant }: SessionControlsProps) {
+  const router = useRouter();
   const { status, accountId, label } = useSessionIdentity();
   const { logout } = useAuth();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -24,6 +26,7 @@ export function SessionControls({ variant }: SessionControlsProps) {
       // useAuth.logout handles local clear and sets pending without false remote success
     } finally {
       setLoggingOut(false);
+      router.replace("/acceso");
     }
   };
 

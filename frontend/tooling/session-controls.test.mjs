@@ -60,6 +60,14 @@ test("SessionControls component exports, variants and contract rules", async () 
     source.includes("aria-label=") && source.includes("title="),
     "Must keep accessible label/title for full identity",
   );
+  assert.ok(
+    source.includes("useRouter"),
+    "SessionControls must import useRouter for post-logout navigation",
+  );
+  assert.ok(
+    source.includes('router.replace("/acceso")'),
+    "SessionControls must navigate to /acceso upon logout",
+  );
 });
 
 test("Workspace layout replaces Acceso button with SessionControls variant workspace", async () => {
