@@ -3,7 +3,6 @@
 import { Menu } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { MobileSearchInput } from "@/components/search/mobile-search-input";
 import {
   Sheet,
   SheetContent,
@@ -30,10 +29,7 @@ export function Navbar({ links }: { links: NavLink[] }) {
         </SheetTrigger>
         <SheetContent side="left" className="gap-0 overflow-y-auto p-6">
           <SheetTitle className="sr-only">Menú</SheetTitle>
-          <div className="mt-6">
-            <MobileSearchInput onNavigate={() => setOpen(false)} />
-          </div>
-          <nav className="mt-4 flex flex-col gap-1">
+          <nav className="mt-6 flex flex-col gap-1">
             {links.map((link) => (
               <Link
                 key={link.href}
