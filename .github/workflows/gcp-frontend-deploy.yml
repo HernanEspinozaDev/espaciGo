@@ -8,6 +8,15 @@ on:
       - "frontend/**"
       - ".github/workflows/gcp-frontend-deploy.yml"
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "production"
+        type: choice
+        options:
+          - production
+          - staging
 
 permissions:
   id-token: write
@@ -21,6 +30,8 @@ jobs:
   deploy:
     name: Deploy Frontend to Cloud Run
     runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment || 'production' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
