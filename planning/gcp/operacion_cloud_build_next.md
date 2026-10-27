@@ -4,25 +4,25 @@ Este es el punto de entrada operativo para el checkout `/home/nandev/Documentos/
 
 ## Inventario verificado con gcloud el 26 de octubre de 2026
 
-| Recurso | Valor |
-| --- | --- |
-| Proyecto / número | `espacigo-testprod` / `447373903153` |
-| Región | `southamerica-west1` |
-| Cuenta operadora ya conectada | `pasteleriahijitos@gmail.com` |
-| Repositorio GitHub | `HernanEspinozaDev/espaciGo` |
-| Trigger regional | `espacigo-main-rollout` |
-| ID del trigger | `548b8eff-e489-4307-a77f-455b56aa4e57` |
-| Evento / configuración | push `^main$` / `cloudbuild.yaml` |
-| Conexión Cloud Build | `projects/espacigo-testprod/locations/southamerica-west1/connections/espacigo-github/repositories/espacigo` |
-| Identidad de builds | `espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com` |
-| Artifact Registry | `southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod` |
-| Bucket privado de staging/lock/evidencia | `espacigo-testprod-cloud-build-447373903153` |
-| API privada | `espacigo-test-api` — puerto 8080 |
-| Web pública | `espacigo-test-public` — puerto 4000 |
-| Web privada IAP | `espacigo-test-private` — puerto 4000 |
-| Dominio público | `espacigo.testingpage.store` |
-| Dominio privado | `espacigo-demo.testingpage.store` |
-| Cloud SQL existente | `espacigo-testprod-db` / base `espacigo_dms_stage_20261020` |
+| Recurso                                  | Valor                                                                                                       |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Proyecto / número                        | `espacigo-testprod` / `447373903153`                                                                        |
+| Región                                   | `southamerica-west1`                                                                                        |
+| Cuenta operadora ya conectada            | `pasteleriahijitos@gmail.com`                                                                               |
+| Repositorio GitHub                       | `HernanEspinozaDev/espaciGo`                                                                                |
+| Trigger regional                         | `espacigo-main-rollout`                                                                                     |
+| ID del trigger                           | `548b8eff-e489-4307-a77f-455b56aa4e57`                                                                      |
+| Evento / configuración                   | push `^main$` / `cloudbuild.yaml`                                                                           |
+| Conexión Cloud Build                     | `projects/espacigo-testprod/locations/southamerica-west1/connections/espacigo-github/repositories/espacigo` |
+| Identidad de builds                      | `espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com`                                   |
+| Artifact Registry                        | `southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod`                                     |
+| Bucket privado de staging/lock/evidencia | `espacigo-testprod-cloud-build-447373903153`                                                                |
+| API privada                              | `espacigo-test-api` — puerto 8080                                                                           |
+| Web pública                              | `espacigo-test-public` — puerto 4000                                                                        |
+| Web privada IAP                          | `espacigo-test-private` — puerto 4000                                                                       |
+| Dominio público                          | `espacigo.testingpage.store`                                                                                |
+| Dominio privado                          | `espacigo-demo.testingpage.store`                                                                           |
+| Cloud SQL existente                      | `espacigo-testprod-db` / base `espacigo_dms_stage_20261020`                                                 |
 
 Usar `--account`, `--project` y `--region` explícitos. No cambiar cuentas globales en paralelo ni deducir recursos desde un nombre de proyecto supuesto. GitHub y GCP son identidades distintas.
 
@@ -50,6 +50,14 @@ La normalización distingue dos operaciones dentro del trigger existente:
 El modo web se ejecuta en `web-only-rollout` mediante `scripts/gcp/rollout_web.py`; los pasos históricos restantes solo se ejecutan con `full`. `scripts/gcp/verify_web_backend.py` permite repetir únicamente la prueba de paridad en modo read-only. El executor web conserva red, identidad runtime, IAM/IAP y variables ajenas de los servicios existentes; actualiza imagen y variables de enlace Next→Go mediante `--update-env-vars`, prepara ambas revisiones con `--no-traffic`, comprueba digest/Ready/etiquetas y promueve cada revisión exacta. No recrea servicios ni usa `--set-env-vars` para borrar configuración ajena.
 
 El modo web no acredita compatibilidad de nuevo backend; solo mantiene la API existente sin cambios. No es una autorización para migrar automáticamente. Una publicación completa necesita la evidencia vigente antes de ejecutarse. No conceder acceso SQL/Secret Manager a Cloud Build para automatizar esa captura por inferencia.
+
+### Promoción completa cuando existe tráfico fijado
+
+El full también debe preparar sin tráfico una revisión de nombre determinista por build para cada uno de sus tres servicios. Un `gcloud run deploy` exitoso puede heredar el tráfico fijado a revisiones anteriores. Se reprodujo en el release de registro: las webs nuevas tenían imagen/etiquetas correctas y Ready True, pero 0% de tráfico; `latestReadyRevisionName` seguía señalando la versión anterior. No inferir promoción de SUCCESS ni corregir con `--to-latest`.
+
+Leer **la revisión exacta preparada** con `gcloud run revisions describe REVISION --format=json`, verificar `status.imageDigest`, condición `type=Ready`/`status=True`, etiquetas `source-commit` y `cloud-build-id`, y solo entonces promover con `--to-revisions=REVISION=100`. Volver a leer el tráfico real del servicio. Un candidato Ready True con razón Retired no constituye por sí solo un error: puede estar listo pero sin tráfico.
+
+No usar expresiones de formato `status.conditions.filter(...)` ni `--filter` de listado en `revisions describe`: ambas fueron rechazadas por el CLI real. Los guards necesitan pruebas ejecutables que impidan promoción ante imagen, Ready, SHA o build incorrectos, metadatos ausentes/JSON inválido o error de gcloud. Un test que solo busque cadenas en YAML no demuestra que el comando sea ejecutable.
 
 Prueba previa de esta reparación: el digest de API `sha256:612d771bf7f0c01c5f7fb2335d37bbd5678479e885ffb2abc352f4303fd2e5d7` procede del build `5305b375-8898-48a4-a0f1-58cdd614f92f`, SHA declarado `275c0bfad3378622fa36c230a5903d53243c565f`. Se verificó el archivo fuente real de esa proveniencia (generación `1792808035936172`, SHA256 `65ac05a2a6222c7df9dd5ec33e4fa539d4b661563fc17609292aa5d00095e069`): **447 archivos backend y cero diferencias** con el checkout actual antes de la reparación. Esto permite una entrega solo web sin tocar Cloud SQL.
 
