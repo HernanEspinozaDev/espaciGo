@@ -702,7 +702,7 @@ test("@phase5 @controlled verification success and reissue 204 remain generic wi
     page.getByRole("heading", { name: "Correo verificado" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "Iniciar sesión" }),
+    page.getByRole("link", { name: "Entrar a EspaciGo" }),
   ).toHaveAttribute("href", "/acceso");
   expect(verificationCalls).toBe(1);
   expect(loginCalls).toBe(0);

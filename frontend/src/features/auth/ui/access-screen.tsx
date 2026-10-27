@@ -187,7 +187,7 @@ export function AccessScreen() {
       <div className="mt-4 space-y-3">
         <AuthFeedback message={message} focusRef={feedbackRef} />
         <RateLimitNotice deadline={retryUntil} />
-        {message.includes("Verifica tu correo") ? (
+        {message.includes("verificar tu correo") ? (
           <Link
             href="/verificar-correo"
             className="inline-flex min-h-11 items-center rounded-md text-sm font-medium text-orange-800 underline underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700"

@@ -24,6 +24,7 @@ const ignoredTransportHeaders = new Set([
   "cdn-loop",
   "connection",
   "content-length",
+  "dnt",
   "forwarded",
   "host",
   "keep-alive",
@@ -388,12 +389,19 @@ async function proxy(
   const allowedResponseMediaTypes = new Set<string>(
     operation.responseMediaTypes,
   );
-  if (
-    (upstream.body !== null && !upstreamMediaType) ||
-    (upstreamMediaType && !allowedResponseMediaTypes.has(upstreamMediaType))
-  ) {
-    await upstream.body?.cancel().catch(() => undefined);
-    return errorResponse(502, "upstream_content_type_not_allowed", requestId);
+  const isNoBodyResponse =
+    request.method.toUpperCase() === "HEAD" ||
+    [204, 205, 304].includes(upstream.status);
+  if (!isNoBodyResponse) {
+    if (
+      (upstream.body !== null && !upstreamMediaType) ||
+      (upstreamMediaType && !allowedResponseMediaTypes.has(upstreamMediaType))
+    ) {
+      await upstream.body?.cancel().catch(() => undefined);
+      return errorResponse(502, "upstream_content_type_not_allowed", requestId);
+    }
+  } else if (upstream.body !== null) {
+    await upstream.body.cancel().catch(() => undefined);
   }
 
   const outgoingHeaders = new Headers();
@@ -415,11 +423,7 @@ async function proxy(
   );
   outgoingHeaders.set("cache-control", "no-store");
 
-  const responseBody =
-    request.method.toUpperCase() === "HEAD" ||
-    [204, 205, 304].includes(upstream.status)
-      ? null
-      : upstream.body;
+  const responseBody = isNoBodyResponse ? null : upstream.body;
   return new Response(responseBody, {
     status: upstream.status,
     statusText: upstream.statusText,

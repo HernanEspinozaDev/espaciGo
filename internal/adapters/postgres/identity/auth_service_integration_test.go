@@ -511,6 +511,9 @@ func TestAuthSessionRoleStateTrafficExpiryAndLogout(t *testing.T) {
 		t.Run(fmt.Sprint(traffic), func(t *testing.T) {
 			h := newAuthHarness(t)
 			id := h.register(t, "session@ejemplo.invalid")
+			if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.rol_usuario (usuario_id, rol) VALUES ($1, $2)`, id, identity.RoleTenant); err != nil {
+				t.Fatal(err)
+			}
 			h.verify(t)
 			login := h.login(t, "session@ejemplo.invalid")
 			created := h.now

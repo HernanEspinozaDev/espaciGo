@@ -73,7 +73,9 @@ export function EmailVerifiedScreen() {
   }
 
   const ctaHref = isAuthenticated ? "/mi-cuenta" : "/acceso";
-  const ctaLabel = isAuthenticated ? "Continuar a Mi cuenta" : "Iniciar sesión";
+  const ctaLabel = isAuthenticated
+    ? "Continuar a Mi cuenta"
+    : "Entrar a EspaciGo";
 
   return (
     <AuthShell

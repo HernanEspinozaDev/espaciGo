@@ -35,6 +35,7 @@ export function VerificationScreen() {
   const [statusMessage, setStatusMessage] = useState(false);
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
+  const [isInvalidToken, setIsInvalidToken] = useState(false);
   const isMountedRef = useRef(true);
   const operationEpochRef = useRef(0);
 
@@ -46,6 +47,7 @@ export function VerificationScreen() {
     setStatusMessage(false);
     setRetryUntil(null);
     setAmbiguous(false);
+    setIsInvalidToken(false);
   });
   const retryRemaining = useRetryRemaining(retryUntil);
   const feedbackRef = useRef<HTMLDivElement>(null);
@@ -79,6 +81,8 @@ export function VerificationScreen() {
     setMessage("");
     setStatusMessage(false);
     setRetryUntil(null);
+    setAmbiguous(false);
+    setIsInvalidToken(false);
     try {
       await onboarding.verifyEmail(action.credential);
       if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
@@ -95,11 +99,14 @@ export function VerificationScreen() {
         setMessage(authErrorMessage(error));
       } else if (error instanceof ApiError && error.status < 500) {
         action.clear();
-        setMessage(onboardingErrorCopy(error.code));
+        if (error.code === "invalid_token") {
+          setIsInvalidToken(true);
+        }
+        setMessage(onboardingErrorCopy(error.code, "verification"));
       } else {
         action.clear();
         setMessage(
-          "No recibimos confirmación del enlace. Por seguridad, no lo enviaremos de nuevo automáticamente; solicita instrucciones nuevas.",
+          "No pudimos confirmar la respuesta. La verificación puede haberse completado. Intenta iniciar sesión; si tu correo sigue pendiente, solicita un nuevo enlace.",
         );
         setAmbiguous(true);
       }
@@ -123,6 +130,7 @@ export function VerificationScreen() {
     setStatusMessage(false);
     setRetryUntil(null);
     setAmbiguous(false);
+    setIsInvalidToken(false);
     try {
       await onboarding.reissueVerification({ email: trimmedEmail });
       if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
@@ -167,11 +175,15 @@ export function VerificationScreen() {
           kind={statusMessage ? "status" : "error"}
         />
         <RateLimitNotice deadline={retryUntil} />
-        {ambiguous ? (
-          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
-            La operación no pudo confirmarse con certeza. No la reintentaremos
-            automáticamente; ingresa de nuevo los datos cuando desees continuar.
-          </p>
+        {ambiguous || isInvalidToken ? (
+          <div>
+            <Link
+              href="/acceso"
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-orange-700 px-4 py-2 text-center text-sm font-semibold text-white shadow-xs hover:bg-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+            >
+              Comprobar acceso
+            </Link>
+          </div>
         ) : null}
 
         {hasCredential ? (

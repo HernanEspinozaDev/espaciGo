@@ -93,7 +93,7 @@ export function authErrorMessage(error: unknown): string {
       return "El correo o la contraseña no son válidos.";
     case "email_not_verified":
     case "email_unverified":
-      return "Verifica tu correo antes de iniciar sesión.";
+      return "Debes verificar tu correo antes de ingresar. Revisa tu bandeja de entrada y la carpeta de spam.";
     case "login_blocked":
       return "El acceso está bloqueado temporalmente. Intenta más tarde.";
     case "rate_limited":

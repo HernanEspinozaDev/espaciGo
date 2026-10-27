@@ -6,9 +6,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"html"
+	"io"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -23,6 +26,9 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 )
+
+//go:embed espacigo-logo.png
+var espacigoLogoPNG []byte
 
 type Config struct {
 	Host, Port, Security, Username, PasswordFile, From, FromName, PublicOrigin string
@@ -93,11 +99,16 @@ func (m *Mailer) send(ctx context.Context, to, subject, body string) error {
 }
 
 func (m *Mailer) sendMultipart(ctx context.Context, to, subject, textBody, htmlBody string) error {
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
+	var relatedBuf bytes.Buffer
+	relatedWriter := multipart.NewWriter(&relatedBuf)
+	logoCID := "espacigo-logo-" + relatedWriter.Boundary() + "@inline"
+	htmlBody = strings.Replace(htmlBody, "cid:espacigo-logo@inline", "cid:"+logoCID, 1)
 
-	textHeader := fmt.Sprintf("Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
-	textPart, err := mw.CreatePart(mailHeaderFromRaw(textHeader))
+	var altBuf bytes.Buffer
+	altWriter := multipart.NewWriter(&altBuf)
+
+	textHeader := "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n"
+	textPart, err := altWriter.CreatePart(mailHeaderFromRaw(textHeader))
 	if err != nil {
 		return identity.ErrDelivery
 	}
@@ -109,8 +120,8 @@ func (m *Mailer) sendMultipart(ctx context.Context, to, subject, textBody, htmlB
 		return identity.ErrDelivery
 	}
 
-	htmlHeader := fmt.Sprintf("Content-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n")
-	htmlPart, err := mw.CreatePart(mailHeaderFromRaw(htmlHeader))
+	htmlHeader := "Content-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n"
+	htmlPart, err := altWriter.CreatePart(mailHeaderFromRaw(htmlHeader))
 	if err != nil {
 		return identity.ErrDelivery
 	}
@@ -121,13 +132,50 @@ func (m *Mailer) sendMultipart(ctx context.Context, to, subject, textBody, htmlB
 	if err := qpHtml.Close(); err != nil {
 		return identity.ErrDelivery
 	}
-
-	if err := mw.Close(); err != nil {
+	if err := altWriter.Close(); err != nil {
 		return identity.ErrDelivery
 	}
 
-	contentType := fmt.Sprintf("multipart/alternative; boundary=\"%s\"", mw.Boundary())
-	return m.sendRaw(ctx, m.authFromName(), to, subject, contentType, buf.Bytes())
+	altPartHeader := fmt.Sprintf("Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", altWriter.Boundary())
+	altRelPart, err := relatedWriter.CreatePart(mailHeaderFromRaw(altPartHeader))
+	if err != nil {
+		return identity.ErrDelivery
+	}
+	if _, err := altRelPart.Write(altBuf.Bytes()); err != nil {
+		return identity.ErrDelivery
+	}
+
+	imgHeader := fmt.Sprintf("Content-Type: image/png; name=\"espacigo-logo.png\"\r\nContent-Transfer-Encoding: base64\r\nContent-ID: <%s>\r\nContent-Disposition: inline; filename=\"espacigo-logo.png\"\r\n\r\n", logoCID)
+	imgPart, err := relatedWriter.CreatePart(mailHeaderFromRaw(imgHeader))
+	if err != nil {
+		return identity.ErrDelivery
+	}
+	if err := writeBase64Lines(imgPart, espacigoLogoPNG); err != nil {
+		return identity.ErrDelivery
+	}
+
+	if err := relatedWriter.Close(); err != nil {
+		return identity.ErrDelivery
+	}
+
+	contentType := fmt.Sprintf("multipart/related; boundary=\"%s\"; type=\"multipart/alternative\"", relatedWriter.Boundary())
+	return m.sendRaw(ctx, m.authFromName(), to, subject, contentType, relatedBuf.Bytes())
+}
+
+func writeBase64Lines(w io.Writer, data []byte) error {
+	enc := base64.StdEncoding.EncodeToString(data)
+	for len(enc) > 76 {
+		if _, err := io.WriteString(w, enc[:76]+"\r\n"); err != nil {
+			return err
+		}
+		enc = enc[76:]
+	}
+	if len(enc) > 0 {
+		if _, err := io.WriteString(w, enc+"\r\n"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func mailHeaderFromRaw(raw string) map[string][]string {
@@ -304,9 +352,18 @@ func renderAuthEmailHTML(data authEmailData) string {
           <!-- Header -->
           <tr>
             <td style="padding: 32px 32px 20px 32px; border-bottom: 1px solid #DED5CC; text-align: left;">
-              <span style="font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #332720; text-decoration: none;">
-                Espaci<span style="color: #A44731;">Go</span>
-              </span>
+              <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                <tr>
+                  <td style="vertical-align: middle; padding-right: 12px; line-height: 0;">
+                    <img src="cid:espacigo-logo@inline" alt="EspaciGo" width="40" height="40" style="display: block; width: 40px; height: 40px; border: 0;" />
+                  </td>
+                  <td style="vertical-align: middle;">
+                    <span style="font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #332720; text-decoration: none; white-space: nowrap;">
+                      Espaci<span style="color: #A44731;">Go</span>
+                    </span>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
           <!-- Main Content -->

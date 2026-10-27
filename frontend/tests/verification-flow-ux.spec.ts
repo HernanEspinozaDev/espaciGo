@@ -121,7 +121,7 @@ test.describe("Verification and Recovery UX", () => {
       page.getByText(/tu cuenta de espacigo ya está lista/i),
     ).toBeVisible();
     const continueCta = page.getByRole("link", {
-      name: /iniciar sesión|ir a acceso|continuar/i,
+      name: /entrar a espacigo|iniciar sesión|ir a acceso|continuar/i,
     });
     await expect(continueCta).toBeVisible();
   });
@@ -464,7 +464,9 @@ test.describe("Verification and Recovery UX", () => {
 
     // 2. Leave the page (navigate to /acceso)
     await page
-      .getByRole("link", { name: /iniciar sesión|ir a acceso|continuar/i })
+      .getByRole("link", {
+        name: /entrar a espacigo|iniciar sesión|ir a acceso|continuar/i,
+      })
       .click();
     await page.waitForURL("**/acceso");
 
@@ -531,5 +533,179 @@ test.describe("Verification and Recovery UX", () => {
 
     // 4. Must NOT have navigated to /correo-verificado for the superseded request!
     expect(page.url()).not.toContain("/correo-verificado");
+  });
+
+  test("login with email_unverified error blocks entry without redirect, displays explicit pending copy and instructions link", async ({
+    page,
+  }) => {
+    await mockGateway(page, async (pathname, method) => {
+      if (pathname === "/api/backend/auth/session") {
+        return {
+          status: 401,
+          body: { error: { code: "unauthenticated" } },
+        };
+      }
+      if (pathname === "/api/backend/auth/login" && method === "POST") {
+        return {
+          status: 403,
+          body: {
+            error: {
+              code: "email_unverified",
+              message: "Email is not verified",
+            },
+          },
+        };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    await page.goto("/acceso");
+    await page.getByLabel("Correo electrónico").fill("unverified@ejemplo.test");
+    await page.getByLabel("Contraseña", { exact: true }).fill("Password123!");
+    await page.getByRole("button", { name: "Iniciar sesión" }).click();
+
+    // Stays on /acceso without redirect
+    await expect(page).toHaveURL(/\/acceso/);
+    // Explicit pending copy
+    await expect(
+      page.getByText(
+        "Debes verificar tu correo antes de ingresar. Revisa tu bandeja de entrada y la carpeta de spam.",
+      ),
+    ).toBeVisible();
+    // Accessible link to instructions
+    const instructionsLink = page.getByRole("link", {
+      name: "Solicitar instrucciones de verificación",
+    });
+    await expect(instructionsLink).toBeVisible();
+    await expect(instructionsLink).toHaveAttribute("href", "/verificar-correo");
+  });
+
+  test("correo-verificado preserves existing Go session redirect to /mi-cuenta", async ({
+    page,
+  }) => {
+    const sessionPayload = {
+      account_id: VALID_TOKEN_ID,
+      roles: ["arrendatario"],
+      capabilities: [],
+      restricted_mode: false,
+      expires_at: new Date(Date.now() + 3600000).toISOString(),
+    };
+    await mockGateway(page, async (pathname, method) => {
+      if (
+        pathname === "/api/backend/auth/session" ||
+        (pathname === "/api/backend/auth/login" && method === "POST")
+      ) {
+        return { status: 200, body: sessionPayload };
+      }
+      if (pathname === "/api/backend/auth/verification" && method === "POST") {
+        return { status: 204 };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    // Establish the controlled BFF session through its login contract first.
+    await page.goto("/acceso");
+    await page
+      .getByLabel("Correo electrónico")
+      .fill("verified@ejemplo.invalid");
+    await page.getByLabel("Contraseña", { exact: true }).fill("Password123!");
+    await page.getByRole("button", { name: "Iniciar sesión" }).click();
+    await expect(page).toHaveURL(/\/mi-cuenta$/);
+
+    await page.goto(
+      `/verificar-correo#token_id=${VALID_TOKEN_ID}&token=${SYNTHETIC_TOKEN}`,
+    );
+    await page.getByRole("button", { name: "Verificar mi correo" }).click();
+    await page.waitForURL("**/correo-verificado");
+
+    const sessionCta = page.getByRole("link", {
+      name: "Continuar a Mi cuenta",
+    });
+    await expect(sessionCta).toBeVisible();
+    await expect(sessionCta).toHaveAttribute("href", "/mi-cuenta");
+  });
+
+  test("verificar-correo invalid_token error shows advice copy and offers 'Comprobar acceso' CTA", async ({
+    page,
+  }) => {
+    let verifyCount = 0;
+    await mockGateway(page, async (pathname, method) => {
+      if (pathname === "/api/backend/auth/session") {
+        return { status: 401, body: { error: { code: "unauthenticated" } } };
+      }
+      if (pathname === "/api/backend/auth/verification" && method === "POST") {
+        verifyCount++;
+        return {
+          status: 422,
+          body: { error: { code: "invalid_token" } },
+        };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    await page.goto(
+      `/verificar-correo#token_id=${VALID_TOKEN_ID}&token=${SYNTHETIC_TOKEN}`,
+    );
+    await page.getByRole("button", { name: "Verificar mi correo" }).click();
+
+    expect(verifyCount).toBe(1);
+    await expect(
+      page.getByText(
+        "Si ya confirmaste tu correo, inicia sesión. Si aún no, solicita un nuevo enlace.",
+      ),
+    ).toBeVisible();
+    const checkAccessCta = page.getByRole("link", {
+      name: "Comprobar acceso",
+    });
+    await expect(checkAccessCta).toBeVisible();
+    await expect(checkAccessCta).toHaveAttribute("href", "/acceso");
+  });
+
+  test("verificar-correo ambiguous 5xx error shows exactly one alert message, offers 'Comprobar acceso' CTA, and avoids automatic retry", async ({
+    page,
+  }) => {
+    let verifyCount = 0;
+    await mockGateway(page, async (pathname, method) => {
+      if (pathname === "/api/backend/auth/session") {
+        return { status: 401, body: { error: { code: "unauthenticated" } } };
+      }
+      if (pathname === "/api/backend/auth/verification" && method === "POST") {
+        verifyCount++;
+        return {
+          status: 502,
+          body: { error: { code: "bad_gateway" } },
+        };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    await page.goto(
+      `/verificar-correo#token_id=${VALID_TOKEN_ID}&token=${SYNTHETIC_TOKEN}`,
+    );
+    await page.getByRole("button", { name: "Verificar mi correo" }).click();
+
+    expect(verifyCount).toBe(1);
+    // Exactly one alert / message
+    await expect(
+      page.getByText(
+        "No pudimos confirmar la respuesta. La verificación puede haberse completado. Intenta iniciar sesión; si tu correo sigue pendiente, solicita un nuevo enlace.",
+      ),
+    ).toBeVisible();
+
+    // No duplicate alert banner
+    await expect(
+      page.getByText(/la operación no pudo confirmarse con certeza/i),
+    ).not.toBeAttached();
+
+    // Offers 'Comprobar acceso' CTA
+    const checkAccessCta = page.getByRole("link", {
+      name: "Comprobar acceso",
+    });
+    await expect(checkAccessCta).toBeVisible();
+    await expect(checkAccessCta).toHaveAttribute("href", "/acceso");
+
+    // Wait and verify no automatic retry POST was made
+    await page.waitForTimeout(500);
+    expect(verifyCount).toBe(1);
   });
 });

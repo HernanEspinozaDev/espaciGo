@@ -233,12 +233,21 @@ func (s *fakeSMTPServer) LastMessage() []byte {
 }
 
 type parsedEmail struct {
-	rawSubject string
-	subject    string
-	from       string
-	to         string
-	textPart   string
-	htmlPart   string
+	rawSubject      string
+	subject         string
+	from            string
+	to              string
+	textPart        string
+	htmlPart        string
+	hasLogo         bool
+	logoRawCID      string
+	logoCID         string
+	logoContentType string
+	logoFilename    string
+	logoDisposition string
+	logoBytes       []byte
+	relatedType     string
+	rootMediaType   string
 }
 
 func parseMultipartEmail(t *testing.T, raw []byte) parsedEmail {
@@ -260,12 +269,18 @@ func parseMultipartEmail(t *testing.T, raw []byte) parsedEmail {
 	if err != nil {
 		t.Fatalf("parse content type %q: %v", contentType, err)
 	}
-	if mediaType != "multipart/alternative" {
-		t.Fatalf("expected multipart/alternative, got %q", mediaType)
+	if mediaType != "multipart/related" {
+		t.Fatalf("expected multipart/related, got %q", mediaType)
 	}
+	relatedType := params["type"]
 
 	mr := multipart.NewReader(msg.Body, params["boundary"])
 	var textPart, htmlPart string
+	var hasLogo bool
+	var logoRawCID, logoCID, logoContentType, logoFilename, logoDisposition string
+	var logoBytes []byte
+	var rootMediaType string
+	partIndex := 0
 
 	for {
 		part, err := mr.NextPart()
@@ -273,34 +288,80 @@ func parseMultipartEmail(t *testing.T, raw []byte) parsedEmail {
 			break
 		}
 		if err != nil {
-			t.Fatalf("reading multipart next: %v", err)
+			t.Fatalf("reading related next: %v", err)
 		}
-		pType, _, _ := mime.ParseMediaType(part.Header.Get("Content-Type"))
-		cte := strings.ToLower(part.Header.Get("Content-Transfer-Encoding"))
-		var bodyBytes []byte
-		if cte == "quoted-printable" {
-			bodyBytes, err = io.ReadAll(quotedprintable.NewReader(part))
-		} else {
-			bodyBytes, err = io.ReadAll(part)
-		}
+		pType, pParams, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
 		if err != nil {
-			t.Fatalf("read part body: %v", err)
+			t.Fatalf("parse part content-type: %v", err)
 		}
+		if partIndex == 0 {
+			rootMediaType = pType
+		}
+		partIndex++
 
-		if pType == "text/plain" {
-			textPart = string(bodyBytes)
-		} else if pType == "text/html" {
-			htmlPart = string(bodyBytes)
+		if pType == "multipart/alternative" {
+			subReader := multipart.NewReader(part, pParams["boundary"])
+			for {
+				subPart, err := subReader.NextPart()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					t.Fatalf("reading alternative next: %v", err)
+				}
+				subType, _, _ := mime.ParseMediaType(subPart.Header.Get("Content-Type"))
+				cte := strings.ToLower(subPart.Header.Get("Content-Transfer-Encoding"))
+				var bodyBytes []byte
+				if cte == "quoted-printable" {
+					bodyBytes, err = io.ReadAll(quotedprintable.NewReader(subPart))
+				} else {
+					bodyBytes, err = io.ReadAll(subPart)
+				}
+				if err != nil {
+					t.Fatalf("read alternative part body: %v", err)
+				}
+				if subType == "text/plain" {
+					textPart = string(bodyBytes)
+				} else if subType == "text/html" {
+					htmlPart = string(bodyBytes)
+				}
+			}
+		} else if strings.HasPrefix(pType, "image/") {
+			hasLogo = true
+			logoContentType = pType
+			logoRawCID = part.Header.Get("Content-ID")
+			logoCID = strings.Trim(logoRawCID, "<>")
+			disp, dispParams, _ := mime.ParseMediaType(part.Header.Get("Content-Disposition"))
+			logoDisposition = disp
+			logoFilename = dispParams["filename"]
+			cte := strings.ToLower(part.Header.Get("Content-Transfer-Encoding"))
+			if cte == "base64" {
+				logoBytes, err = io.ReadAll(base64.NewDecoder(base64.StdEncoding, part))
+			} else {
+				logoBytes, err = io.ReadAll(part)
+			}
+			if err != nil {
+				t.Fatalf("read image body: %v", err)
+			}
 		}
 	}
 
 	return parsedEmail{
-		rawSubject: rawSubject,
-		subject:    subject,
-		from:       msg.Header.Get("From"),
-		to:         msg.Header.Get("To"),
-		textPart:   textPart,
-		htmlPart:   htmlPart,
+		rawSubject:      rawSubject,
+		subject:         subject,
+		from:            msg.Header.Get("From"),
+		to:              msg.Header.Get("To"),
+		textPart:        textPart,
+		htmlPart:        htmlPart,
+		hasLogo:         hasLogo,
+		logoRawCID:      logoRawCID,
+		logoCID:         logoCID,
+		logoContentType: logoContentType,
+		logoFilename:    logoFilename,
+		logoDisposition: logoDisposition,
+		logoBytes:       logoBytes,
+		relatedType:     relatedType,
+		rootMediaType:   rootMediaType,
 	}
 }
 
@@ -414,11 +475,65 @@ func TestSendVerificationBrandedEmail(t *testing.T) {
 	if !strings.Contains(email.htmlPart, "EspaciGo") {
 		t.Errorf("html part missing typographic EspaciGo brand")
 	}
-	if strings.Contains(email.htmlPart, "<script") || strings.Contains(email.htmlPart, "<img") {
+	if strings.Contains(email.htmlPart, "<script") || strings.Contains(email.htmlPart, "http://") || (strings.Contains(email.htmlPart, "https://") && strings.Contains(email.htmlPart, "<img src=\"https://")) || strings.Contains(email.htmlPart, "data:image") {
 		t.Errorf("html part must not have script tags or external images")
+	}
+	if !strings.Contains(email.htmlPart, "src=\"cid:espacigo-logo-") {
+		t.Errorf("html part missing inline CID logo reference prefix src='cid:espacigo-logo-'")
+	}
+	if !strings.Contains(email.htmlPart, "alt=\"EspaciGo\"") {
+		t.Errorf("html logo img missing alt='EspaciGo'")
+	}
+	if !strings.Contains(email.htmlPart, "width=\"40\"") || !strings.Contains(email.htmlPart, "height=\"40\"") {
+		t.Errorf("html logo img missing width='40' height='40' dimensions")
 	}
 	if strings.Contains(email.htmlPart, "(pruebas)") {
 		t.Errorf("html part must not contain '(pruebas)'")
+	}
+
+	// RFC 2387 & RFC 2392 assertions
+	if email.relatedType != "multipart/alternative" {
+		t.Errorf("expected related type parameter 'multipart/alternative', got %q", email.relatedType)
+	}
+	if email.rootMediaType != "multipart/alternative" {
+		t.Errorf("expected root part media type 'multipart/alternative', got %q", email.rootMediaType)
+	}
+	if email.relatedType != email.rootMediaType {
+		t.Errorf("RFC 2387 sec 3.1 violation: related type %q does not match root media type %q", email.relatedType, email.rootMediaType)
+	}
+
+	// Assert embedded logo attachment
+	if !email.hasLogo {
+		t.Fatal("missing embedded logo attachment in multipart/related")
+	}
+	if email.logoRawCID != "<"+email.logoCID+">" {
+		t.Errorf("expected logo Content-ID enclosed in brackets, got %q", email.logoRawCID)
+	}
+	if !strings.HasPrefix(email.logoCID, "espacigo-logo-") || !strings.HasSuffix(email.logoCID, "@inline") {
+		t.Errorf("expected logo CID to match espacigo-logo-*@inline, got %q", email.logoCID)
+	}
+	if _, err := mail.ParseAddress(email.logoCID); err != nil {
+		t.Errorf("RFC 2392 violation: logo CID %q is not a valid addr-spec: %v", email.logoCID, err)
+	}
+	wantCIDAttr := fmt.Sprintf("src=\"cid:%s\"", email.logoCID)
+	if !strings.Contains(email.htmlPart, wantCIDAttr) {
+		t.Errorf("html part missing dynamic inline CID logo reference %s", wantCIDAttr)
+	}
+	if email.logoContentType != "image/png" {
+		t.Errorf("expected logo Content-Type 'image/png', got %q", email.logoContentType)
+	}
+	if email.logoDisposition != "inline" {
+		t.Errorf("expected logo Content-Disposition 'inline', got %q", email.logoDisposition)
+	}
+	if email.logoFilename != "espacigo-logo.png" {
+		t.Errorf("expected logo filename 'espacigo-logo.png', got %q", email.logoFilename)
+	}
+	expectedLogoBytes, err := os.ReadFile("espacigo-logo.png")
+	if err != nil {
+		t.Fatalf("read fixture espacigo-logo.png: %v", err)
+	}
+	if !bytes.Equal(email.logoBytes, expectedLogoBytes) {
+		t.Errorf("embedded logo bytes do not match espacigo-logo.png file (len got %d, want %d)", len(email.logoBytes), len(expectedLogoBytes))
 	}
 
 	// Honest copy in HTML part
@@ -541,6 +656,13 @@ func TestSendRecoveryBrandedEmail(t *testing.T) {
 		strings.Contains(email.htmlPart, "tu clave actual sigue protegida") ||
 		strings.Contains(email.htmlPart, "de forma segura") {
 		t.Errorf("html part contains unverified safety promises")
+	}
+
+	if !email.hasLogo {
+		t.Fatal("SendRecovery email missing embedded logo in multipart/related")
+	}
+	if !strings.Contains(email.htmlPart, "src=\"cid:"+email.logoCID+"\"") {
+		t.Errorf("SendRecovery HTML missing src='cid:%s'", email.logoCID)
 	}
 }
 
@@ -669,6 +791,10 @@ func TestSendLocalBookingNoticePreserved(t *testing.T) {
 	if !strings.Contains(sub, "Reserva confirmada (EspaciGo pruebas)") {
 		t.Errorf("expected booking notice subject to contain 'Reserva confirmada (EspaciGo pruebas)', got %q", sub)
 	}
+	bookingCT := msg.Header.Get("Content-Type")
+	if !strings.HasPrefix(bookingCT, "text/plain") || strings.Contains(bookingCT, "multipart") || strings.Contains(bookingCT, "related") {
+		t.Errorf("expected booking notice to be plain text without attachments/multipart, got %q", bookingCT)
+	}
 }
 
 func TestCustomFromNamePreservedForAuth(t *testing.T) {
@@ -750,5 +876,86 @@ func TestSubjectRejectsCRLFInjection(t *testing.T) {
 		if err == nil || !errors.Is(err, identity.ErrDelivery) {
 			t.Errorf("expected ErrDelivery for CRLF injection in subject %q, got: %v", sub, err)
 		}
+	}
+}
+
+func TestRFCInteroperabilityRelatedRootTypeAndUniqueContentIDAddrSpec(t *testing.T) {
+	srv := startFakeSMTPServer(t, "contacto@hotusoft.com", "secret123")
+	mailer := &Mailer{
+		config: Config{
+			Host:         "smtp.zoho.com",
+			Port:         "587",
+			Security:     "starttls",
+			Username:     "contacto@hotusoft.com",
+			From:         "contacto@hotusoft.com",
+			FromName:     "EspaciGo",
+			PublicOrigin: "https://espacigo.testingpage.store",
+		},
+		password:  "secret123",
+		tlsConfig: srv.clientTLS,
+		dialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return net.Dial("tcp", srv.listener.Addr().String())
+		},
+	}
+
+	del1 := identity.VerificationDelivery{
+		AccountID: "acc-1",
+		TokenID:   "tok-1",
+		Email:     "u1@example.com",
+		Token:     identity.Secret("sec-1"),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := mailer.SendVerification(context.Background(), del1); err != nil {
+		t.Fatalf("send 1: %v", err)
+	}
+	raw1 := srv.LastMessage()
+	msg1 := parseMultipartEmail(t, raw1)
+
+	del2 := identity.VerificationDelivery{
+		AccountID: "acc-2",
+		TokenID:   "tok-2",
+		Email:     "u2@example.com",
+		Token:     identity.Secret("sec-2"),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := mailer.SendVerification(context.Background(), del2); err != nil {
+		t.Fatalf("send 2: %v", err)
+	}
+	raw2 := srv.LastMessage()
+	msg2 := parseMultipartEmail(t, raw2)
+
+	// RFC 2387 Sec 3.1: outer related type parameter MUST match root part media type
+	for idx, msg := range []parsedEmail{msg1, msg2} {
+		if msg.relatedType != "multipart/alternative" {
+			t.Errorf("msg %d: expected related type parameter 'multipart/alternative', got %q", idx+1, msg.relatedType)
+		}
+		if msg.rootMediaType != "multipart/alternative" {
+			t.Errorf("msg %d: expected root part media type 'multipart/alternative', got %q", idx+1, msg.rootMediaType)
+		}
+		if msg.relatedType != msg.rootMediaType {
+			t.Errorf("msg %d: RFC 2387 mismatch: related type %q != root media type %q", idx+1, msg.relatedType, msg.rootMediaType)
+		}
+
+		// RFC 2392 Sec 2: Content-ID MUST be a valid addr-spec
+		if msg.logoRawCID != "<"+msg.logoCID+">" {
+			t.Errorf("msg %d: expected Content-ID in brackets: %q", idx+1, msg.logoRawCID)
+		}
+		if !strings.Contains(msg.logoCID, "@") {
+			t.Errorf("msg %d: Content-ID %q missing '@' for RFC 2392 addr-spec", idx+1, msg.logoCID)
+		}
+		if _, err := mail.ParseAddress(msg.logoCID); err != nil {
+			t.Errorf("msg %d: invalid addr-spec in Content-ID %q: %v", idx+1, msg.logoCID, err)
+		}
+
+		// HTML resolves the same CID as the attached PNG asset
+		wantSrc := fmt.Sprintf("src=\"cid:%s\"", msg.logoCID)
+		if !strings.Contains(msg.htmlPart, wantSrc) {
+			t.Errorf("msg %d: HTML does not resolve attached logo CID %s", idx+1, wantSrc)
+		}
+	}
+
+	// Globally unique CIDs across distinct messages
+	if msg1.logoCID == msg2.logoCID {
+		t.Errorf("expected distinct globally unique CIDs, but got identical %q", msg1.logoCID)
 	}
 }

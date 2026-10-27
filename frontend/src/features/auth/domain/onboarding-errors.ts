@@ -7,13 +7,18 @@ const safeFieldCodes = new Set([
   "password_recently_used",
 ]);
 
-export function onboardingErrorCopy(code: string): string {
+export function onboardingErrorCopy(
+  code: string,
+  context: "general" | "verification" = "general",
+): string {
   switch (code) {
     case "invalid_token":
-      return "El enlace no es válido o ya no está disponible. Solicita instrucciones nuevas si corresponde.";
+      return context === "verification"
+        ? "El enlace no es válido o ya no está disponible. Si ya confirmaste tu correo, inicia sesión. Si aún no, solicita un nuevo enlace."
+        : "El enlace no es válido o ya no está disponible. Solicita instrucciones nuevas si corresponde.";
     case "email_unverified":
     case "email_not_verified":
-      return "Verifica tu correo antes de iniciar sesión.";
+      return "Debes verificar tu correo antes de ingresar. Revisa tu bandeja de entrada y la carpeta de spam.";
     case "login_blocked":
       return "No pudimos completar el acceso. Intenta nuevamente más tarde.";
     case "rate_limited":

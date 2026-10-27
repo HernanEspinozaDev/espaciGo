@@ -277,11 +277,19 @@ test("Retry-After accepts seconds and countdown is deadline-based", () => {
 test("auth errors cover the actual email_unverified and recovery codes safely", () => {
   assert.equal(
     copy.onboardingErrorCopy("email_unverified"),
-    "Verifica tu correo antes de iniciar sesión.",
+    "Debes verificar tu correo antes de ingresar. Revisa tu bandeja de entrada y la carpeta de spam.",
   );
   assert.equal(
-    copy.onboardingErrorCopy("invalid_token"),
-    copy.onboardingErrorCopy("invalid_token"),
+    copy.onboardingErrorCopy("invalid_token").includes("confirmaste tu correo"),
+    false,
+  );
+  assert.equal(
+    copy
+      .onboardingErrorCopy("invalid_token", "verification")
+      .includes(
+        "Si ya confirmaste tu correo, inicia sesión. Si aún no, solicita un nuevo enlace.",
+      ),
+    true,
   );
   assert.equal(
     copy.onboardingErrorCopy("password_confirmation_mismatch"),
@@ -306,7 +314,7 @@ test("auth errors cover the actual email_unverified and recovery codes safely", 
   });
   assert.equal(
     apiErrors.authErrorMessage(error),
-    "Verifica tu correo antes de iniciar sesión.",
+    "Debes verificar tu correo antes de ingresar. Revisa tu bandeja de entrada y la carpeta de spam.",
   );
 });
 
