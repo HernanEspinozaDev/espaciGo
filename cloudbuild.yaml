@@ -182,6 +182,7 @@ steps:
         image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-api@$${digest}"
         api_secrets="/var/secrets/database/password=${_DATABASE_SECRET}:${_DATABASE_SECRET_VERSION},/var/secrets/contract/key=${_CONTRACT_SECRET}:${_CONTRACT_SECRET_VERSION},/var/secrets/payment/webhook=${_PAYMENT_SECRET}:${_PAYMENT_SECRET_VERSION},/var/secrets/auth-smtp/password=${_AUTH_SMTP_PASSWORD_SECRET}:${_AUTH_SMTP_PASSWORD_SECRET_VERSION}"
         gcloud run deploy "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --image="$$image" \
+          --labels="source-commit=$COMMIT_SHA,cloud-build-id=$BUILD_ID" \
           --service-account="${_API_RUNTIME_SA}" --port=8080 --cpu=1 --memory=1Gi --no-cpu-throttling \
           --min="${_MIN_API}" --max="${_MAX_API}" --concurrency="${_API_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
           --ingress=all --network="${_VPC}" --subnet="${_API_SUBNET}" --vpc-egress=private-ranges-only \
@@ -205,6 +206,7 @@ steps:
         image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web@$${digest}"
         api_url=$$(gcloud run services describe "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --format='value(status.url)')
         gcloud run deploy "${_PUBLIC_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --image="$$image" \
+          --labels="source-commit=$COMMIT_SHA,cloud-build-id=$BUILD_ID" \
           --service-account="${_PUBLIC_RUNTIME_SA}" --port=4000 --cpu=1 --memory=1Gi --cpu-throttling \
           --min="${_MIN_WEB}" --max="${_MAX_WEB}" --concurrency="${_WEB_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
           --startup-probe="httpGet.path=/healthz,httpGet.port=4000,periodSeconds=10,timeoutSeconds=5,failureThreshold=12" \
@@ -225,6 +227,7 @@ steps:
         image="${_REGION}-docker.pkg.dev/${_PROJECT}/${_AR_REPOSITORY}/espacigo-web@$${digest}"
         api_url=$$(gcloud run services describe "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --format='value(status.url)')
         gcloud run deploy "${_PRIVATE_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --image="$$image" \
+          --labels="source-commit=$COMMIT_SHA,cloud-build-id=$BUILD_ID" \
           --service-account="${_PRIVATE_RUNTIME_SA}" --port=4000 --cpu=1 --memory=1Gi --cpu-throttling \
           --min="${_MIN_WEB}" --max="${_MAX_WEB}" --concurrency="${_WEB_CONCURRENCY}" --timeout="${_REQUEST_TIMEOUT}" \
           --startup-probe="httpGet.path=/healthz,httpGet.port=4000,periodSeconds=10,timeoutSeconds=5,failureThreshold=12" \

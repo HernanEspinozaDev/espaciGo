@@ -76,7 +76,7 @@ export function PasswordRequirements({ value }: { value: string }) {
     ["Una letra mayúscula", uppercase],
     ["Un número", digit],
     ["Un signo o puntuación", punctuation],
-    ["Hasta 72 bytes en UTF-8", bytes],
+    ["Dentro del largo máximo permitido", bytes],
   ] as const;
   return (
     <ul

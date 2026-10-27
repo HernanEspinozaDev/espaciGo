@@ -420,12 +420,12 @@ async function main() {
         const peer = await context.newPage();
         await peer.goto(`${edge.url}/mi-cuenta`);
         await peer.getByLabel("Nombre visible").waitFor();
-        await page.goto(`${edge.url}/acceso`);
+        await page.goto(`${edge.url}/mi-cuenta`);
         await page.getByRole("button", { name: "Cerrar sesión" }).waitFor();
         await context.setOffline(true);
         try {
           await page.getByRole("button", { name: "Cerrar sesión" }).click();
-          await page.waitForFunction(
+          await peer.waitForFunction(
             () => localStorage.getItem("espacigo_logout_pending") === "1",
           );
           await peer
@@ -434,8 +434,8 @@ async function main() {
         } finally {
           await context.setOffline(false);
         }
-        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-        await page.waitForFunction(
+        await peer.evaluate(() => window.dispatchEvent(new Event("focus")));
+        await peer.waitForFunction(
           () => localStorage.getItem("espacigo_logout_pending") === null,
         );
         check(

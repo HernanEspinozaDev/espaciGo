@@ -224,29 +224,36 @@ test("@phase5 @controlled registration sends only reviewed version IDs and disti
   });
 
   await page.goto("/registro");
-  await expect(
-    page.getByText("Contenido sintético visible para la prueba local.").first(),
-  ).toBeVisible();
-  await expect(page.getByText(/Documentos sintéticos de ensayo/)).toBeVisible();
+  const termsLink = page
+    .getByRole("link", { name: /términos y condiciones/i })
+    .first();
+  const privacyLink = page
+    .getByRole("link", { name: /política de privacidad/i })
+    .first();
+  await expect(termsLink).toBeVisible();
+  await expect(privacyLink).toBeVisible();
+  await expect(termsLink).toHaveAttribute("target", "_blank");
+  await expect(privacyLink).toHaveAttribute("target", "_blank");
   const submit = page.getByRole("button", { name: "Crear cuenta" });
   await expect(submit).toBeDisabled();
-  await page.getByLabel("He leído y acepto Términos y condiciones.").check();
-  await page.getByLabel("He leído y acepto Política de privacidad.").check();
+  await page.getByLabel(/Términos y condiciones/i).check();
+  await page.getByLabel(/Política de privacidad/i).check();
   await page
     .getByLabel("Correo electrónico")
     .fill("phase5-test@example.invalid");
   await page.getByLabel("Contraseña", { exact: true }).fill("ABC123!!");
   await expect(submit).toBeEnabled();
   await submit.click();
-  await expect(page.getByRole("status")).toContainText(
-    "La cuenta quedó registrada.",
+  await page.waitForURL("**/registro-exitoso");
+  await expect(
+    page.getByRole("heading", { name: /creada con éxito/i }),
+  ).toBeVisible();
+  await expect(page.locator("body")).toContainText(
+    "phase5-test@example.invalid",
   );
-  await expect(
-    page.getByText("Revisa y acepta por separado ambos documentos."),
-  ).toHaveCount(0);
-  await expect(
-    page.getByLabel("He leído y acepto Términos y condiciones."),
-  ).not.toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("body")).toContainText(
+    "Siguiente paso: verifica tu correo",
+  );
   expect(
     (await new AxeBuilder({ page }).analyze()).violations.map(
       (violation) => violation.id,
@@ -261,20 +268,20 @@ test("@phase5 @controlled registration sends only reviewed version IDs and disti
   await expect(page.getByText(accountId)).toHaveCount(0);
 
   status = 202;
-  await page.reload();
-  await page.getByLabel("He leído y acepto Términos y condiciones.").check();
-  await page.getByLabel("He leído y acepto Política de privacidad.").check();
+  await page.goto("/registro");
+  await page.getByLabel(/Términos y condiciones/i).check();
+  await page.getByLabel(/Política de privacidad/i).check();
   await page
     .getByLabel("Correo electrónico")
     .fill("phase5-test@example.invalid");
   await page.getByLabel("Contraseña", { exact: true }).fill("ABC123!!");
   await page.getByRole("button", { name: "Crear cuenta" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "no se confirmó la entrega",
+  await page.waitForURL("**/registro-exitoso");
+  await expect(page.getByRole("heading", { name: /creada/i })).toBeVisible();
+  await expect(page.locator("body")).toContainText(
+    "no pudimos confirmar el envío",
   );
-  await expect(
-    page.getByText("Revisa y acepta por separado ambos documentos."),
-  ).toHaveCount(0);
+  await expect(page.locator("body")).not.toContainText("Te enviamos un enlace");
   expect(registerBodies).toHaveLength(2);
 });
 
@@ -289,8 +296,8 @@ test("@phase5 @controlled duplicate registration exposes the backend conflict an
     return apiError(404, "not_found");
   });
   await page.goto("/registro");
-  await page.getByLabel("He leído y acepto Términos y condiciones.").check();
-  await page.getByLabel("He leído y acepto Política de privacidad.").check();
+  await page.getByLabel(/Términos y condiciones/i).check();
+  await page.getByLabel(/Política de privacidad/i).check();
   await page
     .getByLabel("Correo electrónico")
     .fill("phase5-test@example.invalid");
@@ -341,8 +348,8 @@ test("@phase5 @controlled consent_invalid clears both approvals and reloads the 
     return apiError(404, "not_found");
   });
   await page.goto("/registro");
-  await page.getByLabel("He leído y acepto Términos y condiciones.").check();
-  await page.getByLabel("He leído y acepto Política de privacidad.").check();
+  await page.getByLabel(/Términos y condiciones/i).check();
+  await page.getByLabel(/Política de privacidad/i).check();
   await page
     .getByLabel("Correo electrónico")
     .fill("phase5-test@example.invalid");
@@ -351,13 +358,11 @@ test("@phase5 @controlled consent_invalid clears both approvals and reloads the 
   await expect(page.locator('[role="alert"][tabindex="-1"]')).toContainText(
     "Los documentos cambiaron",
   );
-  await expect(page.getByText("Términos sintéticos de ensayo")).toBeVisible();
   await expect(
-    page.getByLabel("He leído y acepto Términos y condiciones."),
-  ).not.toBeChecked();
-  await expect(
-    page.getByLabel("He leído y acepto Política de privacidad."),
-  ).not.toBeChecked();
+    page.getByText("Revisa y acepta por separado ambos documentos."),
+  ).toBeVisible();
+  await expect(page.getByLabel(/Términos y condiciones/i)).not.toBeChecked();
+  await expect(page.getByLabel(/Política de privacidad/i)).not.toBeChecked();
   expect(submittedIds).toEqual([termsId, privacyId]);
   expect(termsLoads).toBe(2);
 });
@@ -458,7 +463,7 @@ test("@phase5 @controlled fragment credentials are scrubbed, replaceable, and co
     `/verificar-correo?unexpected=drop#token=${actionToken}&token_id=${termsId}`,
   );
   await expect(
-    page.getByText("Hay instrucciones disponibles en esta página."),
+    page.getByRole("button", { name: "Verificar mi correo" }),
   ).toBeVisible();
   expect(verificationCalls).toBe(0);
   await expect(page).toHaveURL(
@@ -506,7 +511,7 @@ test("@phase5 @controlled fragment credentials are scrubbed, replaceable, and co
     historyState: false,
     indexedDbNames: false,
   });
-  await page.getByRole("button", { name: "Confirmar correo" }).click();
+  await page.getByRole("button", { name: "Verificar mi correo" }).click();
   await expect(page.locator('[role="alert"][tabindex="-1"]')).toContainText(
     "El enlace no es válido o ya no está disponible",
   );
@@ -536,17 +541,19 @@ test("@phase5 @controlled invalid fragment replacement clears the prior action c
   });
   await page.goto(`/verificar-correo#token=${actionToken}&token_id=${termsId}`);
   await expect(
-    page.getByText("Hay instrucciones disponibles en esta página."),
+    page.getByRole("button", { name: "Verificar mi correo" }),
   ).toBeVisible();
   await page.evaluate((token) => {
     window.location.hash = `token=${encodeURIComponent(token)}&token_id=550E8400-E29B-41D4-A716-446655440000`;
   }, replacementActionToken);
-  await expect(page.getByLabel("ID del enlace")).toBeVisible();
-  await expect(page.getByLabel("ID del enlace")).toHaveAttribute(
-    "type",
-    "password",
-  );
-  await expect(page.getByLabel("ID del enlace")).toHaveValue("");
+  await expect(
+    page.getByRole("button", { name: "Verificar mi correo" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Solicitar instrucciones" }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Correo electrónico")).toBeVisible();
+  await expect(page.getByLabel("Correo electrónico")).toHaveValue("");
   await expect(page).not.toHaveURL(/#|token=/i);
   expect(verificationCalls).toBe(0);
 });
@@ -555,27 +562,63 @@ test("@phase5 @controlled cancelling recovery clears every manually entered secr
   page,
 }) => {
   await mockGateway(page, async () => apiError(404, "not_found"));
-  await page.goto("/recuperar-acceso");
-  await page.getByRole("button", { name: "Tengo un enlace" }).click();
-  await page.getByLabel("ID del enlace").fill(termsId);
-  await page.getByLabel("Token de recuperación").fill(actionToken);
-  await page.getByLabel("Nueva contraseña", { exact: true }).fill("ABC123!!");
-  await page
-    .getByLabel("Confirmar nueva contraseña", { exact: true })
-    .fill("ABC123!!");
-  await page
-    .getByRole("button", { name: "Solicitar instrucciones" })
-    .first()
-    .click();
-  await page.getByRole("button", { name: "Tengo un enlace" }).click();
-  await expect(page.getByLabel("ID del enlace")).toHaveValue("");
-  await expect(page.getByLabel("Token de recuperación")).toHaveValue("");
+  await page.goto(`/recuperar-acceso#token=${actionToken}&token_id=${termsId}`);
+  const newPasswordInput = page.getByLabel("Nueva contraseña", { exact: true });
+  const confirmPasswordInput = page.getByLabel("Confirmar nueva contraseña", {
+    exact: true,
+  });
+  await expect(newPasswordInput).toBeVisible();
+  await expect(confirmPasswordInput).toBeVisible();
+  await newPasswordInput.fill("ABC123!!");
+  await confirmPasswordInput.fill("ABC123!!");
+
+  await page.evaluate(() => {
+    window.location.hash = "#cancel";
+  });
+  await expect(
+    page.getByRole("button", { name: "Solicitar instrucciones" }),
+  ).toBeVisible();
+  await expect(newPasswordInput).toHaveCount(0);
+
+  await page.evaluate(
+    ({ token, tokenId }) => {
+      window.location.hash = `token=${encodeURIComponent(token)}&token_id=${encodeURIComponent(tokenId)}`;
+    },
+    { token: replacementActionToken, tokenId: replacementTokenId },
+  );
+  await expect(
+    page.getByLabel("Nueva contraseña", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByLabel("Nueva contraseña", { exact: true }),
   ).toHaveValue("");
   await expect(
     page.getByLabel("Confirmar nueva contraseña", { exact: true }),
   ).toHaveValue("");
+
+  const scrubbed = await page.evaluate(
+    async (sensitiveValues) => {
+      const containsSecret = (value: string) =>
+        sensitiveValues.some((secret) => value.includes(secret));
+      return {
+        url: containsSecret(location.href),
+        html: containsSecret(document.documentElement.outerHTML),
+        localStorage: Object.values(localStorage).some(containsSecret),
+        sessionStorage: Object.values(sessionStorage).some(containsSecret),
+        cookies: containsSecret(document.cookie),
+        historyState: containsSecret(JSON.stringify(history.state ?? {})),
+      };
+    },
+    [actionToken, termsId, "ABC123!!"],
+  );
+  expect(scrubbed).toEqual({
+    url: false,
+    html: false,
+    localStorage: false,
+    sessionStorage: false,
+    cookies: false,
+    historyState: false,
+  });
 });
 
 test("@phase5 @controlled recovery reset requires an explicit click and does not auto-login after 204", async ({
@@ -597,21 +640,29 @@ test("@phase5 @controlled recovery reset requires an explicit click and does not
     return apiError(404, "not_found");
   });
   await page.goto(`/recuperar-acceso#token=${actionToken}&token_id=${termsId}`);
-  await expect(
-    page.getByRole("button", { name: "Actualizar contraseña" }),
-  ).toBeDisabled();
   expect(consumeCalls).toBe(0);
+  await expect(
+    page.getByRole("button", { name: "Mostrar nueva contraseña" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Mostrar confirmar nueva contraseña" }),
+  ).toBeVisible();
   await page.getByLabel("Nueva contraseña", { exact: true }).fill("ABC123!!");
   await page
     .getByLabel("Confirmar nueva contraseña", { exact: true })
     .fill("ABC123!!");
+  const submitButton = page.getByRole("button", {
+    name: "Actualizar contraseña",
+  });
+  await expect(submitButton).toBeEnabled();
+  await submitButton.click();
   await expect(
-    page.getByRole("button", { name: "Actualizar contraseña" }),
-  ).toBeEnabled();
-  await page.getByRole("button", { name: "Actualizar contraseña" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "La contraseña se actualizó y se revocaron las sesiones activas",
+    page.getByRole("heading", { level: 1, name: "Contraseña actualizada" }),
+  ).toBeVisible();
+  await expect(page.locator("body")).toContainText(
+    "Tu contraseña ha sido actualizada correctamente",
   );
+  await expect(page.locator("form")).toHaveCount(0);
   expect(consumeCalls).toBe(1);
   expect(loginCalls).toBe(0);
   await expect(page).toHaveURL(/recuperar-acceso/);
@@ -645,17 +696,18 @@ test("@phase5 @controlled verification success and reissue 204 remain generic wi
   });
 
   await page.goto(`/verificar-correo#token=${actionToken}&token_id=${termsId}`);
-  await page.getByRole("button", { name: "Confirmar correo" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Correo verificado. Ya puedes iniciar sesión.",
-  );
-  await expect(page.getByRole("link", { name: "Ir a acceso" })).toHaveAttribute(
-    "href",
-    "/acceso",
-  );
+  await page.getByRole("button", { name: "Verificar mi correo" }).click();
+  await page.waitForURL("**/correo-verificado");
+  await expect(
+    page.getByRole("heading", { name: "Correo verificado" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Iniciar sesión" }),
+  ).toHaveAttribute("href", "/acceso");
   expect(verificationCalls).toBe(1);
   expect(loginCalls).toBe(0);
 
+  await page.goto("/verificar-correo");
   await page
     .getByLabel("Correo electrónico")
     .fill("unknown-phase5@example.invalid");
@@ -692,7 +744,7 @@ test("@phase5 @controlled recovery ambiguous response does not resubmit a one-ti
     .fill("ABC123!!");
   await page.getByRole("button", { name: "Actualizar contraseña" }).click();
   await expect(page.locator('[role="alert"][tabindex="-1"]')).toContainText(
-    "No recibimos confirmación del cambio. Por seguridad, no reenviaremos el token automáticamente",
+    "No pudimos confirmar el cambio de contraseña. Por seguridad, no lo reintentaremos automáticamente",
   );
   expect(consumeCalls).toBe(1);
   await expect(

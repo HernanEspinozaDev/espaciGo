@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -12,10 +13,11 @@ import { ApiError } from "@/lib/api/errors";
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
-import type { ConsentDocument, ConsentSet } from "../domain/consent-documents";
+import type { ConsentSet } from "../domain/consent-documents";
 import { validateConsentDocuments } from "../domain/consent-documents";
 import { onboardingErrorCopy } from "../domain/onboarding-errors";
 import { inspectPassword } from "../domain/password-policy";
+import { setRegistrationResult } from "../application/registration-result";
 import { useOnboarding } from "./use-onboarding";
 import { AuthFeedback, AuthShell } from "./auth-shell";
 import { PasswordField, PasswordRequirements } from "./password-field";
@@ -28,52 +30,8 @@ function isStaleConsent(error: unknown): boolean {
   );
 }
 
-function DocumentPanel({
-  document,
-  checked,
-  onChange,
-  invalid,
-}: {
-  document: ConsentDocument;
-  checked: boolean;
-  onChange(checked: boolean): void;
-  invalid: boolean;
-}) {
-  const label =
-    document.type === "terminos"
-      ? "Términos y condiciones"
-      : "Política de privacidad";
-  return (
-    <section className="space-y-3 rounded-xl border border-gray-200 bg-white p-4">
-      <details open>
-        <summary className="min-h-11 cursor-pointer rounded-md py-2 font-semibold text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700">
-          {document.document.title}
-        </summary>
-        <div className="space-y-4 pb-3 pt-2 text-sm leading-relaxed text-gray-700">
-          {document.document.sections.map((section, index) => (
-            <section key={`${document.id}-${index}`}>
-              <h2 className="font-semibold text-gray-900">{section.heading}</h2>
-              <p className="mt-1 whitespace-pre-wrap">{section.body}</p>
-            </section>
-          ))}
-        </div>
-      </details>
-      <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md py-2 text-sm text-gray-800">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-          aria-invalid={invalid || undefined}
-          aria-describedby={invalid ? "consent-error" : undefined}
-          className="mt-1 size-5 shrink-0 accent-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
-        />
-        <span>He leído y acepto {label}.</span>
-      </label>
-    </section>
-  );
-}
-
 export function RegistrationScreen() {
+  const router = useRouter();
   const onboarding = useOnboarding();
   const [documents, setDocuments] = useState<ConsentSet | null>(null);
   const [loading, setLoading] = useState(true);
@@ -140,11 +98,8 @@ export function RegistrationScreen() {
       setPrivacyAccepted(false);
       setFeedbackKind("status");
       setConsentIssue(false);
-      setMessage(
-        status === 201
-          ? "La cuenta quedó registrada. Revisa las instrucciones de verificación del correo."
-          : "La cuenta quedó registrada, pero no se confirmó la entrega de instrucciones. Solicita una reemisión de verificación.",
-      );
+      setRegistrationResult({ email, status });
+      router.replace("/registro-exitoso");
     } catch (error) {
       setPassword("");
       if (isStaleConsent(error)) {
@@ -164,8 +119,9 @@ export function RegistrationScreen() {
               )
             : "No recibimos una confirmación del registro. No lo enviaremos de nuevo automáticamente; puedes acceder o recuperar el acceso antes de volver a intentarlo.",
         );
-        if (!(error instanceof ApiError) || error.status >= 500)
+        if (!(error instanceof ApiError) || error.status >= 500) {
           setAmbiguous(true);
+        }
       }
     } finally {
       setPending(false);
@@ -177,8 +133,8 @@ export function RegistrationScreen() {
 
   return (
     <AuthShell
-      title="Crear cuenta"
-      description="Regístrate con los documentos vigentes que revisarás a continuación."
+      title="Crea tu cuenta"
+      description="Únete a EspaciGo para reservar o publicar espacios."
       secondaryQuestion="¿Ya tienes una cuenta?"
       secondaryLabel="Ir a acceso"
       secondaryHref="/acceso"
@@ -186,7 +142,7 @@ export function RegistrationScreen() {
       <form className="space-y-6" onSubmit={submit}>
         {loading ? (
           <p role="status" className="text-sm text-gray-700">
-            Cargando documentos…
+            Cargando condiciones…
           </p>
         ) : null}
         {termsError ? (
@@ -207,31 +163,7 @@ export function RegistrationScreen() {
             </Button>
           </div>
         ) : null}
-        {documents ? (
-          <div className="space-y-3">
-            <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-              Documentos sintéticos de ensayo; no son textos legales
-              productivos.
-            </p>
-            <DocumentPanel
-              document={documents.terms}
-              checked={termsAccepted}
-              onChange={setTermsAccepted}
-              invalid={!termsAccepted && consentIssue}
-            />
-            <DocumentPanel
-              document={documents.privacy}
-              checked={privacyAccepted}
-              onChange={setPrivacyAccepted}
-              invalid={!privacyAccepted && consentIssue}
-            />
-            {consentIssue && !termsError ? (
-              <p id="consent-error" className="text-sm text-red-800">
-                Revisa y acepta por separado ambos documentos.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+
         <div>
           <Label
             htmlFor="register-email"
@@ -248,14 +180,10 @@ export function RegistrationScreen() {
             onChange={(event) => setEmail(event.target.value)}
             required
             disabled={pending}
-            aria-describedby="register-email-help"
             className="mt-1 min-h-11 rounded-full border border-gray-300 px-3 text-gray-900 focus-visible:ring-2 focus-visible:ring-orange-700 sm:text-sm"
           />
-          <p id="register-email-help" className="mt-1 text-xs text-gray-600">
-            No solicitaremos un rol ni una preferencia de actividad en este
-            registro.
-          </p>
         </div>
+
         <div className="space-y-2">
           <PasswordField
             id="register-password"
@@ -269,44 +197,96 @@ export function RegistrationScreen() {
           />
           <PasswordRequirements value={password} />
         </div>
+
+        {documents ? (
+          <div className="space-y-3 pt-1">
+            <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md py-2 text-sm text-gray-800">
+              <input
+                type="checkbox"
+                id="terms-and-conditions-consent"
+                checked={termsAccepted}
+                onChange={(event) => setTermsAccepted(event.target.checked)}
+                disabled={pending}
+                aria-invalid={!termsAccepted && consentIssue ? true : undefined}
+                aria-describedby={
+                  !termsAccepted && consentIssue ? "consent-error" : undefined
+                }
+                className="mt-0.5 size-5 shrink-0 accent-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+              />
+              <span>
+                Acepto los{" "}
+                <a
+                  href="/terminos-y-condiciones"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xs text-orange-800 underline underline-offset-4 hover:text-orange-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700"
+                >
+                  Términos y condiciones
+                </a>
+                .
+              </span>
+            </label>
+
+            <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md py-2 text-sm text-gray-800">
+              <input
+                type="checkbox"
+                id="privacy-policy-consent"
+                checked={privacyAccepted}
+                onChange={(event) => setPrivacyAccepted(event.target.checked)}
+                disabled={pending}
+                aria-invalid={
+                  !privacyAccepted && consentIssue ? true : undefined
+                }
+                aria-describedby={
+                  !privacyAccepted && consentIssue ? "consent-error" : undefined
+                }
+                className="mt-0.5 size-5 shrink-0 accent-orange-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+              />
+              <span>
+                He leído y acepto la{" "}
+                <a
+                  href="/politica-de-privacidad"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-xs text-orange-800 underline underline-offset-4 hover:text-orange-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700"
+                >
+                  Política de privacidad
+                </a>
+                .
+              </span>
+            </label>
+
+            {consentIssue && !termsError ? (
+              <p id="consent-error" className="text-sm text-red-800">
+                Revisa y acepta por separado ambos documentos.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <AuthFeedback
           message={message}
           kind={feedbackKind}
           focusRef={noticeRef}
         />
+
         {message.includes("ya tiene una cuenta") ? (
           <div className="flex flex-wrap gap-3 text-sm">
             <Link
               href="/acceso"
-              className="min-h-11 inline-flex items-center text-orange-800 underline underline-offset-4"
+              className="inline-flex min-h-11 items-center text-orange-800 underline underline-offset-4"
             >
               Acceder
             </Link>
             <Link
               href="/recuperar-acceso"
-              className="min-h-11 inline-flex items-center text-orange-800 underline underline-offset-4"
+              className="inline-flex min-h-11 items-center text-orange-800 underline underline-offset-4"
             >
               Recuperar acceso
             </Link>
           </div>
         ) : null}
-        <p className="text-sm text-gray-700">
-          También puedes consultar{" "}
-          <Link
-            href="/terminos-y-condiciones"
-            className="text-orange-800 underline underline-offset-4"
-          >
-            términos
-          </Link>{" "}
-          y{" "}
-          <Link
-            href="/politica-de-privacidad"
-            className="text-orange-800 underline underline-offset-4"
-          >
-            privacidad
-          </Link>
-          .
-        </p>
+
         <Button
           type="submit"
           disabled={
@@ -321,9 +301,6 @@ export function RegistrationScreen() {
         >
           {pending ? "Creando cuenta…" : "Crear cuenta"}
         </Button>
-        <p className="text-center text-xs text-gray-600">
-          La aceptación se registra solo al confirmar este envío.
-        </p>
       </form>
     </AuthShell>
   );

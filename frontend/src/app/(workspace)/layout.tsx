@@ -1,5 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
+import { AuthLegalFooter } from "@/features/auth/ui/auth-legal-footer";
 import { PrivateSessionBoundary } from "@/features/auth/ui/private-session-boundary";
 import { SessionControls } from "@/features/auth/ui/session-controls";
 
@@ -44,6 +45,9 @@ export default function WorkspaceLayout({
       <Header />
       <div id="main-content" className="flex-1" tabIndex={-1}>
         <PrivateSessionBoundary>{children}</PrivateSessionBoundary>
+      </div>
+      <div className="pb-6">
+        <AuthLegalFooter />
       </div>
     </div>
   );

@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, authErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
-import { createActionCredential } from "../domain/action-credential";
+import {
+  clearVerificationCompleted,
+  markVerificationCompleted,
+} from "../application/verification-result";
 import {
   onboardingErrorCopy,
   recoveryAcceptedCopy,
@@ -22,9 +26,8 @@ import { RateLimitNotice } from "./rate-limit-notice";
 import { useRetryRemaining } from "./use-retry-remaining";
 
 export function VerificationScreen() {
+  const router = useRouter();
   const onboarding = useOnboarding();
-  const [tokenId, setTokenId] = useState("");
-  const [manualToken, setManualToken] = useState("");
   const [email, setEmail] = useState("");
   const [pending, setPending] = useState(false);
   const [reissuePending, setReissuePending] = useState(false);
@@ -32,9 +35,13 @@ export function VerificationScreen() {
   const [statusMessage, setStatusMessage] = useState(false);
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
+  const isMountedRef = useRef(true);
+  const operationEpochRef = useRef(0);
+
   const action = useActionCredential(() => {
-    setTokenId("");
-    setManualToken("");
+    operationEpochRef.current += 1;
+    clearVerificationCompleted();
+    setPending(false);
     setMessage("");
     setStatusMessage(false);
     setRetryUntil(null);
@@ -44,198 +51,201 @@ export function VerificationScreen() {
   const feedbackRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    isMountedRef.current = true;
+    clearVerificationCompleted();
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (message) feedbackRef.current?.focus();
   }, [message]);
 
+  const hasCredential = Boolean(action.credential);
+
   async function verify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!action.credential) {
+      setMessage(
+        "El enlace no es válido o ya no está disponible. Abre el enlace que enviamos a tu correo o solicita uno nuevo.",
+      );
+      return;
+    }
+
+    const currentEpoch = ++operationEpochRef.current;
+    clearVerificationCompleted();
     setPending(true);
     setMessage("");
     setStatusMessage(false);
     setRetryUntil(null);
-    const candidate = action.credential
-      ? { ok: true as const, credential: action.credential }
-      : createActionCredential(tokenId, manualToken);
-    if (!candidate.ok) {
-      setMessage(
-        "El enlace no es válido o ya no está disponible. Solicita instrucciones nuevas si corresponde.",
-      );
-      setPending(false);
-      return;
-    }
     try {
-      await onboarding.verifyEmail(candidate.credential);
+      await onboarding.verifyEmail(action.credential);
+      if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+        return;
       action.clear();
-      setTokenId("");
-      setManualToken("");
-      setStatusMessage(true);
-      setMessage("Correo verificado. Ya puedes iniciar sesión.");
+      markVerificationCompleted();
+      router.replace("/correo-verificado");
     } catch (error) {
+      if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+        return;
       if (error instanceof ApiError && error.status === 429) {
         const seconds = retryAfterSeconds(error.retryAfter);
         setRetryUntil(seconds === null ? null : Date.now() + seconds * 1000);
         setMessage(authErrorMessage(error));
       } else if (error instanceof ApiError && error.status < 500) {
         action.clear();
-        setTokenId("");
-        setManualToken("");
         setMessage(onboardingErrorCopy(error.code));
       } else {
         action.clear();
-        setTokenId("");
-        setManualToken("");
         setMessage(
           "No recibimos confirmación del enlace. Por seguridad, no lo enviaremos de nuevo automáticamente; solicita instrucciones nuevas.",
         );
         setAmbiguous(true);
       }
     } finally {
-      setPending(false);
+      if (isMountedRef.current && operationEpochRef.current === currentEpoch) {
+        setPending(false);
+      }
     }
   }
 
   async function reissue(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setMessage("Ingresa tu correo electrónico para continuar.");
+      return;
+    }
+    const currentEpoch = ++operationEpochRef.current;
     setReissuePending(true);
     setMessage("");
     setStatusMessage(false);
+    setRetryUntil(null);
+    setAmbiguous(false);
     try {
-      await onboarding.reissueVerification({ email });
+      await onboarding.reissueVerification({ email: trimmedEmail });
+      if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+        return;
       setStatusMessage(true);
       setMessage(reissueAcceptedCopy());
       setEmail("");
     } catch (error) {
-      setMessage(
-        error instanceof ApiError && error.status === 429
-          ? "No pudimos completar la solicitud ahora. Si corresponde, intentaremos enviar instrucciones."
-          : authErrorMessage(error),
-      );
+      if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+        return;
+      if (error instanceof ApiError && error.status === 429) {
+        const seconds = retryAfterSeconds(error.retryAfter);
+        setRetryUntil(seconds === null ? null : Date.now() + seconds * 1000);
+        setMessage(authErrorMessage(error));
+      } else if (error instanceof ApiError && error.status < 500) {
+        setMessage(onboardingErrorCopy(error.code));
+      } else {
+        setMessage(
+          "No pudimos confirmar la solicitud del enlace. Por seguridad, no lo reintentaremos automáticamente; intenta de nuevo más tarde.",
+        );
+        setAmbiguous(true);
+      }
     } finally {
-      setReissuePending(false);
+      if (isMountedRef.current && operationEpochRef.current === currentEpoch) {
+        setReissuePending(false);
+      }
     }
   }
 
   return (
     <AuthShell
-      title="Verificar correo"
-      description="Confirma tu correo para habilitar el acceso a la cuenta."
-      secondaryQuestion="¿Ya verificaste tu correo?"
+      title="Verificación de correo"
+      description="Confirma tu dirección para activar tu cuenta de EspaciGo."
+      secondaryQuestion="¿Ya confirmaste?"
       secondaryLabel="Ir a acceso"
       secondaryHref="/acceso"
     >
       <div className="space-y-6">
-        <form className="space-y-6" onSubmit={verify}>
-          <p className="text-sm leading-relaxed text-gray-700">
-            El enlace se procesa solo cuando confirmas aquí; los escáneres y
-            vistas previas no consumen el token automáticamente.
-          </p>
-          {action.credential ? (
-            <p
-              role="status"
-              className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"
-            >
-              Hay instrucciones disponibles en esta página. El contenido del
-              token permanece oculto.
-            </p>
-          ) : (
-            <div className="space-y-4">
-              <div>
-                <Label
-                  htmlFor="verification-token-id"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  ID del enlace
-                </Label>
-                <Input
-                  id="verification-token-id"
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={tokenId}
-                  onChange={(event) => setTokenId(event.target.value)}
-                  disabled={pending}
-                  className="mt-1 min-h-11 rounded-full border border-gray-300 px-3 font-mono text-sm"
-                />
-              </div>
-              <div>
-                <Label
-                  htmlFor="verification-token"
-                  className="block text-sm font-medium text-gray-700"
-                >
-                  Token de verificación
-                </Label>
-                <Input
-                  id="verification-token"
-                  type="password"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={manualToken}
-                  onChange={(event) => setManualToken(event.target.value)}
-                  disabled={pending}
-                  className="mt-1 min-h-11 rounded-full border border-gray-300 px-3 font-mono text-sm"
-                />
-              </div>
-            </div>
-          )}
-          <Button
-            type="submit"
-            disabled={pending || ambiguous || retryRemaining > 0}
-            className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
-          >
-            {pending ? "Verificando…" : "Confirmar correo"}
-          </Button>
-        </form>
-        <RateLimitNotice deadline={retryUntil} />
-        <div className="relative" aria-hidden="true">
-          <div className="border-t border-gray-300" />
-        </div>
-        <form className="space-y-4" onSubmit={reissue}>
-          <h2 className="text-lg font-semibold text-gray-900">
-            Solicitar nuevas instrucciones
-          </h2>
-          <p className="text-sm text-gray-700">
-            La respuesta no confirma si existe una cuenta ni si se entregará un
-            mensaje.
-          </p>
-          <div>
-            <Label
-              htmlFor="verification-email"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Correo electrónico
-            </Label>
-            <Input
-              id="verification-email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              required
-              disabled={reissuePending}
-              className="mt-1 min-h-11 rounded-full border border-gray-300 px-3 text-sm"
-            />
-          </div>
-          <Button
-            type="submit"
-            variant="outline"
-            disabled={reissuePending}
-            className="min-h-11 w-full rounded-full"
-          >
-            {reissuePending ? "Enviando solicitud…" : "Solicitar instrucciones"}
-          </Button>
-        </form>
         <AuthFeedback
+          focusRef={feedbackRef}
           message={message}
           kind={statusMessage ? "status" : "error"}
-          focusRef={feedbackRef}
         />
-        <p className="text-sm text-gray-700">
-          Si necesitas restablecer tu contraseña, visita{" "}
+        <RateLimitNotice deadline={retryUntil} />
+        {ambiguous ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+            La operación no pudo confirmarse con certeza. No la reintentaremos
+            automáticamente; ingresa de nuevo los datos cuando desees continuar.
+          </p>
+        ) : null}
+
+        {hasCredential ? (
+          <div className="space-y-4">
+            <p className="text-sm leading-relaxed text-gray-700">
+              Presiona el botón a continuación para completar la activación de
+              tu cuenta.
+            </p>
+            <form onSubmit={verify} className="space-y-4" noValidate>
+              <Button
+                type="submit"
+                disabled={pending || retryRemaining > 0}
+                className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800 disabled:opacity-50"
+              >
+                {pending ? "Confirmando..." : "Verificar mi correo"}
+              </Button>
+            </form>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <p className="text-sm leading-relaxed text-gray-700">
+                Abre el enlace que enviamos a tu correo para activar tu cuenta.
+              </p>
+              <p className="text-xs text-gray-500">
+                Si no recibiste el correo o el enlace venció, solicita uno nuevo
+                a continuación.
+              </p>
+            </div>
+
+            <section className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+              <h2 className="text-sm font-semibold text-gray-900">
+                Solicitar nuevo enlace
+              </h2>
+              <form onSubmit={reissue} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="reissue-email"
+                    className="text-xs font-semibold uppercase tracking-wider text-gray-500"
+                  >
+                    Correo electrónico
+                  </Label>
+                  <Input
+                    id="reissue-email"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value.trim())}
+                    placeholder="ejemplo@dominio.com"
+                    autoComplete="email"
+                    required
+                    disabled={reissuePending}
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  disabled={reissuePending || retryRemaining > 0}
+                  className="min-h-11 w-full rounded-full border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {reissuePending
+                    ? "Solicitando..."
+                    : "Solicitar instrucciones"}
+                </Button>
+              </form>
+            </section>
+          </div>
+        )}
+
+        <p className="text-center text-xs text-gray-500">
+          ¿Deseas volver?{" "}
           <Link
-            href="/recuperar-acceso"
-            className="text-orange-800 underline underline-offset-4"
+            href="/acceso"
+            className="font-medium text-orange-700 underline"
           >
-            recuperar acceso
+            Ir a acceso
           </Link>
           .
         </p>
@@ -246,10 +256,7 @@ export function VerificationScreen() {
 
 export function RecoveryScreen() {
   const onboarding = useOnboarding();
-  const [mode, setMode] = useState<"request" | "reset">("request");
   const [email, setEmail] = useState("");
-  const [tokenId, setTokenId] = useState("");
-  const [manualToken, setManualToken] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [pending, setPending] = useState(false);
@@ -257,9 +264,14 @@ export function RecoveryScreen() {
   const [statusMessage, setStatusMessage] = useState(false);
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
+  const isMountedRef = useRef(true);
+  const operationEpochRef = useRef(0);
+
   const action = useActionCredential(() => {
-    setTokenId("");
-    setManualToken("");
+    operationEpochRef.current += 1;
+    setIsSuccess(false);
+    setPending(false);
     setPassword("");
     setConfirmation("");
     setMessage("");
@@ -269,74 +281,102 @@ export function RecoveryScreen() {
   });
   const retryRemaining = useRetryRemaining(retryUntil);
   const feedbackRef = useRef<HTMLDivElement>(null);
-  const activeMode = action.credential ? "reset" : mode;
+  const activeCredential = action.credential;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (message) feedbackRef.current?.focus();
   }, [message]);
 
-  function clearRecoverySecrets() {
-    action.clear();
-    setTokenId("");
-    setManualToken("");
-    setPassword("");
-    setConfirmation("");
-  }
-
   async function requestRecovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setMessage("Ingresa tu correo electrónico para continuar.");
+      return;
+    }
+    const currentEpoch = ++operationEpochRef.current;
     setPending(true);
     setMessage("");
     setStatusMessage(false);
     setRetryUntil(null);
+    setAmbiguous(false);
     try {
-      await onboarding.requestRecovery({ email });
+      await onboarding.requestRecovery({ email: trimmedEmail });
+      if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+        return;
       setStatusMessage(true);
       setMessage(recoveryAcceptedCopy());
       setEmail("");
     } catch (error) {
+      if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+        return;
       if (error instanceof ApiError && error.status === 429) {
         const seconds = retryAfterSeconds(error.retryAfter);
         setRetryUntil(seconds === null ? null : Date.now() + seconds * 1000);
         setMessage(authErrorMessage(error));
+      } else if (error instanceof ApiError && error.status < 500) {
+        setMessage(onboardingErrorCopy(error.code));
       } else {
-        setMessage(authErrorMessage(error));
+        setMessage(
+          "No recibimos confirmación de la solicitud. Por seguridad, no la reintentaremos automáticamente; intenta de nuevo más tarde.",
+        );
+        setAmbiguous(true);
       }
     } finally {
-      setPending(false);
+      if (isMountedRef.current && operationEpochRef.current === currentEpoch) {
+        setPending(false);
+      }
     }
   }
 
   async function consumeRecovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!activeCredential) {
+      setMessage(
+        "El enlace no es válido o ya no está disponible. Solicita instrucciones nuevas si corresponde.",
+      );
+      return;
+    }
+    const policy = inspectPassword(password);
+    if (!policy.valid) {
+      setMessage("La contraseña no cumple la política mínima de seguridad.");
+      return;
+    }
+    if (password !== confirmation) {
+      setMessage("La confirmación de la contraseña no coincide.");
+      return;
+    }
+
+    const currentEpoch = ++operationEpochRef.current;
     setPending(true);
     setMessage("");
     setStatusMessage(false);
     setRetryUntil(null);
-    const candidate = action.credential
-      ? { ok: true as const, credential: action.credential }
-      : createActionCredential(tokenId, manualToken);
-    if (!candidate.ok) {
-      setMessage(
-        "El enlace no es válido o ya no está disponible. Solicita instrucciones nuevas si corresponde.",
-      );
-      setPending(false);
-      return;
-    }
+    setAmbiguous(false);
+
     try {
       await onboarding.consumeRecovery({
-        token_id: candidate.credential.tokenId,
-        token: candidate.credential.token,
+        token_id: activeCredential.tokenId,
+        token: activeCredential.token,
         new_password: password,
         confirm_password: confirmation,
       });
-      clearRecoverySecrets();
-      setStatusMessage(true);
-      setMode("request");
-      setMessage(
-        "La contraseña se actualizó y se revocaron las sesiones activas. Inicia sesión nuevamente.",
-      );
+      if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+        return;
+      action.clear();
+      setPassword("");
+      setConfirmation("");
+      setIsSuccess(true);
     } catch (error) {
+      if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+        return;
       setPassword("");
       setConfirmation("");
       if (error instanceof ApiError && error.status === 429) {
@@ -344,215 +384,148 @@ export function RecoveryScreen() {
         setRetryUntil(seconds === null ? null : Date.now() + seconds * 1000);
         setMessage(authErrorMessage(error));
       } else if (error instanceof ApiError && error.status < 500) {
+        action.clear();
         setMessage(onboardingErrorCopy(error.code));
-        if (error.code === "invalid_token") {
-          clearRecoverySecrets();
-        }
       } else {
-        clearRecoverySecrets();
+        action.clear();
         setMessage(
-          "No recibimos confirmación del cambio. Por seguridad, no reenviaremos el token automáticamente; solicita nuevas instrucciones antes de continuar.",
+          "No pudimos confirmar el cambio de contraseña. Por seguridad, no lo reintentaremos automáticamente; solicita instrucciones nuevas si lo requieres.",
         );
         setAmbiguous(true);
       }
     } finally {
-      setPending(false);
+      if (isMountedRef.current && operationEpochRef.current === currentEpoch) {
+        setPending(false);
+      }
     }
   }
 
-  const validPassword = inspectPassword(password).valid;
-  const credentialsReady = Boolean(
-    action.credential || (tokenId && manualToken),
-  );
+  const recoveryPolicy = inspectPassword(password);
+  const canSubmitRecovery =
+    Boolean(activeCredential) &&
+    !pending &&
+    retryRemaining === 0 &&
+    recoveryPolicy.valid &&
+    password === confirmation &&
+    confirmation.length > 0;
+
+  if (isSuccess) {
+    return (
+      <AuthShell
+        title="Contraseña actualizada"
+        description="Tu contraseña ha sido restablecida exitosamente. Ya puedes iniciar sesión con tu nueva clave."
+        secondaryQuestion="¿Listo para ingresar?"
+        secondaryLabel="Ir a acceso"
+        secondaryHref="/acceso"
+      >
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-green-200 bg-green-50/70 p-4 text-sm leading-relaxed text-green-900">
+            <p className="font-semibold">¡Cambio exitoso!</p>
+            <p className="mt-1 text-green-800">
+              Tu contraseña ha sido actualizada correctamente. Inicia sesión
+              para continuar en EspaciGo.
+            </p>
+          </div>
+          <Link
+            href="/acceso"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-orange-700 px-4 py-2 text-center text-sm font-semibold text-white shadow-xs hover:bg-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+          >
+            Ir a acceso
+          </Link>
+        </div>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell
       title="Recuperar acceso"
-      description="Solicita instrucciones o establece una contraseña nueva desde un enlace válido."
+      description="Restablece tu contraseña mediante el enlace seguro que enviamos a tu correo."
       secondaryQuestion="¿Recordaste tu contraseña?"
       secondaryLabel="Ir a acceso"
       secondaryHref="/acceso"
     >
       <div className="space-y-6">
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant={activeMode === "reset" ? "default" : "outline"}
-            onClick={() => setMode("reset")}
-            className="min-h-11 rounded-full"
-          >
-            Tengo un enlace
-          </Button>
-          <Button
-            type="button"
-            variant={activeMode === "request" ? "default" : "outline"}
-            onClick={() => {
-              clearRecoverySecrets();
-              setMode("request");
-              setAmbiguous(false);
-            }}
-            className="min-h-11 rounded-full"
-          >
-            Solicitar instrucciones
-          </Button>
-        </div>
-        {activeMode === "request" ? (
-          <form className="space-y-6" onSubmit={requestRecovery}>
-            <div>
+        <AuthFeedback
+          focusRef={feedbackRef}
+          message={message}
+          kind={statusMessage ? "status" : "error"}
+        />
+        <RateLimitNotice deadline={retryUntil} />
+        {ambiguous ? (
+          <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+            La operación no pudo confirmarse con certeza. No la reintentaremos
+            automáticamente; ingresa de nuevo los datos cuando desees continuar.
+          </p>
+        ) : null}
+
+        {activeCredential ? (
+          <form onSubmit={consumeRecovery} className="space-y-4" noValidate>
+            <PasswordField
+              id="recovery-new-password"
+              label="Nueva contraseña"
+              value={password}
+              onChange={setPassword}
+              autoComplete="new-password"
+              disabled={pending}
+            />
+            <PasswordRequirements value={password} />
+            <PasswordField
+              id="recovery-confirm-password"
+              label="Confirmar nueva contraseña"
+              value={confirmation}
+              onChange={setConfirmation}
+              autoComplete="new-password"
+              disabled={pending}
+            />
+            <Button
+              type="submit"
+              disabled={!canSubmitRecovery}
+              className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800 disabled:opacity-50"
+            >
+              {pending ? "Actualizando..." : "Actualizar contraseña"}
+            </Button>
+          </form>
+        ) : (
+          <form onSubmit={requestRecovery} className="space-y-4">
+            <div className="space-y-1.5">
               <Label
                 htmlFor="recovery-email"
-                className="block text-sm font-medium text-gray-700"
+                className="text-xs font-semibold uppercase tracking-wider text-gray-500"
               >
                 Correo electrónico
               </Label>
               <Input
                 id="recovery-email"
                 type="email"
-                autoComplete="email"
                 value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => setEmail(event.target.value.trim())}
+                placeholder="ejemplo@dominio.com"
+                autoComplete="email"
                 required
                 disabled={pending}
-                className="mt-1 min-h-11 rounded-full border border-gray-300 px-3 text-sm"
               />
             </div>
             <Button
               type="submit"
               disabled={pending || retryRemaining > 0}
-              className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+              className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800 disabled:opacity-50"
             >
-              {pending ? "Enviando solicitud…" : "Solicitar instrucciones"}
+              {pending ? "Solicitando..." : "Solicitar instrucciones"}
             </Button>
-            <RateLimitNotice deadline={retryUntil} />
-          </form>
-        ) : (
-          <form className="space-y-6" onSubmit={consumeRecovery}>
-            <p className="text-sm text-gray-700">
-              La contraseña se cambiará solo después de confirmar. No
-              mostraremos ni guardaremos el token fuera de esta página.
-            </p>
-            {!action.credential ? (
-              <div className="space-y-4">
-                <div>
-                  <Label
-                    htmlFor="recovery-token-id"
-                    className="block text-sm font-medium text-gray-700"
-                  >
-                    ID del enlace
-                  </Label>
-                  <Input
-                    id="recovery-token-id"
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={tokenId}
-                    onChange={(event) => setTokenId(event.target.value)}
-                    disabled={pending}
-                    className="mt-1 min-h-11 rounded-full border border-gray-300 px-3 font-mono text-sm"
-                  />
-                </div>
-                <div>
-                  <Label
-                    htmlFor="recovery-token"
-                    className="block text-sm font-medium text-gray-700"
-                  >
-                    Token de recuperación
-                  </Label>
-                  <Input
-                    id="recovery-token"
-                    type="password"
-                    autoComplete="off"
-                    spellCheck={false}
-                    value={manualToken}
-                    onChange={(event) => setManualToken(event.target.value)}
-                    disabled={pending}
-                    className="mt-1 min-h-11 rounded-full border border-gray-300 px-3 font-mono text-sm"
-                  />
-                </div>
-              </div>
-            ) : (
-              <p
-                role="status"
-                className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900"
-              >
-                Hay instrucciones disponibles en esta página. El contenido del
-                token permanece oculto.
-              </p>
-            )}
-            <div className="space-y-2">
-              <PasswordField
-                id="recovery-password"
-                label="Nueva contraseña"
-                autoComplete="new-password"
-                value={password}
-                onChange={setPassword}
-                disabled={pending}
-                invalid={Boolean(password) && !validPassword}
-                describedBy="password-requirements"
-              />
-              <PasswordRequirements value={password} />
-            </div>
-            <div>
-              <Label
-                htmlFor="recovery-confirmation"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Confirmar nueva contraseña
-              </Label>
-              <Input
-                id="recovery-confirmation"
-                type="password"
-                autoComplete="new-password"
-                value={confirmation}
-                onChange={(event) => setConfirmation(event.target.value)}
-                required
-                disabled={pending}
-                aria-invalid={
-                  (Boolean(confirmation) && confirmation !== password) ||
-                  undefined
-                }
-                className="mt-1 min-h-11 rounded-full border border-gray-300 px-3 text-sm"
-              />
-            </div>
-            <Button
-              type="submit"
-              disabled={
-                pending ||
-                ambiguous ||
-                !credentialsReady ||
-                !validPassword ||
-                confirmation !== password ||
-                retryRemaining > 0
-              }
-              className="min-h-11 w-full rounded-full bg-orange-700 text-white hover:bg-orange-800 focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
-            >
-              {pending ? "Actualizando contraseña…" : "Actualizar contraseña"}
-            </Button>
-            <RateLimitNotice deadline={retryUntil} />
           </form>
         )}
-        <AuthFeedback
-          message={message}
-          kind={statusMessage ? "status" : "error"}
-          focusRef={feedbackRef}
-        />
-        {message && !statusMessage ? (
-          <p className="text-sm text-gray-700">
-            Si no puedes usar el enlace,{" "}
-            <Link
-              href="/recuperar-acceso"
-              className="text-orange-800 underline underline-offset-4"
-              onClick={() => {
-                clearRecoverySecrets();
-                setMode("request");
-                setAmbiguous(false);
-              }}
-            >
-              solicita instrucciones nuevas
-            </Link>
-            .
-          </p>
-        ) : null}
+
+        <p className="text-center text-xs text-gray-500">
+          ¿Recordaste tu contraseña?{" "}
+          <Link
+            href="/acceso"
+            className="font-medium text-orange-700 underline"
+          >
+            Ir a acceso
+          </Link>
+          .
+        </p>
       </div>
     </AuthShell>
   );

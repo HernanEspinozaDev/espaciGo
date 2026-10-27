@@ -1,6 +1,9 @@
+import Image from "next/image";
 import Link from "next/link";
-import { CircleIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { AuthLegalFooter } from "./auth-legal-footer";
+
+export { AuthLegalFooter } from "./auth-legal-footer";
 
 export function AuthShell({
   title,
@@ -9,6 +12,7 @@ export function AuthShell({
   secondaryLabel,
   secondaryHref,
   secondaryQuestion,
+  onNavigateAway,
 }: {
   title: string;
   description?: string;
@@ -16,58 +20,75 @@ export function AuthShell({
   secondaryLabel: string;
   secondaryHref: string;
   secondaryQuestion: string;
+  onNavigateAway?: () => void;
 }) {
   return (
     <main
       id="main-content"
       tabIndex={-1}
-      className="flex min-h-[100dvh] flex-col justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8"
+      className="flex min-h-[100dvh] flex-col justify-center bg-gray-50 px-4 py-8 sm:px-6 sm:py-12 lg:px-8"
     >
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
         <Link
           href="/"
-          className="flex min-h-11 items-center justify-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700"
+          onNavigate={onNavigateAway}
+          className="inline-flex min-h-11 items-center justify-center gap-2.5 rounded-lg px-3 py-1.5 text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700"
           aria-label="EspaciGo, volver al marketplace"
         >
-          <CircleIcon
-            className="h-12 w-12 text-orange-500"
-            aria-hidden="true"
+          <Image
+            src="/espacigo-mark.svg"
+            alt=""
+            width={32}
+            height={32}
+            priority
+            className="h-8 w-8 shrink-0"
           />
-          <span className="text-xl font-semibold text-gray-900">EspaciGo</span>
+          <span className="text-xl font-bold tracking-tight text-gray-900">
+            EspaciGo
+          </span>
         </Link>
-        <h1 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-          {title}
-        </h1>
-        {description ? (
-          <p className="mt-3 text-center text-sm leading-relaxed text-gray-600">
-            {description}
-          </p>
-        ) : null}
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        {children}
-        <div className="mt-6">
-          <div className="relative">
-            <div
-              className="absolute inset-0 flex items-center"
-              aria-hidden="true"
-            >
-              <div className="w-full border-t border-gray-300" />
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="bg-gray-50 px-2 text-gray-500">
-                {secondaryQuestion}
-              </span>
-            </div>
+      <div className="mt-6 sm:mx-auto sm:w-full sm:max-w-md">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-xs sm:p-8">
+          <div className="mb-6 text-left">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+              {title}
+            </h1>
+            {description ? (
+              <p className="mt-2 text-sm leading-relaxed text-gray-600">
+                {description}
+              </p>
+            ) : null}
           </div>
-          <Link
-            href={secondaryHref}
-            className="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2 text-center text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
-          >
-            {secondaryLabel}
-          </Link>
+
+          {children}
+
+          <div className="mt-6">
+            <div className="relative">
+              <div
+                className="absolute inset-0 flex items-center"
+                aria-hidden="true"
+              >
+                <div className="w-full border-t border-gray-200" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="bg-white px-2 text-gray-500">
+                  {secondaryQuestion}
+                </span>
+              </div>
+            </div>
+            <Link
+              href={secondaryHref}
+              onNavigate={onNavigateAway}
+              className="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-gray-300 bg-white px-4 py-2 text-center text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+            >
+              {secondaryLabel}
+            </Link>
+          </div>
         </div>
+
+        <AuthLegalFooter onNavigate={onNavigateAway} />
       </div>
     </main>
   );
