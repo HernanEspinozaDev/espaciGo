@@ -782,6 +782,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/auth/verification/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inspecciona el estado de un enlace de verificación de correo mediante prueba de posesión sin consumirlo. */
+    post: operations["getEmailVerificationLinkStatus"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/auth/password/recovery": {
     parameters: {
       query?: never;
@@ -810,6 +827,23 @@ export interface paths {
     put?: never;
     /** @description CU-05/RQF-021–022. Token ID/secreto solo en cuerpo, hash en base de datos, 5 intentos. Cambia clave y revoca sesiones atómicamente. No implementa historial RQF-217 mientras DB02-09 no defina retención. */
     post: operations["consumePasswordRecovery"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/auth/password/recovery/status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Inspecciona el estado de un enlace de recuperación de contraseña mediante prueba de posesión sin consumirlo. */
+    post: operations["getPasswordRecoveryLinkStatus"];
     delete?: never;
     options?: never;
     head?: never;
@@ -4793,6 +4827,15 @@ export interface components {
       token_id: string;
       token: $Write<string>;
     };
+    ActionLinkStatusRequest: {
+      /** Format: uuid */
+      token_id: string;
+      token: $Write<string>;
+    };
+    ActionLinkStatusResponse: {
+      /** @enum {string} */
+      status: "ready" | "used" | "expired" | "invalid";
+    };
     RecoveryConsumeRequest: {
       /** Format: uuid */
       token_id: string;
@@ -6485,6 +6528,36 @@ export interface operations {
       503: components["responses"]["ServiceUnavailable"];
     };
   };
+  getEmailVerificationLinkStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ActionLinkStatusRequest"];
+      };
+    };
+    responses: {
+      /** @description Estado del enlace de verificación. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ActionLinkStatusResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      405: components["responses"]["MethodNotAllowed"];
+      415: components["responses"]["UnsupportedMediaType"];
+      429: components["responses"]["TooManyRequests"];
+      500: components["responses"]["InternalServerError"];
+    };
+  };
   requestPasswordRecovery: {
     parameters: {
       query?: never;
@@ -6542,6 +6615,36 @@ export interface operations {
       429: components["responses"]["TooManyRequests"];
       500: components["responses"]["InternalServerError"];
       503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getPasswordRecoveryLinkStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ActionLinkStatusRequest"];
+      };
+    };
+    responses: {
+      /** @description Estado del enlace de recuperación. */
+      200: {
+        headers: {
+          "X-Request-ID": components["headers"]["X-Request-ID"];
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ActionLinkStatusResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      405: components["responses"]["MethodNotAllowed"];
+      415: components["responses"]["UnsupportedMediaType"];
+      429: components["responses"]["TooManyRequests"];
+      500: components["responses"]["InternalServerError"];
     };
   };
   changePassword: {

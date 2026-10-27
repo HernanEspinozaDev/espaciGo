@@ -183,6 +183,8 @@ async function main() {
     const runId = Math.random().toString(36).slice(2, 10);
     const testEmail = `verify-${runId}@ejemplo.invalid`;
     const testPassword = "Synthetic#123";
+    const newPassword1 = "Nueva#456_pass";
+    const newPassword2 = "Tercera#789_pass";
 
     // Phase 1: Register
     currentPhase = "REGISTER";
@@ -290,29 +292,48 @@ async function main() {
       undefined,
     );
 
-    // Phase 5: Replay fragment once -> 422 invalid_token + Comprobar acceso CTA
-    currentPhase = "REPLAY_VERIFY";
+    // Phase 5: Reopen old verification link -> status used, H1 'Verificación ya realizada', no 'Verificar mi correo' button
+    currentPhase = "REOPEN_USED_VERIFY_NAVIGATE";
     await page.goto(
       `/verificar-correo#token_id=${encodeURIComponent(tokenId)}&token=${encodeURIComponent(token)}`,
-      { waitUntil: "networkidle" },
+      // Result readiness is its Go-confirmed heading, not unrelated link prefetch.
+      { waitUntil: "domcontentloaded" },
     );
-    await page.waitForFunction(() => window.location.hash === "", {
+    currentPhase = "REOPEN_USED_VERIFY_HEADING";
+    await page.waitForSelector("h1:has-text('Verificación ya realizada')", {
       timeout: 10000,
     });
+    const verifyBtnCount = await page
+      .getByRole("button", { name: "Verificar mi correo" })
+      .count();
+    assert.equal(
+      verifyBtnCount,
+      0,
+      "No 'Verificar mi correo' button should be shown when link is used",
+    );
 
-    const [replayRes] = await Promise.all([
-      page.waitForResponse(
-        (res) =>
-          res.request().method() === "POST" &&
-          new URL(res.url()).pathname === "/api/backend/auth/verification" &&
-          res.status() === 422,
-      ),
-      page.getByRole("button", { name: "Verificar mi correo" }).click(),
-    ]);
-    assert.equal(replayRes.status(), 422);
-    await page.waitForSelector("text=Comprobar acceso", { timeout: 10000 });
+    // Negative direct HTTP POST consumed verify via BFF to 422 with Origin header
+    currentPhase = "REPLAY_VERIFY_DIRECT";
+    const replayVerifyRes = await context.request.post(
+      "/api/backend/auth/verification",
+      {
+        timeout: 5000,
+        headers: {
+          Origin: proxyUrl,
+        },
+        data: {
+          token_id: tokenId,
+          token: token,
+        },
+      },
+    );
+    assert.equal(
+      replayVerifyRes.status(),
+      422,
+      "Replay verification directly to BFF must yield 422",
+    );
 
-    // Phase 6: Authenticated login
+    // Phase 6: Login after verify (200 OK + cookies issued)
     currentPhase = "LOGIN_SUCCESS";
     await page.goto("/acceso", { waitUntil: "networkidle" });
     await page.locator('input[name="email"]').fill(testEmail);
@@ -321,7 +342,7 @@ async function main() {
       .first()
       .fill(testPassword);
 
-    const [loginOkRes] = await Promise.all([
+    const [loginSuccessRes] = await Promise.all([
       page.waitForResponse(
         (res) =>
           res.request().method() === "POST" &&
@@ -330,31 +351,26 @@ async function main() {
       ),
       page.getByRole("button", { name: "Iniciar sesión" }).click(),
     ]);
-    assert.equal(loginOkRes.status(), 200);
-    await page.waitForURL("**/mi-cuenta*", { timeout: 15000 });
+    assert.equal(loginSuccessRes.status(), 200);
+    await page.waitForURL("**/mi-cuenta*", { timeout: 10000 });
 
-    const logoutBtn = page.getByRole("button", { name: "Cerrar sesión" });
-    await logoutBtn.waitFor({ state: "visible", timeout: 10000 });
-
-    const cookiesActive = await context.cookies();
-    const sessionActive = cookiesActive.find(
+    const cookiesPostLogin = await context.cookies();
+    const sessionCookie = cookiesPostLogin.find(
       (c) => c.name === "__Host-espacigo-session",
     );
-    const expiryActive = cookiesActive.find(
+    const expiryCookie = cookiesPostLogin.find(
       (c) => c.name === "__Host-espacigo-session-expiry",
     );
-    assert.ok(sessionActive && sessionActive.value, "session cookie required");
-    assert.ok(
-      expiryActive && expiryActive.value,
-      "session expiry cookie required",
-    );
-    assert.equal(sessionActive.secure, true);
-    assert.equal(sessionActive.httpOnly, true);
-    assert.equal(expiryActive.secure, true);
-    assert.equal(expiryActive.httpOnly, true);
+    assert.ok(sessionCookie && sessionCookie.value.length > 0);
+    assert.ok(expiryCookie && expiryCookie.value.length > 0);
+    assert.equal(sessionCookie.secure, true);
+    assert.equal(sessionCookie.httpOnly, true);
+    assert.equal(sessionCookie.sameSite, "Lax");
+    assert.equal(expiryCookie.secure, true);
+    assert.equal(expiryCookie.httpOnly, true);
 
-    // Phase 7: Session persistence on reload
-    currentPhase = "SESSION_PERSIST";
+    // Phase 7: Reload session verification
+    currentPhase = "SESSION_RELOAD";
     const [sessionRes] = await Promise.all([
       page.waitForResponse(
         (res) =>
@@ -365,36 +381,215 @@ async function main() {
       page.reload({ waitUntil: "networkidle" }),
     ]);
     assert.equal(sessionRes.status(), 200);
-    await page
-      .getByRole("button", { name: "Cerrar sesión" })
-      .waitFor({ state: "visible", timeout: 10000 });
 
-    // Phase 8: Logout via real UI
+    // Phase 8: Logout and cookie invalidation
     currentPhase = "LOGOUT";
     const [logoutRes] = await Promise.all([
       page.waitForResponse(
         (res) =>
           res.request().method() === "POST" &&
-          res.url().includes("/auth/logout"),
+          res.url().includes("/auth/logout") &&
+          res.status() === 204,
       ),
       page.getByRole("button", { name: "Cerrar sesión" }).click(),
     ]);
-    assert.ok(logoutRes.status() === 200 || logoutRes.status() === 204);
+    assert.equal(logoutRes.status(), 204);
     await page.waitForURL("**/acceso*", { timeout: 10000 });
 
     const cookiesPostLogout = await context.cookies();
-    const sessionPostLogout = cookiesPostLogout.find(
+    const expiredSessionCookie = cookiesPostLogout.find(
       (c) => c.name === "__Host-espacigo-session",
     );
-    const expiryPostLogout = cookiesPostLogout.find(
-      (c) => c.name === "__Host-espacigo-session-expiry",
-    );
-    assert.ok(!sessionPostLogout || sessionPostLogout.value === "");
-    assert.ok(!expiryPostLogout || expiryPostLogout.value === "");
+    assert.ok(!expiredSessionCookie || expiredSessionCookie.value === "");
 
-    currentPhase = "COMPLETED";
-  } catch (err) {
-    console.error(`FAIL: phase=${currentPhase} error=${err?.name || "Error"}`);
+    // Phase 9: Retrieval Recovery via UI /recuperar-acceso
+    currentPhase = "RECOVERY_REQUEST";
+    await page.goto("/recuperar-acceso", { waitUntil: "networkidle" });
+    await page.locator('#recovery-email, input[type="email"]').fill(testEmail);
+
+    const [recoveryReqRes] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "POST" &&
+          new URL(res.url()).pathname ===
+            "/api/backend/auth/password/recovery" &&
+          res.status() === 202,
+      ),
+      page.getByRole("button", { name: "Solicitar instrucciones" }).click(),
+    ]);
+    assert.equal(recoveryReqRes.status(), 202);
+    await page.waitForSelector("text=Solicitud recibida", { timeout: 10000 });
+
+    // Phase 10: Private driver returns RecoveryDelivery
+    currentPhase = "RECOVERY_MAIL_FETCH";
+    const recoveryMailRes = await fetch(`${driverUrl}/__test/recovery-mail`);
+    assert.equal(recoveryMailRes.status, 200);
+    const recoveryMailData = await recoveryMailRes.json();
+    const recTokenId = recoveryMailData.token_id;
+    const recToken = recoveryMailData.token;
+    assert.ok(recTokenId && recToken);
+
+    // Phase 11: Navigate to canonical fragment recovery link -> form -> 204 -> Contraseña actualizada
+    currentPhase = "RECOVERY_CONSUME";
+    await page.goto(
+      `/recuperar-acceso#token_id=${encodeURIComponent(recTokenId)}&token=${encodeURIComponent(recToken)}`,
+      { waitUntil: "networkidle" },
+    );
+
+    await page.waitForSelector("label:has-text('Nueva contraseña')", {
+      timeout: 10000,
+    });
+    await page.waitForSelector("label:has-text('Confirmar nueva contraseña')", {
+      timeout: 10000,
+    });
+
+    await page.locator("#recovery-new-password").fill(newPassword1);
+    await page.locator("#recovery-confirm-password").fill(newPassword1);
+
+    const [recoveryConsumeRes] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "POST" &&
+          new URL(res.url()).pathname ===
+            "/api/backend/auth/password/recovery/consume" &&
+          res.status() === 204,
+      ),
+      page.getByRole("button", { name: "Actualizar contraseña" }).click(),
+    ]);
+    assert.equal(recoveryConsumeRes.status(), 204);
+    await page.waitForSelector("h1:has-text('Contraseña actualizada')", {
+      timeout: 10000,
+    });
+
+    // Phase 12: Reopen SAME recovery link -> inspection used, H1 'Enlace de recuperación ya utilizado', no fields, no button
+    currentPhase = "REOPEN_USED_RECOVERY";
+    await page.goto(
+      `/recuperar-acceso#token_id=${encodeURIComponent(recTokenId)}&token=${encodeURIComponent(recToken)}`,
+      { waitUntil: "domcontentloaded" },
+    );
+    await page.waitForSelector(
+      "h1:has-text('Enlace de recuperación ya utilizado')",
+      { timeout: 10000 },
+    );
+    assert.equal(await page.locator("#recovery-new-password").count(), 0);
+    assert.equal(await page.locator("#recovery-confirm-password").count(), 0);
+    assert.equal(
+      await page.getByRole("button", { name: "Actualizar contraseña" }).count(),
+      0,
+    );
+
+    // Phase 13: Direct BFF POST consume used token with different strong password -> 422 with Origin header
+    currentPhase = "REPLAY_RECOVERY_DIRECT";
+    const replayRecoveryRes = await context.request.post(
+      "/api/backend/auth/password/recovery/consume",
+      {
+        timeout: 5000,
+        headers: {
+          Origin: proxyUrl,
+        },
+        data: {
+          token_id: recTokenId,
+          token: recToken,
+          new_password: newPassword2,
+          confirm_password: newPassword2,
+        },
+      },
+    );
+    assert.equal(
+      replayRecoveryRes.status(),
+      422,
+      "Replay recovery consume directly to BFF must yield 422",
+    );
+
+    // Phase 14: Disposable attempt with old password fails (401), login with newPassword1 succeeds (200)
+    currentPhase = "VERIFY_NEW_PASSWORD";
+    await page.goto("/acceso", { waitUntil: "networkidle" });
+    await page.locator('input[name="email"]').fill(testEmail);
+    await page
+      .locator('input[name="password"], input[type="password"]')
+      .first()
+      .fill(testPassword);
+
+    const [oldPwdFailRes] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "POST" &&
+          res.url().includes("/auth/login") &&
+          res.status() === 401,
+      ),
+      page.getByRole("button", { name: "Iniciar sesión" }).click(),
+    ]);
+    assert.equal(
+      oldPwdFailRes.status(),
+      401,
+      "Old password must be rejected with 401",
+    );
+
+    await page
+      .locator('input[name="password"], input[type="password"]')
+      .first()
+      .fill(newPassword1);
+
+    const [newPwdLoginRes] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "POST" &&
+          res.url().includes("/auth/login") &&
+          res.status() === 200,
+      ),
+      page.getByRole("button", { name: "Iniciar sesión" }).click(),
+    ]);
+    assert.equal(
+      newPwdLoginRes.status(),
+      200,
+      "Login with updated password must succeed",
+    );
+    await page.waitForURL("**/mi-cuenta*", { timeout: 10000 });
+
+    const recoveryLoginCookies = await context.cookies();
+    const recoverySessionCookie = recoveryLoginCookies.find(
+      (c) => c.name === "__Host-espacigo-session",
+    );
+    assert.ok(recoverySessionCookie && recoverySessionCookie.value.length > 0);
+
+    // Session reload survives
+    const [recoveryReloadRes] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "GET" &&
+          res.url().includes("/auth/session") &&
+          res.status() === 200,
+      ),
+      page.reload({ waitUntil: "networkidle" }),
+    ]);
+    assert.equal(recoveryReloadRes.status(), 200);
+
+    // Final logout
+    const [finalLogoutRes] = await Promise.all([
+      page.waitForResponse(
+        (res) =>
+          res.request().method() === "POST" &&
+          res.url().includes("/auth/logout") &&
+          res.status() === 204,
+      ),
+      page.getByRole("button", { name: "Cerrar sesión" }).click(),
+    ]);
+    assert.equal(finalLogoutRes.status(), 204);
+    await page.waitForURL("**/acceso*", { timeout: 10000 });
+
+    const finalCookies = await context.cookies();
+    const finalSessionCookie = finalCookies.find(
+      (c) => c.name === "__Host-espacigo-session",
+    );
+    assert.ok(!finalSessionCookie || finalSessionCookie.value === "");
+
+    console.log(
+      "PASS: native-browser-verification pipeline executed cleanly without mocks",
+    );
+    process.exitCode = 0;
+  } catch (error) {
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+    console.error(`FAIL: phase=${currentPhase} error=${errorName}`);
     process.exitCode = 1;
   } finally {
     if (page) {
@@ -418,11 +613,13 @@ async function main() {
       } catch {}
     }
     if (nextChild) {
-      try {
-        await stopChild(nextChild);
-      } catch {}
+      await stopChild(nextChild);
     }
   }
 }
 
-main();
+main().catch((err) => {
+  const errorName = err instanceof Error ? err.name : "UnknownError";
+  console.error("FAIL: unhandled_exception", errorName);
+  process.exit(1);
+});

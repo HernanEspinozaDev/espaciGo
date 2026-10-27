@@ -744,6 +744,34 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/VerificationRequest'
+  /auth/verification/status:
+    post:
+      operationId: getEmailVerificationLinkStatus
+      tags:
+      - M01 local
+      description: Inspecciona el estado de un enlace de verificación de correo mediante prueba de posesión sin consumirlo.
+      responses:
+        '200':
+          description: Estado del enlace de verificación.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionLinkStatusResponse'
+        '400': *id001
+        '405': *id004
+        '415': *id005
+        '429': *id007
+        '500': *id008
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionLinkStatusRequest'
   /auth/password/recovery:
     post:
       operationId: requestPasswordRecovery
@@ -783,6 +811,33 @@ paths:
         '429': *id007
         '500': *id008
         '503': *id009
+  /auth/password/recovery/status:
+    post:
+      operationId: getPasswordRecoveryLinkStatus
+      tags: [M01 local]
+      description: Inspecciona el estado de un enlace de recuperación de contraseña mediante prueba de posesión sin consumirlo.
+      responses:
+        '200':
+          description: Estado del enlace de recuperación.
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/X-Request-ID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActionLinkStatusResponse'
+        '400': *id001
+        '405': *id004
+        '415': *id005
+        '429': *id007
+        '500': *id008
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActionLinkStatusRequest'
   /auth/password/change:
     post:
       operationId: changePassword
@@ -3988,7 +4043,7 @@ components:
       required: [open, close]
       properties:
         open: { type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$' }
-        close: { type: string, pattern: '^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$', description: 24:00 representa el límite final exclusivo del día y solo puede usarse al cerrar un tramo. }
+        close: { type: string, pattern: '^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$', description: "24:00 representa el límite final exclusivo del día y solo puede usarse al cerrar un tramo." }
     LocalAvailableInterval:
       type: object
       required: [start_at, end_at]
@@ -4981,6 +5036,32 @@ components:
           type: string
           minLength: 1
           writeOnly: true
+    ActionLinkStatusRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - token_id
+      - token
+      properties:
+        token_id: *id010
+        token:
+          type: string
+          minLength: 1
+          maxLength: 2048
+          writeOnly: true
+    ActionLinkStatusResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          enum:
+          - ready
+          - used
+          - expired
+          - invalid
     RecoveryConsumeRequest:
       type: object
       additionalProperties: false

@@ -135,7 +135,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if reviewPath || executePath {
 		expected = http.MethodPost
 	}
-	paths := map[string]bool{"/api/v1/auth/register": true, "/api/v1/auth/verification/reissue": true, "/api/v1/auth/verification": true, "/api/v1/auth/login": true, "/api/v1/auth/session": true, "/api/v1/auth/logout": true, "/api/v1/auth/terms": true, "/api/v1/auth/password/recovery": true, "/api/v1/auth/password/recovery/consume": true, "/api/v1/auth/password/change": true, "/api/v1/profile": true, "/api/v1/rights-requests": true, "/api/v1/privacy/export": true, "/api/v1/privacy/export/archive": true, "/api/v1/privacy/retention/purge": true, suppressionQueuePath: true, credentialNoticeQueuePath: true}
+	paths := map[string]bool{
+		"/api/v1/auth/register":                 true,
+		"/api/v1/auth/verification/reissue":     true,
+		"/api/v1/auth/verification":             true,
+		"/api/v1/auth/verification/status":      true,
+		"/api/v1/auth/login":                    true,
+		"/api/v1/auth/session":                  true,
+		"/api/v1/auth/logout":                   true,
+		"/api/v1/auth/terms":                    true,
+		"/api/v1/auth/password/recovery":        true,
+		"/api/v1/auth/password/recovery/consume": true,
+		"/api/v1/auth/password/recovery/status":  true,
+		"/api/v1/auth/password/change":          true,
+		"/api/v1/profile":                       true,
+		"/api/v1/rights-requests":               true,
+		"/api/v1/privacy/export":                true,
+		"/api/v1/privacy/export/archive":        true,
+		"/api/v1/privacy/retention/purge":       true,
+		suppressionQueuePath:                    true,
+		credentialNoticeQueuePath:               true,
+	}
 	if !paths[r.URL.Path] && !reviewPath && !executePath && !credentialNoticeReopenPath {
 		h.fail(w, 404, "not_found", "Recurso no encontrado.")
 		return
@@ -495,6 +515,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(204)
+	case "/api/v1/auth/verification/status":
+		var input struct {
+			TokenID string          `json:"token_id"`
+			Token   identity.Secret `json:"token"`
+		}
+		if !h.decode(w, r, &input) {
+			return
+		}
+		status, err := h.service.InspectVerificationLink(r.Context(), input.TokenID, input.Token, clientIP)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, map[string]any{"status": status})
 	case "/api/v1/auth/password/recovery":
 		var input struct {
 			Email string `json:"email"`
@@ -523,6 +557,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(204)
+	case "/api/v1/auth/password/recovery/status":
+		var input struct {
+			TokenID string          `json:"token_id"`
+			Token   identity.Secret `json:"token"`
+		}
+		if !h.decode(w, r, &input) {
+			return
+		}
+		status, err := h.service.InspectRecoveryLink(r.Context(), input.TokenID, input.Token, clientIP)
+		if err != nil {
+			h.serviceError(w, err)
+			return
+		}
+		h.write(w, http.StatusOK, map[string]any{"status": status})
 	case "/api/v1/auth/password/change":
 		var input struct {
 			Current      identity.Secret `json:"current_password"`

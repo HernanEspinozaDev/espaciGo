@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { ApiError, authErrorMessage } from "@/lib/api/errors";
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/workspace/ui/input";
@@ -11,6 +17,7 @@ import {
   clearVerificationCompleted,
   markVerificationCompleted,
 } from "../application/verification-result";
+import type { ActionLinkStatus } from "../application/onboarding.port";
 import {
   onboardingErrorCopy,
   recoveryAcceptedCopy,
@@ -20,6 +27,10 @@ import { inspectPassword } from "../domain/password-policy";
 import { retryAfterSeconds } from "../domain/retry-after";
 import { useOnboarding } from "./use-onboarding";
 import { useActionCredential } from "./use-action-credential";
+import {
+  useActionLinkStatus,
+  type ActionTerminalOutcome,
+} from "./use-action-link-status";
 import { AuthFeedback, AuthShell } from "./auth-shell";
 import { PasswordField, PasswordRequirements } from "./password-field";
 import { RateLimitNotice } from "./rate-limit-notice";
@@ -36,12 +47,18 @@ export function VerificationScreen() {
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
   const [isInvalidToken, setIsInvalidToken] = useState(false);
+  const [outcome, setOutcome] = useState<ActionTerminalOutcome | null>(null);
   const isMountedRef = useRef(true);
   const operationEpochRef = useRef(0);
+
+  const probeResetRef = useRef<() => void>(() => {});
 
   const action = useActionCredential(() => {
     operationEpochRef.current += 1;
     clearVerificationCompleted();
+    onboarding.cancel();
+    setOutcome(null);
+    probeResetRef.current();
     setPending(false);
     setMessage("");
     setStatusMessage(false);
@@ -49,6 +66,25 @@ export function VerificationScreen() {
     setAmbiguous(false);
     setIsInvalidToken(false);
   });
+
+  const handleTerminalStatus = useCallback(
+    (status: ActionTerminalOutcome) => {
+      action.clear();
+      setOutcome(status);
+    },
+    [action],
+  );
+
+  const probe = useActionLinkStatus({
+    credential: action.credential,
+    inspect: (cred) => onboarding.inspectVerification(cred),
+    onTerminalStatus: handleTerminalStatus,
+  });
+
+  useEffect(() => {
+    probeResetRef.current = probe.reset;
+  }, [probe.reset]);
+
   const retryRemaining = useRetryRemaining(retryUntil);
   const feedbackRef = useRef<HTMLDivElement>(null);
 
@@ -64,11 +100,19 @@ export function VerificationScreen() {
     if (message) feedbackRef.current?.focus();
   }, [message]);
 
-  const hasCredential = Boolean(action.credential);
+  const handleRequestNewLink = () => {
+    action.clear();
+    setOutcome(null);
+    probe.reset();
+    setMessage("");
+    setStatusMessage(false);
+    setIsInvalidToken(false);
+  };
 
   async function verify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!action.credential) {
+    const activeRawCredential = action.credential;
+    if (!activeRawCredential || !probe.isReady) {
       setMessage(
         "El enlace no es válido o ya no está disponible. Abre el enlace que enviamos a tu correo o solicita uno nuevo.",
       );
@@ -84,7 +128,7 @@ export function VerificationScreen() {
     setAmbiguous(false);
     setIsInvalidToken(false);
     try {
-      await onboarding.verifyEmail(action.credential);
+      await onboarding.verifyEmail(activeRawCredential);
       if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
         return;
       action.clear();
@@ -97,11 +141,29 @@ export function VerificationScreen() {
         const seconds = retryAfterSeconds(error.retryAfter);
         setRetryUntil(seconds === null ? null : Date.now() + seconds * 1000);
         setMessage(authErrorMessage(error));
+      } else if (error instanceof ApiError && error.code === "invalid_token") {
+        let recheckStatus: ActionLinkStatus | null = null;
+        try {
+          recheckStatus =
+            await onboarding.inspectVerification(activeRawCredential);
+        } catch {
+          // probe error ignored
+        }
+        if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+          return;
+        action.clear();
+        if (recheckStatus === "used") {
+          setOutcome("used");
+        } else if (recheckStatus === "expired") {
+          setOutcome("expired");
+        } else if (recheckStatus === "invalid") {
+          setOutcome("invalid");
+        } else {
+          setIsInvalidToken(true);
+          setMessage(onboardingErrorCopy(error.code, "verification"));
+        }
       } else if (error instanceof ApiError && error.status < 500) {
         action.clear();
-        if (error.code === "invalid_token") {
-          setIsInvalidToken(true);
-        }
         setMessage(onboardingErrorCopy(error.code, "verification"));
       } else {
         action.clear();
@@ -160,6 +222,95 @@ export function VerificationScreen() {
     }
   }
 
+  if (outcome === "used") {
+    return (
+      <AuthShell
+        title="Verificación ya realizada"
+        description="El correo electrónico ya fue confirmado con este enlace."
+        secondaryQuestion="¿Quieres seguir explorando?"
+        secondaryLabel="Ver espacios"
+        secondaryHref="/espacios"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-gray-700">
+            Inicia sesión para ingresar a tu cuenta de EspaciGo.
+          </p>
+          <Link
+            href="/acceso"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-orange-700 px-4 py-2 text-center text-sm font-semibold text-white shadow-xs hover:bg-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+          >
+            Ir a acceso
+          </Link>
+          <Button
+            type="button"
+            onClick={handleRequestNewLink}
+            className="min-h-11 w-full rounded-full border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50"
+          >
+            Solicitar nuevo enlace
+          </Button>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (outcome === "expired") {
+    return (
+      <AuthShell
+        title="Enlace vencido"
+        description="El enlace de verificación ha expirado. Solicita instrucciones nuevas para continuar."
+        secondaryQuestion="¿Ya confirmaste?"
+        secondaryLabel="Ir a acceso"
+        secondaryHref="/acceso"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-gray-700">
+            El enlace ha vencido por límite de tiempo. Para verificar tu cuenta,
+            solicita un nuevo enlace a tu correo.
+          </p>
+          <Button
+            type="button"
+            onClick={handleRequestNewLink}
+            className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800"
+          >
+            Solicitar nuevo enlace
+          </Button>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (outcome === "invalid") {
+    return (
+      <AuthShell
+        title="Enlace no válido"
+        description="El enlace no es válido o ya no está disponible. Si ya confirmaste tu correo, inicia sesión. Si aún no, solicita un nuevo enlace."
+        secondaryQuestion="¿Ya confirmaste?"
+        secondaryLabel="Ir a acceso"
+        secondaryHref="/acceso"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-gray-700">
+            El enlace no es válido o ya no está disponible. Si ya confirmaste tu
+            correo, inicia sesión. Si aún no, solicita un nuevo enlace.
+          </p>
+          <Link
+            href="/acceso"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-orange-700 px-4 py-2 text-center text-sm font-semibold text-white shadow-xs hover:bg-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+          >
+            Comprobar acceso
+          </Link>
+          <Button
+            type="button"
+            onClick={handleRequestNewLink}
+            className="min-h-11 w-full rounded-full border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50"
+          >
+            Solicitar nuevo enlace
+          </Button>
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell
       title="Verificación de correo"
@@ -186,7 +337,27 @@ export function VerificationScreen() {
           </div>
         ) : null}
 
-        {hasCredential ? (
+        {probe.isChecking ? (
+          <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 text-center text-sm text-gray-700">
+            <p className="font-medium">Comprobando enlace...</p>
+          </div>
+        ) : probe.isProbeError ? (
+          <div className="space-y-4">
+            <div
+              className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900"
+              role="alert"
+            >
+              No fue posible comprobar el estado del enlace. Intenta nuevamente.
+            </div>
+            <Button
+              type="button"
+              onClick={probe.retry}
+              className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800"
+            >
+              Reintentar comprobación
+            </Button>
+          </div>
+        ) : probe.isReady && action.credential ? (
           <div className="space-y-4">
             <p className="text-sm leading-relaxed text-gray-700">
               Presiona el botón a continuación para completar la activación de
@@ -277,11 +448,17 @@ export function RecoveryScreen() {
   const [retryUntil, setRetryUntil] = useState<number | null>(null);
   const [ambiguous, setAmbiguous] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [outcome, setOutcome] = useState<ActionTerminalOutcome | null>(null);
   const isMountedRef = useRef(true);
   const operationEpochRef = useRef(0);
 
+  const probeResetRef = useRef<() => void>(() => {});
+
   const action = useActionCredential(() => {
     operationEpochRef.current += 1;
+    onboarding.cancel();
+    setOutcome(null);
+    probeResetRef.current();
     setIsSuccess(false);
     setPending(false);
     setPassword("");
@@ -291,6 +468,27 @@ export function RecoveryScreen() {
     setRetryUntil(null);
     setAmbiguous(false);
   });
+
+  const handleTerminalStatus = useCallback(
+    (status: ActionTerminalOutcome) => {
+      action.clear();
+      setPassword("");
+      setConfirmation("");
+      setOutcome(status);
+    },
+    [action],
+  );
+
+  const probe = useActionLinkStatus({
+    credential: action.credential,
+    inspect: (cred) => onboarding.inspectRecovery(cred),
+    onTerminalStatus: handleTerminalStatus,
+  });
+
+  useEffect(() => {
+    probeResetRef.current = probe.reset;
+  }, [probe.reset]);
+
   const retryRemaining = useRetryRemaining(retryUntil);
   const feedbackRef = useRef<HTMLDivElement>(null);
   const activeCredential = action.credential;
@@ -305,6 +503,16 @@ export function RecoveryScreen() {
   useEffect(() => {
     if (message) feedbackRef.current?.focus();
   }, [message]);
+
+  const handleRequestNewLink = () => {
+    action.clear();
+    setOutcome(null);
+    probe.reset();
+    setPassword("");
+    setConfirmation("");
+    setMessage("");
+    setStatusMessage(false);
+  };
 
   async function requestRecovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -350,7 +558,7 @@ export function RecoveryScreen() {
 
   async function consumeRecovery(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!activeCredential) {
+    if (!activeCredential || !probe.isReady) {
       setMessage(
         "El enlace no es válido o ya no está disponible. Solicita instrucciones nuevas si corresponde.",
       );
@@ -395,6 +603,25 @@ export function RecoveryScreen() {
         const seconds = retryAfterSeconds(error.retryAfter);
         setRetryUntil(seconds === null ? null : Date.now() + seconds * 1000);
         setMessage(authErrorMessage(error));
+      } else if (error instanceof ApiError && error.code === "invalid_token") {
+        let recheckStatus: ActionLinkStatus | null = null;
+        try {
+          recheckStatus = await onboarding.inspectRecovery(activeCredential);
+        } catch {
+          // probe error ignored
+        }
+        if (!isMountedRef.current || operationEpochRef.current !== currentEpoch)
+          return;
+        action.clear();
+        if (recheckStatus === "used") {
+          setOutcome("used");
+        } else if (recheckStatus === "expired") {
+          setOutcome("expired");
+        } else if (recheckStatus === "invalid") {
+          setOutcome("invalid");
+        } else {
+          setMessage(onboardingErrorCopy(error.code));
+        }
       } else if (error instanceof ApiError && error.status < 500) {
         action.clear();
         setMessage(onboardingErrorCopy(error.code));
@@ -415,6 +642,7 @@ export function RecoveryScreen() {
   const recoveryPolicy = inspectPassword(password);
   const canSubmitRecovery =
     Boolean(activeCredential) &&
+    probe.isReady &&
     !pending &&
     retryRemaining === 0 &&
     recoveryPolicy.valid &&
@@ -449,6 +677,90 @@ export function RecoveryScreen() {
     );
   }
 
+  if (outcome === "used") {
+    return (
+      <AuthShell
+        title="Enlace de recuperación ya utilizado"
+        description="La contraseña ya fue cambiada con este enlace."
+        secondaryQuestion="¿Quieres seguir explorando?"
+        secondaryLabel="Ver espacios"
+        secondaryHref="/espacios"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-gray-700">
+            Si necesitas recuperar el acceso a tu cuenta, solicita un nuevo
+            enlace a tu correo o inicia sesión.
+          </p>
+          <Link
+            href="/acceso"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-orange-700 px-4 py-2 text-center text-sm font-semibold text-white shadow-xs hover:bg-orange-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-700 focus-visible:ring-offset-2"
+          >
+            Ir a acceso
+          </Link>
+          <Button
+            type="button"
+            onClick={handleRequestNewLink}
+            className="min-h-11 w-full rounded-full border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-xs hover:bg-gray-50"
+          >
+            Solicitar nuevo enlace
+          </Button>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (outcome === "expired") {
+    return (
+      <AuthShell
+        title="Enlace vencido"
+        description="El enlace de recuperación ha expirado. Solicita instrucciones nuevas para continuar."
+        secondaryQuestion="¿Recordaste tu contraseña?"
+        secondaryLabel="Ir a acceso"
+        secondaryHref="/acceso"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-gray-700">
+            El enlace ha vencido por límite de tiempo. Para restablecer tu
+            contraseña, solicita un nuevo enlace a tu correo.
+          </p>
+          <Button
+            type="button"
+            onClick={handleRequestNewLink}
+            className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800"
+          >
+            Solicitar nuevo enlace
+          </Button>
+        </div>
+      </AuthShell>
+    );
+  }
+
+  if (outcome === "invalid") {
+    return (
+      <AuthShell
+        title="Enlace no válido"
+        description="El enlace no es válido o ya no está disponible. Solicita instrucciones nuevas si corresponde."
+        secondaryQuestion="¿Recordaste tu contraseña?"
+        secondaryLabel="Ir a acceso"
+        secondaryHref="/acceso"
+      >
+        <div className="space-y-4">
+          <p className="text-sm leading-relaxed text-gray-700">
+            El enlace no es válido o ya no está disponible. Solicita
+            instrucciones nuevas para restablecer tu contraseña.
+          </p>
+          <Button
+            type="button"
+            onClick={handleRequestNewLink}
+            className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800"
+          >
+            Solicitar nuevo enlace
+          </Button>
+        </div>
+      </AuthShell>
+    );
+  }
+
   return (
     <AuthShell
       title="Recuperar acceso"
@@ -471,7 +783,27 @@ export function RecoveryScreen() {
           </p>
         ) : null}
 
-        {activeCredential ? (
+        {probe.isChecking ? (
+          <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 text-center text-sm text-gray-700">
+            <p className="font-medium">Comprobando enlace...</p>
+          </div>
+        ) : probe.isProbeError ? (
+          <div className="space-y-4">
+            <div
+              className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900"
+              role="alert"
+            >
+              No fue posible comprobar el estado del enlace. Intenta nuevamente.
+            </div>
+            <Button
+              type="button"
+              onClick={probe.retry}
+              className="min-h-11 w-full rounded-full bg-orange-700 px-4 py-3 text-sm font-semibold text-white shadow-xs hover:bg-orange-800"
+            >
+              Reintentar comprobación
+            </Button>
+          </div>
+        ) : probe.isReady && activeCredential ? (
           <form onSubmit={consumeRecovery} className="space-y-4" noValidate>
             <PasswordField
               id="recovery-new-password"

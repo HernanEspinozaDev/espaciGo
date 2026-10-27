@@ -4,12 +4,36 @@ import { apiClient } from "@/lib/api/client";
 import { ApiProtocolError, normalizeApiError } from "@/lib/api/errors";
 import { serializeExactJson } from "@/lib/api/exact-json";
 import type {
+  ActionLinkStatus,
   EmailRequest,
   OnboardingPort,
   RecoveryConsumeRequest,
   RegisterRequest,
 } from "../application/onboarding.port";
 import type { ActionCredential } from "../domain/action-credential";
+
+const VALID_LINK_STATUSES = new Set<string>([
+  "ready",
+  "used",
+  "expired",
+  "invalid",
+]);
+
+function parseLinkStatus(data: unknown): ActionLinkStatus {
+  if (
+    data !== null &&
+    typeof data === "object" &&
+    !Array.isArray(data) &&
+    Object.keys(data).length === 1 &&
+    Object.hasOwn(data, "status")
+  ) {
+    const status = (data as { status: unknown }).status;
+    if (typeof status === "string" && VALID_LINK_STATUSES.has(status)) {
+      return status as ActionLinkStatus;
+    }
+  }
+  throw new ApiProtocolError();
+}
 
 function requireOk(response: Response, error: unknown): void {
   if (!response.ok) throw normalizeApiError(response, error);
@@ -66,6 +90,20 @@ export class OpenApiOnboardingAdapter implements OnboardingPort {
     if (result.response.status !== 204) throw new ApiProtocolError();
   }
 
+  async inspectVerification(
+    credential: ActionCredential,
+    signal: AbortSignal,
+  ): Promise<ActionLinkStatus> {
+    const result = await apiClient.POST("/auth/verification/status", {
+      body: { token_id: credential.tokenId, token: credential.token },
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    requireOk(result.response, result.error);
+    if (result.response.status !== 200) throw new ApiProtocolError();
+    return parseLinkStatus(result.data);
+  }
+
   async requestRecovery(
     input: EmailRequest,
     signal: AbortSignal,
@@ -98,5 +136,19 @@ export class OpenApiOnboardingAdapter implements OnboardingPort {
     });
     requireOk(result.response, result.error);
     if (result.response.status !== 204) throw new ApiProtocolError();
+  }
+
+  async inspectRecovery(
+    credential: ActionCredential,
+    signal: AbortSignal,
+  ): Promise<ActionLinkStatus> {
+    const result = await apiClient.POST("/auth/password/recovery/status", {
+      body: { token_id: credential.tokenId, token: credential.token },
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    requireOk(result.response, result.error);
+    if (result.response.status !== 200) throw new ApiProtocolError();
+    return parseLinkStatus(result.data);
   }
 }

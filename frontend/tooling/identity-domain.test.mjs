@@ -303,7 +303,10 @@ test("auth errors cover the actual email_unverified and recovery codes safely", 
     copy.onboardingErrorCopy("password_recently_used"),
     "Elige una contraseña que no hayas usado recientemente.",
   );
-  assert.equal(copy.recoveryAcceptedCopy(), copy.recoveryAcceptedCopy());
+  assert.equal(
+    copy.recoveryAcceptedCopy(),
+    "Solicitud recibida. Revisa tu correo y la carpeta de spam para continuar. Si no recibes el mensaje, comprueba la dirección e inténtalo de nuevo.",
+  );
   assert.equal(copy.reissueAcceptedCopy().includes("correo"), true);
   const error = new apiErrors.ApiError({
     status: 401,
@@ -328,14 +331,41 @@ test("facade discards a stale result after cancel", async () => {
     register: async () => 201,
     reissueVerification: async () => {},
     verifyEmail: async () => {},
+    inspectVerification: async () => "ready",
     requestRecovery: async () => {},
     consumeRecovery: async () => {},
+    inspectRecovery: async () => "ready",
   };
   const facade = new OnboardingFacade(port);
   const pending = facade.terms();
   facade.cancel();
   finish({ items: [] });
   await assert.rejects(pending, { name: "AbortError" });
+});
+
+test("facade inspectVerification and inspectRecovery return link status and honor cancellation", async () => {
+  let finishInspect;
+  const port = {
+    terms: async () => ({ items: [] }),
+    register: async () => 201,
+    reissueVerification: async () => {},
+    verifyEmail: async () => {},
+    inspectVerification: () =>
+      new Promise((resolve) => {
+        finishInspect = resolve;
+      }),
+    requestRecovery: async () => {},
+    consumeRecovery: async () => {},
+    inspectRecovery: async () => "used",
+  };
+  const facade = new OnboardingFacade(port);
+  const cred = { tokenId: uuid, token: "test-token" };
+  const pending = facade.inspectVerification(cred);
+  facade.cancel();
+  finishInspect("ready");
+  await assert.rejects(pending, { name: "AbortError" });
+
+  assert.equal(await facade.inspectRecovery(cred), "used");
 });
 
 test("auth session is confirmed by the session port and expires without retaining usable auth", async () => {

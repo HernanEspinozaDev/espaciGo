@@ -1,4 +1,5 @@
 import type {
+  ActionLinkStatus,
   EmailRequest,
   OnboardingPort,
   RecoveryConsumeRequest,
@@ -34,12 +35,22 @@ export class OnboardingFacade {
     return this.#run((signal) => this.port.verifyEmail(credential, signal));
   }
 
+  inspectVerification(credential: ActionCredential): Promise<ActionLinkStatus> {
+    return this.#run((signal) =>
+      this.port.inspectVerification(credential, signal),
+    );
+  }
+
   requestRecovery(input: EmailRequest): Promise<void> {
     return this.#run((signal) => this.port.requestRecovery(input, signal));
   }
 
   consumeRecovery(input: RecoveryConsumeRequest): Promise<void> {
     return this.#run((signal) => this.port.consumeRecovery(input, signal));
+  }
+
+  inspectRecovery(credential: ActionCredential): Promise<ActionLinkStatus> {
+    return this.#run((signal) => this.port.inspectRecovery(credential, signal));
   }
 
   async #run<T>(operation: (signal: AbortSignal) => Promise<T>): Promise<T> {

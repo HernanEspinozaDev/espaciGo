@@ -33,10 +33,15 @@ async function mockGateway(
   await page.route("**/api/backend/**", async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    const result = bff.adapt(
-      request,
-      await responder(pathname, request.method(), request),
-    );
+    const raw = await responder(pathname, request.method(), request);
+    const statusReply =
+      raw.status === 404 &&
+      request.method() === "POST" &&
+      (pathname === "/api/backend/auth/verification/status" ||
+        pathname === "/api/backend/auth/password/recovery/status")
+        ? { status: 200, body: { status: "ready" } }
+        : raw;
+    const result = bff.adapt(request, statusReply);
     if (!result) throw new Error("Missing controlled BFF reply");
     await route.fulfill({
       status: result.status,
@@ -246,7 +251,9 @@ test.describe("Verification and Recovery UX", () => {
 
     expect(requestCalled).toBe(1);
     await expect(
-      page.getByText(/si existe una cuenta elegible, recibirás instrucciones/i),
+      page.getByText(
+        /solicitud recibida\. revisa tu correo y la carpeta de spam para continuar/i,
+      ),
     ).toBeVisible();
   });
 
@@ -707,5 +714,359 @@ test.describe("Verification and Recovery UX", () => {
     // Wait and verify no automatic retry POST was made
     await page.waitForTimeout(500);
     expect(verifyCount).toBe(1);
+  });
+
+  test("used recovery shows H1 'Enlace de recuperación ya utilizado' with CTA to acceso and nuevo enlace, never showing password inputs or submit button", async ({
+    page,
+  }) => {
+    let probeCalled = 0;
+    await mockGateway(page, async (pathname, method) => {
+      if (pathname === "/api/backend/auth/session") {
+        return {
+          status: 401,
+          body: {
+            error: { code: "unauthenticated", message: "No active session" },
+          },
+        };
+      }
+      if (
+        pathname === "/api/backend/auth/password/recovery/status" &&
+        method === "POST"
+      ) {
+        probeCalled++;
+        return { status: 200, body: { status: "used" } };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    await page.goto(
+      `/recuperar-acceso#token_id=${VALID_TOKEN_ID}&token=${SYNTHETIC_TOKEN}`,
+    );
+
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Enlace de recuperación ya utilizado",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/la contraseña ya fue cambiada con este enlace/i),
+    ).toBeVisible();
+
+    // CTA acceso
+    const accesoLink = page.getByRole("link", { name: "Ir a acceso" });
+    await expect(accesoLink).toBeVisible();
+    await expect(accesoLink).toHaveAttribute("href", "/acceso");
+
+    // CTA nuevo enlace
+    const nuevoEnlaceBtn = page.getByRole("button", {
+      name: "Solicitar nuevo enlace",
+    });
+    await expect(nuevoEnlaceBtn).toBeVisible();
+
+    // NEVER password inputs or submit button
+    await expect(page.locator("#recovery-new-password")).not.toBeAttached();
+    await expect(page.locator("#recovery-confirm-password")).not.toBeAttached();
+    await expect(
+      page.getByRole("button", { name: "Actualizar contraseña" }),
+    ).not.toBeAttached();
+
+    // Clicking nuevo enlace clears outcome and reveals email request form on same pathname
+    expect(probeCalled).toBeGreaterThanOrEqual(1);
+    await nuevoEnlaceBtn.click();
+    await expect(page.locator("#recovery-email")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Solicitar instrucciones" }),
+    ).toBeVisible();
+  });
+
+  test("used verification shows H1 'Verificación ya realizada' with CTA to acceso and never renders confirm button", async ({
+    page,
+  }) => {
+    await mockGateway(page, async (pathname, method) => {
+      if (pathname === "/api/backend/auth/session") {
+        return {
+          status: 401,
+          body: {
+            error: { code: "unauthenticated", message: "No active session" },
+          },
+        };
+      }
+      if (
+        pathname === "/api/backend/auth/verification/status" &&
+        method === "POST"
+      ) {
+        return { status: 200, body: { status: "used" } };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    await page.goto(
+      `/verificar-correo#token_id=${VALID_TOKEN_ID}&token=${SYNTHETIC_TOKEN}`,
+    );
+
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Verificación ya realizada",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(
+        /el correo electrónico ya fue confirmado con este enlace/i,
+      ),
+    ).toBeVisible();
+
+    const accesoLink = page.getByRole("link", { name: "Ir a acceso" });
+    await expect(accesoLink).toBeVisible();
+    await expect(accesoLink).toHaveAttribute("href", "/acceso");
+
+    // NEVER confirm button
+    await expect(
+      page.getByRole("button", { name: "Verificar mi correo" }),
+    ).not.toBeAttached();
+  });
+
+  test("checking state displays 'Comprobando enlace...' without password fields or buttons, and probe error fails closed", async ({
+    page,
+  }) => {
+    let probeAttempts = 0;
+    let consumeAttempts = 0;
+    await mockGateway(page, async (pathname, method) => {
+      if (pathname === "/api/backend/auth/session") {
+        return {
+          status: 401,
+          body: {
+            error: { code: "unauthenticated", message: "No active session" },
+          },
+        };
+      }
+      if (
+        pathname === "/api/backend/auth/password/recovery/status" &&
+        method === "POST"
+      ) {
+        probeAttempts++;
+        if (probeAttempts === 1) {
+          return { status: 500, body: { error: { code: "internal_error" } } };
+        }
+        return { status: 200, body: { status: "ready" } };
+      }
+      if (
+        pathname === "/api/backend/auth/password/recovery/consume" &&
+        method === "POST"
+      ) {
+        consumeAttempts++;
+        return { status: 200, body: {} };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    await page.goto(
+      `/recuperar-acceso#token_id=${VALID_TOKEN_ID}&token=${SYNTHETIC_TOKEN}`,
+    );
+
+    // Fail closed: error message shown with retry button, no password fields
+    await expect(
+      page.getByText(
+        "No fue posible comprobar el estado del enlace. Intenta nuevamente.",
+      ),
+    ).toBeVisible();
+    await expect(page.locator("#recovery-new-password")).not.toBeAttached();
+    await expect(
+      page.getByRole("button", { name: "Actualizar contraseña" }),
+    ).not.toBeAttached();
+
+    const retryBtn = page.getByRole("button", {
+      name: "Reintentar comprobación",
+    });
+    await expect(retryBtn).toBeVisible();
+
+    // Clicking retry runs probe exactly 1 additional time and resolves to ready, never consumes
+    await retryBtn.click();
+    await expect(page.locator("#recovery-new-password")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Actualizar contraseña" }),
+    ).toBeVisible();
+    expect(probeAttempts).toBe(2);
+    expect(consumeAttempts).toBe(0);
+  });
+
+  test("race condition: token consumed elsewhere returns 422 on submit and re-inspection honestly updates UI to used", async ({
+    page,
+  }) => {
+    let statusCalls = 0;
+    await mockGateway(page, async (pathname, method) => {
+      if (pathname === "/api/backend/auth/session") {
+        return {
+          status: 401,
+          body: {
+            error: { code: "unauthenticated", message: "No active session" },
+          },
+        };
+      }
+      if (
+        pathname === "/api/backend/auth/password/recovery/status" &&
+        method === "POST"
+      ) {
+        statusCalls++;
+        if (statusCalls === 1) {
+          return { status: 200, body: { status: "ready" } };
+        }
+        return { status: 200, body: { status: "used" } };
+      }
+      if (
+        pathname === "/api/backend/auth/password/recovery/consume" &&
+        method === "POST"
+      ) {
+        return {
+          status: 422,
+          body: {
+            error: {
+              code: "invalid_token",
+              message: "Token has already been consumed",
+            },
+          },
+        };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    await page.goto(
+      `/recuperar-acceso#token_id=${VALID_TOKEN_ID}&token=${SYNTHETIC_TOKEN}`,
+    );
+
+    await expect(page.locator("#recovery-new-password")).toBeVisible();
+    await page.locator("#recovery-new-password").fill("SuperClaveSegura123!");
+    await page
+      .locator("#recovery-confirm-password")
+      .fill("SuperClaveSegura123!");
+    await page.getByRole("button", { name: "Actualizar contraseña" }).click();
+
+    // Re-inspect happened and transitioned to used outcome!
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Enlace de recuperación ya utilizado",
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/la contraseña ya fue cambiada con este enlace/i),
+    ).toBeVisible();
+    await expect(page.locator("#recovery-new-password")).not.toBeAttached();
+  });
+
+  test("followup 422 recheck A resolving late after new token B capture does not purge B or mark B as used", async ({
+    page,
+  }) => {
+    const TOKEN_A_ID = VALID_TOKEN_ID;
+    const TOKEN_A_SECRET = SYNTHETIC_TOKEN;
+    const TOKEN_B_ID = "660e8400-e29b-41d4-a716-446655440001";
+    const TOKEN_B_SECRET = "synthetic-action-token-b-456";
+
+    let resolveRecheckA: (() => void) | null = null;
+    const recheckAPromise = new Promise<void>((resolve) => {
+      resolveRecheckA = resolve;
+    });
+
+    let statusCallsA = 0;
+    let statusCallsB = 0;
+    let consumeCallsA = 0;
+
+    await mockGateway(page, async (pathname, method, req) => {
+      if (pathname === "/api/backend/auth/session") {
+        return {
+          status: 401,
+          body: {
+            error: { code: "unauthenticated", message: "No active session" },
+          },
+        };
+      }
+      if (
+        pathname === "/api/backend/auth/password/recovery/status" &&
+        method === "POST"
+      ) {
+        const body = req.postDataJSON() as { token_id?: string };
+        if (body?.token_id === TOKEN_A_ID) {
+          statusCallsA++;
+          if (statusCallsA === 1) {
+            return { status: 200, body: { status: "ready" } };
+          }
+          await recheckAPromise;
+          return { status: 200, body: { status: "used" } };
+        }
+        if (body?.token_id === TOKEN_B_ID) {
+          statusCallsB++;
+          return { status: 200, body: { status: "ready" } };
+        }
+      }
+      if (
+        pathname === "/api/backend/auth/password/recovery/consume" &&
+        method === "POST"
+      ) {
+        consumeCallsA++;
+        return {
+          status: 422,
+          body: {
+            error: {
+              code: "invalid_token",
+              message: "Token has already been consumed",
+            },
+          },
+        };
+      }
+      return { status: 404, body: { error: { code: "not_found" } } };
+    });
+
+    // 1. Initial screen with Token A
+    await page.goto(
+      `/recuperar-acceso#token_id=${TOKEN_A_ID}&token=${TOKEN_A_SECRET}`,
+    );
+    await expect(page.locator("#recovery-new-password")).toBeVisible();
+    await page.locator("#recovery-new-password").fill("SuperClaveSegura123!");
+    await page
+      .locator("#recovery-confirm-password")
+      .fill("SuperClaveSegura123!");
+
+    // 2. Submit consume for A -> 422 triggers inspectRecovery followup which waits on recheckAPromise
+    await page.getByRole("button", { name: "Actualizar contraseña" }).click();
+    await expect.poll(() => consumeCallsA).toBe(1);
+
+    // 3. While recheck A is pending, user captures new link B via hash
+    await page.evaluate(
+      ({ id, secret }) => {
+        window.location.hash = `token_id=${id}&token=${secret}`;
+      },
+      { id: TOKEN_B_ID, secret: TOKEN_B_SECRET },
+    );
+
+    // 4. Token B probe resolves to ready, user types new password
+    await expect(page.locator("#recovery-new-password")).toBeVisible();
+    await expect.poll(() => statusCallsB).toBe(1);
+    await page.locator("#recovery-new-password").fill("ClaveNuevaTokenB123!");
+    await page
+      .locator("#recovery-confirm-password")
+      .fill("ClaveNuevaTokenB123!");
+
+    // 5. Late resolution of recheck A
+    resolveRecheckA!();
+    await page.waitForTimeout(100);
+
+    // 6. Token B remains enabled, no 'used' screen, no password purge
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: "Enlace de recuperación ya utilizado",
+      }),
+    ).not.toBeAttached();
+    await expect(page.locator("#recovery-new-password")).toBeVisible();
+    await expect(page.locator("#recovery-new-password")).toHaveValue(
+      "ClaveNuevaTokenB123!",
+    );
+    await expect(page.locator("#recovery-confirm-password")).toHaveValue(
+      "ClaveNuevaTokenB123!",
+    );
+    await expect(
+      page.getByRole("button", { name: "Actualizar contraseña" }),
+    ).toBeEnabled();
   });
 });

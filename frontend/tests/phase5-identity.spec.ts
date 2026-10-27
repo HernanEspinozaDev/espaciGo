@@ -99,10 +99,15 @@ async function mockGateway(
   await page.route("**/api/backend/**", async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    const result = bff.adapt(
-      request,
-      await responder(pathname, request.method(), request),
-    );
+    const raw = await responder(pathname, request.method(), request);
+    const statusReply =
+      raw.status === 404 &&
+      request.method() === "POST" &&
+      (pathname === "/api/backend/auth/verification/status" ||
+        pathname === "/api/backend/auth/password/recovery/status")
+        ? { status: 200, body: { status: "ready" } }
+        : raw;
+    const result = bff.adapt(request, statusReply);
     if (!result) throw new Error("Missing controlled BFF reply");
     await route.fulfill({
       status: result.status,
@@ -395,10 +400,10 @@ test("@phase5 @controlled recovery request has identical generic copy and shows 
     .last()
     .click();
   const generic =
-    "Si existe una cuenta elegible, recibirás instrucciones en el correo asociado. No podemos confirmar la existencia de la cuenta ni la entrega del mensaje.";
+    "Solicitud recibida. Revisa tu correo y la carpeta de spam para continuar. Si no recibes el mensaje, comprueba la dirección e inténtalo de nuevo.";
   await expect(page.getByRole("status")).toHaveText(generic);
   await expect(
-    page.getByText(/No podemos confirmar la existencia/),
+    page.getByText(/comprueba la dirección e inténtalo de nuevo/),
   ).toBeVisible();
 
   retry = true;

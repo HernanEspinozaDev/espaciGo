@@ -56,5 +56,5 @@ export function reissueAcceptedCopy(): string {
 }
 
 export function recoveryAcceptedCopy(): string {
-  return "Si existe una cuenta elegible, recibirás instrucciones en el correo asociado. No podemos confirmar la existencia de la cuenta ni la entrega del mensaje.";
+  return "Solicitud recibida. Revisa tu correo y la carpeta de spam para continuar. Si no recibes el mensaje, comprueba la dirección e inténtalo de nuevo.";
 }

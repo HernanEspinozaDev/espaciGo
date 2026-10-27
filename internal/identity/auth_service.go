@@ -96,6 +96,22 @@ func CredentialHash(raw Secret) string {
 	return hex.EncodeToString(hash[:])
 }
 
+func canonicalUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, r := range value {
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if r != '-' {
+				return false
+			}
+		} else if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
 type RegisterInput struct {
 	Email             string
 	Password          Secret
@@ -422,6 +438,97 @@ func (s *AuthenticationService) ResetPassword(ctx context.Context, input ResetPa
 		return denied
 	}
 	return nil
+}
+
+type LinkStatus string
+
+const (
+	LinkStatusReady   LinkStatus = "ready"
+	LinkStatusUsed    LinkStatus = "used"
+	LinkStatusExpired LinkStatus = "expired"
+	LinkStatusInvalid LinkStatus = "invalid"
+)
+
+func (s *AuthenticationService) InspectVerificationLink(ctx context.Context, tokenID string, raw Secret, clientIP string) (LinkStatus, error) {
+	return s.inspectActionToken(ctx, tokenID, raw, clientIP, verificationPurpose)
+}
+
+func (s *AuthenticationService) InspectRecoveryLink(ctx context.Context, tokenID string, raw Secret, clientIP string) (LinkStatus, error) {
+	return s.inspectActionToken(ctx, tokenID, raw, clientIP, recoveryPurpose)
+}
+
+func (s *AuthenticationService) inspectActionToken(ctx context.Context, tokenID string, raw Secret, clientIP string, expectedPurpose string) (LinkStatus, error) {
+	address, err := netip.ParseAddr(clientIP)
+	if err != nil {
+		return "", ErrInvalid
+	}
+	limitAt := s.now()
+	allowed, err := s.ipLimiter.AllowVerification(ctx, address.Unmap().String(), limitAt)
+	if err != nil {
+		return "", err
+	}
+	if !allowed {
+		return "", ErrRateLimited
+	}
+	if tokenID == "" || raw == "" || len(raw) > 2048 || !canonicalUUID(tokenID) {
+		return LinkStatusInvalid, nil
+	}
+	var status LinkStatus = LinkStatusInvalid
+	err = s.repo.WithLockedAccount(ctx, AccountLookup{ActionTokenID: tokenID}, func(account Account, tx AuthenticationTransaction) error {
+		now := s.now()
+		token, err := tx.ActionToken(ctx, tokenID)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				status = LinkStatusInvalid
+				return nil
+			}
+			return err
+		}
+		if token.AccountID != account.ID || token.Purpose != expectedPurpose {
+			status = LinkStatusInvalid
+			return nil
+		}
+		if subtle.ConstantTimeCompare([]byte(token.Hash), []byte(CredentialHash(raw))) != 1 {
+			status = LinkStatusInvalid
+			return nil
+		}
+		if token.ConsumedAt != nil {
+			status = LinkStatusUsed
+			return nil
+		}
+		if token.InvalidatedAt != nil || token.Attempts >= 5 || now.Before(token.CreatedAt) {
+			status = LinkStatusInvalid
+			return nil
+		}
+		if !now.Before(token.ExpiresAt) {
+			status = LinkStatusExpired
+			return nil
+		}
+		switch expectedPurpose {
+		case verificationPurpose:
+			if account.State != AccountEmailPending {
+				status = LinkStatusInvalid
+				return nil
+			}
+		case recoveryPurpose:
+			if account.State != AccountActive && account.State != AccountBlocked {
+				status = LinkStatusInvalid
+				return nil
+			}
+		default:
+			status = LinkStatusInvalid
+			return nil
+		}
+		status = LinkStatusReady
+		return nil
+	})
+	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrInvalid) {
+		return LinkStatusInvalid, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return status, nil
 }
 
 type ChangePasswordInput struct {
