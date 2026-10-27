@@ -5,6 +5,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -89,10 +90,11 @@ class FullReleaseLabelsContractTest(unittest.TestCase):
                     f'step {step_id} missing --format=json verification',
                 )
                 self.assertIn(
-                    'python3 -I -c',
+                    'gcloud info --format=\'value(basic.python_location)\'',
                     script,
-                    f'step {step_id} missing python3 json verification guard',
+                    f'step {step_id} must resolve the SDK interpreter',
                 )
+                self.assertIn('"$$revision_python" -I -c', script)
                 self.assertIn(
                     'gcloud run services update-traffic',
                     script,
@@ -127,7 +129,7 @@ class FullReleaseGuardExecutableTest(unittest.TestCase):
         self.traffic_log = self.temp_dir / 'traffic_promotions.log'
 
         fake_gcloud_path = self.fake_bin / 'gcloud'
-        fake_gcloud_code = r'''#!/usr/bin/env python3
+        fake_gcloud_code = '#!' + sys.executable + '\n' + r'''
 import sys, os
 
 mode = os.environ.get("FAKE_GCLOUD_MODE", "normal")
@@ -135,6 +137,10 @@ traffic_log = os.environ.get("FAKE_GCLOUD_TRAFFIC_LOG")
 mock_json_file = os.environ.get("FAKE_GCLOUD_JSON_FILE")
 
 args = sys.argv[1:]
+
+if args and args[0] == 'info':
+    print(sys.executable)
+    sys.exit(0)
 
 if "revisions" in args and "describe" in args:
     if mode == "CLIexiterror":
@@ -172,11 +178,15 @@ sys.exit(0)
 '''
         fake_gcloud_path.write_text(fake_gcloud_code, encoding='utf-8')
         fake_gcloud_path.chmod(fake_gcloud_path.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        bash_path = shutil.which('bash')
+        self.assertIsNotNone(bash_path)
+        assert bash_path is not None
+        (self.fake_bin / 'bash').symlink_to(bash_path)
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def _run_guard_block(self, step_id, service_var, mode='normal', json_data=None):
+    def _run_guard_block(self, step_id, service_var, mode='normal', json_data=None, isolated_path=False):
         step = self.steps_by_id[step_id]
         script = '\n'.join(step.get('args', []))
 
@@ -223,6 +233,8 @@ sys.exit(0)
 
         env = os.environ.copy()
         env['PATH'] = f"{self.fake_bin}:{env.get('PATH', '')}"
+        if isolated_path:
+            env['PATH'] = str(self.fake_bin)
         env['FAKE_GCLOUD_MODE'] = mode
         env['FAKE_GCLOUD_JSON_FILE'] = str(self.mock_json_file)
         env['FAKE_GCLOUD_TRAFFIC_LOG'] = str(self.traffic_log)
@@ -275,6 +287,14 @@ sys.exit(0)
                                               .replace('${_PRIVATE_SERVICE}', 'espacigo-test-private')
                 expected_flag = f'--to-revisions={resolved_service}-bbuild123=100'
                 self.assertIn(expected_flag, log_content, f'Step {step_id} did not promote exactly 100 traffic')
+
+    def test_guard_uses_sdk_python_when_python3_is_not_on_path(self):
+        for step_id, service_var in FULL_DEPLOY_STEPS:
+            with self.subTest(step=step_id):
+                data = self._make_valid_json(step_id, service_var)
+                result = self._run_guard_block(step_id, service_var, json_data=data, isolated_path=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(self.traffic_log.exists())
 
     def test_drift_and_failures_block_traffic_promotion(self):
         step_id, service_var = FULL_DEPLOY_STEPS[0]

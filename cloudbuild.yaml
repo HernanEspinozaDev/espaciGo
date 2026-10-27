@@ -192,7 +192,9 @@ steps:
           --set-secrets="$$api_secrets"
         revision="${_API_SERVICE}-b$BUILD_ID"
         gcloud run revisions describe "$$revision" --project="${_PROJECT}" --region="${_REGION}" --format=json > "/workspace/$${revision}.json"
-        python3 -I -c 'import sys, json; d = json.load(open(sys.argv[1])); s = d.get("status") or {}; c = s.get("conditions") or []; l = (d.get("metadata") or {}).get("labels") or {}; assert s.get("imageDigest") == sys.argv[2], "digest mismatch"; assert any(x.get("type") == "Ready" and str(x.get("status")) == "True" for x in c), "Ready condition not True"; assert l.get("source-commit") == sys.argv[3], "sha mismatch"; assert l.get("cloud-build-id") == sys.argv[4], "build mismatch"' "/workspace/$${revision}.json" "$$image" "$COMMIT_SHA" "$BUILD_ID"
+        revision_python=$$(gcloud info --format='value(basic.python_location)')
+        [[ "$$revision_python" == /* && -x "$$revision_python" ]]
+        "$$revision_python" -I -c 'import sys, json; d = json.load(open(sys.argv[1])); s = d.get("status") or {}; c = s.get("conditions") or []; l = (d.get("metadata") or {}).get("labels") or {}; assert s.get("imageDigest") == sys.argv[2], "digest mismatch"; assert any(x.get("type") == "Ready" and str(x.get("status")) == "True" for x in c), "Ready condition not True"; assert l.get("source-commit") == sys.argv[3], "sha mismatch"; assert l.get("cloud-build-id") == sys.argv[4], "build mismatch"' "/workspace/$${revision}.json" "$$image" "$COMMIT_SHA" "$BUILD_ID"
         gcloud run services update-traffic "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --to-revisions="$${revision}=100"
         gcloud run services add-iam-policy-binding "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --member="serviceAccount:${_PUBLIC_RUNTIME_SA}" --role=roles/run.invoker --quiet
         gcloud run services add-iam-policy-binding "${_API_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --member="serviceAccount:${_PRIVATE_RUNTIME_SA}" --role=roles/run.invoker --quiet
@@ -220,7 +222,9 @@ steps:
           --allow-unauthenticated --set-env-vars="FRONTEND_ENTRY_MODE=public,API_BACKEND_BASE_URL=$${api_url}/api/v1,API_INTERNAL_BASE_URL=$${api_url}/api/v1,API_PUBLIC_BASE_URL=/api/v1,API_SERVICE_AUDIENCE=$${api_url},FRONTEND_PUBLIC_ORIGIN=https://${_PUBLIC_HOST},PRIVATE_DEMO_ORIGIN=https://${_PRIVATE_HOST}"
         revision="${_PUBLIC_SERVICE}-b$BUILD_ID"
         gcloud run revisions describe "$$revision" --project="${_PROJECT}" --region="${_REGION}" --format=json > "/workspace/$${revision}.json"
-        python3 -I -c 'import sys, json; d = json.load(open(sys.argv[1])); s = d.get("status") or {}; c = s.get("conditions") or []; l = (d.get("metadata") or {}).get("labels") or {}; assert s.get("imageDigest") == sys.argv[2], "digest mismatch"; assert any(x.get("type") == "Ready" and str(x.get("status")) == "True" for x in c), "Ready condition not True"; assert l.get("source-commit") == sys.argv[3], "sha mismatch"; assert l.get("cloud-build-id") == sys.argv[4], "build mismatch"' "/workspace/$${revision}.json" "$$image" "$COMMIT_SHA" "$BUILD_ID"
+        revision_python=$$(gcloud info --format='value(basic.python_location)')
+        [[ "$$revision_python" == /* && -x "$$revision_python" ]]
+        "$$revision_python" -I -c 'import sys, json; d = json.load(open(sys.argv[1])); s = d.get("status") or {}; c = s.get("conditions") or []; l = (d.get("metadata") or {}).get("labels") or {}; assert s.get("imageDigest") == sys.argv[2], "digest mismatch"; assert any(x.get("type") == "Ready" and str(x.get("status")) == "True" for x in c), "Ready condition not True"; assert l.get("source-commit") == sys.argv[3], "sha mismatch"; assert l.get("cloud-build-id") == sys.argv[4], "build mismatch"' "/workspace/$${revision}.json" "$$image" "$COMMIT_SHA" "$BUILD_ID"
         gcloud run services update-traffic "${_PUBLIC_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --to-revisions="$${revision}=100"
 
   - id: deploy-private-web-by-digest
@@ -246,7 +250,9 @@ steps:
           --no-allow-unauthenticated --iap --set-env-vars="FRONTEND_ENTRY_MODE=private,API_BACKEND_BASE_URL=$${api_url}/api/v1,API_INTERNAL_BASE_URL=$${api_url}/api/v1,API_PUBLIC_BASE_URL=/api/v1,API_SERVICE_AUDIENCE=$${api_url},FRONTEND_PUBLIC_ORIGIN=https://${_PRIVATE_HOST},IAP_JWT_AUDIENCE=/projects/447373903153/locations/${_REGION}/services/${_PRIVATE_SERVICE}"
         revision="${_PRIVATE_SERVICE}-b$BUILD_ID"
         gcloud run revisions describe "$$revision" --project="${_PROJECT}" --region="${_REGION}" --format=json > "/workspace/$${revision}.json"
-        python3 -I -c 'import sys, json; d = json.load(open(sys.argv[1])); s = d.get("status") or {}; c = s.get("conditions") or []; l = (d.get("metadata") or {}).get("labels") or {}; assert s.get("imageDigest") == sys.argv[2], "digest mismatch"; assert any(x.get("type") == "Ready" and str(x.get("status")) == "True" for x in c), "Ready condition not True"; assert l.get("source-commit") == sys.argv[3], "sha mismatch"; assert l.get("cloud-build-id") == sys.argv[4], "build mismatch"' "/workspace/$${revision}.json" "$$image" "$COMMIT_SHA" "$BUILD_ID"
+        revision_python=$$(gcloud info --format='value(basic.python_location)')
+        [[ "$$revision_python" == /* && -x "$$revision_python" ]]
+        "$$revision_python" -I -c 'import sys, json; d = json.load(open(sys.argv[1])); s = d.get("status") or {}; c = s.get("conditions") or []; l = (d.get("metadata") or {}).get("labels") or {}; assert s.get("imageDigest") == sys.argv[2], "digest mismatch"; assert any(x.get("type") == "Ready" and str(x.get("status")) == "True" for x in c), "Ready condition not True"; assert l.get("source-commit") == sys.argv[3], "sha mismatch"; assert l.get("cloud-build-id") == sys.argv[4], "build mismatch"' "/workspace/$${revision}.json" "$$image" "$COMMIT_SHA" "$BUILD_ID"
         gcloud run services update-traffic "${_PRIVATE_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --to-revisions="$${revision}=100"
         gcloud run services add-iam-policy-binding "${_PRIVATE_SERVICE}" --project="${_PROJECT}" --region="${_REGION}" --member="serviceAccount:service-447373903153@gcp-sa-iap.iam.gserviceaccount.com" --role=roles/run.invoker --quiet
   - id: release-deploy-lock
