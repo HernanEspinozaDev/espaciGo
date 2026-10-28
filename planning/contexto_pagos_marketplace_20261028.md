@@ -28,6 +28,7 @@ Esta decisión sustituye las alternativas abiertas de proveedor para la entrega 
 5. **Publicación sin vinculación permitida:** OAuth será obligatorio antes de aceptar un arriendo que genere cobros.
 6. **Garantía opcional y separada:** el contrato permite indicar si se exige garantía. Cuando exista, se paga por Mercado Pago en un cobro separado del arriendo, sin comisión de espaciGo. El arrendador recibe, conserva y responde por su devolución; espaciGo no custodia ese dinero.
 7. **Descuentos por daños:** la garantía puede utilizarse para cubrir daños al inmueble según el apartado de garantía del contrato, con devolución del saldo que corresponda o retención total cuando corresponda aplicar toda la garantía a esos daños.
+8. **Reclamos de garantía:** debe existir una opción de reclamos con el motivo «Daños al inmueble / devolución de garantía», vinculada al contrato y a la garantía. Las condiciones y criterios de devolución o descuento los establece el contrato de cada arriendo, no espaciGo.
 
 El desarrollo de estas reglas sigue fuera del encargo actual: aquí solo se documentan.
 
@@ -171,10 +172,12 @@ La conversación propuso tablas llamadas `payment_providers`, `payment_accounts`
 
 El registro para ambas partes debe distinguir garantía recibida, importe aplicado a daños y saldo a devolver, con referencia al contrato y al motivo. Aplicar la garantía a daños no genera comisión de espaciGo sobre esa garantía. Una garantía correctamente aplicada a daños conforme al contrato debe poder quedar liquidada sin registrar falsamente una devolución de ese importe.
 
-**No quedan aprobados todavía un procedimiento unilateral de retención, sus pruebas ni el mecanismo de resolución de desacuerdos.** Se mantienen pendientes:
+**Aclaración expresa del usuario, 28-10-2026:** las condiciones materiales de garantía —daños cubiertos, valoración, descuentos, retenciones y devolución— quedan en el apartado de garantía del contrato de cada arriendo. No corresponde definir una política universal de descuentos o devolución desde espaciGo ni mantener la redacción de esas condiciones como una decisión pendiente de producto. El documento de pagos debe respetar lo pactado y registrar su seguimiento.
 
-1. Contenido concreto de la cláusula de garantía: daños cubiertos y criterios de valoración, justificación, evidencia, aceptación y resolución de desacuerdos. La posibilidad de descontar por daños ya está confirmada; falta definir el procedimiento.
-2. Plazo desde la entrega/restitución del espacio para proponer y completar la liquidación; responsables y avisos. No fijar días por suposición.
+Se mantienen pendientes únicamente las reglas operativas de la plataforma que todavía no se han acordado:
+
+1. Cómo registrar y referenciar las condiciones del contrato aplicables al reclamo, conservar antecedentes y respuestas, y acreditar el resultado acordado o resuelto. No inventar porcentajes, categorías de daño indemnizable ni descuentos automáticos desde el módulo de pagos.
+2. Cómo registrar y dar seguimiento a los plazos contractuales para liquidación/devolución, responsables y avisos; no fijar un plazo contractual general por suposición.
 3. Canal de devolución: reembolso del cobro original u otra operación admitida, ventanas/límites del proveedor, ausencia de saldo y tarifas no recuperables. La recepción de la garantía no prueba que el arrendador conserve saldo suficiente en Mercado Pago al finalizar.
 4. Cómo se acredita la devolución, quién confirma recepción y qué sucede si no responde o discrepa. Separar devolución solicitada, procesada y confirmada.
 5. Regla exacta de desbloqueo y acreditación de liquidación: contemplar devolución del saldo que corresponda y aplicación a daños conforme al contrato, incluida retención total cuando proceda. Definir quién valida la liquidación y cómo afecta una disputa; no exigir una devolución ficticia de importes aplicados a daños. Una garantía recibida no está por ello liquidada; un contrato finalizado tampoco la liquida automáticamente.
@@ -184,7 +187,20 @@ El registro para ambas partes debe distinguir garantía recibida, importe aplica
 
 Como propuesta para cerrar el diseño, distinguir garantía pendiente de pago, pago en proceso, pagada/recibida, liquidación pendiente, devolución en proceso, liquidada y en disputa. Los nombres y transiciones requieren validación; no son estados implementados. Los descuentos por daños autorizados por el contrato y cualquier devolución deben quedar desglosados para ambas partes.
 
-### 7.3 Relación con el arriendo y reembolsos
+### 7.3 Reclamos por daños y devolución de garantía
+
+**Requisito confirmado por el usuario:** disponer de una opción de **Reclamos**, con el motivo **«Daños al inmueble / devolución de garantía»**. Debe vincularse al contrato y a la garantía del arriendo correspondiente, cuando exista.
+
+- Permitir registrar el daño reclamado o la disconformidad con la devolución/retención de la garantía, con descripción y antecedentes asociados. El reclamo y sus respuestas forman parte del seguimiento visible a las partes del contrato.
+- Referenciar el apartado de garantía del contrato aplicable, el monto reclamado, el importe propuesto/aplicado a daños y el saldo a devolver cuando corresponda; mantener separados importes reclamados, aceptados y efectivamente devueltos.
+- Las condiciones de devolución, descuento o retención **las define el contrato de ese arriendo**. espaciGo facilita el registro, la comunicación y la trazabilidad; esta decisión no le atribuye facultad para imponer condiciones distintas ni resolver por sí mismo quién tiene razón.
+- Abrir un reclamo no prueba un daño, no autoriza por sí solo una retención y no liquida automáticamente la garantía. Registrar el seguimiento y el resultado sustentado conforme al contrato; no ejecutar un descuento o reembolso solo por la presentación del reclamo.
+- La función de pagos debe reflejar el estado de la garantía y los importes, mientras el reclamo conserva sus antecedentes. No confundir un reclamo contractual por daños con un contracargo o reclamo de Mercado Pago.
+- No crear un reclamo de devolución sobre una garantía inexistente. Los reclamos generales que no tengan garantía no se definen ni se excluyen por este documento, cuyo alcance es pagos.
+
+Queda por documentar el recorrido operativo (presentación, respuesta, seguimiento, cierre y desacuerdo no resuelto), los permisos y la evidencia necesaria para actualizar el estado de garantía y los bloqueos. Estos son aspectos de funcionamiento de espaciGo; los derechos, montos y condiciones de garantía continúan gobernados por el contrato. Revisar la correspondencia con las funciones de reclamos existentes antes de proponer una implementación futura; este encargo no agrega pantallas, endpoints ni tablas.
+
+### 7.4 Relación con el arriendo y reembolsos
 
 - Definir cuándo se acepta/firma el contrato y qué pago confirma la reserva o habilita el arriendo. No deducir validez contractual de la creación de un enlace. Si hay garantía, decidir si su pago es requisito para confirmar la reserva o entregar el espacio.
 - Definir cancelación antes/después del inicio, reembolsos totales/parciales del arriendo, reversión de comisión/IVA, notas o documentos de ajuste, contracargos y disputas. La garantía tiene proceso separado y comisión de espaciGo igual a cero.
@@ -207,7 +223,8 @@ Estado documental: **alcance parcialmente definido; todavía no listo para imple
 | PAG-06 | El arrendador asume la tarifa de Mercado Pago, descontada adicionalmente de lo que recibe | Respuesta expresa del usuario del 28-10-2026; tarifa efectiva por verificar |
 | PAG-07 | Garantía opcional, separada del arriendo, cobrada por Mercado Pago sin comisión de espaciGo, en manos del arrendador; seguimiento visible para ambas partes y bloqueos solicitados mientras esté pendiente | Respuestas expresas del usuario del 28-10-2026; liquidación y alcance de bloqueos pendientes en PAG-18 |
 | PAG-08 | Se permite publicar sin OAuth; vinculación válida obligatoria antes de aceptar arriendo que genere cobros | Respuesta expresa del usuario del 28-10-2026 |
-| PAG-19 | La garantía admite descuentos por daños al inmueble según el apartado de garantía del contrato; devolución del saldo o aplicación total a daños cuando corresponda | Instrucción expresa del usuario del 28-10-2026; procedimiento y acreditación pendientes en PAG-18 |
+| PAG-19 | La garantía admite descuentos por daños al inmueble según el apartado de garantía del contrato; devolución del saldo o aplicación total a daños cuando corresponda. Los criterios y condiciones los establece cada contrato, no espaciGo | Instrucciones expresas del usuario del 28-10-2026; seguimiento operativo pendiente en PAG-18 |
+| PAG-20 | Debe existir una opción de reclamos por daños al inmueble / devolución de garantía, vinculada al contrato y garantía, con seguimiento para las partes | Instrucción expresa del usuario del 28-10-2026; alcance descrito en sección 7.3, recorrido operativo pendiente |
 
 ### 8.2 Decisiones de producto que aún requieren respuesta
 
@@ -222,7 +239,7 @@ Estado documental: **alcance parcialmente definido; todavía no listo para imple
 | PAG-15 | Cuenta receptora y cambios de titular | Personas/empresas incluidas; una cuenta activa por titular o regla distinta; si puede compartirse; posibilidad y efecto de cambiar/desvincular con cobros, reembolsos o contratos pendientes. Ningún cambio debe reescribir transacciones históricas. |
 | PAG-16 | Política de tasas y cambios contractuales | Si la comisión se congela por contrato o por obligación; fecha efectiva de cambios futuros, aceptación requerida y efecto de renovaciones, descuentos y modificaciones del contrato. Lo cobrado no se recalcula. |
 | PAG-17 | Operación y visibilidad | Qué ve cada parte del desglose/estado, quién gestiona conciliaciones y devoluciones y qué intervenciones manuales se permiten con autorización y auditoría. No permitir marcar pagado solo por comprobante o retorno del navegador. |
-| PAG-18 | Liquidación de garantía y desbloqueos | Redactar cláusula y procedimiento para los descuentos por daños ya admitidos en PAG-19: valoración, plazos, evidencia, aceptación, controversias, devolución del saldo, diferencias por tarifas y condición de cierre; definir si se permite despublicar conservando contrato y obligación. Ver sección 7.2. |
+| PAG-18 | Seguimiento de garantía, reclamos y desbloqueos | Documentar cómo referenciar el contrato, registrar el reclamo, antecedentes, respuestas y resultado, acreditar devolución del saldo/aplicación a daños, gestionar diferencias por tarifas y determinar el cierre operativo. Definir si se permite despublicar conservando obligaciones. Las condiciones de devolución y descuentos las fija cada contrato; no corresponde redactar una política universal de espaciGo. Ver secciones 7.2 y 7.3. |
 
 Estos pendientes pueden resolverse por tandas. No requieren programar ni modificar el esquema. No se presenta como pendiente de esta entrega elegir un segundo proveedor ni configurar suscripciones: ambos quedaron fuera de alcance.
 
@@ -243,7 +260,7 @@ Estos pendientes pueden resolverse por tandas. No requieren programar ni modific
 
 - Todas las decisiones pendientes PAG-09–PAG-18 deben tener respuesta o exclusión explícita para esta entrega, fecha y origen; ninguna pregunta abierta debe ocultarse tras frases como «según corresponda».
 - VAL-01–VAL-08 deben quedar documentadas con evidencia o con un bloqueo externo concreto y las tareas que pueden avanzar sin él. La alianza futura no sustituye habilitación ni validaciones.
-- Incluir un desglose reproducible para pago mensual, anticipo anual, rechazo/reintento, duplicado, pago tardío, devolución parcial/total, contracargo, OAuth revocado y garantía (sin garantía, pagada, liquidación, devolución y disputa); cuando una modalidad se excluya, definir su bloqueo en lugar de inventar su comportamiento.
+- Incluir un desglose reproducible para pago mensual, anticipo anual, rechazo/reintento, duplicado, pago tardío, devolución parcial/total, contracargo, OAuth revocado y garantía (sin garantía, pagada, liquidación, devolución y reclamo por daños conforme al contrato); cuando una modalidad se excluya, definir su bloqueo en lugar de inventar su comportamiento.
 - La matriz de aceptación futura debe distinguir simulación local, pruebas de integración y habilitación para fondos reales. Este trabajo solo prepara documentación: no ejecuta pagos, pruebas de aplicación ni cambios de código/datos.
 
 ## 9. Relación con la documentación existente y alcance del traslado
