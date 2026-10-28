@@ -77,6 +77,22 @@ Definición operativa: no codificar una tarifa universal de Mercado Pago en el c
 
 Mercado Pago documenta un reporte de ventas Split con bruto, comisiones y dinero recibido, utilizable para conciliación mediante API [MP-4]. Definición: el dashboard utiliza el historial local confirmado y se reconcilia con los datos/reportes del proveedor; no depende de descargar manualmente un archivo cada vez que se abre. Sin tarifa confirmada, el neto sigue pendiente/estimado.
 
+### Tres plazos distintos y unidad de configuración
+
+| Plazo | Quién lo determina | Qué registra espaciGo |
+| --- | --- | --- |
+| Vencimiento del arriendo | Lo acuerdan arrendador y arrendatario en el contrato | Obligación, periodo cubierto y fecha límite para pagar. No es una decisión unilateral del arrendatario. |
+| Disponibilidad del dinero en Mercado Pago | Condiciones efectivas del proveedor para la cuenta receptora y cada operación | Cuenta/beneficiario, condición aplicable al cobro, fecha prevista si se informa, estado y confirmación de disponibilidad. No fijar un plazo universal para todas las cuentas. |
+| Retiro o depósito bancario | Operación y condiciones de transferencia/retiro fuera del cobro Checkout | No prometer fecha de depósito bancario ni ejecutar retiros en esta entrega. Una confirmación de dinero disponible en Mercado Pago no prueba un depósito en el banco. |
+
+**Definición de esta entrega:** respetar las condiciones de la cuenta Mercado Pago vinculada de cada arrendador y guardar la condición efectiva **por pago**. El espacio y contrato identifican el origen del cobro y permiten agrupar el dashboard; no se crea un selector de plazo de liberación por espacio, por tipo de arriendo ni para el arrendatario. Cambiar de hora/día/mes/año no cambia por sí solo la política de liberación del proveedor.
+
+Si un arrendador tiene varios espacios vinculados a la misma cuenta, sus cobros llegan a ese beneficiario; el historial los separa por espacio y conserva fechas/condiciones de cada operación. Otro arrendador puede tener otra cuenta y otras condiciones. Un cambio posterior de condiciones no recalcula fechas ni tarifas históricas.
+
+La comisión de espaciGo tiene su propio beneficiario; no inferir que queda disponible a la misma hora que el importe del vendedor. La documentación de requisitos Split indica que configurar la fecha de liberación de la comisión requiere contacto con el ejecutivo comercial de cartera asesorada [MP-2]. No se agrega esa configuración ni se presupone una alianza en esta entrega.
+
+La propuesta del dashboard es mostrar **pagado**, **pendiente de disponibilidad**, **disponible confirmado** y **retenido/bloqueado**, separando estimación de confirmación y usando solo datos a los que tenga acceso legítimo la integración. Si el proveedor no informa el dato, mostrar «disponibilidad no informada», no calcular automáticamente aprobación +10 días ni inferirlo de que el pago esté aprobado. No afirmar acceso al saldo completo o movimientos ajenos de la cuenta vinculada.
+
 ### 3.2 Ficha obligatoria de habilitación real, todavía sin completar
 
 | Evidencia por aplicación/cuenta | Criterio de aceptación antes de fondos reales |

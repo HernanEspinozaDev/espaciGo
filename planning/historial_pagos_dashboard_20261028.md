@@ -14,6 +14,7 @@ La cadena de consulta es **titular arrendador → espacio → contrato y versió
 | Intento de checkout | Obligación, identificador propio, preferencia/enlace referenciado sin secretos, cuenta receptora, creación/vencimiento y resultado. Enlaces caducados o intentos rechazados no son ingresos. |
 | Pago confirmado | ID interno y `payment_id` externo, proveedor, cuenta vendedora, obligación/intento, concepto, moneda, bruto aprobado, fechas de creación/aprobación y estado remoto observado. Si el proveedor genera más de un pago para una operación, registrar y conciliar cada uno sin asumir relación uno a uno. |
 | Desglose económico original | Base comisionable, comisión neta, tasa aplicada, IVA de comisión, total descontado por espaciGo, tarifa real Mercado Pago cuando se conozca, neto atribuible al arrendador y estado de conciliación. Conservar valores originales, no recalcular desde configuración actual. |
+| Disponibilidad del pago | Condición efectiva de liberación de la operación y beneficiario, fecha prevista si la comunica Mercado Pago, estado observado, fecha/instante de confirmación y origen del dato. No confundir aprobación, disponibilidad y depósito bancario, ni inventar fechas sin información. |
 | Periodos cubiertos | Intervalo o mensualidades que satisface el pago; distinguir fecha del cobro del periodo de uso. Un anticipo anual es un ingreso cobrado una vez con cobertura anual. |
 | Devolución/contracargo/ajuste | Referencia al pago original, identificador externo cuando exista, concepto, importe, desglose por parte, motivo, fecha efectiva, estado, actor/origen y respaldo. No sustituir el pago original por un monto menor. |
 | Garantía | Contrato, obligación/cobro separado, monto contractual/pagado/recibido, importes aplicados a daños conforme al contrato, saldo por liquidar y devolución acreditada. Distinguir pago o reembolso Mercado Pago de restitución registrada entre las partes. |
@@ -50,6 +51,7 @@ Permitir ver todos los espacios propios o seleccionar uno. Un espacio sin ingres
 | Descuentos de espaciGo | Comisión neta, IVA y total descontado, mostrando aparte las reversiones que correspondan. |
 | Tarifas Mercado Pago | Cargos reales del proveedor atribuibles a esos cobros/movimientos y sus eventuales reversiones; pendientes identificados. |
 | Neto de cobros del arrendador | Parte económica confirmada atribuible al arrendador tras descuentos y ajustes. No equivale a utilidad contable, saldo bancario ni garantía de fondos disponibles para retiro. |
+| Disponibilidad en Mercado Pago | Del neto atribuible a los cobros consultados: pendiente de disponibilidad, disponible confirmado, retenido/bloqueado o no informado. No es el saldo completo de la cuenta ni confirma retiro bancario. |
 | Por cobrar | Obligaciones vigentes y exigibles aún no satisfechas; separar futuras, vencidas y en proceso. No usar simplemente valor total del contrato menos pagos sin considerar sus cambios. |
 | Garantías | Bloque separado: recibidas, pendientes de pago, por liquidar, aplicadas a daños, devueltas y en disputa. **No sumarlas como ingreso por arriendo.** |
 | Incidencias | Reembolsos pendientes/bloqueados, contracargos y diferencias de conciliación, sin tratarlos como devoluciones ya realizadas. |
@@ -110,3 +112,7 @@ La especificación ya define qué información guardar, relaciones, filtros, ind
 - Arrendatario, arrendador y actor autorizado de espaciGo solo acceden a su alcance; no se filtran otros contratos ni secretos.
 - La restitución de una garantía larga entre partes se registra sin aparentar transferencia ejecutada por espaciGo o reembolso de Mercado Pago fuera de plazo.
 - Datos sintéticos y pruebas permanecen separados de operaciones reales; no se afirma integración o dashboard implementados a partir de esta documentación.
+
+## 8. Plazos del contrato frente a disponibilidad del proveedor
+
+Se agrupan pagos por espacio y contrato, pero las condiciones de disponibilidad se observan por cuenta receptora/beneficiario y operación. El calendario de pago lo acuerdan las partes; no se usa para imponer al proveedor una fecha de liberación. Para esta entrega no hay configuración de disponibilidad por espacio ni elección del arrendatario. Las condiciones de cada cuenta pueden variar y se conserva su aplicación histórica por pago. Ver el apartado «Tres plazos distintos» de la matriz de decisiones operativas.
