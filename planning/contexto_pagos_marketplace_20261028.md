@@ -8,7 +8,7 @@ Estado: documento de trabajo. Conserva decisiones del usuario, recomendaciones a
 
 ## Definición complementaria vigente
 
-Leer junto con [la especificación de Checkout Pro](especificacion_pagos_checkout_pro_20261028.md). Por encargo posterior del usuario, queda elegido **Checkout Pro / API de Preferences**, el cobro de arriendo se habilita **después de la aceptación mutua de la misma versión contractual**, la garantía usa un enlace separado y el eventual cobro de firma SimpleFirmas a ambas partes queda para después del desarrollo de pagos, fuera de esta entrega.
+Leer junto con [la especificación de Checkout Pro](especificacion_pagos_checkout_pro_20261028.md). Por encargo posterior del usuario, queda elegido **Checkout Pro / API de Preferences**, el cobro de arriendo se habilita **después de la aceptación mutua de la misma versión contractual**, la garantía usa un enlace separado y el eventual cobro de firma SimpleFirmas a ambas partes queda para después del desarrollo de pagos, fuera de esta entrega. Los reembolsos por Mercado Pago se gestionan mientras el proveedor los permita; en arriendos largos la liquidación/devolución es contractual y a cargo de las partes, no un servicio financiero de espaciGo.
 
 El documento complementario define redondeos, operación, devoluciones, propuesta de política para horas/días/noches y circuito documental tributario con fuentes oficiales. Sustituye las preguntas abiertas de este contexto en esos puntos; distingue las decisiones expresas del usuario de las propuestas técnicas/comerciales preparadas por encargo y pendientes de revisión del borrador.
 
@@ -184,7 +184,7 @@ Los siguientes puntos operativos se desarrollan como propuestas en las secciones
 
 1. Cómo registrar y referenciar las condiciones del contrato aplicables al reclamo, conservar antecedentes y respuestas, y acreditar el resultado acordado o resuelto. No inventar porcentajes, categorías de daño indemnizable ni descuentos automáticos desde el módulo de pagos.
 2. Cómo registrar y dar seguimiento a los plazos contractuales para liquidación/devolución, responsables y avisos; no fijar un plazo contractual general por suposición.
-3. Canal de devolución: reembolso del cobro original u otra operación admitida, ventanas/límites del proveedor, ausencia de saldo y tarifas no recuperables. La recepción de la garantía no prueba que el arrendador conserve saldo suficiente en Mercado Pago al finalizar.
+3. Separar el reembolso del cobro original dentro del plazo del proveedor de la devolución contractual de arriendos largos: esta última se realiza entre las partes según contrato, sin desarrollar un canal financiero de espaciGo. La recepción de la garantía no prueba que el arrendador conserve saldo suficiente en Mercado Pago al finalizar.
 4. Cómo se acredita la devolución, quién confirma recepción y qué sucede si no responde o discrepa. Separar devolución solicitada, procesada y confirmada.
 5. Regla exacta de desbloqueo y acreditación de liquidación: contemplar devolución del saldo que corresponda y aplicación a daños conforme al contrato, incluida retención total cuando proceda. Definir quién valida la liquidación y cómo afecta una disputa; no exigir una devolución ficticia de importes aplicados a daños. Una garantía recibida no está por ello liquidada; un contrato finalizado tampoco la liquida automáticamente.
 6. Si se permite despublicar el espacio para impedir nuevos arriendos conservando la publicación, contrato y obligaciones; bloquear eliminación no debe interpretarse automáticamente como prohibición de despublicar. La especificación complementaria propone permitir despublicar conservando íntegros contrato y obligaciones, para revisión del borrador.
@@ -245,7 +245,7 @@ Estado documental: **contexto ampliado por una especificación investigada y pro
 | PAG-15 | Cuenta receptora | Sección 2: titularidad, cuenta activa, cambios futuros sin reescribir cobros históricos y OAuth revocado. |
 | PAG-16 | Tasas futuras | Sección 4: propuesta de política congelada por contrato y renovación/nueva aceptación para cambios. |
 | PAG-17 | Operación/permisos | Secciones 2 y 6: permisos por parte, auditoría y ausencia de poder financiero implícito por rol; sin crear soporte. |
-| PAG-18 | Garantía/reclamos/bloqueos | Secciones 2 y 6: propuesta de seguimiento, despublicación sin eliminación, liquidación acreditada y manejo de ventana de 180 días; condiciones de daño/devolución según cada contrato. |
+| PAG-18 | Garantía/reclamos/bloqueos | Secciones 2 y 6: seguimiento, propuesta de despublicación sin eliminación y liquidación acreditada. Confirmado: reembolso Mercado Pago dentro de su ventana; arriendos largos con devolución entre las partes conforme a contrato, sin canal financiero de espaciGo. |
 
 Las reglas propuestas están redactadas para revisión del borrador por encargo del usuario; no deben presentarse como aceptaciones expresas suyas ni como derechos contractuales ya publicados. Las condiciones particulares de cada contrato y los bloqueos comerciales/tributarios de lanzamiento siguen exigiendo evidencia. No volver a pedir elegir Checkout API ni imponer condiciones materiales de garantía desde espaciGo.
 
@@ -286,3 +286,5 @@ Preparado en una copia de trabajo aislada del proyecto, rama `codex/docs/chore/p
 - PAG-22: habilitar pago tras aceptación mutua contractual; arriendo y garantía en enlaces separados. Instrucción expresa del usuario.
 - PAG-23: eventual pago de firma SimpleFirmas cobrado a ambas partes, por definir después de terminar pagos; sin integración ni cargo de firma ahora. Instrucción expresa del usuario.
 - PAG-24: fórmulas de redondeo, política propuesta de devoluciones cortas y esquema de documentación tributaria desarrollados por encargo en `especificacion_pagos_checkout_pro_20261028.md`, con fuentes y pendientes de habilitación/revisión.
+
+- PAG-25: por aclaración expresa del usuario del 28-10-2026, los reembolsos próximos al cobro se gestionan por Mercado Pago dentro de sus plazos/condiciones; la liquidación o restitución de garantía en arriendos largos la ejecutan las partes conforme al contrato. espaciGo conserva seguimiento y reclamos, sin ejecutar/financiar un servicio de restitución contractual ni condicionar los contratos largos a desarrollar esa función.
