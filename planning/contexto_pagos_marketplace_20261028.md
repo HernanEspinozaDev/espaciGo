@@ -27,6 +27,7 @@ Esta decisión sustituye las alternativas abiertas de proveedor para la entrega 
 4. **El arrendador asume también la tarifa de procesamiento de Mercado Pago:** se descuenta de lo que recibe. No se agrega al arrendatario un recargo por esta tarifa. Su valor efectivo sigue sujeto a las condiciones del proveedor.
 5. **Publicación sin vinculación permitida:** OAuth será obligatorio antes de aceptar un arriendo que genere cobros.
 6. **Garantía opcional y separada:** el contrato permite indicar si se exige garantía. Cuando exista, se paga por Mercado Pago en un cobro separado del arriendo, sin comisión de espaciGo. El arrendador recibe, conserva y responde por su devolución; espaciGo no custodia ese dinero.
+7. **Descuentos por daños:** la garantía puede utilizarse para cubrir daños al inmueble según el apartado de garantía del contrato, con devolución del saldo que corresponda o retención total cuando corresponda aplicar toda la garantía a esos daños.
 
 El desarrollo de estas reglas sigue fuera del encargo actual: aquí solo se documentan.
 
@@ -164,20 +165,24 @@ La conversación propuso tablas llamadas `payment_providers`, `payment_accounts`
 - Conservar el importe contractual, monto efectivamente pagado, referencia de cobro, receptor y seguimiento de devolución/liquidación. Esto describe información necesaria, sin ordenar tablas ni cambios de esquema.
 - El usuario pide **impedir el cierre de cuenta del arrendador y la eliminación de la publicación vinculada mientras la garantía esté pendiente de resolución**. También pide que una salida del arrendador no borre su responsabilidad. Es una regla funcional solicitada para definir, no un mecanismo de recuperación de fondos ya implementado ni una garantía de devolución efectiva.
 
-### 7.2 Liquidación de garantía: puntos que permanecen abiertos
+### 7.2 Liquidación de garantía: regla confirmada y pendientes
 
-El usuario expresó duda sobre si se devuelve íntegra siempre o se liquida conforme al contrato. **Todavía no se ha aprobado una devolución total incondicional ni una autorización al arrendador para retenerla unilateralmente.** Deben definirse:
+**Decisión expresa del usuario, 28-10-2026:** la garantía admite descuentos por daños al inmueble. El apartado de garantía del contrato debe establecer las condiciones para aplicar esos fondos a cubrir daños y para devolver el importe que corresponda. Puede haber devolución parcial o retención total si corresponde aplicar toda la garantía a daños conforme a lo pactado. La existencia de cualquier daño no debe convertirse por inferencia en pérdida automática de toda la garantía: la aplicación del importe debe seguir lo estipulado en el contrato.
 
-1. Condiciones del contrato que originan devolución total, eventual descuento o retención; justificación, evidencia, aceptación y resolución de desacuerdos.
+El registro para ambas partes debe distinguir garantía recibida, importe aplicado a daños y saldo a devolver, con referencia al contrato y al motivo. Aplicar la garantía a daños no genera comisión de espaciGo sobre esa garantía. Una garantía correctamente aplicada a daños conforme al contrato debe poder quedar liquidada sin registrar falsamente una devolución de ese importe.
+
+**No quedan aprobados todavía un procedimiento unilateral de retención, sus pruebas ni el mecanismo de resolución de desacuerdos.** Se mantienen pendientes:
+
+1. Contenido concreto de la cláusula de garantía: daños cubiertos y criterios de valoración, justificación, evidencia, aceptación y resolución de desacuerdos. La posibilidad de descontar por daños ya está confirmada; falta definir el procedimiento.
 2. Plazo desde la entrega/restitución del espacio para proponer y completar la liquidación; responsables y avisos. No fijar días por suposición.
 3. Canal de devolución: reembolso del cobro original u otra operación admitida, ventanas/límites del proveedor, ausencia de saldo y tarifas no recuperables. La recepción de la garantía no prueba que el arrendador conserve saldo suficiente en Mercado Pago al finalizar.
 4. Cómo se acredita la devolución, quién confirma recepción y qué sucede si no responde o discrepa. Separar devolución solicitada, procesada y confirmada.
-5. Regla exacta de desbloqueo: devolución acreditada o liquidación contractual resuelta, según la decisión pendiente. Una garantía recibida no está por ello liquidada; un contrato finalizado tampoco la liquida automáticamente.
+5. Regla exacta de desbloqueo y acreditación de liquidación: contemplar devolución del saldo que corresponda y aplicación a daños conforme al contrato, incluida retención total cuando proceda. Definir quién valida la liquidación y cómo afecta una disputa; no exigir una devolución ficticia de importes aplicados a daños. Una garantía recibida no está por ello liquidada; un contrato finalizado tampoco la liquida automáticamente.
 6. Si se permite despublicar el espacio para impedir nuevos arriendos conservando la publicación, contrato y obligaciones; bloquear eliminación no debe interpretarse automáticamente como prohibición de despublicar. El usuario aún debe escoger ese comportamiento.
 7. Correspondencia de estos bloqueos con las políticas de baja, privacidad y conservación existentes; validación jurídica antes de operación real. No prometer que una restricción de la aplicación impide a una persona abandonar el inmueble o garantiza recuperar dinero.
 8. Quién cubre cualquier diferencia entre garantía contractual y neto recibido tras cargos del proveedor. La decisión de que el arrendador absorbe las tarifas no autoriza disminuir automáticamente lo que deba devolver conforme al contrato.
 
-Como propuesta para cerrar el diseño, distinguir garantía pendiente de pago, pago en proceso, pagada/recibida, liquidación pendiente, devolución en proceso, liquidada y en disputa. Los nombres y transiciones requieren validación; no son estados implementados. Un eventual descuento contractual y una devolución deben quedar desglosados para ambas partes.
+Como propuesta para cerrar el diseño, distinguir garantía pendiente de pago, pago en proceso, pagada/recibida, liquidación pendiente, devolución en proceso, liquidada y en disputa. Los nombres y transiciones requieren validación; no son estados implementados. Los descuentos por daños autorizados por el contrato y cualquier devolución deben quedar desglosados para ambas partes.
 
 ### 7.3 Relación con el arriendo y reembolsos
 
@@ -202,6 +207,7 @@ Estado documental: **alcance parcialmente definido; todavía no listo para imple
 | PAG-06 | El arrendador asume la tarifa de Mercado Pago, descontada adicionalmente de lo que recibe | Respuesta expresa del usuario del 28-10-2026; tarifa efectiva por verificar |
 | PAG-07 | Garantía opcional, separada del arriendo, cobrada por Mercado Pago sin comisión de espaciGo, en manos del arrendador; seguimiento visible para ambas partes y bloqueos solicitados mientras esté pendiente | Respuestas expresas del usuario del 28-10-2026; liquidación y alcance de bloqueos pendientes en PAG-18 |
 | PAG-08 | Se permite publicar sin OAuth; vinculación válida obligatoria antes de aceptar arriendo que genere cobros | Respuesta expresa del usuario del 28-10-2026 |
+| PAG-19 | La garantía admite descuentos por daños al inmueble según el apartado de garantía del contrato; devolución del saldo o aplicación total a daños cuando corresponda | Instrucción expresa del usuario del 28-10-2026; procedimiento y acreditación pendientes en PAG-18 |
 
 ### 8.2 Decisiones de producto que aún requieren respuesta
 
@@ -216,7 +222,7 @@ Estado documental: **alcance parcialmente definido; todavía no listo para imple
 | PAG-15 | Cuenta receptora y cambios de titular | Personas/empresas incluidas; una cuenta activa por titular o regla distinta; si puede compartirse; posibilidad y efecto de cambiar/desvincular con cobros, reembolsos o contratos pendientes. Ningún cambio debe reescribir transacciones históricas. |
 | PAG-16 | Política de tasas y cambios contractuales | Si la comisión se congela por contrato o por obligación; fecha efectiva de cambios futuros, aceptación requerida y efecto de renovaciones, descuentos y modificaciones del contrato. Lo cobrado no se recalcula. |
 | PAG-17 | Operación y visibilidad | Qué ve cada parte del desglose/estado, quién gestiona conciliaciones y devoluciones y qué intervenciones manuales se permiten con autorización y auditoría. No permitir marcar pagado solo por comprobante o retorno del navegador. |
-| PAG-18 | Liquidación de garantía y desbloqueos | Contrato, descuentos permitidos, plazos, evidencia, controversias, canal de devolución, diferencia por tarifas y condición de cierre; definir si se permite despublicar conservando contrato y obligación. Ver sección 7.2. |
+| PAG-18 | Liquidación de garantía y desbloqueos | Redactar cláusula y procedimiento para los descuentos por daños ya admitidos en PAG-19: valoración, plazos, evidencia, aceptación, controversias, devolución del saldo, diferencias por tarifas y condición de cierre; definir si se permite despublicar conservando contrato y obligación. Ver sección 7.2. |
 
 Estos pendientes pueden resolverse por tandas. No requieren programar ni modificar el esquema. No se presenta como pendiente de esta entrega elegir un segundo proveedor ni configurar suscripciones: ambos quedaron fuera de alcance.
 
