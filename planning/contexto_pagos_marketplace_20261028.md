@@ -10,7 +10,7 @@ Estado: documento de trabajo. Conserva decisiones del usuario, recomendaciones a
 
 Por instrucción expresa del usuario, **Mercado Pago es el único proveedor de pagos y de vinculación de cuentas de cobro permitido en esta etapa de entrega**. El desarrollo de pagos se concentrará en Mercado Pago Split Payments 1:1 para facilitar la distribución al arrendador y el cobro de la comisión de espaciGo.
 
-- Todo arrendador que vaya a recibir pagos en espaciGo deberá contar con una cuenta Mercado Pago habilitada y vincularla mediante OAuth. Quien no tenga cuenta deberá crearla y vincularla antes de habilitar sus cobros.
+- Se permite publicar sin vincular Mercado Pago. Antes de aceptar un arriendo que genere cobros, el arrendador deberá tener una cuenta Mercado Pago habilitada y vinculada mediante OAuth. La aceptación y la creación de nuevos cobros requieren conexión válida; no basta con que haya existido una conexión en el pasado.
 - La configuración de cobros de esta entrega solo permitirá vincular Mercado Pago. No se implementarán otros proveedores, vinculación de cuentas bancarias para abonos directos ni transferencias entre usuarios como alternativa de pago de la plataforma.
 - Si la vinculación no existe, está vencida o revocada, no se habilitarán nuevos cobros hasta contar con una autorización válida. No habrá un método alternativo de respaldo en esta entrega.
 - Esta exigencia se refiere al arrendador receptor. El arrendatario pagará a través del checkout de Mercado Pago con los medios que la integración habilite; no se deduce de esta decisión que deba vincular una cuenta de vendedor.
@@ -24,8 +24,11 @@ Esta decisión sustituye las alternativas abiertas de proveedor para la entrega 
 1. **La comisión de espaciGo la asume el arrendador:** se descuenta del importe que recibe. El arrendatario no paga un recargo por esta comisión.
 2. **El anticipo anual paga comisión una sola vez sobre el total anual:** no se generan nuevas comisiones mensuales sobre los periodos ya pagados. La asignación contable por periodos, si corresponde, es independiente de ese cobro único.
 3. **Pago mensual iniciado por el arrendatario:** cada mensualidad se paga mediante un enlace de Mercado Pago. El débito automático y las suscripciones quedan fuera del alcance de esta entrega.
+4. **El arrendador asume también la tarifa de procesamiento de Mercado Pago:** se descuenta de lo que recibe. No se agrega al arrendatario un recargo por esta tarifa. Su valor efectivo sigue sujeto a las condiciones del proveedor.
+5. **Publicación sin vinculación permitida:** OAuth será obligatorio antes de aceptar un arriendo que genere cobros.
+6. **Garantía opcional y separada:** el contrato permite indicar si se exige garantía. Cuando exista, se paga por Mercado Pago en un cobro separado del arriendo, sin comisión de espaciGo. El arrendador recibe, conserva y responde por su devolución; espaciGo no custodia ese dinero.
 
-La tarifa de procesamiento de Mercado Pago es distinta de la comisión de espaciGo; quién la absorbe continúa pendiente hasta una respuesta expresa.
+El desarrollo de estas reglas sigue fuera del encargo actual: aquí solo se documentan.
 
 ## 1. Decisiones e intención del usuario
 
@@ -37,6 +40,9 @@ La tarifa de procesamiento de Mercado Pago es distinta de la comisión de espaci
 | Continuidad | Comisión por mensualidad efectivamente pagada; anticipo anual comisionado una sola vez sobre el total anual | Confirmado por el usuario el 28-10-2026 |
 | Quién paga la comisión de espaciGo | El arrendador, mediante descuento del importe que recibe | Confirmado por el usuario el 28-10-2026 |
 | Pago mensual | El arrendatario paga mediante un enlace cada mes; sin débito automático | Confirmado para esta entrega |
+| Tarifa Mercado Pago | Se descuenta al arrendador, además de la comisión de espaciGo | Confirmado por el usuario el 28-10-2026 |
+| Publicación y OAuth | Puede publicar sin conectar; debe conectar antes de aceptar un arriendo con cobros | Confirmado por el usuario el 28-10-2026 |
+| Garantía | Opcional en contrato, cobro separado por Mercado Pago, sin comisión de espaciGo; recepción y devolución a cargo del arrendador | Confirmado; liquidación y bloqueos requieren precisar reglas |
 | Arrendadores sin Mercado Pago | Deben crear y vincular su cuenta antes de habilitar cobros; no habrá alternativa en esta entrega | Decisión expresa del usuario |
 | Independencia de proveedor | Separar reglas de negocio de Mercado Pago para facilitar evoluciones posteriores | Criterio de diseño; solo se desarrollará el adaptador Mercado Pago en esta entrega |
 
@@ -44,7 +50,7 @@ Los ejemplos iniciales del asistente usaban **5% hipotético**. Quedan sustituid
 
 ## 2. Flujo propuesto con Split Payments 1:1
 
-1. El arrendador publica un espacio y configura su método de cobro.
+1. El arrendador puede publicar sin vincular Mercado Pago; debe completar su vinculación antes de aceptar un arriendo que genere cobros.
 2. Para utilizar Split 1:1, cada arrendador dispone de una cuenta Mercado Pago habilitada y autoriza a espaciGo mediante OAuth. Agregar datos bancarios al perfil no sustituye esa vinculación.
 3. espaciGo asocia el usuario o entidad arrendadora con el identificador externo de su cuenta receptora y el estado de la conexión.
 4. Publicación → solicitud/acuerdo → contrato → obligación de pago. Una publicación por sí sola no identifica todos los términos del cobro.
@@ -83,7 +89,11 @@ Regla de cálculo propuesta, sobre base de arriendo `B`:
 | Total espaciGo | $3.570 |
 | Arrendador tras descontar la comisión de espaciGo, antes de tarifa del procesador | $96.430 |
 
-La tarifa de Mercado Pago es **otro costo** y no está incluida en el 3% + IVA. No se trasladan tarifas comerciales concretas ni se garantiza un neto final. Debe precisarse quién absorbe también ese costo y mostrar el desglose antes de aceptar/pagar.
+La tarifa de Mercado Pago es **otro costo** y no está incluida en el 3% + IVA. No se trasladan tarifas comerciales concretas ni se garantiza un neto final. El usuario confirmó que **también lo asume el arrendador**, mediante descuento de lo que recibe. Mostrar el desglose antes de aceptar/pagar; si el costo exacto solo se conoce al procesar, distinguir la estimación del importe real conciliado.
+
+Para un arriendo de $100.000, el arrendatario paga $100.000, espaciGo recibe $3.570 y el neto del arrendador es **$96.430 menos la tarifa efectiva de Mercado Pago** y sus ajustes aplicables. No fijar una tarifa ficticia del proveedor.
+
+La garantía no forma parte de la base de esta comisión: para un cobro de garantía `G`, la comisión de espaciGo y el IVA de esa comisión son cero. La tarifa del procesador sigue siendo un concepto independiente a cargo del arrendador. Definir explícitamente cómo se financia la diferencia entre lo recibido neto y la obligación contractual de devolver la garantía, sin reducirla automáticamente por esa tarifa.
 
 Usar importes CLP enteros, regla explícita de redondeo y snapshot por cobro de base, tasa, IVA, reparto, tarifa del procesador conocida y neto conciliado. No recalcular cobros históricos cuando cambie una tasa. La suma mensual y la anual pueden diferir por redondeo en otros importes.
 
@@ -113,13 +123,13 @@ La conversación señala que Checkout Pro permite pagar como invitado con los me
 
 ### Arrendador que recibe
 
-**Decisión vigente:** en esta entrega debe crear/conectar Mercado Pago mediante OAuth para habilitar cobros. Las alternativas siguientes se conservan únicamente como antecedentes para etapas futuras; no son opciones disponibles ni desarrollo autorizado en la entrega inicial. La posibilidad de publicar sin vincular sigue siendo una decisión de UX separada del requisito obligatorio para cobrar.
+**Decisión vigente:** en esta entrega debe crear/conectar Mercado Pago mediante OAuth para habilitar cobros. Las alternativas siguientes se conservan únicamente como antecedentes para etapas futuras; no son opciones disponibles ni desarrollo autorizado en la entrega inicial. El usuario confirmó que puede publicar sin vincular, pero debe vincular antes de aceptar un arriendo que genere cobros.
 
 El flujo Split 1:1 descrito requiere cuenta Mercado Pago y autorización OAuth del vendedor. No permite inferir un abono a cualquier cuenta bancaria de un arrendador sin cuenta Mercado Pago.
 
 | Alternativa | Requisitos y límites a conservar |
 | --- | --- |
-| Crear/conectar Mercado Pago | Única opción de esta entrega, definida por el usuario: habilitar cobro online al completar OAuth y elegibilidad. Publicar sin conexión continúa pendiente como decisión de UX. |
+| Crear/conectar Mercado Pago | Única opción de esta entrega, definida por el usuario: habilitar cobro online al completar OAuth y elegibilidad. Se permite publicar sin conexión; la vinculación es obligatoria antes de aceptar un arriendo que genere cobros. |
 | Otro proveedor con abonos bancarios | Fuera de esta entrega. En una etapa futura, verificar recaudación, identificación del beneficiario, reparto/comisión, KYC/KYB, tarifas, plazos, devoluciones, conciliación y admisibilidad contractual para marketplace chileno. |
 | Transferencia directa al arrendador | Fuera de esta entrega. Una evaluación futura requiere verificar/conciliar el pago y cobrar aparte la comisión a quien corresponda; no garantiza recaudación automática de comisión. Definir mora, evidencia, disputas y eventual acceso restringido. |
 
@@ -144,11 +154,37 @@ La conversación propuso tablas llamadas `payment_providers`, `payment_accounts`
 
 ## 7. Contratos, garantías y devoluciones
 
-- Definir cuándo se acepta/firma el contrato y qué pago confirma la reserva o habilita el arriendo. No deducir validez contractual de la creación de un enlace.
-- Garantías reembolsables separadas del arriendo: decidir quién recibe, custodia y devuelve, y si existe comisión sobre ellas. Split no prueba custodia/retención ni liberación futura.
-- Definir cancelación antes/después del inicio, reembolsos totales/parciales, reversión de comisión/IVA, notas o documentos de ajuste, contracargos y disputas.
-- La guía anterior advirtió que el reembolso Split puede afectar vendedor y marketplace y depender del saldo disponible. Verificar condiciones exactas; no prometer devolución completa sin validar su operativa.
-- Mantener conciliación de bruto pagado, comisión neta, IVA, costos, neto al arrendador y ajustes; un comprobante cargado o evento recibido no equivale por sí solo a liquidación conciliada.
+### 7.1 Garantía opcional: requisitos confirmados
+
+- El contrato de arriendo debe permitir indicar **si exige garantía** y su monto. No todos los arriendos la requieren. Sin garantía, no aparece la sección de seguimiento ni se genera un cobro de garantía. La configuración del contrato debe permitir escoger esa condición.
+- Si hay garantía, mostrar un desglose separado del arriendo: importe pactado, pago de garantía y recepción. No incluirla en la base de comisión del arriendo ni mezclar su estado con el de una mensualidad.
+- **La garantía se paga por Mercado Pago en un cobro independiente del arriendo.** No se cobra comisión de espaciGo sobre la garantía; por ello tampoco hay IVA de una comisión de espaciGo sobre ese concepto. No se promete exención de cargos del procesador ni se decide aquí el tratamiento tributario propio de la garantía.
+- Los fondos de garantía se entregan al **arrendador**, quien los conserva y se hace responsable de su eventual devolución. espaciGo registra y muestra el seguimiento; no mantiene esos fondos en custodia, escrow o una cuenta propia para liberarlos al finalizar.
+- Ambas partes deben tener la sección de garantía vinculada al mismo contrato. El arrendatario puede ver su garantía pagada y el arrendador la garantía recibida, además del estado compartido de seguimiento. Pago y recepción deben sustentarse en hechos confirmados del proveedor, distinguiendo aprobación y disponibilidad; no habilitar confirmación ficticia solo por un retorno del navegador.
+- Conservar el importe contractual, monto efectivamente pagado, referencia de cobro, receptor y seguimiento de devolución/liquidación. Esto describe información necesaria, sin ordenar tablas ni cambios de esquema.
+- El usuario pide **impedir el cierre de cuenta del arrendador y la eliminación de la publicación vinculada mientras la garantía esté pendiente de resolución**. También pide que una salida del arrendador no borre su responsabilidad. Es una regla funcional solicitada para definir, no un mecanismo de recuperación de fondos ya implementado ni una garantía de devolución efectiva.
+
+### 7.2 Liquidación de garantía: puntos que permanecen abiertos
+
+El usuario expresó duda sobre si se devuelve íntegra siempre o se liquida conforme al contrato. **Todavía no se ha aprobado una devolución total incondicional ni una autorización al arrendador para retenerla unilateralmente.** Deben definirse:
+
+1. Condiciones del contrato que originan devolución total, eventual descuento o retención; justificación, evidencia, aceptación y resolución de desacuerdos.
+2. Plazo desde la entrega/restitución del espacio para proponer y completar la liquidación; responsables y avisos. No fijar días por suposición.
+3. Canal de devolución: reembolso del cobro original u otra operación admitida, ventanas/límites del proveedor, ausencia de saldo y tarifas no recuperables. La recepción de la garantía no prueba que el arrendador conserve saldo suficiente en Mercado Pago al finalizar.
+4. Cómo se acredita la devolución, quién confirma recepción y qué sucede si no responde o discrepa. Separar devolución solicitada, procesada y confirmada.
+5. Regla exacta de desbloqueo: devolución acreditada o liquidación contractual resuelta, según la decisión pendiente. Una garantía recibida no está por ello liquidada; un contrato finalizado tampoco la liquida automáticamente.
+6. Si se permite despublicar el espacio para impedir nuevos arriendos conservando la publicación, contrato y obligaciones; bloquear eliminación no debe interpretarse automáticamente como prohibición de despublicar. El usuario aún debe escoger ese comportamiento.
+7. Correspondencia de estos bloqueos con las políticas de baja, privacidad y conservación existentes; validación jurídica antes de operación real. No prometer que una restricción de la aplicación impide a una persona abandonar el inmueble o garantiza recuperar dinero.
+8. Quién cubre cualquier diferencia entre garantía contractual y neto recibido tras cargos del proveedor. La decisión de que el arrendador absorbe las tarifas no autoriza disminuir automáticamente lo que deba devolver conforme al contrato.
+
+Como propuesta para cerrar el diseño, distinguir garantía pendiente de pago, pago en proceso, pagada/recibida, liquidación pendiente, devolución en proceso, liquidada y en disputa. Los nombres y transiciones requieren validación; no son estados implementados. Un eventual descuento contractual y una devolución deben quedar desglosados para ambas partes.
+
+### 7.3 Relación con el arriendo y reembolsos
+
+- Definir cuándo se acepta/firma el contrato y qué pago confirma la reserva o habilita el arriendo. No deducir validez contractual de la creación de un enlace. Si hay garantía, decidir si su pago es requisito para confirmar la reserva o entregar el espacio.
+- Definir cancelación antes/después del inicio, reembolsos totales/parciales del arriendo, reversión de comisión/IVA, notas o documentos de ajuste, contracargos y disputas. La garantía tiene proceso separado y comisión de espaciGo igual a cero.
+- La guía anterior advirtió que el reembolso Split puede afectar vendedor y marketplace y depender del saldo disponible. Verificar condiciones exactas para arriendo y para un cobro de garantía sin comisión; no prometer devolución completa sin validar su operativa.
+- Mantener conciliación de bruto pagado, comisión neta, IVA, costos, neto al arrendador y ajustes, separando arriendo y garantía. Un comprobante cargado o evento recibido no equivale por sí solo a liquidación conciliada.
 
 ## 8. Registro de decisiones necesarias para cerrar la especificación
 
@@ -163,23 +199,24 @@ Estado documental: **alcance parcialmente definido; todavía no listo para imple
 | PAG-03 | Anticipo anual: comisión única sobre el total pagado, sin nuevos cargos por los mismos meses | Respuesta expresa del usuario del 28-10-2026 |
 | PAG-04 | Mensualidades pagadas por el arrendatario mediante enlaces; sin débito automático/suscripciones en esta entrega | Respuesta expresa del usuario del 28-10-2026 |
 | PAG-05 | Posible alianza futura: intención del usuario, sin alianza ni beneficios comerciales confirmados | Instrucción expresa del usuario del 28-10-2026 |
+| PAG-06 | El arrendador asume la tarifa de Mercado Pago, descontada adicionalmente de lo que recibe | Respuesta expresa del usuario del 28-10-2026; tarifa efectiva por verificar |
+| PAG-07 | Garantía opcional, separada del arriendo, cobrada por Mercado Pago sin comisión de espaciGo, en manos del arrendador; seguimiento visible para ambas partes y bloqueos solicitados mientras esté pendiente | Respuestas expresas del usuario del 28-10-2026; liquidación y alcance de bloqueos pendientes en PAG-18 |
+| PAG-08 | Se permite publicar sin OAuth; vinculación válida obligatoria antes de aceptar arriendo que genere cobros | Respuesta expresa del usuario del 28-10-2026 |
 
 ### 8.2 Decisiones de producto que aún requieren respuesta
 
 | ID | Decisión pendiente | Qué debe quedar escrito para poder ejecutar |
 | --- | --- | --- |
-| PAG-06 | Quién absorbe la tarifa de Mercado Pago | Arrendador, espaciGo o arrendatario; desglose y tratamiento cuando la tarifa real difiera de la estimada. No confundir con PAG-02. |
-| PAG-07 | Garantías reembolsables | Incluirlas o excluirlas de esta entrega. Si se incluyen: receptor, custodia, devolución, controversias y base de comisión; no asumir escrow. |
-| PAG-08 | Momento de vinculación | Si se permite publicar antes de OAuth; en qué transición se exige conexión válida y qué ocurre con solicitudes ya iniciadas. |
-| PAG-09 | Momento del pago y confirmación de reserva | Si el primer pago se solicita tras aceptación o firma; cuándo se reserva el espacio y qué ocurre si el pago no se acredita. Mantener separado el estado contractual del financiero. |
+| PAG-09 | Momento del pago y confirmación de reserva | Si el primer pago se solicita tras aceptación o firma; cuándo se reserva el espacio y qué ocurre si el pago no se acredita. Si se exige garantía, definir si su pago condiciona reserva o entrega. Mantener separado el estado contractual del financiero. |
 | PAG-10 | Calendario y vencimiento | Día/regla de vencimiento, periodo cubierto, primer mes proporcional o completo, zona horaria, plazo para pagar y expiración del enlace. Precisar si esta entrega incluye arriendos por hora/día además de mes/año. |
 | PAG-11 | Mora e incumplimiento | Plazo de gracia, recordatorios, posibilidad de pagar vencido, efectos sobre reserva/contrato y si existen multas. No cancelar un contrato ni generar recargos por inferencia. |
-| PAG-12 | Base comisionable y modalidades admitidas | Precio pactado, descuentos y quién los financia, servicios/cargos adicionales e impuestos del arriendo; permitir o excluir abonos parciales, pago de varios periodos y anticipos parciales. La comisión nunca se calcula sobre sí misma. |
+| PAG-12 | Base comisionable y modalidades admitidas | Precio pactado, descuentos y quién los financia, servicios/cargos adicionales e impuestos del arriendo; permitir o excluir abonos parciales, pago de varios periodos y anticipos parciales. La garantía queda excluida de la base y la comisión nunca se calcula sobre sí misma. |
 | PAG-13 | Cancelaciones y reembolsos | Condiciones antes/después del inicio; importe de arriendo devuelto; devolución total/parcial de comisión e IVA; responsable de tarifas no recuperables; quién solicita/autoriza y plazo. Referenciar una política contractual vigente cuando aplique. |
 | PAG-14 | Contracargos, disputas y saldo insuficiente | Quién asume el perjuicio, reúne evidencia y autoriza acciones; qué ocurre si no puede ejecutarse un reembolso y cómo se informa. No representar un reembolso solicitado como completado. |
 | PAG-15 | Cuenta receptora y cambios de titular | Personas/empresas incluidas; una cuenta activa por titular o regla distinta; si puede compartirse; posibilidad y efecto de cambiar/desvincular con cobros, reembolsos o contratos pendientes. Ningún cambio debe reescribir transacciones históricas. |
 | PAG-16 | Política de tasas y cambios contractuales | Si la comisión se congela por contrato o por obligación; fecha efectiva de cambios futuros, aceptación requerida y efecto de renovaciones, descuentos y modificaciones del contrato. Lo cobrado no se recalcula. |
 | PAG-17 | Operación y visibilidad | Qué ve cada parte del desglose/estado, quién gestiona conciliaciones y devoluciones y qué intervenciones manuales se permiten con autorización y auditoría. No permitir marcar pagado solo por comprobante o retorno del navegador. |
+| PAG-18 | Liquidación de garantía y desbloqueos | Contrato, descuentos permitidos, plazos, evidencia, controversias, canal de devolución, diferencia por tarifas y condición de cierre; definir si se permite despublicar conservando contrato y obligación. Ver sección 7.2. |
 
 Estos pendientes pueden resolverse por tandas. No requieren programar ni modificar el esquema. No se presenta como pendiente de esta entrega elegir un segundo proveedor ni configurar suscripciones: ambos quedaron fuera de alcance.
 
@@ -188,19 +225,19 @@ Estos pendientes pueden resolverse por tandas. No requieren programar ni modific
 | ID | Verificación necesaria | Evidencia o especificación de cierre |
 | --- | --- | --- |
 | VAL-01 | Mercado Pago Chile | Documentación oficial vigente y condiciones de habilitación para Split 1:1, tipos de cuenta/identidad y requisitos de la aplicación. Distinguir integración disponible de una eventual alianza. |
-| VAL-02 | Checkout elegido | Seleccionar y documentar Checkout Pro y su API/flujo compatible con Split, campos de comisión, medios aceptados, pago invitado, límites y expiración. No mezclar contratos de APIs. |
-| VAL-03 | Tarifas y disponibilidad de fondos | Condiciones comerciales efectivas, impuestos del servicio, plazos de disponibilidad y abonos; explicar que pago aprobado y fondos disponibles son hechos distintos. Sin valores inventados. |
-| VAL-04 | Tributación | Validación contable de base, IVA y documentos separados de arriendo/intermediación, emisor y destinatario conforme a PAG-02, emisión, ajustes y notas de crédito. Identificar qué es requisito previo a operación real. |
+| VAL-02 | Checkout elegido | Seleccionar y documentar Checkout Pro y su API/flujo compatible con Split, campos de comisión (incluido cobro de garantía con comisión cero), medios aceptados, pago invitado, límites y expiración. No mezclar contratos de APIs. |
+| VAL-03 | Tarifas y disponibilidad de fondos | Condiciones comerciales efectivas, impuestos del servicio, plazos de disponibilidad y abonos; explicar que pago aprobado y fondos disponibles son hechos distintos. Sin valores inventados. Verificar también tarifas del cobro de garantía y efecto sobre su neto, sin modificar por ello la obligación contractual. |
+| VAL-04 | Tributación | Validación contable de base, IVA y documentos separados de arriendo/intermediación, emisor y destinatario conforme a PAG-02, emisión, ajustes y notas de crédito; tratamiento propio de garantía y cargos del procesador. Identificar qué es requisito previo a operación real. |
 | VAL-05 | Dinero y redondeo | Especificar fórmula y orden de redondeo a CLP enteros, mínimos/máximos y reparto de diferencias; ejemplos de bordes y reembolsos parciales acumulados. |
 | VAL-06 | Ciclo de vida y recuperación | Matriz de estados/transiciones de obligación, intento y pago; duplicados, eventos fuera de orden, confirmaciones tardías, pago duplicado y carrera entre vencimiento, cancelación y aprobación. Especificar conciliación y recuperación ante caída del proveedor. |
-| VAL-07 | Seguridad e identidad | Contrato OAuth, titularidad, renovación/revocación, protección de secretos, verificación de notificaciones, permisos por operación y datos mínimos visibles. Nunca incluir tokens reales en el documento. |
+| VAL-07 | Seguridad e identidad | Contrato OAuth, titularidad, renovación/revocación, protección de secretos, verificación de notificaciones, permisos por operación y datos mínimos visibles; compatibilidad de los bloqueos de garantía con baja y conservación. Nunca incluir tokens reales en el documento. |
 | VAL-08 | Correspondencia con el proyecto | Inventario acotado de entidades, puertos y políticas actuales; diferencias respecto del fake; contratos y escenarios de aceptación. No crear tablas ni alterar políticas aprobadas solo por esta investigación. |
 
 ### 8.4 Condición para declarar la documentación lista para desarrollo
 
-- Todas las decisiones PAG-06–PAG-17 deben tener respuesta o exclusión explícita para esta entrega, fecha y origen; ninguna pregunta abierta debe ocultarse tras frases como «según corresponda».
+- Todas las decisiones pendientes PAG-09–PAG-18 deben tener respuesta o exclusión explícita para esta entrega, fecha y origen; ninguna pregunta abierta debe ocultarse tras frases como «según corresponda».
 - VAL-01–VAL-08 deben quedar documentadas con evidencia o con un bloqueo externo concreto y las tareas que pueden avanzar sin él. La alianza futura no sustituye habilitación ni validaciones.
-- Incluir un desglose reproducible para pago mensual, anticipo anual, rechazo/reintento, duplicado, pago tardío, devolución parcial/total, contracargo y OAuth revocado; cuando una modalidad se excluya, definir su bloqueo en lugar de inventar su comportamiento.
+- Incluir un desglose reproducible para pago mensual, anticipo anual, rechazo/reintento, duplicado, pago tardío, devolución parcial/total, contracargo, OAuth revocado y garantía (sin garantía, pagada, liquidación, devolución y disputa); cuando una modalidad se excluya, definir su bloqueo en lugar de inventar su comportamiento.
 - La matriz de aceptación futura debe distinguir simulación local, pruebas de integración y habilitación para fondos reales. Este trabajo solo prepara documentación: no ejecuta pagos, pruebas de aplicación ni cambios de código/datos.
 
 ## 9. Relación con la documentación existente y alcance del traslado
