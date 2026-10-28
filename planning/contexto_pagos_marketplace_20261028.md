@@ -4,7 +4,13 @@ Fecha de traslado: 28-10-2026, America/Santiago.
 
 Fuente: conversación ChatGPT «Guía pagos marketplace», ID `6ae23fd1-9560-83e9-943a-2977ddc462a6`, recuperada con `read_thread`. La lectura contiene tres turnos; algunos mensajes del asistente aparecen truncados por el servicio. Este documento consolida el contenido recuperable y el encargo actual; no es una transcripción literal completa.
 
-Estado: documento de trabajo. Conserva decisiones del usuario, recomendaciones anteriores y asuntos abiertos sin convertir propuestas en capacidades implementadas. No modifica código, OpenAPI, esquema, migraciones ni datos. Las afirmaciones sobre proveedores y tributación se trasladan como antecedentes de la conversación; no se ha realizado una nueva validación documental/comercial en este traslado.
+Estado: documento de trabajo. Conserva decisiones del usuario, recomendaciones anteriores y asuntos abiertos sin convertir propuestas en capacidades implementadas. No modifica código, OpenAPI, esquema, migraciones ni datos. La investigación posterior del 28-10-2026 consultó documentación oficial de Mercado Pago para Chile, SII y SERNAC. Las fuentes, definiciones y límites están en `especificacion_pagos_checkout_pro_20261028.md`; la investigación no equivale a habilitación comercial, ensayo de integración ni validación tributaria individual.
+
+## Definición complementaria vigente
+
+Leer junto con [la especificación de Checkout Pro](especificacion_pagos_checkout_pro_20261028.md). Por encargo posterior del usuario, queda elegido **Checkout Pro / API de Preferences**, el cobro de arriendo se habilita **después de la aceptación mutua de la misma versión contractual**, la garantía usa un enlace separado y el eventual cobro de firma SimpleFirmas a ambas partes queda para después del desarrollo de pagos, fuera de esta entrega.
+
+El documento complementario define redondeos, operación, devoluciones, propuesta de política para horas/días/noches y circuito documental tributario con fuentes oficiales. Sustituye las preguntas abiertas de este contexto en esos puntos; distingue las decisiones expresas del usuario de las propuestas técnicas/comerciales preparadas por encargo y pendientes de revisión del borrador.
 
 ## Decisión de alcance de la entrega inicial — 28-10-2026
 
@@ -55,7 +61,7 @@ Los ejemplos iniciales del asistente usaban **5% hipotético**. Quedan sustituid
 1. El arrendador puede publicar sin vincular Mercado Pago; debe completar su vinculación antes de aceptar un arriendo que genere cobros.
 2. Para utilizar Split 1:1, cada arrendador dispone de una cuenta Mercado Pago habilitada y autoriza a espaciGo mediante OAuth. Agregar datos bancarios al perfil no sustituye esa vinculación.
 3. espaciGo asocia el usuario o entidad arrendadora con el identificador externo de su cuenta receptora y el estado de la conexión.
-4. Publicación → solicitud/acuerdo → contrato → obligación de pago. Una publicación por sí sola no identifica todos los términos del cobro.
+4. Publicación → solicitud/acuerdo → contrato aceptado por ambas partes en la misma versión → obligación de pago y enlace. Una publicación o aceptación unilateral no habilita el cobro.
 5. Al cumplirse las condiciones pactadas, el backend identifica el contrato, la obligación, el pagador, el arrendador y su cuenta vinculada; calcula la comisión.
 6. El backend crea el checkout con la autorización OAuth del arrendador correspondiente y la comisión de espaciGo. El arrendador no tiene que generar manualmente el enlace.
 7. El arrendatario abre el enlace y paga con los medios habilitados. Mercado Pago procesa y distribuye el importe entre ese vendedor y el marketplace según el producto contratado.
@@ -72,7 +78,7 @@ Los ejemplos iniciales del asistente usaban **5% hipotético**. Quedan sustituid
 
 ### Checkout y confirmación
 
-La recomendación anterior fue empezar con Checkout Pro. Su ejemplo de preferencias utilizaba `marketplace_fee` como **importe en moneda local**, calculado en backend, y `init_point` como enlace devuelto. Es referencia conceptual, no implementación aprobada. Elegir y validar el flujo/API vigente y compatible con Split en Chile antes de programar; no mezclar el contrato de preferencias con Orders API.
+**Elección confirmada por el usuario:** Checkout Pro con API de Preferences para esta entrega; Checkout API queda para el futuro. La documentación oficial de Split 1:1 confirma `POST /checkout/preferences`, token OAuth del vendedor y `marketplace_fee` como importe. El enlace se habilita después de la aceptación mutua del contrato. La especificación complementaria documenta backend, notificaciones y devoluciones sin mezclar Orders ni construir un formulario propio de tarjetas.
 
 Usar referencias internas por obligación e intento, autenticidad de webhooks, consultas al proveedor e idempotencia para duplicados/reintentos. El retorno del navegador a una página de éxito no acredita el pago. Diferenciar pendiente, aprobado, rechazado, cancelado, reembolsado y contracargo, conservando historial.
 
@@ -95,9 +101,9 @@ La tarifa de Mercado Pago es **otro costo** y no está incluida en el 3% + IVA. 
 
 Para un arriendo de $100.000, el arrendatario paga $100.000, espaciGo recibe $3.570 y el neto del arrendador es **$96.430 menos la tarifa efectiva de Mercado Pago** y sus ajustes aplicables. No fijar una tarifa ficticia del proveedor.
 
-La garantía no forma parte de la base de esta comisión: para un cobro de garantía `G`, la comisión de espaciGo y el IVA de esa comisión son cero. La tarifa del procesador sigue siendo un concepto independiente a cargo del arrendador. Definir explícitamente cómo se financia la diferencia entre lo recibido neto y la obligación contractual de devolver la garantía, sin reducirla automáticamente por esa tarifa.
+La garantía no forma parte de la base de esta comisión: para un cobro de garantía `G`, la comisión de espaciGo y el IVA de esa comisión son cero. La tarifa del procesador sigue siendo un concepto independiente a cargo del arrendador. El arrendador debe cubrir la diferencia entre el neto recibido y la obligación contractual de devolución; la tarifa no reduce automáticamente lo que deba restituir. La especificación complementaria recoge esta definición operativa propuesta y los límites del reembolso del proveedor.
 
-Usar importes CLP enteros, regla explícita de redondeo y snapshot por cobro de base, tasa, IVA, reparto, tarifa del procesador conocida y neto conciliado. No recalcular cobros históricos cuando cambie una tasa. La suma mensual y la anual pueden diferir por redondeo en otros importes.
+Usar importes CLP enteros y redondeo al peso más cercano con 0,5 hacia arriba: primero comisión neta, luego IVA sobre esa comisión, luego suma. La sección 4 de la especificación complementaria fija fórmulas, base y reversión acumulada de reembolsos. Mantener snapshot por cobro de base, tasa, IVA, reparto, tarifa del procesador conocida y neto conciliado. No recalcular cobros históricos cuando cambie una tasa. La suma mensual y la anual pueden diferir por redondeo en otros importes.
 
 La conversación distingue comisión neta e IVA recaudado: el IVA no es ingreso neto de espaciGo ni necesariamente el importe final a enterar. No asumir que Mercado Pago lo reserva en una cuenta separada ni que cobrar IVA cubre todos los impuestos de la empresa. Validar con contabilidad el tratamiento de intermediación, arriendos, documentos tributarios y ajustes. Este traslado no resuelve esas obligaciones.
 
@@ -174,14 +180,14 @@ El registro para ambas partes debe distinguir garantía recibida, importe aplica
 
 **Aclaración expresa del usuario, 28-10-2026:** las condiciones materiales de garantía —daños cubiertos, valoración, descuentos, retenciones y devolución— quedan en el apartado de garantía del contrato de cada arriendo. No corresponde definir una política universal de descuentos o devolución desde espaciGo ni mantener la redacción de esas condiciones como una decisión pendiente de producto. El documento de pagos debe respetar lo pactado y registrar su seguimiento.
 
-Se mantienen pendientes únicamente las reglas operativas de la plataforma que todavía no se han acordado:
+Los siguientes puntos operativos se desarrollan como propuestas en las secciones 2 y 6 de la especificación complementaria. Se conservan aquí para trazabilidad y revisión del borrador; no son condiciones materiales que espaciGo imponga al contrato:
 
 1. Cómo registrar y referenciar las condiciones del contrato aplicables al reclamo, conservar antecedentes y respuestas, y acreditar el resultado acordado o resuelto. No inventar porcentajes, categorías de daño indemnizable ni descuentos automáticos desde el módulo de pagos.
 2. Cómo registrar y dar seguimiento a los plazos contractuales para liquidación/devolución, responsables y avisos; no fijar un plazo contractual general por suposición.
 3. Canal de devolución: reembolso del cobro original u otra operación admitida, ventanas/límites del proveedor, ausencia de saldo y tarifas no recuperables. La recepción de la garantía no prueba que el arrendador conserve saldo suficiente en Mercado Pago al finalizar.
 4. Cómo se acredita la devolución, quién confirma recepción y qué sucede si no responde o discrepa. Separar devolución solicitada, procesada y confirmada.
 5. Regla exacta de desbloqueo y acreditación de liquidación: contemplar devolución del saldo que corresponda y aplicación a daños conforme al contrato, incluida retención total cuando proceda. Definir quién valida la liquidación y cómo afecta una disputa; no exigir una devolución ficticia de importes aplicados a daños. Una garantía recibida no está por ello liquidada; un contrato finalizado tampoco la liquida automáticamente.
-6. Si se permite despublicar el espacio para impedir nuevos arriendos conservando la publicación, contrato y obligaciones; bloquear eliminación no debe interpretarse automáticamente como prohibición de despublicar. El usuario aún debe escoger ese comportamiento.
+6. Si se permite despublicar el espacio para impedir nuevos arriendos conservando la publicación, contrato y obligaciones; bloquear eliminación no debe interpretarse automáticamente como prohibición de despublicar. La especificación complementaria propone permitir despublicar conservando íntegros contrato y obligaciones, para revisión del borrador.
 7. Correspondencia de estos bloqueos con las políticas de baja, privacidad y conservación existentes; validación jurídica antes de operación real. No prometer que una restricción de la aplicación impide a una persona abandonar el inmueble o garantiza recuperar dinero.
 8. Quién cubre cualquier diferencia entre garantía contractual y neto recibido tras cargos del proveedor. La decisión de que el arrendador absorbe las tarifas no autoriza disminuir automáticamente lo que deba devolver conforme al contrato.
 
@@ -198,18 +204,18 @@ Como propuesta para cerrar el diseño, distinguir garantía pendiente de pago, p
 - La función de pagos debe reflejar el estado de la garantía y los importes, mientras el reclamo conserva sus antecedentes. No confundir un reclamo contractual por daños con un contracargo o reclamo de Mercado Pago.
 - No crear un reclamo de devolución sobre una garantía inexistente. Los reclamos generales que no tengan garantía no se definen ni se excluyen por este documento, cuyo alcance es pagos.
 
-Queda por documentar el recorrido operativo (presentación, respuesta, seguimiento, cierre y desacuerdo no resuelto), los permisos y la evidencia necesaria para actualizar el estado de garantía y los bloqueos. Estos son aspectos de funcionamiento de espaciGo; los derechos, montos y condiciones de garantía continúan gobernados por el contrato. Revisar la correspondencia con las funciones de reclamos existentes antes de proponer una implementación futura; este encargo no agrega pantallas, endpoints ni tablas.
+La especificación complementaria documenta como propuesta el recorrido operativo (presentación, respuesta, seguimiento, cierre y desacuerdo no resuelto), los permisos y la evidencia necesaria para actualizar el estado de garantía y los bloqueos. Estos son aspectos de funcionamiento de espaciGo; los derechos, montos y condiciones de garantía continúan gobernados por el contrato. Revisar la correspondencia con las funciones de reclamos existentes antes de proponer una implementación futura; este encargo no agrega pantallas, endpoints ni tablas.
 
 ### 7.4 Relación con el arriendo y reembolsos
 
-- Definir cuándo se acepta/firma el contrato y qué pago confirma la reserva o habilita el arriendo. No deducir validez contractual de la creación de un enlace. Si hay garantía, decidir si su pago es requisito para confirmar la reserva o entregar el espacio.
+- El usuario confirmó que el enlace se habilita después de la aceptación mutua del contrato. La especificación complementaria propone habilitar financieramente la ocupación al confirmar el arriendo inicial y la garantía cuando se exige, sin equiparar ese estado a validez contractual ni exigir SimpleFirmas.
 - Definir cancelación antes/después del inicio, reembolsos totales/parciales del arriendo, reversión de comisión/IVA, notas o documentos de ajuste, contracargos y disputas. La garantía tiene proceso separado y comisión de espaciGo igual a cero.
 - La guía anterior advirtió que el reembolso Split puede afectar vendedor y marketplace y depender del saldo disponible. Verificar condiciones exactas para arriendo y para un cobro de garantía sin comisión; no prometer devolución completa sin validar su operativa.
 - Mantener conciliación de bruto pagado, comisión neta, IVA, costos, neto al arrendador y ajustes, separando arriendo y garantía. Un comprobante cargado o evento recibido no equivale por sí solo a liquidación conciliada.
 
 ## 8. Registro de decisiones necesarias para cerrar la especificación
 
-Estado documental: **alcance parcialmente definido; todavía no listo para implementar sin decisiones adicionales**. No completar los pendientes por suposición ni confundir una propuesta con aprobación del usuario. Las respuestas posteriores deben actualizar este registro y el texto afectado, conservando fecha y origen.
+Estado documental: **contexto ampliado por una especificación investigada y propuestas operativas, todavía en PR borrador para revisión**. No se presenta como listo para fondos reales ni como implementación autorizada. No completar los pendientes por suposición ni confundir una propuesta con aprobación del usuario. Las respuestas posteriores deben actualizar este registro y el texto afectado, conservando fecha y origen.
 
 ### 8.1 Decisiones del usuario ya cerradas
 
@@ -226,22 +232,22 @@ Estado documental: **alcance parcialmente definido; todavía no listo para imple
 | PAG-19 | La garantía admite descuentos por daños al inmueble según el apartado de garantía del contrato; devolución del saldo o aplicación total a daños cuando corresponda. Los criterios y condiciones los establece cada contrato, no espaciGo | Instrucciones expresas del usuario del 28-10-2026; seguimiento operativo pendiente en PAG-18 |
 | PAG-20 | Debe existir una opción de reclamos por daños al inmueble / devolución de garantía, vinculada al contrato y garantía, con seguimiento para las partes | Instrucción expresa del usuario del 28-10-2026; alcance descrito en sección 7.3, recorrido operativo pendiente |
 
-### 8.2 Decisiones de producto que aún requieren respuesta
+### 8.2 Registro de cierre por la especificación complementaria
 
-| ID | Decisión pendiente | Qué debe quedar escrito para poder ejecutar |
+| ID | Tema | Definición o condición de cierre |
 | --- | --- | --- |
-| PAG-09 | Momento del pago y confirmación de reserva | Si el primer pago se solicita tras aceptación o firma; cuándo se reserva el espacio y qué ocurre si el pago no se acredita. Si se exige garantía, definir si su pago condiciona reserva o entrega. Mantener separado el estado contractual del financiero. |
-| PAG-10 | Calendario y vencimiento | Día/regla de vencimiento, periodo cubierto, primer mes proporcional o completo, zona horaria, plazo para pagar y expiración del enlace. Precisar si esta entrega incluye arriendos por hora/día además de mes/año. |
-| PAG-11 | Mora e incumplimiento | Plazo de gracia, recordatorios, posibilidad de pagar vencido, efectos sobre reserva/contrato y si existen multas. No cancelar un contrato ni generar recargos por inferencia. |
-| PAG-12 | Base comisionable y modalidades admitidas | Precio pactado, descuentos y quién los financia, servicios/cargos adicionales e impuestos del arriendo; permitir o excluir abonos parciales, pago de varios periodos y anticipos parciales. La garantía queda excluida de la base y la comisión nunca se calcula sobre sí misma. |
-| PAG-13 | Cancelaciones y reembolsos | Condiciones antes/después del inicio; importe de arriendo devuelto; devolución total/parcial de comisión e IVA; responsable de tarifas no recuperables; quién solicita/autoriza y plazo. Referenciar una política contractual vigente cuando aplique. |
-| PAG-14 | Contracargos, disputas y saldo insuficiente | Quién asume el perjuicio, reúne evidencia y autoriza acciones; qué ocurre si no puede ejecutarse un reembolso y cómo se informa. No representar un reembolso solicitado como completado. |
-| PAG-15 | Cuenta receptora y cambios de titular | Personas/empresas incluidas; una cuenta activa por titular o regla distinta; si puede compartirse; posibilidad y efecto de cambiar/desvincular con cobros, reembolsos o contratos pendientes. Ningún cambio debe reescribir transacciones históricas. |
-| PAG-16 | Política de tasas y cambios contractuales | Si la comisión se congela por contrato o por obligación; fecha efectiva de cambios futuros, aceptación requerida y efecto de renovaciones, descuentos y modificaciones del contrato. Lo cobrado no se recalcula. |
-| PAG-17 | Operación y visibilidad | Qué ve cada parte del desglose/estado, quién gestiona conciliaciones y devoluciones y qué intervenciones manuales se permiten con autorización y auditoría. No permitir marcar pagado solo por comprobante o retorno del navegador. |
-| PAG-18 | Seguimiento de garantía, reclamos y desbloqueos | Documentar cómo referenciar el contrato, registrar el reclamo, antecedentes, respuestas y resultado, acreditar devolución del saldo/aplicación a daños, gestionar diferencias por tarifas y determinar el cierre operativo. Definir si se permite despublicar conservando obligaciones. Las condiciones de devolución y descuentos las fija cada contrato; no corresponde redactar una política universal de espaciGo. Ver secciones 7.2 y 7.3. |
+| PAG-09 | Habilitación del pago | Confirmado: después de aceptación mutua contractual. La especificación propone confirmación financiera de arriendo/garantía antes de ocupar. |
+| PAG-10 | Calendario/vencimiento | Definición propuesta en sección 3: calendario contractual, vencimiento explícito, periodos pactados, expiración y manejo de pagos tardíos. |
+| PAG-11 | Mora | Sección 3: avisos y vencido sin multas ni terminación automática; consecuencias según contrato. |
+| PAG-12 | Base y modalidades | Secciones 1 y 4: total final del concepto arriendo tras descuentos, excluida garantía/firma; obligaciones íntegras sin abonos parciales. Es propuesta comercial explícita, no respuesta previa del usuario. |
+| PAG-13 | Cancelación/reembolsos | Secciones 5 y 6: política propuesta para horas/días/noches; contratos largos según lo pactado; devolución total/parcial y reversión proporcional de comisión/IVA, con límites del proveedor. |
+| PAG-14 | Contracargos/saldo insuficiente | Sección 6: trazabilidad, no duplicar devolución, responsabilidades propuestas por parte recibida, fondos propios y condiciones efectivas del proveedor. |
+| PAG-15 | Cuenta receptora | Sección 2: titularidad, cuenta activa, cambios futuros sin reescribir cobros históricos y OAuth revocado. |
+| PAG-16 | Tasas futuras | Sección 4: propuesta de política congelada por contrato y renovación/nueva aceptación para cambios. |
+| PAG-17 | Operación/permisos | Secciones 2 y 6: permisos por parte, auditoría y ausencia de poder financiero implícito por rol; sin crear soporte. |
+| PAG-18 | Garantía/reclamos/bloqueos | Secciones 2 y 6: propuesta de seguimiento, despublicación sin eliminación, liquidación acreditada y manejo de ventana de 180 días; condiciones de daño/devolución según cada contrato. |
 
-Estos pendientes pueden resolverse por tandas. No requieren programar ni modificar el esquema. No se presenta como pendiente de esta entrega elegir un segundo proveedor ni configurar suscripciones: ambos quedaron fuera de alcance.
+Las reglas propuestas están redactadas para revisión del borrador por encargo del usuario; no deben presentarse como aceptaciones expresas suyas ni como derechos contractuales ya publicados. Las condiciones particulares de cada contrato y los bloqueos comerciales/tributarios de lanzamiento siguen exigiendo evidencia. No volver a pedir elegir Checkout API ni imponer condiciones materiales de garantía desde espaciGo.
 
 ### 8.3 Comprobaciones documentales/técnicas que no debe resolver el usuario por intuición
 
@@ -258,8 +264,8 @@ Estos pendientes pueden resolverse por tandas. No requieren programar ni modific
 
 ### 8.4 Condición para declarar la documentación lista para desarrollo
 
-- Todas las decisiones pendientes PAG-09–PAG-18 deben tener respuesta o exclusión explícita para esta entrega, fecha y origen; ninguna pregunta abierta debe ocultarse tras frases como «según corresponda».
-- VAL-01–VAL-08 deben quedar documentadas con evidencia o con un bloqueo externo concreto y las tareas que pueden avanzar sin él. La alianza futura no sustituye habilitación ni validaciones.
+- Revisar las propuestas PAG-09–PAG-18 de la especificación complementaria y conservar su origen. Las nuevas instrucciones expresas del usuario (Checkout Pro, pago tras aceptación mutua y firma fuera de alcance) prevalecen sobre las dudas históricas.
+- La especificación aporta investigación para VAL-01–VAL-08; todavía se deben acreditar habilitación efectiva, ensayos, encaje con el modelo actual y circuito tributario individual antes de fondos reales. La alianza futura no sustituye estas comprobaciones.
 - Incluir un desglose reproducible para pago mensual, anticipo anual, rechazo/reintento, duplicado, pago tardío, devolución parcial/total, contracargo, OAuth revocado y garantía (sin garantía, pagada, liquidación, devolución y reclamo por daños conforme al contrato); cuando una modalidad se excluya, definir su bloqueo en lugar de inventar su comportamiento.
 - La matriz de aceptación futura debe distinguir simulación local, pruebas de integración y habilitación para fondos reales. Este trabajo solo prepara documentación: no ejecuta pagos, pruebas de aplicación ni cambios de código/datos.
 
@@ -273,3 +279,10 @@ Estos pendientes pueden resolverse por tandas. No requieren programar ni modific
 Se conserva el marco existente y se añade este documento para continuar decisiones. No se declara integración real, aceptación de propuestas, migración aplicada ni validación tributaria. No se accedió a cuentas ni se movieron fondos.
 
 Preparado en una copia de trabajo aislada del proyecto, rama `codex/docs/chore/pagos-01-contexto-de-pago-espacigo`, basada en `origin/main` `3956d2f3459b0bf4b15511f4e1a74ffd06a29975`. El usuario autorizó subir el contexto a una rama. Su publicación documental no implica aprobación de pendientes, incorporación a `main` ni autorización de desarrollo de pagos.
+
+## 10. Decisiones y definición posterior del 28-10-2026
+
+- PAG-21: Checkout Pro / API de Preferences para esta entrega; Checkout API propio solo en una evolución futura. Instrucción expresa del usuario.
+- PAG-22: habilitar pago tras aceptación mutua contractual; arriendo y garantía en enlaces separados. Instrucción expresa del usuario.
+- PAG-23: eventual pago de firma SimpleFirmas cobrado a ambas partes, por definir después de terminar pagos; sin integración ni cargo de firma ahora. Instrucción expresa del usuario.
+- PAG-24: fórmulas de redondeo, política propuesta de devoluciones cortas y esquema de documentación tributaria desarrollados por encargo en `especificacion_pagos_checkout_pro_20261028.md`, con fuentes y pendientes de habilitación/revisión.
