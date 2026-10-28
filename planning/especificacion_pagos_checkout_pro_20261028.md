@@ -168,6 +168,10 @@ El usuario prevé un pago por firma legal de contrato mediante **SimpleFirmas**,
 
 Una vez finalizado el desarrollo de pagos, abrir una definición separada para ese concepto. La arquitectura debe distinguir arriendo, garantía y eventual firma; no agregar ahora enlaces, servicios, pantallas, obligaciones cobrables ni una dependencia de SimpleFirmas para completar arriendo/garantía. No se ha consultado ni validado la API o condiciones comerciales de SimpleFirmas en esta investigación.
 
+## Historial y dashboard vinculados a los pagos
+
+El usuario confirmó conservar los cobros y descuentos e integrarlos a un dashboard por espacio. [Historial de pagos y dashboard financiero](historial_pagos_dashboard_20261028.md) especifica relaciones, importes originales, movimientos posteriores, separación de garantías, consultas por contrato/espacio, indicadores por fecha, permisos y consistencia de totales. Es la definición complementaria del registro persistente; no introduce una segunda fuente de verdad ni crea un esquema físico.
+
 ## 10. Condiciones y escenarios antes de ejecutar
 
 - Validar aplicación/país, requisitos de vendedor (la documentación de Split exige identificación KYC), OAuth, comisión cero para garantía y medios disponibles; la alianza futura no sustituye esta habilitación [MP-4].
