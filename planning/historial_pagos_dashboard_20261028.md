@@ -88,11 +88,13 @@ Un gráfico por periodos y comparación por espacios puede usar los mismos indic
 
 Para un arriendo de $100.000 reembolsado por $50.000, la política propuesta revierte comisión neta $1.500 e IVA $285. El historial conserva el cobro $100.000, la devolución $50.000, comisión neta restante $1.500 e IVA restante $285. La parte económica de devolución atribuible al arrendador es $48.215 antes de los ajustes reales de tarifa. Si el proveedor distribuye otro redondeo, se registra el hecho real y la diferencia a conciliar. La solicitud de esa devolución no altera los totales hasta confirmar su ejecución.
 
-## 6. Conservación, permisos y verificaciones pendientes
+## 6. Conservación, permisos y verificación de correspondencia
 
 El historial financiero no ofrece una acción normal de «editar/borrar pago» para corregir importes. Una regularización autorizada genera ajuste o nueva versión con auditoría, preservando los hechos y sus respaldos conforme a las políticas de conservación. El dashboard es una consulta del historial, no un libro separado susceptible de modificar saldos manualmente.
 
-Queda por verificar antes de implementar: correspondencia de estos registros con las entidades existentes, capacidad exacta para la vista consolidada de espaciGo, disponibilidad real de tarifas/liquidaciones de Mercado Pago, documentos aplicables y política de conservación/minimización por tipo de registro. No se inventa un número de años ni se extiende a todos los datos una retención prevista para otro documento.
+La [matriz de decisiones operativas y conservación](decisiones_operativas_y_conservacion_pagos_20261028.md) concreta las capacidades de consulta/exportación y operación financiera, permisos por titular y plazos productivos propuestos por clase. Para DTE se toma la referencia fiscal de seis años; los calendarios de hechos financieros, contratos y archivos técnicos se distinguen y se justifican como propuesta de diseño. No se extiende ese plazo a todos los datos ni se cambia la retención sintética local.
+
+Queda por verificar al autorizar implementación/operación: correspondencia de estos registros con entidades y permisos existentes, asignación de capacidades a la identidad designada, disponibilidad real de tarifas/liquidaciones de Mercado Pago y validación tributaria individual. Son evidencias de encaje/habilitación, no campos ni indicadores financieros pendientes de definir.
 
 La especificación ya define qué información guardar, relaciones, filtros, indicadores, cálculos y reglas de actualización; esos puntos no quedan delegados a una elección improvisada durante el desarrollo. El esquema físico, índices y contratos de consulta se diseñarán en el corte autorizado de implementación, sin confundirlos con requisitos comerciales aún abiertos.
 

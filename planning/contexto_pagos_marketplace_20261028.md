@@ -12,6 +12,8 @@ Leer junto con [la especificación de Checkout Pro](especificacion_pagos_checkou
 
 El documento complementario define redondeos, operación, devoluciones, propuesta de política para horas/días/noches y circuito documental tributario con fuentes oficiales. El [historial y dashboard financiero](historial_pagos_dashboard_20261028.md) concreta qué conservar por pago/espacio/contrato, descuentos, movimientos, indicadores, permisos y periodos, por encargo posterior del usuario. Sustituye las preguntas abiertas de este contexto en esos puntos; distingue las decisiones expresas del usuario de las propuestas técnicas/comerciales preparadas por encargo y pendientes de revisión del borrador.
 
+La investigación de cierre se concreta en [decisiones operativas, permisos y conservación](decisiones_operativas_y_conservacion_pagos_20261028.md): base comercial propuesta, capacidades financieras, evidencia de habilitación de Mercado Pago, circuito de validación contable y plazos por clase de registro. No se aplican esos plazos a la base sintética ni se activan permisos reales.
+
 ## Decisión de alcance de la entrega inicial — 28-10-2026
 
 Por instrucción expresa del usuario, **Mercado Pago es el único proveedor de pagos y de vinculación de cuentas de cobro permitido en esta etapa de entrega**. El desarrollo de pagos se concentrará en Mercado Pago Split Payments 1:1 para facilitar la distribución al arrendador y el cobro de la comisión de espaciGo.
@@ -215,7 +217,7 @@ La especificación complementaria documenta como propuesta el recorrido operativ
 
 ## 8. Registro de decisiones necesarias para cerrar la especificación
 
-Estado documental: **contexto ampliado por una especificación investigada y propuestas operativas, todavía en PR borrador para revisión**. No se presenta como listo para fondos reales ni como implementación autorizada. No completar los pendientes por suposición ni confundir una propuesta con aprobación del usuario. Las respuestas posteriores deben actualizar este registro y el texto afectado, conservando fecha y origen.
+Estado documental: **base funcional/documental con especificación investigada, historial/dashboard y matriz de permisos/conservación definidos para revisión del borrador**. No se presenta como listo para fondos reales ni como implementación autorizada. No completar los pendientes por suposición ni confundir una propuesta con aprobación del usuario. Las respuestas posteriores deben actualizar este registro y el texto afectado, conservando fecha y origen.
 
 ### 8.1 Decisiones del usuario ya cerradas
 
@@ -244,7 +246,7 @@ Estado documental: **contexto ampliado por una especificación investigada y pro
 | PAG-14 | Contracargos/saldo insuficiente | Sección 6: trazabilidad, no duplicar devolución, responsabilidades propuestas por parte recibida, fondos propios y condiciones efectivas del proveedor. |
 | PAG-15 | Cuenta receptora | Sección 2: titularidad, cuenta activa, cambios futuros sin reescribir cobros históricos y OAuth revocado. |
 | PAG-16 | Tasas futuras | Sección 4: propuesta de política congelada por contrato y renovación/nueva aceptación para cambios. |
-| PAG-17 | Operación/permisos | Secciones 2 y 6: permisos por parte, auditoría y ausencia de poder financiero implícito por rol; sin crear soporte. El documento de historial/dashboard concreta vistas por titular, indicadores, trazabilidad y acceso consolidado autorizado. |
+| PAG-17 | Operación/permisos | Secciones 2 y 6: permisos por parte, auditoría y ausencia de poder financiero implícito por rol; sin crear soporte. El documento de historial/dashboard concreta vistas por titular, indicadores y trazabilidad; la matriz de decisiones operativas fija capacidades financieras separadas y su alcance, sin concederlas a cuentas reales. |
 | PAG-18 | Garantía/reclamos/bloqueos | Secciones 2 y 6: seguimiento, propuesta de despublicación sin eliminación y liquidación acreditada. Confirmado: reembolso Mercado Pago dentro de su ventana; arriendos largos con devolución entre las partes conforme a contrato, sin canal financiero de espaciGo. |
 
 Las reglas propuestas están redactadas para revisión del borrador por encargo del usuario; no deben presentarse como aceptaciones expresas suyas ni como derechos contractuales ya publicados. Las condiciones particulares de cada contrato y los bloqueos comerciales/tributarios de lanzamiento siguen exigiendo evidencia. No volver a pedir elegir Checkout API ni imponer condiciones materiales de garantía desde espaciGo.
@@ -291,3 +293,5 @@ Preparado en una copia de trabajo aislada del proyecto, rama `codex/docs/chore/p
 
 - PAG-26: por instrucción expresa del usuario del 28-10-2026, guardar historial de pagos e importes cobrados, comisión de espaciGo y descuentos, con integración a dashboard e historial por cada espacio que genere ingresos.
 - PAG-27: diseño de registro y dashboard preparado por encargo en `historial_pagos_dashboard_20261028.md`: hechos originales y ajustes trazables, relaciones por espacio/contrato/obligación, bruto/comisión/IVA/tarifa/neto, garantías separadas, periodos sin duplicar anticipos y permisos por parte. Sin cambios de esquema ni implementación.
+
+- PAG-28: por encargo del usuario del 28-10-2026, se investigan y concretan las propuestas comerciales, permisos financieros y conservación en `decisiones_operativas_y_conservacion_pagos_20261028.md`. Se definen capacidades separadas y plazos por clase, con mínimo fiscal de DTE y excepciones documentadas; no se modifican permisos/retenciones existentes ni se afirma revisión individual de un contador o habilitación de la aplicación Mercado Pago.
