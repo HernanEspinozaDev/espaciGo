@@ -8,6 +8,8 @@
 **Catálogo Live API:** Verificado HTTP 200 en `/api/v1/public/space-categories` (9 categorías canónicas reales). Los perfiles detallados de esta matriz proceden de las migraciones; no se presentan como una nueva lectura SQL de sus filas. La comprobación SQL específica se documenta por separado.  
 **Ledger de Migraciones Cloud:** 75 migraciones incrementales completas (V000001 a V000075) verificadas en `.local/testing/recuperacion-schema-release/img01-schema-evidence-49931127a2d5ab6a8cb08876244457778fafd048b34028cb3ddec30ccde3a77c.json`.
 
+> Evidencia histórica de los cortes 2026-10-27/28; ni el catálogo, ledger ni despliegue se presentan como estado remoto actual. Para la reconciliación vigente de fases y límites, consultar `plan_creacion_espacios_galeria_documentos.md` §8 (2026-10-29).
+
 ---
 
 ## 1. Cadena de Identidad, Cuentas, Anfitrión y Propiedad (Ownership)

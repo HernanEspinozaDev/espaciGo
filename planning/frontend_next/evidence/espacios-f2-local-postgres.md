@@ -1,7 +1,7 @@
 # Evidencia F2 — PostgreSQL nativo local
 
 **Fecha:** 2026-10-28  
-**Repositorio:** `/home/nandev/Documentos/projects/espaciGo`, rama `main`, HEAD base `3956d2f`; hay cambios locales sin commit que se preservaron.  
+**Checkout de ejecución (corte histórico):** `/home/nandev/Documentos/projects/espaciGo`, rama `main`, HEAD base `3956d2f`; hay cambios locales sin commit que se preservaron. El checkout vigente y la reconciliación actual están en el plan maestro §8.
 **Alcance:** exclusivamente PostgreSQL nativo local `espacigo_dms_stage_20261020`. No se tocó Cloud SQL/GCP, Terraform, IAM, despliegues ni volúmenes.
 
 ## Target y backup previo

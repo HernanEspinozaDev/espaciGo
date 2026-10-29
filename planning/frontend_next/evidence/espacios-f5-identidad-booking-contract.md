@@ -4,6 +4,8 @@
 **Repositorio:** `/home/nandev/Documentos/projects/espaciGo`, rama `main`, HEAD base `3956d2f3459b0bf4b15511f4e1a74ffd06a29975`  
 **Estado:** corte parcial de dominio/contrato sintético con gate preflight conectado al servicio de reservas; no hay adaptador persistente ni cierre de F5.
 
+> **Límite vigente:** el target sintético autorizado por F6 es solo F6 y no habilita F5. F5 aún no tiene target de PostgreSQL aislado autorizado; no iniciar API/DB ni aplicar DDL para cerrar esta brecha. Ver delta y secuencia actual en `espacios-f5-delta-persistencia-integracion-20261029.md`.
+
 ## Contrato implementado
 
 - Se añadió el paquete independiente `internal/identityverification`, separado del login/sesión (`internal/identity`) y del KYC/KYB fixture (`internal/verification`).
@@ -32,5 +34,5 @@
 - `booking.Service.Decide(aprobar)` consulta la reserva para obtener anfitrión/arrendatario y requiere el gate documental explícito antes de delegar la decisión. Dependencia ausente o error de proveedor falla cerrado con 503; identidad no vigente devuelve 409. `rechazar` permanece independiente.
 - `cmd/api` aún no instancia/adapta el repositorio documental ni cablea el verificador; el servicio runtime queda fail-closed y devuelve 503 al intentar aprobar hasta que exista esa persistencia. El repositorio PostgreSQL actual aún conserva su KYC fixture en la creación de solicitudes; KYC no equivale a la política documental nueva.
 - El preflight `Get` → verificación → `Repository.Decide` atraviesa límites de repositorio distintos y no es atómico con el commit de la reserva: falta bloquear/revalidar vigencia y revocación dentro de la transacción final. No se afirma contratación persistida ni protección contra carrera de revocación.
-- No hay adaptador/repositorio documental persistente, intake en cuarentena, scanner real fail-closed, revisión manual operativa, ACL, distintivo, revocación/vencimiento con datos, retención, borrado, UI ni recorrido BFF. Las pruebas son unitarias/sintéticas.
-- El siguiente corte debe diseñar/cablear la persistencia documental y su coordinación transaccional sin mapear KYC antiguo ni alterar la independencia de publicación; no aplicar DDL ni iniciar API/DB hasta que F6 confirme target sintético aislado autorizado.
+- No hay adaptador/repositorio documental persistente, intake en cuarentena con estado durable, scanner integrado fail-closed (el adaptador ClamAV local solo tiene prueba sintética clean/EICAR), revisión manual operativa, ACL, distintivo, revocación/vencimiento con datos, retención, borrado, UI ni recorrido BFF. Las pruebas son unitarias/sintéticas.
+- El siguiente corte debe diseñar/cablear la persistencia documental y su coordinación transaccional sin mapear KYC antiguo ni alterar la independencia de publicación. F6 ya cuenta con autorización y target propio, pero esa autorización **no cubre F5**; no aplicar DDL ni iniciar API/DB F5 hasta acordar y autorizar su target aislado independiente.

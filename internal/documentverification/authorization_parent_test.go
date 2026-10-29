@@ -57,13 +57,13 @@ func TestReviewAuthorizationAndCurrentIdentity(t *testing.T) {
 		change func(*memoryRepository)
 		want   error
 	}{
-		{"no-capability", func(r *memoryRepository) { r.auth.Capabilities = nil }, ErrCapability},
+		{"no-capability", func(r *memoryRepository) { r.auth.ReviewerGrants = nil }, ErrCapability},
 		{"self-review", func(r *memoryRepository) { r.state.SubjectID = actor; r.auth.SpaceOwnerID = actor }, ErrSelfReview},
 		{"identity-revoked", func(r *memoryRepository) { r.auth.IdentityCurrent = false }, ErrIdentityNotCurrent},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, r, x := fixture(t, PurposeSpace)
-			r.auth.Capabilities = map[Capability]bool{CapabilitySpace: true}
+			r.auth.ReviewerGrants = []ReviewerGrant{{ReviewerID: actor, Capability: CapabilitySpace, ScopeID: space}}
 			s.SetClock(func() time.Time { return now })
 			tc.change(r)
 			if err := s.Review(context.Background(), actor, x.ID, CapabilitySpace, DecisionApprove, time.Time{}, 0); !errors.Is(err, tc.want) {
@@ -85,7 +85,7 @@ func TestReviewCapsValidityAndRequestedExpiry(t *testing.T) {
 			cap := CapabilityIdentity
 			months := 24
 			if p == PurposeSpace {
-				r.auth.Capabilities = map[Capability]bool{CapabilitySpace: true}
+				r.auth.ReviewerGrants = []ReviewerGrant{{ReviewerID: actor, Capability: CapabilitySpace, ScopeID: space}}
 				cap = CapabilitySpace
 				months = 12
 			}
@@ -106,11 +106,11 @@ func TestRevokeUsesClockAndRequiresCapability(t *testing.T) {
 	s, r, x := fixture(t, PurposeSpace)
 	s.SetClock(func() time.Time { return now })
 	r.state.State = CaseApproved
-	r.auth.Capabilities = nil
+	r.auth.ReviewerGrants = nil
 	if err := s.Revoke(context.Background(), actor, x.ID, x.Purpose, "synthetic reason", 0); !errors.Is(err, ErrCapability) {
 		t.Fatalf("got %v", err)
 	}
-	r.auth.Capabilities = map[Capability]bool{CapabilitySpace: true}
+	r.auth.ReviewerGrants = []ReviewerGrant{{ReviewerID: actor, Capability: CapabilitySpace, ScopeID: space}}
 	if err := s.Revoke(context.Background(), actor, x.ID, x.Purpose, "synthetic reason", 0); err != nil {
 		t.Fatal(err)
 	}

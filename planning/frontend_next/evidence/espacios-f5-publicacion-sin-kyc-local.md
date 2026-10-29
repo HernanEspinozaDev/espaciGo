@@ -2,7 +2,8 @@
 
 **Fecha:** 2026-10-28  
 **Repositorio:** `/home/nandev/Documentos/projects/espaciGo`, rama `main`, base inspeccionada `3956d2f3459b0bf4b15511f4e1a74ffd06a29975`  
-**Estado:** corte parcial verificado en PostgreSQL aislado; F5 sigue abierta.  
+**Estado:** corte parcial verificado en PostgreSQL aislado; F5 sigue abierta.
+> **Corte histórico 2026-10-28:** los hallazgos de que ClamAV no estaba disponible y de que faltaba el perfil/target F6 corresponden a ese momento. El scanner sintético ClamAV fue probado después (clean/EICAR) y F6 recibió una autorización específica con target propio; eso no cambia la persistencia pendiente F5 ni autoriza usar F6. Estado y límites actuales: `espacios-f5-documentos-flujo-arquitectura.md` y `espacios-f5-delta-persistencia-integracion-20261029.md`.
 **Target de prueba:** PostgreSQL temporal del script `scripts/test-m04-attributes-postgres.sh`, datos sintéticos; no se inició `cmd/api` ni se escribieron datos en PostgreSQL nativo persistente.
 
 ## Cambios y comportamiento probado

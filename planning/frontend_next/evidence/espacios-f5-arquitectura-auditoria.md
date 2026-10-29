@@ -4,6 +4,8 @@
 **Repositorio:** `/home/nandev/Documentos/projects/espaciGo`, rama `main`, HEAD observado `3956d2f3459b0bf4b15511f4e1a74ffd06a29975`; el worktree contiene cambios locales sin commit.  
 **Alcance:** inspección estática read-only de verificación, documentos, booking y publicación. No se editaron fuentes durante la auditoría, no se inició API/DB/servicios y no se accedió a datos privados. La política vigente está en `espacios-f5-politica-owner-aprobada.md`.
 
+> **Informe de auditoría histórica (2026-10-28).** El hallazgo “no hay dominio separado” quedó superado por el paquete documental in-memory y el contrato `identityverification`; el estado actual de integración y los gates se describen en `espacios-f5-documentos-flujo-arquitectura.md`, `espacios-f5-identidad-booking-contract.md` y `espacios-f5-delta-persistencia-integracion-20261029.md`. Este informe no acredita persistencia/runtime.
+
 ## Hallazgos
 
 - `internal/verification` y `internal/adapters/postgres/verification` implementan el flujo existente de casos, revisión, revocación, historial y elegibilidad. La evidencia actual se identifica como fixture local (`local-fixture-v1`, `fixture:`); no acredita identidad documental.

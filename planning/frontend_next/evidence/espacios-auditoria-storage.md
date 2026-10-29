@@ -2,6 +2,8 @@
 
 **Fecha:** 2026-10-27. **Base:** `3956d2f3459b0bf4b15511f4e1a74ffd06a29975`. Solo lectura. Este documento fue contrastado y corregido por el padre; distingue observaciones de propuestas. No se modificaron buckets, objetos, IAM, Terraform, CORS ni lifecycle.
 
+> Evidencia histórica del snapshot 2026-10-27, no inventario remoto vigente. Para el estado y alcance actual de este plan, consultar `plan_creacion_espacios_galeria_documentos.md` §8 (reconciliación 2026-10-29).
+
 ## 1. Bucket utilizado realmente por Go
 
 Lectura de Cloud Run `espacigo-test-api`, filtrando exclusivamente configuración no secreta:

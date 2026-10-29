@@ -2,13 +2,13 @@ package clamav
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -36,40 +36,36 @@ func New(cfg Config) (*Adapter, error) {
 }
 
 func (a *Adapter) Scan(ctx context.Context, content []byte) (dv.FileState, error) {
-	return a.ScanReader(ctx, strings.NewReader(string(content)))
+	return a.ScanReader(ctx, bytes.NewReader(content))
 }
+
 func (a *Adapter) ScanReader(ctx context.Context, content io.Reader) (dv.FileState, error) {
 	fail := func(err error) (dv.FileState, error) { return dv.FileBlocked, err }
-	if a == nil || a.cfg.Address == "" {
-		return fail(errors.New("clamav: unavailable configuration"))
+	if a == nil || a.cfg.Address == "" || content == nil {
+		return fail(errors.New("clamav: unavailable configuration or content"))
 	}
-	conn, err := (&net.Dialer{Timeout: a.cfg.Timeout}).DialContext(ctx, "tcp", a.cfg.Address)
+	version, err := a.signatureVersion(ctx)
 	if err != nil {
-		return fail(errors.New("clamav: connection failed"))
-	}
-	defer conn.Close()
-	deadline := time.Now().Add(a.cfg.Timeout)
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
-	}
-	_ = conn.SetDeadline(deadline)
-	if _, err = io.WriteString(conn, "zVERSION\x00"); err != nil {
-		return fail(errors.New("clamav: version request failed"))
-	}
-	line, err := bufio.NewReader(conn).ReadString('\n')
-	if err != nil {
-		return fail(errors.New("clamav: version metadata unavailable"))
-	}
-	if err = validateVersion(strings.TrimSpace(line), a.cfg.Now(), a.cfg.MaxSignatureAge); err != nil {
 		return fail(err)
 	}
-	if _, err = io.WriteString(conn, "zINSTREAM\x00"); err != nil {
-		return fail(errors.New("clamav: stream request failed"))
+	if err := validateVersion(version, a.cfg.Now(), a.cfg.MaxSignatureAge); err != nil {
+		return fail(err)
+	}
+
+	conn, stopCancel, err := a.dial(ctx)
+	if err != nil {
+		return fail(errors.New("clamav: scan connection failed"))
+	}
+	defer conn.Close()
+	defer stopCancel()
+	reader := bufio.NewReaderSize(conn, 4096)
+	if _, err := io.WriteString(conn, "zINSTREAM\x00"); err != nil {
+		return fail(fmt.Errorf("clamav: stream request failed: %w", err))
 	}
 	buf := make([]byte, 32*1024)
 	var total int64
 	for {
-		n, e := content.Read(buf)
+		n, readErr := content.Read(buf)
 		if n > 0 {
 			total += int64(n)
 			if total > a.cfg.MaxBytes {
@@ -77,53 +73,101 @@ func (a *Adapter) ScanReader(ctx context.Context, content io.Reader) (dv.FileSta
 			}
 			var size [4]byte
 			binary.BigEndian.PutUint32(size[:], uint32(n))
-			if _, err = conn.Write(size[:]); err != nil {
-				return fail(errors.New("clamav: stream failed"))
+			if _, err := conn.Write(size[:]); err != nil {
+				return fail(fmt.Errorf("clamav: stream length write failed: %w", err))
 			}
-			if _, err = conn.Write(buf[:n]); err != nil {
-				return fail(errors.New("clamav: stream failed"))
+			if _, err := conn.Write(buf[:n]); err != nil {
+				return fail(fmt.Errorf("clamav: stream content write failed: %w", err))
 			}
 		}
-		if e == io.EOF {
+		if readErr == io.EOF {
 			break
 		}
-		if e != nil {
+		if readErr != nil {
 			return fail(errors.New("clamav: content read failed"))
 		}
 	}
-	if _, err = conn.Write([]byte{0, 0, 0, 0}); err != nil {
-		return fail(errors.New("clamav: stream terminator failed"))
+	if total == 0 {
+		return fail(errors.New("clamav: empty content is not scannable"))
 	}
-	response, err := bufio.NewReader(conn).ReadString('\n')
+	if _, err := conn.Write([]byte{0, 0, 0, 0}); err != nil {
+		return fail(fmt.Errorf("clamav: stream terminator failed: %w", err))
+	}
+	response, err := readClamdMessage(reader)
 	if err != nil {
 		return fail(errors.New("clamav: scan response unavailable"))
 	}
-	response = strings.TrimSpace(response)
-	if strings.HasSuffix(response, "stream: OK") {
+	if strings.HasPrefix(response, "stream: ") && strings.HasSuffix(response, " OK") {
 		return dv.FileClean, nil
 	}
-	if strings.Contains(response, "stream: ") && strings.HasSuffix(response, " FOUND") {
+	if strings.HasPrefix(response, "stream: ") && strings.HasSuffix(response, " FOUND") {
 		return dv.FileBlocked, nil
 	}
-	return fail(fmt.Errorf("clamav: malformed scan response"))
+	return fail(errors.New("clamav: malformed or error scan response"))
+}
+
+// ClamD handles one command per connection; version freshness is checked on a
+// separate connection before the stream request is sent.
+func (a *Adapter) signatureVersion(ctx context.Context) (string, error) {
+	conn, stopCancel, err := a.dial(ctx)
+	if err != nil {
+		return "", errors.New("clamav: version connection failed")
+	}
+	defer conn.Close()
+	defer stopCancel()
+	if _, err := io.WriteString(conn, "zVERSION\x00"); err != nil {
+		return "", errors.New("clamav: version request failed")
+	}
+	version, err := readClamdMessage(bufio.NewReaderSize(conn, 4096))
+	if err != nil {
+		return "", errors.New("clamav: version metadata unavailable")
+	}
+	return version, nil
+}
+
+func (a *Adapter) dial(ctx context.Context) (net.Conn, func() bool, error) {
+	conn, err := (&net.Dialer{Timeout: a.cfg.Timeout}).DialContext(ctx, "tcp", a.cfg.Address)
+	if err != nil {
+		return nil, nil, err
+	}
+	deadline := time.Now().Add(a.cfg.Timeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		_ = conn.Close()
+		return nil, nil, err
+	}
+	stopCancel := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	return conn, stopCancel, nil
+}
+
+func readClamdMessage(reader *bufio.Reader) (string, error) {
+	message, err := reader.ReadSlice(0)
+	if err != nil {
+		return "", err
+	}
+	if len(message) == 0 || message[len(message)-1] != 0 {
+		return "", errors.New("clamav: unterminated response")
+	}
+	return strings.TrimSpace(strings.TrimSuffix(string(message), "\x00")), nil
 }
 
 func validateVersion(line string, now time.Time, maxAge time.Duration) error {
-	const marker = " ("
-	i := strings.LastIndex(line, marker)
-	if i <= 0 || !strings.HasSuffix(line, ")") {
+	line = strings.TrimSpace(strings.TrimSuffix(line, "\x00"))
+	if !strings.HasPrefix(line, "ClamAV ") {
 		return errors.New("clamav: malformed version metadata")
 	}
-	date := strings.TrimSuffix(line[i+len(marker):], ")")
-	parsed, err := time.Parse("02 Jan 2006", date)
+	parts := strings.Split(line, "/")
+	if len(parts) < 3 || strings.TrimSpace(parts[1]) == "" || strings.TrimSpace(parts[len(parts)-1]) == "" {
+		return errors.New("clamav: malformed version metadata")
+	}
+	updatedAt, err := time.Parse("Mon Jan 2 15:04:05 2006", strings.TrimSpace(parts[len(parts)-1]))
 	if err != nil {
 		return errors.New("clamav: malformed version date")
 	}
-	if strings.TrimSpace(line[:i]) == "" || parsed.After(now.Add(24*time.Hour)) || now.Sub(parsed) > maxAge {
+	if maxAge <= 0 || updatedAt.After(now.Add(5*time.Minute)) || now.Sub(updatedAt) > maxAge {
 		return errors.New("clamav: stale or invalid signature metadata")
-	}
-	if _, err := strconv.Atoi(parsed.Format("2006")); err != nil {
-		return errors.New("clamav: malformed version metadata")
 	}
 	return nil
 }

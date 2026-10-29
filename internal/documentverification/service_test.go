@@ -52,7 +52,7 @@ func (r *memoryRepository) Transition(_ context.Context, p Purpose, id string, r
 }
 func fixture(t *testing.T, p Purpose) (*Service, *memoryRepository, Snapshot) {
 	t.Helper()
-	r := &memoryRepository{auth: Authorization{ActorID: actor, SubjectID: subject, SpaceOwnerID: subject, Capabilities: map[Capability]bool{CapabilityIdentity: true}, IdentityCurrent: true}}
+	r := &memoryRepository{auth: Authorization{ActorID: actor, SubjectID: subject, SpaceOwnerID: subject, ReviewerGrants: []ReviewerGrant{{ReviewerID: actor, Capability: CapabilityIdentity, ScopeID: subject}}, IdentityCurrent: true}}
 	s, _ := NewService(r)
 	x := Snapshot{Purpose: p, ID: caseID, SubjectID: subject, SpaceID: space, State: CaseSubmitted, Files: []File{{ID: fileID, State: FileClean, Size: 100, MIME: "image/jpeg", Pages: 1}}, DocumentExpiresAt: time.Date(2028, 1, 1, 0, 0, 0, 0, time.UTC)}
 	if p == PurposeIdentity {
@@ -126,8 +126,8 @@ func TestSpaceReviewRejectsCurrentOwnerEvenWhenHistoricalSubjectDiffers(t *testi
 	s, r, x := fixture(t, PurposeSpace)
 	r.auth.ActorID = actor
 	r.auth.SpaceOwnerID = actor
-	r.auth.Capabilities = map[Capability]bool{CapabilitySpace: true}
-	r.state.SubjectID = actor
+	r.auth.ReviewerGrants = []ReviewerGrant{{ReviewerID: actor, Capability: CapabilitySpace, ScopeID: space}}
+	r.state.SubjectID = subject
 	before := r.state
 	err := s.Review(context.Background(), actor, x.ID, CapabilitySpace, DecisionReject, time.Time{}, 0)
 	if !errors.Is(err, ErrSelfReview) {
@@ -156,7 +156,7 @@ func TestSpaceCaseHistoricalOwnerMismatchCannotSubmit(t *testing.T) {
 }
 func TestSpaceReviewRejectsStaleHistoricalOwner(t *testing.T) {
 	s, r, x := fixture(t, PurposeSpace)
-	r.auth.Capabilities = map[Capability]bool{CapabilitySpace: true}
+	r.auth.ReviewerGrants = []ReviewerGrant{{ReviewerID: subject, Capability: CapabilitySpace, ScopeID: space}}
 	r.auth.SpaceOwnerID = actor
 	r.auth.ActorID = subject
 	before := r.state
@@ -171,7 +171,7 @@ func TestSpaceReviewRejectsStaleHistoricalOwner(t *testing.T) {
 func TestSpaceRevokeRejectsCurrentOwner(t *testing.T) {
 	s, r, x := fixture(t, PurposeSpace)
 	r.state.State = CaseApproved
-	r.auth.Capabilities = map[Capability]bool{CapabilitySpace: true}
+	r.auth.ReviewerGrants = []ReviewerGrant{{ReviewerID: actor, Capability: CapabilitySpace, ScopeID: space}}
 	r.auth.SpaceOwnerID = actor
 	before := r.state
 	err := s.Revoke(context.Background(), actor, x.ID, PurposeSpace, "reason", 0)

@@ -1,6 +1,6 @@
 # F5 ClamAV local synthetic test scope — 2026-10-29
 
-**Estado:** autorización confirmada. Imagen oficial descargada y fijada por digest. FreshClam actualizó y validó `daily` 28167, `main` 63 y `bytecode` 339; el volumen tmpfs conserva 112,828,934 bytes con el updater vivo y desconectado de egress. ClamD `1.5.4` está `running/healthy` como UID/GID 1000 en red Docker interna sin egress, en `172.25.0.2:3310`, sin puertos publicados. El smoke test local entregó `synthetic-clean.txt → stream: OK` y `eicar.com.txt → Eicar-Test-Signature FOUND`. La integración Go fail-closed sigue pendiente; no se definió un umbral de edad de firma para producción.
+**Estado:** alcance sintético autorizado; scanner local existente fue usado por el adaptador Go el 2026-10-29. La imagen oficial fijada por digest informa ClamAV `1.5.4`; `zVERSION` devolvió la base `28167` con timestamp `Wed Oct 28 06:24:17 2026`. El adaptador valida el protocolo NUL de ClamD, consulta la versión en conexión separada y exige `MaxSignatureAge` explícito; prueba opt-in con el límite local de 48 horas: `synthetic-clean.txt → limpio`, `eicar.com.txt → bloqueado`. Pruebas unitarias cubren conexión rechazada, timeout, fecha de firmas fuera de vigencia, respuesta malformada y exceso de tamaño; todo error retorna `FileBlocked` más error. Esto no establece política de firmas de producción ni completa el workflow documental/runtime.
 
 ## Owner authorization
 
@@ -54,6 +54,30 @@ Read-only preflight at `2026-10-29 02:44 -03`:
 - Fail closed for a missing scanner, unhealthy scanner, timeout, stale/missing signatures, malformed file, or any non-clean result.
 - At the end, stop/remove only `espacigo-f5-clamav-synth-20261029` and `espacigo-f5-clamav-synth-20261029-update` if present; remove only the exact two tmpfs volumes and exact scanner/egress networks created for this run; remove only this task's host scratch root after preserving sanitized evidence. Verify each exact resource is absent. Never run global prune or volume cleanup.
 
-## Evidence still required
+## Evidencia y límites de la prueba
 
-Record the pulled image's actual digest, engine version, signature database version/date, resource inspection, and test outputs. Execute the five test cases and verify fail-closed behavior in the Go boundary; a successful ClamAV CLI scan alone does not prove application state transitions. Do not claim scanner integration until the host API/Go scanner boundary has exercised the same scanner and verified the blocked-state behavior.
+Record the pulled image's actual digest, engine version, signature database version/date, resource inspection, and test outputs. The adapter tests and real-scanner samples below establish scanner-boundary behavior only; they do not prove persisted case state or workflow integration.
+
+## Continuación verificada 2026-10-29
+
+- Preflight confirmó el scanner exacto `espacigo-f5-clamav-synth-20261029` running/healthy en `172.25.0.2:3310`, red internal sin egress ni puertos publicados; el volumen tmpfs de firmas sigue anclado por `espacigo-f5-clamav-synth-20261029-update`. El updater está `running` pero `unhealthy` porque su comando es `sleep infinity`; no tiene redes y no actualiza firmas automáticamente. No se recreó, reinició ni retiró ningún recurso. F6 PostgreSQL siguió intacto.
+- El adaptador usa `zVERSION` en una conexión independiente (ClamD atiende una orden por conexión), exige terminador NUL, valida el timestamp completo `weekday month day time year`, y abre una segunda conexión para `zINSTREAM`. El fallo de la primera integración real fue conexión reutilizada: el scanner cerraba el socket tras responder versión; se reprodujo contra la dirección exacta y se corrigió antes de repetir.
+- Gates: `go test ./internal/adapters/clamav -count=1`; `go vet ./internal/adapters/clamav`; ambos pasan. La prueba real opt-in se ejecutó con `ESPACIGO_CLAMAV_TEST_ADDRESS=172.25.0.2:3310` y el scratch de muestras sintéticas y pasó `TestLocalScannerSyntheticFiles`: limpia=`limpio`, EICAR=`bloqueado`. No se escanearon documentos de usuario.
+- El valor local de 48 h se pasa explícitamente por `Config.MaxSignatureAge`; `New` rechaza cero/no configurado. `validateVersion` rechaza firmas antiguas/futuras o malformadas. El test de vigencia usa reloj sintético; no se alteró la base de firmas real para simular antigüedad. Este límite no queda aprobado como política de producción.
+- Pruebas automatizadas fail-closed: puerto sin servicio, respuesta de versión que excede el timeout, fecha stale, respuesta malformada, contenido sobre el máximo, y clean/EICAR. Todos los errores retornan `FileBlocked` con error; detección positiva retorna `FileBlocked` sin error.
+- Queda pendiente una prueba de extremo a extremo que cargue un documento por API, lo aisle en cuarentena, lo escanee, persista estado y conecte revisión/descarga con una implementación autoritativa. La prueba del adaptador no cierra ese ciclo.
+
+## Retención y cleanup — estado vigente 2026-10-29
+
+- **Retención:** se conserva el scanner `espacigo-f5-clamav-synth-20261029` porque se requiere para continuar la integración sintética scanner→persistencia cuando exista un target F5 autorizado. El anchor `espacigo-f5-clamav-synth-20261029-update` permanece sin redes y ejecutando `sleep infinity` para mantener vivo el volumen tmpfs de firmas; está `unhealthy`, no actualiza firmas. El scanner está `running/healthy`, interno, sin puertos publicados. No se retira en este corte.
+- **Cleanup futuro acotado:** tras cerrar las pruebas F5 autorizadas y preservar evidencia, inspeccionar y retirar solo estos dos contenedores, volúmenes `espacigo-f5-clamav-synth-20261029-db` y `espacigo-f5-clamav-synth-20261029-quarantine`, redes `espacigo-f5-clamav-synth-20261029-net` y `espacigo-f5-clamav-update-egress-20261029`, y el scratch F5. Verificar cada nombre ausente. No global prune, no `down --volumes`, no tocar recursos F6. Detalle y límites: `espacios-f5-delta-persistencia-integracion-20261029.md`.
+
+## Revalidación del adaptador contra scanner real — 2026-10-29 05:38 -03
+
+- Preflight read-only: `espacigo-f5-clamav-synth-20261029` estaba `running/healthy`, en `espacigo-f5-clamav-synth-20261029-net` con IP `172.25.0.2`, sin puertos publicados. No se alteró ningún recurso; no se hizo cleanup.
+- Comando opt-in: `ESPACIGO_CLAMAV_TEST_ADDRESS=172.25.0.2:3310 ESPACIGO_CLAMAV_TEST_SAMPLE_DIR=/home/nandev/.hermes/cache/scratch/espacigo-f5-clamav-synth-20261029/samples go test ./internal/adapters/clamav -run '^TestLocalScannerSyntheticFiles$' -v -count=1` (2026-10-29 05:38:07 -03) pasó: `synthetic-clean.txt → limpio`; `eicar.com.txt → bloqueado`.
+- Solo se usaron las dos muestras sintéticas ya documentadas. Ninguna cuenta/documento real, DB, API, Mailpit o servicio cloud participó. El updater, volúmenes, redes y scratch siguen retenidos según la sección de cleanup acotado precedente.
+
+## Revisión independiente de seguridad del adaptador — 2026-10-29
+
+La revisión read-only `deleg_facb116a` del diff bajo HEAD `c50a2ef22dd2e3fb3134d0cb8bfe248fcedb7f6d` no halló blocker concreto en `internal/adapters/clamav`; verificó fail-closed ante errores (`adapter.go:42–107`), consulta de versión en conexión separada (`:109–125`), deadlines de conexión (`:128–143`), respuesta NUL terminada (`:145–153`) y rechazo de metadata de firmas malformada, futura o stale (`:156–172`). Las pruebas de paquete y `go vet` pasaron en la revalidación local posterior; esto revisa el límite del adaptador, no integra carga API, cuarentena, persistencia ni flujo de revisión/descarga. No se tocaron scanner, DB, secretos o infraestructura durante la revisión.

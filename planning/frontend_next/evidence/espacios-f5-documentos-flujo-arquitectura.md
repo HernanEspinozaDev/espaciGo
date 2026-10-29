@@ -1,8 +1,8 @@
 # F5 — Diseño propuesto del ciclo documental privado
 
 **Fecha:** 2026-10-28  
-**Repositorio:** `/home/nandev/Documentos/projects/espaciGo`, rama `main`; cambios locales sin commit.  
-**Estado:** diseño no operativo basado en la política aprobada en `espacios-f5-politica-owner-aprobada.md`. No autoriza storage, DDL, API, scanner ni infraestructura.
+**Repositorio:** `/home/nandev/Documentos/projects/espaciGo`, rama de trabajo `codex/backend/feature/local-close-02-espacios-galeria-documentos`; cambios F5 posteriores al commit `c50a2ef` en curso.
+**Estado al 2026-10-29:** diseño no operativo complementado con reglas de dominio, grants explícitos actor/capacidad/scope, política de descarga owner-only y prueba real del adaptador ClamAV contra el scanner sintético local. No hay persistencia documental ni wiring en `cmd/api`; por tanto aún no existe flujo operativo de carga/revisión/descarga. La aprobación del owner sí autoriza el trabajo local sintético descrito en `espacios-f5-politica-owner-aprobada.md` y `espacios-f5-clamav-prueba-local-20261029.md`; se mantienen los límites de no tocar DB persistente/cloud ni documentos reales.
 
 ## 1. Principio de separación
 
@@ -43,27 +43,27 @@ Esta matriz traduce la política aprobada en una propuesta verificable de permis
 
 | Actor | Enviar / consultar caso | Leer o descargar archivos | Revisar / decidir | Visibilidad pública |
 |---|---|---|---|---|
-| Titular — identidad | Solo su propio expediente | Propuesta pendiente: solo sus archivos limpios; definir acceso posterior al cierre | No | Solo su distintivo minimizado |
-| Administrador del espacio | Solo expediente del espacio que administra, según autoridad del servidor | Propuesta pendiente: solo archivos limpios del expediente propio; definir acceso posterior al cierre | No | Solo distintivo y alcance de ese espacio |
-| Personal `review_identity` | No enviar; leer casos de identidad dentro de alcance asignado, aún por definir | Solo archivos limpios del caso autorizado | Solo identidad: aprobar, rechazar o pedir antecedentes, sin auto-revisión | No privilegio adicional |
-| Personal `review_space` | No enviar; leer casos de espacio dentro de alcance asignado, aún por definir | Solo archivos limpios del caso autorizado | Solo espacio: aprobar, rechazar o pedir antecedentes, sin auto-revisión | No privilegio adicional |
-| Personal con ambas capacidades | No enviar | Solo archivos limpios de los casos dentro de cada alcance | Ambos propósitos; permitir esta combinación requiere confirmación | No privilegio adicional |
+| Titular — identidad | Solo su propio expediente | Solo sus archivos limpios mientras el caso está abierto; sin descarga al cerrar | No | Solo su distintivo minimizado |
+| Administrador del espacio | Solo expediente del espacio que administra según autoridad del servidor | Solo archivos limpios del expediente propio mientras el caso está abierto; transferencia exige caso nuevo | No puede revisar ni revocar ese expediente, incluso si su sujeto histórico es distinto | Solo distintivo y alcance de ese espacio |
+| Personal `review_identity` | No enviar; solo casos de identidad con grant explícito del actor en el scope autorizado | Solo archivos limpios del caso autorizado | Solo identidad: aprobar, rechazar o pedir antecedentes; sin auto-revisión | No privilegio adicional |
+| Personal `review_space` | No enviar; solo casos del espacio con grant explícito del actor para el `space_id` | Solo archivos limpios del caso autorizado | Solo espacio: aprobar, rechazar o pedir antecedentes; current admin del espacio excluido | No privilegio adicional |
+| Personal con ambas capacidades | Denegado hasta aprobación específica; grants duales se rechazan | Ninguno mientras no se apruebe la combinación | Ninguno mientras no se apruebe la combinación | No privilegio adicional |
 | Soporte / administración general | Ninguno por defecto | Ninguno | Ninguno | Igual que cualquier público; break-glass no definido |
 | Escáner | No | Propuesta: acceso técnico mínimo a objetos en cuarentena; ACL exacta pendiente | No | Ninguna |
 | Otro usuario público | Ninguno | Ninguno | Ninguno | Solo distintivo minimizado y su alcance, si existe |
 
-**Reglas base aprobadas:** las dos finalidades y sus capacidades de revisión son distintas; revisión manual; no auto-aprobación; autorización en Go; archivos pendientes/bloqueados/con error no son revisables ni descargables; `limpio` no equivale a caso aprobado; aprobar un antecedente de espacio requiere identidad vigente; terceros solo ven el distintivo minimizado, nunca documentos ni estado interno.
+**Reglas base aprobadas:** las dos finalidades y sus capacidades de revisión son distintas; revisión manual; no auto-aprobación; autorización en Go; archivos pendientes/bloqueados/con error no son revisables ni descargables; `limpio` no equivale a caso aprobado; aprobar un antecedente de espacio requiere identidad vigente; terceros solo ven el distintivo minimizado, nunca documentos ni estado interno. Titular actual descarga solo limpio mientras el caso está abierto.
 
-**Decisión pendiente sobre conflicto de interés:** la matriz propone que quien administra actualmente un espacio no pueda revisar/revocar el expediente de ese mismo espacio, aunque el sujeto histórico sea otro. La política aprobada prohíbe auto-revisión y exige nueva revisión cuando cambia titular/administrador, pero no especifica este caso límite. El servicio en memoria hoy bloquea solo `SubjectID == actor`; `authorization_parent_test.go` espera permitir una revisión cuando `SpaceOwnerID == actor` pero `SubjectID` es distinto. No cambiar esa semántica hasta que el owner resuelva si el administrador vigente puede recibir `review_space` y decidir casos del propio espacio. El modelo persistente también deberá invalidar/exigir nueva revisión tras cambios de titular/administrador; no basta confiar en el `SubjectID` histórico.
+**Conflicto de interés — decisión del owner 2026-10-29:** quien administra actualmente un espacio no puede revisar ni revocar el expediente de ese espacio, incluso si `SubjectID` histórico es otra persona. La transferencia de titular/administrador exige un caso nuevo; el anterior no se hereda. Estas reglas sustituyen la propuesta y la pregunta pendientes de versiones anteriores de esta nota.
 
-El alcance/cola de asignación de casos a revisores también sigue pendiente.
+**Asignación — decisión del owner 2026-10-29:** asignar explícitamente las capacidades separadas a personas; el modelo local requiere actor autenticado, capacidad y scope exacto. Para este corte, `review_identity` se limita al `SubjectID` y `review_space` al `SpaceID`; cada grant debe indicar el `ReviewerID` que coincide con el actor autenticado y el servicio rechaza dos capacidades en un mismo actor mientras la combinación no esté aprobada. No existe roster ni persistencia de asignaciones, por lo que el servicio en memoria no acredita grants productivos.
 
 ### Inventario de RBAC y decisiones por aprobar
 
 - `internal/identity/domain.go` define capacidades administrativas generales (`accounts.*`, `publications.*`, `audit.*`, `kpi.read`, `admin_access.manage`). Ninguna capacidad de revisión documental está asignada por `CapabilitiesForRoles` a los roles actuales.
-- `internal/documentverification/service.go` define `review_identity` y `review_space` y los valida en su autorización de dominio; esto no demuestra asignación productiva, rutas, ACL persistente ni acceso a bytes.
-- Requiere decisión explícita del owner: qué roles/personas pueden recibir cada capacidad, alcance/cola por caso, si se permite que una persona tenga ambas, descarga propia antes/después de decisión y cualquier excepción de soporte/break-glass.
-- Sigue sin autorización operativa: identidad técnica del scanner y permisos de cuarentena, rutas, target PostgreSQL, storage privado/ACL, cifrado y gestión de claves. No se crea ni opera ninguno en este documento.
+- `internal/documentverification/service.go` verifica grants de persona/capacidad/scope y deniega dual grants sin aprobación; esto aún no demuestra asignación productiva, rutas montadas ni ACL persistente.
+- Continúa sin definirse roster, workflow/cola de asignación y semántica de scopes organizacionales por encima del recurso individual. El corte actual usa solo `SubjectID` para identidad y `SpaceID` para espacio.
+- No hay repositorio/storage documental productivo ni identidad técnica de scanner en `cmd/api`; no se inicia ningún runtime documental hasta tener esos componentes y target aislado autorizado.
 
 ## 4. Flujo de caso y de archivo
 
@@ -105,8 +105,8 @@ Toda excepción anticipada requiere responsable, motivo y fecha de revisión. El
 
 ## 7. Gates para implementación y evidencia
 
-El código y pruebas unitarias pueden avanzar con archivos sintéticos, pero el recorrido real queda sujeto a F6. Para cerrar F5 se requiere, en target local aislado existente y autorizado: carga y cuota por clase; aislamiento entre cuenta/espacio; scanner fail-closed y casos maliciosos/corruptos/error; revisión manual sintética con anti-autoaprobación; distintivo y retiro por revocación/vencimiento; booking con revalidación atómica de ambas partes; retención/eliminación verificadas incluyendo versiones; y evidencia de auditoría sin PII/contenido.
+El código y pruebas unitarias pueden avanzar con archivos sintéticos, pero la integración real F5 requiere **un target F5 aislado, específicamente autorizado y distinto de F6**. F6 no es prerrequisito para reutilizarse como base de F5 ni autoriza V79+. Para cerrar F5 se necesita probar: carga/cuotas, aislamiento, scanner fail-closed, revisión manual, distintivos/revocación/vencimiento, booking con revalidación atómica de ambas partes, retención/eliminación con versiones y auditoría mínima sin PII/contenido.
 
-Pendientes operativos no inferibles: identificación/autorización del target existente, motor/servicio privado de inspección (no se encontró ClamAV local), configuración concreta del mount/namespace privado y semántica efectiva de versiones/backups del storage. No crear DB, container, volumen, bucket, IAM ni servicio para resolverlos por inferencia.
+Pendientes operativos no inferibles: repositorio documental/ACL transaccional, asignación persistida de reviewer grants, cableado en `cmd/api`, storage privado F5 dedicado y configurado, política productiva de antigüedad de firmas, permisos del scanner sobre cuarentena, UI/BFF, retención y reconciliación de versiones/backups. ClamAV sintético local ya está disponible y probado; sus recursos existentes, estado de retención y cleanup acotado constan en `espacios-f5-clamav-prueba-local-20261029.md`. No crear DB, volúmenes, buckets, IAM ni servicios adicionales para resolver pendientes por inferencia.
 
-**Resultado:** arquitectura separa identidad, documentos de espacio y galería; conserva la política de publicación sin KYC/documentos; no implementa ni activa flujo documental. F5 continúa parcial.
+**Resultado al 2026-10-29:** arquitectura separa identidad, documentos de espacio y galería; dominio en memoria y descarga HTTP se probaron compuestos (handler → caso de uso/política → repositorio y store privado, con fakes locales). El adaptador scanner real se ejerció con muestras sintéticas. La ruta no está montada en `cmd/api`; no se activa flujo documental por falta de repositorio/ACL y storage autorizados. F5 continúa parcial. Delta propuesto de tablas, transacciones, API, target de integración y cleanup ClamAV: `espacios-f5-delta-persistencia-integracion-20261029.md`.

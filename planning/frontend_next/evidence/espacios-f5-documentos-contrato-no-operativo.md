@@ -4,6 +4,8 @@
 **Repositorio:** `/home/nandev/Documentos/projects/espaciGo`, rama `main`, HEAD base `3956d2f3459b0bf4b15511f4e1a74ffd06a29975`.  
 **Clasificación:** evidencia de diseño; no es una decisión legal/operativa ni una implementación habilitada.
 
+> **Snapshot histórico al 2026-10-28, anterior a la aprobación del owner.** La tabla de decisiones pendientes refleja únicamente ese corte. Las decisiones vigentes están en `espacios-f5-politica-owner-aprobada.md`; las capacidades, ejecución de scanner y pendientes de integración se reconcilian en `espacios-f5-documentos-flujo-arquitectura.md` y `espacios-f5-delta-persistencia-integracion-20261029.md`. Este documento sigue sirviendo como evidencia de que sus rutas/namespace no se activaron en ese corte, no como lista actual de aprobaciones.
+
 ## Alcance completado
 
 Se dejó explícito que el namespace de documentos descrito en §5.2 del plan es una propuesta todavía no aplicada. Las rutas ilustrativas bajo `users/{user_id}/spaces/{space_id}/documents/v1/...` y `users/{user_id}/documents/v1/...` no se han activado ni validado como política. El prefijo `staging/...` tampoco autoriza crear un flujo de carga o un recolector.

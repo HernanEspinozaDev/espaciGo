@@ -87,9 +87,17 @@ type CreateInput struct {
 	Purpose Purpose
 	SpaceID string
 }
+type ReviewerGrant struct {
+	ReviewerID string
+	Capability Capability
+	// ScopeID is the identity subject ID for review_identity, or the exact
+	// space ID for review_space. Each grant must be authoritatively assigned to ReviewerID.
+	ScopeID string
+}
+
 type Authorization struct {
 	ActorID         string
-	Capabilities    map[Capability]bool
+	ReviewerGrants  []ReviewerGrant
 	IdentityCurrent bool
 	SubjectID       string
 	SpaceOwnerID    string
@@ -98,8 +106,9 @@ type Authorization struct {
 // CreateCase must atomically authorize actor, derive subject from authorization, and enforce authoritative space ownership.
 type Repository interface {
 	CreateCase(context.Context, Purpose, string, func(Authorization) (Snapshot, error)) error
-	// Transition must lock the scoped case, compare revision, derive current actor/capabilities
-	// and identity eligibility from trusted data. For PurposeSpace, SpaceOwnerID must be
+	// Transition must lock the scoped case, bind the actor to authenticated context,
+	// load that actor's current reviewer grants for the exact person/resource scope,
+	// and derive identity eligibility from trusted data. For PurposeSpace, SpaceOwnerID must be
 	// derived from authoritative current ownership data for every transition. Run change on an isolated snapshot, and
 	// commit the changed snapshot with an advanced revision atomically. Callback/backend
 	// errors must roll back all changes. A CAS on the case alone does not serialize identity
@@ -256,7 +265,7 @@ func (s *Service) Review(ctx context.Context, actor, id string, cap Capability, 
 		return ErrInvalid
 	}
 	return s.transact(ctx, p, id, rev, actor, cap, func(x *Snapshot, a Authorization) error {
-		if !a.Capabilities[cap] || a.ActorID != actor {
+		if a.ActorID != actor || !hasReviewerGrant(a, cap, reviewerScopeID(p, *x)) {
 			return ErrCapability
 		}
 		if p == PurposeSpace && a.SpaceOwnerID == actor {
@@ -321,7 +330,7 @@ func (s *Service) Revoke(ctx context.Context, actor, id string, p Purpose, reaso
 		cap = CapabilitySpace
 	}
 	return s.transact(ctx, p, id, rev, actor, cap, func(x *Snapshot, a Authorization) error {
-		if !a.Capabilities[cap] || a.ActorID != actor {
+		if a.ActorID != actor || !hasReviewerGrant(a, cap, reviewerScopeID(p, *x)) {
 			return ErrCapability
 		}
 		if p == PurposeSpace && a.SpaceOwnerID == actor {
@@ -352,6 +361,40 @@ func purposeForCap(c Capability) Purpose {
 	}
 	return ""
 }
+func hasReviewerGrant(a Authorization, capability Capability, scopeID string) bool {
+	if a.ActorID == "" || (capability != CapabilityIdentity && capability != CapabilitySpace) || ValidateID(scopeID) != nil {
+		return false
+	}
+	capabilities := make(map[Capability]bool, 2)
+	for _, grant := range a.ReviewerGrants {
+		if ValidateID(grant.ReviewerID) != nil || grant.ReviewerID != a.ActorID ||
+			(grant.Capability != CapabilityIdentity && grant.Capability != CapabilitySpace) || ValidateID(grant.ScopeID) != nil {
+			return false
+		}
+		capabilities[grant.Capability] = true
+	}
+	// Dual-purpose reviewer assignments remain denied until explicitly approved.
+	if len(capabilities) != 1 || !capabilities[capability] {
+		return false
+	}
+	for _, grant := range a.ReviewerGrants {
+		if grant.Capability == capability && grant.ScopeID == scopeID {
+			return true
+		}
+	}
+	return false
+}
+
+func reviewerScopeID(p Purpose, x Snapshot) string {
+	if p == PurposeIdentity {
+		return x.SubjectID
+	}
+	if p == PurposeSpace {
+		return x.SpaceID
+	}
+	return ""
+}
+
 func (s *Service) transact(ctx context.Context, p Purpose, id string, rev uint64, actor string, cap Capability, change func(*Snapshot, Authorization) error) error {
 	if s == nil || s.repo == nil || ValidateID(id) != nil || ValidateID(actor) != nil || (p != PurposeIdentity && p != PurposeSpace) {
 		return ErrInvalid

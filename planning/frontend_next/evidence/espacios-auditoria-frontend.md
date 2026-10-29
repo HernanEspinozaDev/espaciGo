@@ -5,6 +5,8 @@
 **Referencia Funcional Legada:** `/home/nandev/Documentos/projects/Proyectotitulo/espaciGo` (Angular en reposo, cambios de usuario preservados intactos)  
 **Alcance:** Auditoría exclusiva de solo lectura, análisis de brechas e ingeniería de integración para el plan de creación de espacios y galería multimedia real. Sin modificaciones de código Go, SQL, esquemas ni despliegues GCP.
 
+> Evidencia histórica del árbol `main` en `3956d2f`, no estado vigente del checkout ni del frontend actual. Para estado y pruebas actuales, consultar `plan_creacion_espacios_galeria_documentos.md` §8 (reconciliación 2026-10-29).
+
 ---
 
 ## 1. Estado Actual de Rutas y Navegación del Workspace
