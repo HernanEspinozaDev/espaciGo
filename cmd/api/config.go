@@ -33,7 +33,9 @@ type config struct {
 	frontendPublicOrigin string
 }
 
-func loadConfig(getenv func(string) string) (config, error) {
+func loadConfig(getenv func(string) string) (config, error) { return loadConfigMode(getenv, false) }
+
+func loadConfigMode(getenv func(string) string, allowPassfile bool) (config, error) {
 	cfg := config{httpAddr: getenv("HTTP_ADDR")}
 	if cfg.httpAddr == "" {
 		port := strings.TrimSpace(getenv("PORT"))
@@ -114,17 +116,19 @@ func loadConfig(getenv func(string) string) (config, error) {
 	if (cfg.dbSSLCert == "") != (cfg.dbSSLKey == "") {
 		return config{}, errors.New("DATABASE_SSLCERT and DATABASE_SSLKEY must be configured together")
 	}
-	passwordPath, err := required(getenv, "DATABASE_PASSWORD_FILE")
-	if err != nil {
-		return config{}, err
+	passwordPath := strings.TrimSpace(getenv("DATABASE_PASSWORD_FILE"))
+	if passwordPath == "" && !allowPassfile {
+		return config{}, errors.New("DATABASE_PASSWORD_FILE is required")
 	}
-	password, err := os.ReadFile(passwordPath)
-	if err != nil {
-		return config{}, errors.New("could not read database password file")
-	}
-	cfg.dbPassword = strings.TrimSpace(string(password))
-	if cfg.dbPassword == "" {
-		return config{}, errors.New("database password file is empty")
+	if passwordPath != "" {
+		password, err := os.ReadFile(passwordPath)
+		if err != nil {
+			return config{}, errors.New("could not read database password file")
+		}
+		cfg.dbPassword = strings.TrimSpace(string(password))
+		if cfg.dbPassword == "" {
+			return config{}, errors.New("database password file is empty")
+		}
 	}
 	maxPool := strings.TrimSpace(getenv("DATABASE_POOL_MAX_CONNS"))
 	if maxPool == "" {

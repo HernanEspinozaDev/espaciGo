@@ -7,6 +7,7 @@ import type {
   CategoryProfileSchema,
   ContentUpdateInput,
   GalleryPhoto,
+  GalleryUploadStatus,
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
@@ -552,7 +553,7 @@ export class HostListingsFacade {
   async updateDraft(
     listingId: string,
     input: ListingDraftInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
     if (
@@ -663,7 +664,7 @@ export class HostListingsFacade {
   async updateContent(
     listingId: string,
     input: ContentUpdateInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
     if (
@@ -866,7 +867,7 @@ export class HostListingsFacade {
   async updatePricing(
     listingId: string,
     input: PricingInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<PricingHistoryItem> {
     if (
@@ -890,6 +891,10 @@ export class HostListingsFacade {
       }
       this.#setSnapshot({
         activeTariff: updated,
+        selectedListing:
+          this.#snapshot.selectedListing?.id === listingId && updated.etag
+            ? { ...this.#snapshot.selectedListing, etag: updated.etag }
+            : this.#snapshot.selectedListing,
         tariffHistory: Object.freeze([
           updated,
           ...this.#snapshot.tariffHistory,
@@ -960,9 +965,9 @@ export class HostListingsFacade {
   async configureTimeZone(
     listingId: string,
     timeZone: string,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
-  ): Promise<void> {
+  ): Promise<{ listingId: string; timeZone: string; etag: string }> {
     if (
       this.#authSource &&
       this.#authSource.getSnapshot().status !== "authenticated"
@@ -973,7 +978,7 @@ export class HostListingsFacade {
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.configureTimeZone(
+      const configured = await this.#port.configureTimeZone(
         listingId,
         timeZone,
         ifMatch,
@@ -987,10 +992,12 @@ export class HostListingsFacade {
           selectedListing: {
             ...this.#snapshot.selectedListing,
             time_zone: timeZone,
+            etag: configured.etag,
           },
         });
       }
       this.#setSnapshot({ loading: false, error: null });
+      return configured;
     } catch (err) {
       if (!this.#isSessionValid(scope)) {
         throw new DOMException("Operación cancelada", "AbortError");
@@ -1051,7 +1058,7 @@ export class HostListingsFacade {
   async updateWeeklySchedule(
     listingId: string,
     input: ScheduleInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ScheduleData> {
     if (
@@ -1074,6 +1081,10 @@ export class HostListingsFacade {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       this.#setSnapshot({
+        selectedListing:
+          this.#snapshot.selectedListing?.id === listingId
+            ? { ...this.#snapshot.selectedListing, etag: schedule.etag }
+            : this.#snapshot.selectedListing,
         weeklySchedule: schedule,
         loading: false,
         error: null,
@@ -1133,6 +1144,56 @@ export class HostListingsFacade {
     }
   }
 
+  async getPhotoUploadStatus(
+    listingId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryUploadStatus> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
+    try {
+      const status = await this.#port.getPhotoUploadStatus(
+        listingId,
+        idempotencyKey,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (status.state === "ready") {
+        const photos = await this.#port.listPhotos(listingId, scope.signal);
+        if (!this.#isSessionValid(scope)) {
+          throw new DOMException("Operación cancelada", "AbortError");
+        }
+        this.#setSnapshot({
+          photos: Object.freeze(photos),
+          loading: false,
+          error: null,
+        });
+      }
+      return status;
+    } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
+      const message =
+        err instanceof Error ? err.message : "Error al consultar la carga";
+      this.#setSnapshot({ loading: false, error: message });
+      throw err;
+    } finally {
+      this.#endSessionOperation(scope);
+    }
+  }
+
   async uploadPhoto(
     listingId: string,
     input?: PhotoUploadInput,
@@ -1158,6 +1219,10 @@ export class HostListingsFacade {
       if (!this.#isSessionValid(scope)) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
+      if (photo.state === "pending") {
+        this.#setSnapshot({ loading: false, error: null });
+        return photo;
+      }
       const updatedPhotos = [...this.#snapshot.photos, photo];
       this.#setSnapshot({
         photos: Object.freeze(updatedPhotos),
@@ -1174,6 +1239,66 @@ export class HostListingsFacade {
       }
       const message =
         err instanceof Error ? err.message : "Error al subir foto";
+      this.#setSnapshot({ loading: false, error: message });
+      throw err;
+    } finally {
+      this.#endSessionOperation(scope);
+    }
+  }
+
+  async replacePhoto(
+    listingId: string,
+    photoId: string,
+    input: PhotoUploadInput,
+    idempotencyKey: string,
+    ifMatch: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryPhoto> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+
+    const scope = this.#beginSessionOperation(signal);
+    this.#setSnapshot({ loading: true, error: null });
+    try {
+      const photo = await this.#port.replacePhoto(
+        listingId,
+        photoId,
+        input,
+        idempotencyKey,
+        ifMatch,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      const [detail, photos] = await Promise.all([
+        this.#port.getListing(listingId, scope.signal),
+        this.#port.listPhotos(listingId, scope.signal),
+      ]);
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (!detail) throw new Error("No se pudo actualizar la galería.");
+      this.#setSnapshot({
+        selectedListing: detail,
+        photos: Object.freeze(photos),
+        loading: false,
+        error: null,
+      });
+      return photo;
+    } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) {
+        this.#handleAuthError();
+      }
+      const message =
+        err instanceof Error ? err.message : "Error al reemplazar foto";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
     } finally {
@@ -1232,8 +1357,9 @@ export class HostListingsFacade {
   async removePhoto(
     listingId: string,
     photoId: string,
+    ifMatch: string,
     signal?: AbortSignal,
-  ): Promise<void> {
+  ): Promise<string> {
     if (
       this.#authSource &&
       this.#authSource.getSnapshot().status !== "authenticated"
@@ -1244,7 +1370,12 @@ export class HostListingsFacade {
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.removePhoto(listingId, photoId, scope.signal);
+      const renewedEtag = await this.#port.removePhoto(
+        listingId,
+        photoId,
+        ifMatch,
+        scope.signal,
+      );
       if (!this.#isSessionValid(scope)) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
@@ -1252,12 +1383,19 @@ export class HostListingsFacade {
       this.#setSnapshot({
         photos: Object.freeze(updated),
         selectedListing:
-          this.#snapshot.selectedListing?.cover_photo_id === photoId
-            ? { ...this.#snapshot.selectedListing, cover_photo_id: null }
+          this.#snapshot.selectedListing?.id === listingId
+            ? {
+                ...this.#snapshot.selectedListing,
+                etag: renewedEtag,
+                ...(this.#snapshot.selectedListing.cover_photo_id === photoId
+                  ? { cover_photo_id: null }
+                  : {}),
+              }
             : this.#snapshot.selectedListing,
         loading: false,
         error: null,
       });
+      return renewedEtag;
     } catch (err) {
       if (!this.#isSessionValid(scope)) {
         throw new DOMException("Operación cancelada", "AbortError");
@@ -1274,9 +1412,11 @@ export class HostListingsFacade {
     }
   }
 
-  async reorderPhotos(
+  async movePhoto(
     listingId: string,
-    photoIds: string[],
+    photoId: string,
+    targetPosition: number,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<void> {
     if (
@@ -1289,20 +1429,37 @@ export class HostListingsFacade {
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.reorderPhotos(listingId, photoIds, scope.signal);
+      const renewedEtag = await this.#port.movePhoto(
+        listingId,
+        photoId,
+        targetPosition,
+        ifMatch,
+        scope.signal,
+      );
       if (!this.#isSessionValid(scope)) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
-      const idMap = new Map<string, number>();
-      photoIds.forEach((id, idx) => idMap.set(id, idx + 1));
-      const updated = [...this.#snapshot.photos]
-        .map((p) => ({
-          ...p,
-          position: idMap.get(p.id) ?? p.position,
-        }))
-        .sort((a, b) => a.position - b.position);
+      const updated = [...this.#snapshot.photos];
+      const fromIndex = updated.findIndex((photo) => photo.id === photoId);
+      if (
+        fromIndex >= 0 &&
+        targetPosition >= 1 &&
+        targetPosition <= updated.length
+      ) {
+        const [moved] = updated.splice(fromIndex, 1);
+        updated.splice(targetPosition - 1, 0, moved!);
+        const reordered = updated.map((photo, index) => ({
+          ...photo,
+          position: index + 1,
+        }));
+        updated.splice(0, updated.length, ...reordered);
+      }
       this.#setSnapshot({
         photos: Object.freeze(updated),
+        selectedListing:
+          this.#snapshot.selectedListing?.id === listingId
+            ? { ...this.#snapshot.selectedListing, etag: renewedEtag }
+            : this.#snapshot.selectedListing,
         loading: false,
         error: null,
       });
@@ -1314,7 +1471,7 @@ export class HostListingsFacade {
         this.#handleAuthError();
       }
       const message =
-        err instanceof Error ? err.message : "Error al reordenar fotos";
+        err instanceof Error ? err.message : "Error al mover foto";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
     } finally {

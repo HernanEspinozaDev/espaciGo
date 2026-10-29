@@ -56,7 +56,7 @@ func TestPostgresDraftCRUDAndOwnerScope(t *testing.T) {
 	}
 	repo := New(pool, credentials.Generator{})
 	categories, err := repo.Categories(ctx)
-	if err != nil || len(categories) != 8 {
+	if err != nil || len(categories) != 9 {
 		t.Fatalf("category catalog count=%d err=%v", len(categories), err)
 	}
 	for _, category := range categories {

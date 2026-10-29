@@ -1,0 +1,28 @@
+# F4 — Pending upload replay and authoritative status lookup
+
+**Date:** 2026-10-28
+**Alcance:** Representar un replay idempotente de carga/reemplazo de galería, consultar estado autoritativo y permitir interrumpir localmente el `fetch` de una carga ya enviada para reconciliarla. La interrupción local no cancela ni revierte una operación del servidor.
+
+## Behavior
+
+- Gallery `POST` and replacement `PUT` return `202 Accepted` with `Retry-After: 2` when the media service reports a pending replay.
+- The 202 envelope contains only the reservation's `id`, `space_id`, and `state: pending`; it does not masquerade as a ready gallery photo with variants or a slot position.
+- `GET /spaces/{spaceId}/gallery/upload-status` now resolves the current reservation for the authenticated owner, space, and `Idempotency-Key`; it returns only the photo ID and `pending`, `ready`, `failed`, or `deleting` state. Missing reservations return 404. OpenAPI, generated client types, gateway allowlist, and inventory are aligned at 183 operations. No SQL migration was added.
+- El adaptador conserva `pending`; la fachada no agrega la reserva ni la define como portada. Para el upload inicial, “Revisar estado” consulta la clave original: `pending/deleting` sigue pendiente; `ready` actualiza la galería; `failed/not_found` permite un nuevo envío sólo por acción explícita y reutiliza archivo, portada y clave idempotente. Si era la portada inicial, aplica `PUT /spaces/{spaceId}/cover` al alcanzar `ready`. En replacement pendiente, el editor conserva `File`, `Idempotency-Key`, `If-Match` y `photoId` objetivo y mantiene visible la foto anterior; lookup `pending` conserva la intención, `not_found/failed` permite retry explícito con esos mismos valores, y `deleting` se trata como limpieza terminal del asset candidato: descarta la retención local, mantiene la foto anterior y permite seleccionar otra imagen para iniciar una operación nueva con clave nueva. El corte posterior descrito en §Remaining F4 gaps ya cubre lookup `ready` con mocks, no integración real.
+- Para una carga ya despachada, “Cancelar carga” aborta sólo el `fetch` del navegador y luego hace lookup autoritativo. Si el servidor sigue `pending/deleting`, la UI comunica que la operación remota no se detuvo; si está `ready`, recarga la galería y aplica la intención de portada original; si `failed/not_found`, ofrece un botón explícito de reintento con el mismo archivo/clave. Una revisión `not_found` posterior a la cancelación no vuelve a enviar automáticamente el POST.
+
+## Verification
+
+- Go handler/service: `TestLookupSpaceUploadStatusReturnsCurrentReservation` and `TestUploadDuplicatePendingReturnsAcceptedState` passed. Gallery/media package tests and `go vet` passed; `git diff --check` passed.
+- PostgreSQL adapter: the gated HTTP→service→PostgreSQL integration test now asserts lookup of a completed reservation, and the package compiled. **That opt-in database integration test was not executed in this slice**; no database was started or modified.
+- Baseline antes del slice de replacement pending: `pnpm api:check` (183 operations), `pnpm format:check`, `pnpm typecheck`, `pnpm lint`, `pnpm test` (260/260) y `pnpm build` passed.
+- Frontend gates after the pending-replacement slice: `pnpm api:check` (183 operaciones), `pnpm format:check`, `pnpm typecheck`, `pnpm lint` y `pnpm test` (260/260) pasaron; `pnpm build` pasó. Playwright Chromium `@phase7`: 22 passed, 1 opt-in native skipped. El E2E mock de edición verifica replacement pending con foto anterior visible, lookup por clave original, `not_found` sin replay automático y retry explícito con la misma clave/ETag/target que responde ready y refresca la galería. También verifica que `deleting` cierra la retención sin replay, conserva la foto vieja y habilita un nuevo intento. Ese corte inicial no cubrió lookup `ready`; la regresión posterior del padre sí lo cubre con mocks.
+- Independent static review found and drove a fix for losing initial-cover intent during pending→ready reconciliation. The review's replay-after-404 question is now covered by a mock E2E assertion: a deliberate retry sends exactly one additional POST with the original key. Static inspection also observed the unique `(propietario_id, espacio_id, idempotency_key)` index and `Reserve`'s space-row lock, but this does not substitute for PostgreSQL execution or establish remote cancellation semantics.
+- No user browser, real account, credential, persistent database, cloud service, commit, push, or deploy was used in this slice.
+
+## Remaining F4 gaps
+
+- La cancelación es sólo del cliente: el servidor puede continuar y no existe una operación remota de cancel/rollback probada.
+- No se ejecutó browser→Next BFF→Go autenticado. La consulta PostgreSQL se añadió al test opt-in pero no se ejecutó contra DB en este corte.
+- Replacement pendiente (UI mock): el padre completó la regresión `pending→503→ready` en una operación separada de la ruta `not_found→retry`. Comprueba misma clave de lookup, ninguna petición PUT adicional al consultar, Blob/foto/portada anterior conservados durante el error, foto con ID/Blob nuevos al quedar ready, portada conservada, control pending retirado y ETag usado por la siguiente edición. También conserva las pruebas anteriores de retry explícito y deleting. Playwright `@phase7` posterior: 23 passed/1 opt-in native skipped. Esto sigue sin probar reconciliación integrada con BFF/Go/PostgreSQL.
+- No se ejecutó corpus fotográfico representativo ni storage SLO. La medición sintética posterior del padre sí encontró incumplimientos de peso en textura/transparencia; ver `espacios-f4-codec-corpus-sintetico.md`.

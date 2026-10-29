@@ -92,6 +92,235 @@ test("loadListings tardío tras clear() no debe sobrescribir snapshot limpio ni 
   }
 });
 
+test("tariff success advances selected listing ETag; 412 leaves it unchanged", async () => {
+  const HostListingsFacade = await loadFacade();
+  let rejectTariff = false;
+  const listing = {
+    id: "space-1",
+    title: "Espacio 1",
+    category_code: "office",
+    category_name: "Oficina",
+    state: "borrador",
+    base_price_clp: 8000,
+    rate_unit: "hora",
+    area_m2: 25,
+    capacity: 4,
+    cover_photo_id: null,
+    time_zone: "America/Santiago",
+    region_code: "RM",
+    comuna_code: "santiago",
+    attribute_schema_version: 1,
+    attributes: {},
+    etag: '"space-v1"',
+  };
+  const port = {
+    getListing: async () => listing,
+    getPricing: async () => null,
+    getWeeklySchedule: async () => null,
+    listPhotos: async () => [],
+    updatePricing: async () => {
+      if (rejectTariff)
+        throw Object.assign(new Error("stale"), { status: 412 });
+      return {
+        space_id: "space-1",
+        version: 2,
+        rate_unit: "hora",
+        base_price: 9000,
+        currency: "CLP",
+        created_at: "2026-10-28T12:00:00Z",
+        etag: '"space-v2"',
+      };
+    },
+  };
+  const facade = new HostListingsFacade(port);
+  await facade.selectListing("space-1");
+  await facade.updatePricing(
+    "space-1",
+    { base_price_clp: 9000, rate_unit: "hora" },
+    '"space-v1"',
+  );
+  assert.equal(facade.getSnapshot().selectedListing.etag, '"space-v2"');
+
+  rejectTariff = true;
+  await assert.rejects(
+    facade.updatePricing(
+      "space-1",
+      { base_price_clp: 10000, rate_unit: "hora" },
+      '"space-v2"',
+    ),
+    (error) => error.status === 412,
+  );
+  assert.equal(facade.getSnapshot().selectedListing.etag, '"space-v2"');
+});
+
+test("adjacent gallery move advances selected ETag only after success; stale 412 leaves order and revision unchanged", async () => {
+  const HostListingsFacade = await loadFacade();
+  const listing = {
+    id: "space-1",
+    title: "Espacio 1",
+    category_code: "office",
+    category_name: "Oficina",
+    state: "borrador",
+    base_price_clp: 8000,
+    rate_unit: "hora",
+    area_m2: 25,
+    capacity: 4,
+    cover_photo_id: null,
+    time_zone: "America/Santiago",
+    region_code: "RM",
+    comuna_code: "santiago",
+    attribute_schema_version: 1,
+    attributes: {},
+    etag: '"space-v1"',
+  };
+  let stale = false;
+  const moveRequests = [];
+  const port = {
+    getListing: async () => listing,
+    getPricing: async () => null,
+    getWeeklySchedule: async () => null,
+    listPhotos: async () => [
+      { id: "p1", position: 1 },
+      { id: "p2", position: 2 },
+    ],
+    movePhoto: async (listingId, photoId, targetPosition, ifMatch) => {
+      moveRequests.push([listingId, photoId, targetPosition, ifMatch]);
+      assert.equal(ifMatch, stale ? '"space-v2"' : '"space-v1"');
+      if (stale) throw Object.assign(new Error("stale"), { status: 412 });
+      return '"space-v2"';
+    },
+  };
+  const facade = new HostListingsFacade(port);
+  await facade.selectListing("space-1");
+  await facade.loadPhotos("space-1");
+  await facade.movePhoto("space-1", "p2", 1, '"space-v1"');
+  assert.equal(facade.getSnapshot().selectedListing.etag, '"space-v2"');
+  assert.deepEqual(
+    facade.getSnapshot().photos.map((photo) => [photo.id, photo.position]),
+    [
+      ["p2", 1],
+      ["p1", 2],
+    ],
+  );
+  stale = true;
+  await assert.rejects(
+    facade.movePhoto("space-1", "p1", 1, '"space-v2"'),
+    (error) => error.status === 412,
+  );
+  assert.equal(facade.getSnapshot().selectedListing.etag, '"space-v2"');
+  assert.deepEqual(
+    facade.getSnapshot().photos.map((photo) => [photo.id, photo.position]),
+    [
+      ["p2", 1],
+      ["p1", 2],
+    ],
+  );
+  assert.deepEqual(moveRequests, [
+    ["space-1", "p2", 1, '"space-v1"'],
+    ["space-1", "p1", 1, '"space-v2"'],
+  ]);
+});
+
+test("timezone renewal feeds weekly CAS and stale 412 leaves facade ETag unchanged", async () => {
+  const HostListingsFacade = await loadFacade();
+  const zoneRequests = [];
+  const weeklyRequests = [];
+  let rejectZone = false;
+  let rejectWeekly = false;
+  const listing = {
+    id: "space-1",
+    title: "Espacio 1",
+    category_code: "office",
+    category_name: "Oficina",
+    state: "borrador",
+    base_price_clp: 8000,
+    rate_unit: "hora",
+    area_m2: 25,
+    capacity: 4,
+    cover_photo_id: null,
+    time_zone: null,
+    region_code: "RM",
+    comuna_code: "santiago",
+    attribute_schema_version: 1,
+    attributes: {},
+    etag: '"space-v1"',
+  };
+  const port = {
+    getListing: async () => listing,
+    getPricing: async () => null,
+    getWeeklySchedule: async () => null,
+    listPhotos: async () => [],
+    configureTimeZone: async (...args) => {
+      zoneRequests.push(args);
+      if (rejectZone) throw Object.assign(new Error("stale"), { status: 412 });
+      return {
+        listingId: "space-1",
+        timeZone: "America/Santiago",
+        etag: '"space-v2"',
+      };
+    },
+    updateWeeklySchedule: async (...args) => {
+      weeklyRequests.push(args);
+      if (rejectWeekly)
+        throw Object.assign(new Error("stale"), { status: 412 });
+      return {
+        space_id: "space-1",
+        enabled: true,
+        time_zone: "America/Santiago",
+        days: [],
+        etag: '"space-v3"',
+      };
+    },
+  };
+  const facade = new HostListingsFacade(port);
+  await facade.selectListing("space-1");
+
+  await facade.configureTimeZone(
+    "space-1",
+    "America/Santiago",
+    facade.getSnapshot().selectedListing.etag,
+  );
+  assert.equal(zoneRequests[0][2], '"space-v1"');
+  assert.equal(facade.getSnapshot().selectedListing.etag, '"space-v2"');
+
+  const scheduleInput = {
+    timezone: "America/Santiago",
+    enabled: true,
+    weekly_slots: [],
+  };
+  await facade.updateWeeklySchedule(
+    "space-1",
+    scheduleInput,
+    facade.getSnapshot().selectedListing.etag,
+  );
+  assert.equal(weeklyRequests[0][2], '"space-v2"');
+  assert.equal(facade.getSnapshot().selectedListing.etag, '"space-v3"');
+
+  rejectWeekly = true;
+  await assert.rejects(
+    facade.updateWeeklySchedule("space-1", scheduleInput, '"space-v3"'),
+    (error) => error.status === 412,
+  );
+  assert.equal(
+    weeklyRequests.length,
+    2,
+    "412 must not be retried automatically",
+  );
+  assert.equal(facade.getSnapshot().selectedListing.etag, '"space-v3"');
+
+  rejectZone = true;
+  await assert.rejects(
+    facade.configureTimeZone("space-1", "America/Santiago", '"space-v3"'),
+    (error) => error.status === 412,
+  );
+  assert.equal(
+    zoneRequests.length,
+    2,
+    "timezone 412 must not be retried automatically",
+  );
+  assert.equal(facade.getSnapshot().selectedListing.etag, '"space-v3"');
+});
+
 test("selectListing tardío tras clear() no debe sobrescribir snapshot limpio ni entregar payload privado", async () => {
   const HostListingsFacade = await loadFacade();
   let resolveListing;

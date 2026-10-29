@@ -916,6 +916,130 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: visualización de elegibili
   await expect(visorImg).not.toBeVisible();
 });
 
+test("@phase6 @controlled Mis espacios: estados de carga, error, vacío y etiquetas singulares", async ({
+  page,
+}) => {
+  let releaseFirstResponse!: (result: MockResult) => void;
+  const firstResponse = new Promise<MockResult>((resolve) => {
+    releaseFirstResponse = resolve;
+  });
+  let spacesRequestCount = 0;
+
+  await mockGateway(page, async (pathname, method) => {
+    if (pathname === "/api/backend/auth/login" && method === "POST") {
+      return {
+        status: 200,
+        body: {
+          account_id: accountId,
+          roles: ["arrendatario", "anfitrion"],
+          capabilities: [],
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          restricted_mode: false,
+        },
+      };
+    }
+    if (pathname === "/api/backend/auth/session" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          account_id: accountId,
+          roles: ["arrendatario", "anfitrion"],
+          capabilities: [],
+          restricted_mode: false,
+        },
+      };
+    }
+    if (pathname === "/api/backend/profile" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          display_name: "Usuario Ensayo",
+          phone: "912345678",
+          updated_at: new Date().toISOString(),
+        },
+      };
+    }
+    if (pathname === "/api/backend/profile/photo" && method === "GET")
+      return apiError(404, "photo_not_found");
+    if (pathname === "/api/backend/payout-account" && method === "GET")
+      return apiError(404, "payout_not_found");
+    if (pathname === "/api/backend/rights-requests" && method === "GET")
+      return { status: 200, body: { items: [] } };
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      spacesRequestCount += 1;
+      if (spacesRequestCount === 1) return firstResponse;
+      if (spacesRequestCount === 2) return { status: 200, body: { items: [] } };
+      return {
+        status: 200,
+        body: {
+          items: [
+            {
+              id: "space-summary-draft",
+              category_code: "oficina",
+              category_name: "Oficinas y Cowork",
+              title: "Oficina en borrador",
+              state: "borrador",
+              base_price_clp: 20000,
+              rate_unit: "hora",
+              area_m2: 30,
+              capacity: 4,
+              region_code: "13",
+              comuna_code: "Providencia",
+            },
+            {
+              id: "space-summary-published",
+              category_code: "oficina",
+              category_name: "Oficinas y Cowork",
+              title: "Oficina publicada",
+              state: "activa",
+              base_price_clp: 25000,
+              rate_unit: "hora",
+              area_m2: 35,
+              capacity: 5,
+              region_code: "13",
+              comuna_code: "Las Condes",
+            },
+            {
+              id: "space-summary-archived",
+              category_code: "bodega",
+              category_name: "Bodegas y Mini-bodegas",
+              title: "Bodega archivada",
+              state: "oculta",
+              base_price_clp: 30000,
+              rate_unit: "dia",
+              area_m2: 40,
+              capacity: 6,
+              region_code: "13",
+              comuna_code: "Quilicura",
+            },
+          ],
+        },
+      };
+    }
+    return apiError(404, "not_found");
+  });
+
+  await loginAndNavigate(page, "/mi-cuenta");
+  const summary = page.getByRole("region", { name: "Mis espacios" });
+  await expect(summary.getByRole("status")).toHaveText(
+    "Cargando tus espacios…",
+  );
+  releaseFirstResponse(apiError(503, "service_unavailable"));
+
+  const alert = summary.getByRole("alert");
+  await expect(alert).toContainText("No pudimos cargar tus espacios.");
+  await alert.getByRole("button", { name: "Intentar de nuevo" }).click();
+  await expect(
+    summary.getByText("Aún no tienes espacios. Crea uno para comenzar."),
+  ).toBeVisible();
+
+  await page.reload();
+  await expect(summary.getByText("1 borrador", { exact: true })).toBeVisible();
+  await expect(summary.getByText("1 publicado", { exact: true })).toBeVisible();
+  await expect(summary.getByText("1 archivado", { exact: true })).toBeVisible();
+  expect(spacesRequestCount).toBe(3);
+});
+
 test("@phase6 @a11y account routes fit both viewports and have no Axe violations", async ({
   page,
 }) => {
@@ -979,10 +1103,93 @@ test("@phase6 @a11y account routes fit both viewports and have no Axe violations
     if (pathname === "/api/backend/verifications" && method === "GET") {
       return { status: 200, body: { items: [] } };
     }
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          items: [
+            {
+              id: "space-summary-draft",
+              category_code: "oficina",
+              category_name: "Oficinas y Cowork",
+              title: "Oficina en borrador",
+              state: "borrador",
+              base_price_clp: 20000,
+              rate_unit: "hora",
+              area_m2: 30,
+              capacity: 4,
+              region_code: "13",
+              comuna_code: "Providencia",
+            },
+            {
+              id: "space-summary-draft-2",
+              category_code: "oficina",
+              category_name: "Oficinas y Cowork",
+              title: "Oficina en segundo borrador",
+              state: "borrador",
+              base_price_clp: 22000,
+              rate_unit: "hora",
+              area_m2: 32,
+              capacity: 4,
+              region_code: "13",
+              comuna_code: "Ñuñoa",
+            },
+            {
+              id: "space-summary-published",
+              category_code: "oficina",
+              category_name: "Oficinas y Cowork",
+              title: "Oficina publicada",
+              state: "activa",
+              base_price_clp: 25000,
+              rate_unit: "hora",
+              area_m2: 35,
+              capacity: 5,
+              region_code: "13",
+              comuna_code: "Las Condes",
+            },
+            {
+              id: "space-summary-hidden",
+              category_code: "bodega",
+              category_name: "Bodegas y Mini-bodegas",
+              title: "Bodega oculta",
+              state: "oculta",
+              base_price_clp: 30000,
+              rate_unit: "dia",
+              area_m2: 40,
+              capacity: 6,
+              region_code: "13",
+              comuna_code: "Quilicura",
+            },
+          ],
+        },
+      };
+    }
     return apiError(404, "not_found");
   });
 
   await loginAndNavigate(page, "/mi-cuenta");
+
+  const summary = page.getByRole("region", { name: "Mis espacios" });
+  await expect(summary).toBeVisible();
+  await expect(
+    summary.getByText("2 borradores", { exact: true }),
+  ).toBeVisible();
+  await expect(summary.getByText("1 publicado", { exact: true })).toBeVisible();
+  await expect(summary.getByText("1 archivado", { exact: true })).toBeVisible();
+  const createSpaceLink = summary.getByRole("link", { name: "Crear espacio" });
+  await expect(createSpaceLink).toHaveAttribute(
+    "href",
+    "/anfitrion/espacios/nuevo",
+  );
+  await expect(
+    summary.getByRole("link", { name: "Ver mis espacios" }),
+  ).toHaveAttribute("href", "/anfitrion/espacios");
+
+  const espaciosLink = page
+    .getByRole("navigation", { name: "Secciones de mi cuenta" })
+    .getByRole("link", { name: "Mis espacios" });
+  await expect(espaciosLink).toBeVisible();
+  await expect(espaciosLink).toHaveAttribute("href", "/anfitrion/espacios");
 
   const routes = [
     "/mi-cuenta",

@@ -112,11 +112,60 @@ func (s *Service) Remove(ctx context.Context, owner, spaceID, photoID string) (R
 	return s.repo.Remove(ctx, owner, spaceID, photoID)
 }
 
+func (s *Service) RemoveCAS(ctx context.Context, owner, spaceID, photoID, expected string) (Removal, time.Time, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Removal{}, time.Time{}, ErrNotFound
+	}
+	at, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || at.Location() != time.UTC || at.UTC().Format(time.RFC3339Nano) != expected {
+		return Removal{}, time.Time{}, ErrInvalid
+	}
+	repo, ok := s.repo.(RemoveCASRepository)
+	if !ok {
+		return Removal{}, time.Time{}, ErrNotFound
+	}
+	return repo.RemoveCAS(ctx, owner, spaceID, photoID, at.UTC())
+}
+
 func (s *Service) SelectCover(ctx context.Context, owner, spaceID, photoID string) (Cover, error) {
 	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
 		return Cover{}, ErrNotFound
 	}
 	return s.repo.SelectCover(ctx, owner, spaceID, photoID)
+}
+
+func (s *Service) SelectCoverCAS(ctx context.Context, owner, spaceID, photoID, expected string) (Cover, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Cover{}, ErrNotFound
+	}
+	at, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || at.Location() != time.UTC || at.UTC().Format(time.RFC3339Nano) != expected {
+		return Cover{}, ErrInvalid
+	}
+	repo, ok := s.repo.(CoverCASRepository)
+	if !ok {
+		return Cover{}, ErrNotFound
+	}
+	return repo.SelectCoverCAS(ctx, owner, spaceID, photoID, at.UTC())
+}
+
+func (s *Service) SetPublicInCatalogCAS(ctx context.Context, owner, spaceID, photoID string, enabled bool, expected string) (Photo, time.Time, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return Photo{}, time.Time{}, ErrNotFound
+	}
+	at, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || at.Location() != time.UTC || at.UTC().Format(time.RFC3339Nano) != expected {
+		return Photo{}, time.Time{}, ErrInvalid
+	}
+	repo, ok := s.repo.(PublicInCatalogCASRepository)
+	if !ok {
+		return Photo{}, time.Time{}, ErrNotFound
+	}
+	item, revision, err := repo.SetPublicInCatalogCAS(ctx, owner, spaceID, photoID, enabled, at.UTC())
+	if errors.Is(err, ErrConflict) {
+		return Photo{}, time.Time{}, ErrConflict
+	}
+	return item, revision, err
 }
 
 func (s *Service) SetPublicInCatalog(ctx context.Context, owner, spaceID, photoID string, enabled bool) (Photo, error) {
@@ -127,30 +176,46 @@ func (s *Service) SetPublicInCatalog(ctx context.Context, owner, spaceID, photoI
 }
 
 func (s *Service) ListAsAdministrator(ctx context.Context, actor, owner, spaceID, correlation string) ([]Photo, error) {
-	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(correlation) { return nil, ErrNotFound }
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(correlation) {
+		return nil, ErrNotFound
+	}
 	repository, ok := s.repo.(AdministrativeRepository)
-	if !ok { return nil, ErrNotFound }
+	if !ok {
+		return nil, ErrNotFound
+	}
 	return repository.ListAsAdministrator(ctx, actor, owner, spaceID, correlation)
 }
 
 func (s *Service) SetPublicInCatalogAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, enabled bool, expectedUpdatedAt time.Time, correlation, reason string) (Photo, error) {
-	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 { return Photo{}, ErrInvalid }
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 {
+		return Photo{}, ErrInvalid
+	}
 	repository, ok := s.repo.(AdministrativeRepository)
-	if !ok { return Photo{}, ErrNotFound }
+	if !ok {
+		return Photo{}, ErrNotFound
+	}
 	return repository.SetPublicInCatalogAsAdministrator(ctx, actor, owner, spaceID, photoID, enabled, expectedUpdatedAt.UTC(), correlation, reason)
 }
 
 func (s *Service) SelectCoverAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, expectedUpdatedAt time.Time, correlation, reason string) (Cover, error) {
-	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 { return Cover{}, ErrInvalid }
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 {
+		return Cover{}, ErrInvalid
+	}
 	repository, ok := s.repo.(AdministrativeRepository)
-	if !ok { return Cover{}, ErrNotFound }
+	if !ok {
+		return Cover{}, ErrNotFound
+	}
 	return repository.SelectCoverAsAdministrator(ctx, actor, owner, spaceID, photoID, expectedUpdatedAt.UTC(), correlation, reason)
 }
 
 func (s *Service) RemoveAsAdministrator(ctx context.Context, actor, owner, spaceID, photoID string, expectedUpdatedAt time.Time, correlation, reason string) (Removal, error) {
-	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 { return Removal{}, ErrInvalid }
+	if !validUUID(actor) || !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || expectedUpdatedAt.IsZero() || strings.TrimSpace(correlation) == "" || len(correlation) > 120 || strings.TrimSpace(reason) == "" || len(reason) > 60 {
+		return Removal{}, ErrInvalid
+	}
 	repository, ok := s.repo.(AdministrativeRepository)
-	if !ok { return Removal{}, ErrNotFound }
+	if !ok {
+		return Removal{}, ErrNotFound
+	}
 	return repository.RemoveAsAdministrator(ctx, actor, owner, spaceID, photoID, expectedUpdatedAt.UTC(), correlation, reason)
 }
 

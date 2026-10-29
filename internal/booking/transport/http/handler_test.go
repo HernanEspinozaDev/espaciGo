@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"sort"
 	"strings"
 	"testing"
@@ -16,7 +17,9 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identityverification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
+	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 )
 
 const renterID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -36,11 +39,13 @@ type repoStub struct {
 	items          []booking.CatalogItem
 	decideErr      error
 	cancelErr      error
+	reservation    booking.Detail
 }
 
 type weeklyRepoStub struct {
 	repoStub
-	hours booking.WeeklyHours
+	hours    booking.WeeklyHours
+	casCalls int
 }
 
 type paymentEventRepoStub struct {
@@ -74,9 +79,33 @@ func (r *paymentEventRepoStub) ApplyPaymentEvent(context.Context, string, func()
 	return booking.Reservation{}, nil
 }
 
+func (r *weeklyRepoStub) currentRevision() time.Time {
+	if !r.hours.UpdatedAt.IsZero() {
+		return r.hours.UpdatedAt
+	}
+	return time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+}
+
+func (r *weeklyRepoStub) SaveWeeklyHoursCAS(ctx context.Context, hostID, spaceID string, value booking.WeeklyHours, expected time.Time) (booking.WeeklyHours, error) {
+	r.casCalls++
+	if expected.IsZero() || !expected.Equal(r.currentRevision()) {
+		return booking.WeeklyHours{}, booking.ErrConflict
+	}
+	if r.hours.Enabled == value.Enabled && reflect.DeepEqual(r.hours.Days, value.Days) {
+		return r.WeeklyHoursForSpace(ctx, spaceID)
+	}
+	updated, err := r.SaveWeeklyHours(ctx, hostID, spaceID, value)
+	if err != nil {
+		return booking.WeeklyHours{}, err
+	}
+	updated.UpdatedAt = expected.Add(time.Second)
+	r.hours.UpdatedAt = updated.UpdatedAt
+	return updated, nil
+}
 func (r *weeklyRepoStub) WeeklyHoursForSpace(_ context.Context, spaceID string) (booking.WeeklyHours, error) {
 	v := r.hours
 	v.SpaceID = spaceID
+	v.UpdatedAt = r.currentRevision()
 	return v, nil
 }
 func (r *weeklyRepoStub) WeeklyHoursForHost(ctx context.Context, hostID, spaceID string) (booking.WeeklyHours, error) {
@@ -131,8 +160,8 @@ func (repoStub) Quote(_ context.Context, _ string, spaceID, id string, start, en
 func (repoStub) Create(context.Context, string, string, string, []byte, string, string, time.Duration, func() time.Time) (booking.Reservation, error) {
 	return booking.Reservation{}, nil
 }
-func (repoStub) Get(context.Context, string, string) (booking.Detail, error) {
-	return booking.Detail{}, nil
+func (r repoStub) Get(context.Context, string, string) (booking.Detail, error) {
+	return r.reservation, nil
 }
 func (repoStub) List(context.Context, string) ([]booking.Reservation, error) { return nil, nil }
 func (repoStub) Pay(context.Context, string, string, string, string, func() time.Time, time.Duration) (booking.Reservation, error) {
@@ -360,6 +389,83 @@ func TestPaymentEventCallbackRejectsUnauthenticatedEventWithoutUserSession(t *te
 	}
 }
 
+func TestWeeklyHoursPUTRequiresMatchingSpaceRevision(t *testing.T) {
+	fixture := booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "synthetic", RateUnit: "hora", TimeZone: "America/Santiago"}
+	repo := &weeklyRepoStub{repoStub: repoStub{fixture: fixture}}
+	for i := 1; i <= 7; i++ {
+		repo.hours.Days = append(repo.hours.Days, booking.WeeklyDay{Weekday: i, Periods: []booking.WeeklyPeriod{}})
+	}
+	svc, err := booking.NewService(repo, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(authStub{}, svc, nil)
+	path := "/api/v1/local/booking-trial/catalog/" + fixture.SpaceID + "/weekly-hours"
+	body := `{"enabled":false,"days":[{"weekday":1,"periods":[]},{"weekday":2,"periods":[]},{"weekday":3,"periods":[]},{"weekday":4,"periods":[]},{"weekday":5,"periods":[]},{"weekday":6,"periods":[]},{"weekday":7,"periods":[]}]}`
+	req := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-session")
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusPreconditionRequired {
+		t.Fatalf("missing If-Match status=%d body=%s", res.Code, res.Body)
+	}
+	tag := spaceshttp.DraftETag(spaces.Draft{ID: fixture.SpaceID, UpdatedAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)})
+	req = httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-session")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", tag)
+	res = httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("versioned PUT status=%d body=%s", res.Code, res.Body)
+	}
+	if got := res.Header().Get("ETag"); got != tag {
+		t.Fatalf("no-op PUT ETag=%q, want unchanged %q", got, tag)
+	}
+	if repo.casCalls != 1 || repo.hours.Enabled || !repo.hours.UpdatedAt.IsZero() {
+		t.Fatalf("no-op CAS changed repository state: calls=%d hours=%+v", repo.casCalls, repo.hours)
+	}
+}
+
+func TestWeeklyHoursPUTStaleCASReturnsPreconditionFailedWithoutMutation(t *testing.T) {
+	fixture := booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "synthetic", RateUnit: "hora", TimeZone: "America/Santiago"}
+	repo := &weeklyRepoStub{repoStub: repoStub{fixture: fixture}}
+	for i := 1; i <= 7; i++ {
+		repo.hours.Days = append(repo.hours.Days, booking.WeeklyDay{Weekday: i, Periods: []booking.WeeklyPeriod{}})
+	}
+	svc, err := booking.NewService(repo, credentials.Generator{}, time.Now, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(authStub{}, svc, nil)
+	path := "/api/v1/local/booking-trial/catalog/" + fixture.SpaceID + "/weekly-hours"
+	body := `{"enabled":true,"days":[{"weekday":1,"periods":[]},{"weekday":2,"periods":[]},{"weekday":3,"periods":[]},{"weekday":4,"periods":[]},{"weekday":5,"periods":[]},{"weekday":6,"periods":[]},{"weekday":7,"periods":[]}]}`
+	req := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-session")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", spaceshttp.DraftETag(spaces.Draft{ID: fixture.SpaceID, UpdatedAt: time.Date(2029, 1, 1, 0, 0, 0, 0, time.UTC)}))
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode stale CAS response: %v body=%s", err, res.Body.String())
+	}
+	if res.Code != http.StatusPreconditionFailed || envelope.Error.Code != "precondition_failed" {
+		t.Fatalf("stale CAS status=%d code=%q body=%s; want 412 precondition_failed", res.Code, envelope.Error.Code, res.Body.String())
+	}
+	if repo.casCalls != 1 {
+		t.Fatalf("CAS calls=%d, want 1", repo.casCalls)
+	}
+	if repo.hours.Enabled {
+		t.Fatal("weekly hours mutated despite stale CAS")
+	}
+}
+
 func TestWeeklyHoursHTTPReadsAndReplacesOwnerScheduleStrictly(t *testing.T) {
 	fixture := booking.Fixture{SpaceID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", Title: "synthetic", RateUnit: "hora", TimeZone: "America/Santiago"}
 	repo := &weeklyRepoStub{repoStub: repoStub{fixture: fixture}}
@@ -388,6 +494,7 @@ func TestWeeklyHoursHTTPReadsAndReplacesOwnerScheduleStrictly(t *testing.T) {
 	put := httptest.NewRequest(http.MethodPut, base, strings.NewReader(string(body)))
 	put.Header.Set("Authorization", "Bearer test-session")
 	put.Header.Set("Content-Type", "application/json")
+	put.Header.Set("If-Match", spaceshttp.DraftETag(spaces.Draft{ID: fixture.SpaceID, UpdatedAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)}))
 	updated := httptest.NewRecorder()
 	h.ServeHTTP(updated, put)
 	if updated.Code != http.StatusOK || !strings.Contains(updated.Body.String(), `"time_zone":"America/Santiago"`) {
@@ -398,6 +505,7 @@ func TestWeeklyHoursHTTPReadsAndReplacesOwnerScheduleStrictly(t *testing.T) {
 	invalid := httptest.NewRequest(http.MethodPut, base, strings.NewReader(string(body)))
 	invalid.Header.Set("Authorization", "Bearer test-session")
 	invalid.Header.Set("Content-Type", "application/json")
+	invalid.Header.Set("If-Match", spaceshttp.DraftETag(spaces.Draft{ID: fixture.SpaceID, UpdatedAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)}))
 	bad := httptest.NewRecorder()
 	h.ServeHTTP(bad, invalid)
 	if bad.Code != http.StatusUnprocessableEntity {
@@ -406,6 +514,7 @@ func TestWeeklyHoursHTTPReadsAndReplacesOwnerScheduleStrictly(t *testing.T) {
 	unknownField := httptest.NewRequest(http.MethodPut, base, strings.NewReader(`{"enabled":true,"days":[],"owner_id":"x"}`))
 	unknownField.Header.Set("Authorization", "Bearer test-session")
 	unknownField.Header.Set("Content-Type", "application/json")
+	unknownField.Header.Set("If-Match", spaceshttp.DraftETag(spaces.Draft{ID: fixture.SpaceID, UpdatedAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)}))
 	strict := httptest.NewRecorder()
 	h.ServeHTTP(strict, unknownField)
 	if strict.Code != http.StatusBadRequest {
@@ -628,12 +737,26 @@ func TestCatalogPageQueryParameters(t *testing.T) {
 	}
 }
 
+type passingBookingIdentityVerifier struct{}
+
+func (passingBookingIdentityVerifier) RequireForBooking(context.Context, string, string, time.Time) error {
+	return nil
+}
+
 func TestLocalBookingDecisionAndCancellationConflictsMatchHTTPContract(t *testing.T) {
-	repo := repoStub{decideErr: booking.ErrConflict, cancelErr: booking.ErrConflict}
+	const bookingID = "00000000-0000-4000-8000-000000000001"
+	repo := repoStub{
+		decideErr: booking.ErrConflict,
+		cancelErr: booking.ErrConflict,
+		reservation: booking.Detail{Reservation: booking.Reservation{
+			ID: bookingID, HostID: renterID, RenterID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", State: "pagada",
+		}},
+	}
 	service, err := booking.NewService(repo, credentials.Generator{}, func() time.Time { return time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC) }, paymentStub{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	service.SetBookingIdentityVerifier(passingBookingIdentityVerifier{})
 	handler := NewHandler(authStub{}, service, nil)
 	base := "/api/v1/local/booking-trial/reservations/00000000-0000-4000-8000-000000000001"
 	request := func(path, body, idempotency string) *httptest.ResponseRecorder {
@@ -861,5 +984,124 @@ func TestAdminReservationFilterUsesInclusiveFromExclusiveTo(t *testing.T) {
 		if _, _, _, valid := adminReservationParams(query); valid {
 			t.Errorf("accepted invalid admin filter %v", query)
 		}
+	}
+}
+
+func TestBookingIdentityGateErrorsHaveExplicitHTTPContracts(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		code int
+		want string
+	}{
+		{name: "identity required", err: booking.ErrIdentityVerificationRequired, code: http.StatusConflict, want: "identity_verification_required"},
+		{name: "identity service unavailable", err: booking.ErrIdentityVerificationUnavailable, code: http.StatusServiceUnavailable, want: "identity_verification_unavailable"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			(&Handler{}).reply(response, nil, tc.err)
+			var envelope struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode error envelope: %v body=%s", err, response.Body.String())
+			}
+			if response.Code != tc.code || envelope.Error.Code != tc.want {
+				t.Fatalf("response status=%d code=%q, want %d/%q", response.Code, envelope.Error.Code, tc.code, tc.want)
+			}
+		})
+	}
+}
+
+type returningBookingIdentityVerifier struct{ err error }
+
+func (v returningBookingIdentityVerifier) RequireForBooking(context.Context, string, string, time.Time) error {
+	return v.err
+}
+
+func TestLocalBookingDecisionReturnsIdentityGateStatus(t *testing.T) {
+	const (
+		bookingID = "00000000-0000-4000-8000-000000000001"
+		hostID    = renterID
+		renter    = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+	)
+	cases := []struct {
+		name     string
+		verifier booking.BookingIdentityVerifier
+		status   int
+		code     string
+	}{
+		{name: "missing verifier", status: http.StatusServiceUnavailable, code: "identity_verification_unavailable"},
+		{name: "identity not current", verifier: returningBookingIdentityVerifier{err: identityverification.ErrNotVerified}, status: http.StatusConflict, code: "identity_verification_required"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := repoStub{reservation: booking.Detail{Reservation: booking.Reservation{ID: bookingID, HostID: hostID, RenterID: renter, State: "pagada"}}}
+			service, err := booking.NewService(repo, credentials.Generator{}, func() time.Time { return time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC) }, paymentStub{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.verifier != nil {
+				service.SetBookingIdentityVerifier(tc.verifier)
+			}
+			handler := NewHandler(authStub{}, service, nil)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations/"+bookingID+"/decision", strings.NewReader(`{"decision":"aprobar"}`))
+			request.Header.Set("Authorization", "Bearer test-session")
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			var envelope struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+				t.Fatalf("decode decision response: %v body=%s", err, response.Body.String())
+			}
+			if response.Code != tc.status || envelope.Error.Code != tc.code {
+				t.Fatalf("decision response status=%d code=%q, want %d/%q", response.Code, envelope.Error.Code, tc.status, tc.code)
+			}
+		})
+	}
+}
+
+type trackingBookingDecisionRepository struct {
+	repoStub
+	called         bool
+	decision       string
+	decisionReason string
+}
+
+func (r *trackingBookingDecisionRepository) Decide(_ context.Context, _, _ string, decision, reason string, _ func() time.Time) (booking.Reservation, error) {
+	r.called = true
+	r.decision = decision
+	r.decisionReason = reason
+	return booking.Reservation{State: "rechazada_host"}, nil
+}
+
+func TestLocalBookingDecisionRejectsOverHTTPWithoutIdentityVerifier(t *testing.T) {
+	const bookingID = "00000000-0000-4000-8000-000000000001"
+	repo := &trackingBookingDecisionRepository{repoStub: repoStub{reservation: booking.Detail{Reservation: booking.Reservation{
+		ID: bookingID, HostID: renterID, RenterID: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", State: "pagada",
+	}}}}
+	service, err := booking.NewService(repo, credentials.Generator{}, func() time.Time { return time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC) }, paymentStub{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(authStub{}, service, nil)
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/local/booking-trial/reservations/"+bookingID+"/decision", strings.NewReader(`{"decision":"rechazar","reason":"Condiciones no aceptadas"}`))
+	request.Header.Set("Authorization", "Bearer test-session")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("valid rejection without identity verifier returned %d: %s", response.Code, response.Body.String())
+	}
+	if !repo.called || repo.decision != "rechazar" || repo.decisionReason != "Condiciones no aceptadas" {
+		t.Fatalf("rejection did not reach repository unchanged: called=%v decision=%q reason=%q", repo.called, repo.decision, repo.decisionReason)
 	}
 }

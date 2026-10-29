@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaceversion"
 	domain "github.com/HernanEspinozaDev/espaciGo/internal/occupancy"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -64,6 +65,65 @@ func (r *Repository) SetTimeZone(ctx context.Context, owner, spaceID, zone strin
 		return domain.ErrNotFound
 	}
 	return tx.Commit(ctx)
+}
+
+func (r *Repository) SetTimeZoneCAS(ctx context.Context, owner, spaceID, zone string, expected time.Time) (time.Time, error) {
+	if expected.IsZero() {
+		return time.Time{}, domain.ErrInvalid
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	active, err := accountlock.LockActive(ctx, tx, owner)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if !active {
+		return time.Time{}, domain.ErrNotFound
+	}
+	var currentZone *string
+	var state string
+	var revision time.Time
+	err = tx.QueryRow(ctx, `SELECT zona_horaria,estado,actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, spaceID, owner).Scan(&currentZone, &state, &revision)
+	if err != nil {
+		return time.Time{}, mapError(err)
+	}
+	if !revision.Equal(expected) {
+		return time.Time{}, domain.ErrPreconditionFailed
+	}
+	if state == "activa" || state == "oculta" {
+		if currentZone != nil && strings.TrimSpace(*currentZone) != "" {
+			if *currentZone == zone {
+				return revision, tx.Commit(ctx)
+			}
+			return time.Time{}, domain.ErrTimezoneLocked
+		}
+		var hasReservations bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.reserva_ensayo_local WHERE espacio_id=$1)`, spaceID).Scan(&hasReservations); err != nil {
+			return time.Time{}, err
+		}
+		if hasReservations {
+			return time.Time{}, domain.ErrTimezoneInUse
+		}
+	} else if state != "borrador" {
+		return time.Time{}, domain.ErrNotFound
+	}
+	if currentZone != nil && *currentZone == zone {
+		return revision, tx.Commit(ctx)
+	}
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET zona_horaria=$3 WHERE id=$1 AND propietario_id=$2`, spaceID, owner, zone); err != nil {
+		return time.Time{}, err
+	}
+	revision, err = spaceversion.Bump(ctx, tx, spaceID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return time.Time{}, err
+	}
+	return revision, nil
 }
 
 func (r *Repository) TimeZone(ctx context.Context, owner, spaceID string) (string, error) {

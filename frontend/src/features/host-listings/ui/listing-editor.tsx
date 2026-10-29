@@ -1,7 +1,14 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import {
+  type ChangeEvent,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -20,7 +27,6 @@ import {
   ArrowUp,
   ArrowDown,
   Plus,
-  Info,
   History,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
@@ -36,15 +42,19 @@ import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import { ApiError } from "@/lib/api/errors";
 import { useHostListings } from "./use-host-listings";
 import { hostListingsFacade } from "../host-listings-runtime";
+import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 import {
   canPublishListing,
   isValidIanaTimeZone,
   validateCategoryAttributes,
+  validateListingDraftInput,
   validateScheduleSlots,
 } from "../domain/validation";
 import type {
+  CategoryProfileSchema,
   GalleryPhoto,
   PricingHistoryItem,
   RateUnit,
@@ -57,6 +67,132 @@ interface ListingEditorProps {
 
 type TabKey = "info" | "pricing" | "schedule" | "photos";
 
+const MAX_CURRENT_GALLERY_PHOTOS = 30;
+const MAX_PHOTO_INPUT_BYTES = 10 * 1024 * 1024;
+const MAX_CONCURRENT_PHOTO_UPLOADS = 2;
+type PhotoUploadStatus =
+  "queued" | "uploading" | "pending" | "completed" | "failed" | "cancelled";
+interface PhotoUploadItem {
+  readonly id: number;
+  readonly filename: string;
+  readonly image: File;
+  readonly isCover: boolean;
+  readonly idempotencyKey: string;
+  readonly status: PhotoUploadStatus;
+  readonly cancelRequested?: boolean;
+  readonly cancellable?: boolean;
+  readonly error?: string;
+}
+interface PendingPhotoReplacement {
+  readonly filename: string;
+  readonly image: File;
+  readonly targetPhotoId: string;
+  readonly idempotencyKey: string;
+  readonly ifMatch: string;
+  readonly status: "pending" | "failed";
+}
+function shouldDiscardPendingPhotoReplacement(error: unknown): boolean {
+  return (
+    (error instanceof ApiError && error.status >= 400 && error.status < 500) ||
+    (error instanceof DOMException && error.name === "AbortError")
+  );
+}
+const PHOTO_MIME_BY_EXTENSION: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+};
+
+function mapDraftServerFieldErrors(
+  error: unknown,
+  schema: CategoryProfileSchema | null,
+): Record<string, string> {
+  if (
+    !(error instanceof ApiError) ||
+    error.status !== 422 ||
+    error.code !== "validation_error"
+  ) {
+    return {};
+  }
+
+  const formFields = new Map<string, string>([
+    ["title", "title"],
+    ["description", "description"],
+    ["area_m2", "area_m2"],
+    ["capacity", "capacity"],
+    ["usage_rules", "usage_rules"],
+    ["address", "address"],
+    ["region_code", "region_code"],
+    ["comuna_code", "comuna_code"],
+    ["base_price_clp", "base_price"],
+  ]);
+  const messages = Object.create(null) as Record<string, string>;
+
+  for (const fieldError of error.fields) {
+    let target = formFields.get(fieldError.field);
+    const attributePrefix = "attributes.";
+    if (!target && fieldError.field.startsWith(attributePrefix)) {
+      const attributeCode = fieldError.field.slice(attributePrefix.length);
+      if (
+        schema?.attributes.some((attribute) => attribute.code === attributeCode)
+      ) {
+        target = `${attributePrefix}${attributeCode}`;
+      }
+    }
+    if (!target || messages[target]) continue;
+
+    if (fieldError.field.startsWith(attributePrefix)) {
+      const attributeMessage = {
+        required: "Completa este atributo.",
+        invalid_value: "Ingresa un valor válido para este atributo.",
+        exceeds_area: "La superficie no puede superar el área total.",
+        invalid_combination: "Revisa la combinación de atributos relacionada.",
+      }[fieldError.code];
+      if (!attributeMessage) continue;
+      messages[target] = attributeMessage;
+      continue;
+    }
+
+    if (fieldError.field === "title" && fieldError.code === "max_length") {
+      messages[target] = "El título no puede superar 70 caracteres.";
+    } else if (
+      fieldError.field === "description" &&
+      fieldError.code === "min_length"
+    ) {
+      messages[target] = "La descripción debe tener al menos 100 caracteres.";
+    } else if (
+      fieldError.field === "usage_rules" &&
+      fieldError.code === "max_length"
+    ) {
+      messages[target] = "Las reglas no pueden superar 250 caracteres.";
+    } else if (
+      fieldError.field === "address" &&
+      fieldError.code === "max_length"
+    ) {
+      messages[target] = "La dirección no puede superar 500 caracteres.";
+    } else if (
+      (fieldError.field === "region_code" ||
+        fieldError.field === "comuna_code") &&
+      fieldError.code === "location_pair"
+    ) {
+      messages[target] = "Selecciona una región y comuna compatibles.";
+    } else if (fieldError.code === "required") {
+      messages[target] = "Este campo es obligatorio.";
+    } else if (fieldError.code === "minimum") {
+      messages[target] = "El valor está por debajo del mínimo permitido.";
+    } else if (fieldError.code === "maximum") {
+      messages[target] = "El valor supera el máximo permitido.";
+    } else if (fieldError.code === "step") {
+      messages[target] = "El valor no coincide con el intervalo permitido.";
+    } else {
+      messages[target] = "Revisa el valor de este campo.";
+    }
+  }
+
+  return messages;
+}
+
 const DAYS_MAP = [
   { day: 1, name: "Lunes" },
   { day: 2, name: "Martes" },
@@ -67,11 +203,101 @@ const DAYS_MAP = [
   { day: 7, name: "Domingo" },
 ];
 
+interface PrivateGalleryThumbnailProps {
+  readonly accountId: string | null;
+  readonly listingId: string;
+  readonly photo: GalleryPhoto;
+  readonly index: number;
+}
+
+function PrivateGalleryThumbnail({
+  accountId,
+  listingId,
+  photo,
+  index,
+}: PrivateGalleryThumbnailProps) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const alt = photo.alt_text || `Imagen ${index + 1} del espacio`;
+  const source = photo.variants?.find(
+    (variant) => variant.name === "thumbnail",
+  )?.url;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const resourceKey = `space-gallery:${accountId ?? "anonymous"}:${listingId}:${photo.id}:thumbnail`;
+    let resource: ReturnType<typeof privateBlobUrls.create> | null = null;
+    let disposed = false;
+    if (!source)
+      return () => {
+        disposed = true;
+        controller.abort();
+        resource?.revoke();
+      };
+
+    void fetch(source, {
+      method: "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("No se pudo cargar la imagen");
+        const mediaType = response.headers
+          .get("content-type")
+          ?.split(";", 1)[0]
+          .trim()
+          .toLowerCase();
+        if (!mediaType?.startsWith("image/")) {
+          throw new Error("Tipo de imagen no válido");
+        }
+        return response.blob();
+      })
+      .then((blob) => {
+        if (disposed) return;
+        resource = privateBlobUrls.create(resourceKey, blob);
+        setPreviewUrl(resource.url);
+      })
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      controller.abort();
+      resource?.revoke();
+    };
+  }, [accountId, listingId, photo.id, source]);
+
+  return (
+    <div className="relative h-32 overflow-hidden rounded-lg border bg-muted/60">
+      {previewUrl ? (
+        <Image
+          src={previewUrl}
+          alt={alt}
+          fill
+          sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, 33vw"
+          unoptimized
+          className="object-cover"
+        />
+      ) : (
+        <div className="flex h-full flex-col items-center justify-center p-2 text-center">
+          <ImageIcon
+            className="size-6 text-muted-foreground mb-1"
+            aria-hidden="true"
+          />
+          <span className="text-xs font-medium text-foreground line-clamp-1">
+            {alt}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ListingEditor({ listingId }: ListingEditorProps) {
   const router = useRouter();
   const { snapshot: authSnapshot } = useAuth();
   const {
     snapshot,
+    loadPhotos,
     selectListing,
     loadCategorySchema,
     updateDraft,
@@ -81,9 +307,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     updateWeeklySchedule,
     configureTimeZone,
     uploadPhoto,
+    getPhotoUploadStatus,
+    replacePhoto,
     setCoverPhoto,
     removePhoto,
-    reorderPhotos,
+    movePhoto,
     publishListing,
     archiveListing,
     deleteListing,
@@ -93,7 +321,27 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   const [isPending, startTransition] = useTransition();
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [photoUploads, setPhotoUploads] = useState<PhotoUploadItem[]>([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [replacingPhotoId, setReplacingPhotoId] = useState<string | null>(null);
+  const [pendingPhotoReplacement, setPendingPhotoReplacement] =
+    useState<PendingPhotoReplacement | null>(null);
+  const [checkingPhotoReplacement, setCheckingPhotoReplacement] =
+    useState(false);
+  const replacementInputRef = useRef<HTMLInputElement>(null);
+  const replacementTargetPhotoId = useRef<string | null>(null);
+  const photoUploadId = useRef(0);
+  const cancelledPhotoUploadIds = useRef(new Set<number>());
+  const photoUploadControllers = useRef(new Map<number, AbortController>());
+  const reconciledCancelledUploads = useRef(new Set<number>());
   const [initialLoaded, setInitialLoaded] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const titleRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
+  const addressRef = useRef<HTMLInputElement>(null);
+  const rulesRef = useRef<HTMLTextAreaElement>(null);
+  const capacityRef = useRef<HTMLInputElement>(null);
+  const areaRef = useRef<HTMLInputElement>(null);
 
   // Pestaña 1: Información
   const [title, setTitle] = useState("");
@@ -194,13 +442,41 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
-    if (!title.trim() || !description.trim() || !address.trim()) {
-      setFeedbackError("Título, descripción y dirección son obligatorios.");
+    const validation = validateListingDraftInput({
+      category_code: currentListing.category_code,
+      title: title,
+      description: description.trim(),
+      area_m2: Number(areaM2),
+      capacity: Number(capacity),
+      usage_rules: usageRules,
+      base_price_clp: Number(basePrice),
+      rate_unit: rateUnit,
+      address: address,
+    });
+    setFieldErrors(validation.errors);
+    if (!validation.valid) {
+      const first = Object.keys(validation.errors)[0];
+      const focusTargets: Record<
+        string,
+        React.RefObject<HTMLInputElement | HTMLTextAreaElement | null>
+      > = {
+        title: titleRef,
+        description: descriptionRef,
+        address: addressRef,
+        usage_rules: rulesRef,
+        capacity: capacityRef,
+        area_m2: areaRef,
+      };
+      focusTargets[first]?.current?.focus();
       return;
     }
 
     if (currentSchema) {
-      const val = validateCategoryAttributes(attributes, currentSchema);
+      const val = validateCategoryAttributes(
+        attributes,
+        currentSchema,
+        Number(areaM2),
+      );
       if (!val.valid) {
         const firstErr = Object.values(val.errors)[0];
         setFeedbackError(firstErr ?? "Atributos requeridos incompletos.");
@@ -211,34 +487,71 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     startTransition(async () => {
       try {
         if (currentListing.state === "borrador") {
-          await updateDraft(listingId, {
-            category_code: currentListing.category_code,
-            title: title.trim(),
-            description: description.trim(),
-            area_m2: Number(areaM2),
-            capacity: Number(capacity),
-            usage_rules: usageRules.trim(),
-            rate_unit: rateUnit,
-            base_price_clp: Number(basePrice),
-            address: address.trim(),
-            region_code: regionCode || undefined,
-            comuna_code: comunaCode.trim() || undefined,
-            attribute_schema_version: currentListing.attribute_schema_version,
-            attributes,
-          });
+          const ifMatch = currentListing.etag;
+          if (!ifMatch) {
+            throw new Error(
+              "No se pudo verificar la versión del borrador. Recarga la página antes de guardar.",
+            );
+          }
+          await updateDraft(
+            listingId,
+            {
+              category_code: currentListing.category_code,
+              title: title.trim(),
+              description: description.trim(),
+              area_m2: Number(areaM2),
+              capacity: Number(capacity),
+              usage_rules: usageRules.trim(),
+              rate_unit: rateUnit,
+              base_price_clp: Number(basePrice),
+              address: address.trim(),
+              region_code: regionCode || undefined,
+              comuna_code: comunaCode.trim() || undefined,
+              attribute_schema_version: currentListing.attribute_schema_version,
+              attributes,
+            },
+            ifMatch,
+          );
         } else {
-          await updateContent(listingId, {
-            title: title.trim(),
-            description: description.trim(),
-            capacity: Number(capacity),
-            usage_rules: usageRules.trim(),
-            base_price_clp: Number(basePrice),
-            region_code: regionCode || undefined,
-            comuna_code: comunaCode.trim() || undefined,
-          });
+          const ifMatch = currentListing.etag;
+          if (!ifMatch) {
+            throw new Error(
+              "No se pudo verificar la versión del anuncio. Recarga la página antes de guardar.",
+            );
+          }
+          await updateContent(
+            listingId,
+            {
+              title: title.trim(),
+              description: description.trim(),
+              capacity: Number(capacity),
+              usage_rules: usageRules.trim(),
+              base_price_clp: Number(basePrice),
+              region_code: regionCode || undefined,
+              comuna_code: comunaCode.trim() || undefined,
+            },
+            ifMatch,
+          );
         }
         setFeedbackSuccess("Información actualizada exitosamente.");
       } catch (err) {
+        if (
+          err instanceof ApiError &&
+          err.status === 422 &&
+          err.code === "validation_error"
+        ) {
+          const serverFieldErrors = mapDraftServerFieldErrors(
+            err,
+            currentSchema,
+          );
+          if (Object.keys(serverFieldErrors).length > 0) {
+            setFieldErrors((errors) => ({ ...errors, ...serverFieldErrors }));
+          }
+          setFeedbackError(
+            "No se pudo guardar. Corrige los campos indicados y vuelve a intentar.",
+          );
+          return;
+        }
         const msg =
           err instanceof Error ? err.message : "Error al actualizar contenido";
         setFeedbackError(msg);
@@ -253,19 +566,38 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
-    if (basePrice <= 0 || !Number.isSafeInteger(basePrice)) {
+    if (
+      basePrice <= 5000 ||
+      !Number.isSafeInteger(basePrice) ||
+      !["hora", "dia", "mes"].includes(rateUnit)
+    ) {
+      setFieldErrors((errors) => ({
+        ...errors,
+        base_price:
+          "El precio debe ser un entero mayor a $5.000 CLP por hora, día o mes.",
+      }));
       setFeedbackError(
-        "El precio base debe ser un monto entero positivo en CLP.",
+        "El precio base debe ser un entero mayor a $5.000 CLP y la unidad de cobro debe ser válida.",
       );
       return;
     }
 
+    setFieldErrors((errors) => ({ ...errors, base_price: "" }));
     startTransition(async () => {
       try {
-        await updatePricing(listingId, {
-          rate_unit: rateUnit,
-          base_price: Number(basePrice),
-        });
+        if (!currentListing?.etag) {
+          throw new Error(
+            "No se pudo verificar la versión del espacio. Recarga la página antes de guardar la tarifa.",
+          );
+        }
+        await updatePricing(
+          listingId,
+          {
+            rate_unit: rateUnit,
+            base_price: Number(basePrice),
+          },
+          currentListing.etag,
+        );
         await loadPricingHistory(listingId);
         setFeedbackSuccess("Tarifa actualizada y registrada en el historial.");
       } catch (err) {
@@ -300,14 +632,28 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
       }
     }
 
+    const listingEtag = currentListing?.etag;
+    if (!listingEtag) {
+      setFeedbackError("No se pudo determinar la versión actual del espacio.");
+      return;
+    }
+
     startTransition(async () => {
       try {
-        await configureTimeZone(listingId, timeZone);
-        await updateWeeklySchedule(listingId, {
-          timezone: timeZone,
-          enabled: scheduleEnabled,
-          weekly_slots: scheduleSlots,
-        });
+        const configured = await configureTimeZone(
+          listingId,
+          timeZone,
+          listingEtag,
+        );
+        await updateWeeklySchedule(
+          listingId,
+          {
+            timezone: timeZone,
+            enabled: scheduleEnabled,
+            weekly_slots: scheduleSlots,
+          },
+          configured.etag,
+        );
         setFeedbackSuccess(
           "Disponibilidad semanal y zona horaria guardadas con éxito.",
         );
@@ -319,26 +665,544 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     });
   };
 
-  // Pestaña 4: Fotos
-  const handleUploadSyntheticPhoto = async () => {
-    if (authSnapshot.status !== "authenticated") return;
+  // Pestaña 4: Fotografías reales; Go conserva la autoridad final del cupo.
+  const handleUploadImages = (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    if (authSnapshot.status !== "authenticated" || files.length === 0) return;
+
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
-    startTransition(async () => {
-      try {
-        await uploadPhoto(listingId, {
-          caption: `Foto de ensayo para ${currentListing?.title || "espacio"}`,
-          is_cover: snapshot.photos.length === 0,
-        });
-        setFeedbackSuccess(
-          "Fotografía sintética de ensayo agregada a la galería.",
+    if (snapshot.photos.length + files.length > MAX_CURRENT_GALLERY_PHOTOS) {
+      setFeedbackError(
+        `El límite actual es de ${MAX_CURRENT_GALLERY_PHOTOS} imágenes por espacio.`,
+      );
+      return;
+    }
+
+    if (
+      files.some((file) => {
+        const extension = file.name.match(/\.[^.]+$/)?.[0].toLowerCase();
+        return (
+          PHOTO_MIME_BY_EXTENSION[extension ?? ""] !== file.type ||
+          file.size > MAX_PHOTO_INPUT_BYTES
         );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Error al subir foto";
-        setFeedbackError(msg);
+      })
+    ) {
+      setFeedbackError(
+        "Usa imágenes JPG, PNG o WebP de hasta 10 MiB cada una.",
+      );
+      return;
+    }
+
+    const shouldSetCover = snapshot.photos.length === 0;
+    const ids = files.map(() => ++photoUploadId.current);
+    const photoUploadsForBatch = files.map((file, index) => ({
+      id: ids[index]!,
+      filename: file.name,
+      image: file,
+      isCover: shouldSetCover && index === 0,
+      idempotencyKey: crypto.randomUUID(),
+      status: "queued" as const,
+      cancellable: true,
+    }));
+    setPhotoUploads(photoUploadsForBatch);
+    setUploadingPhotos(true);
+    void (async () => {
+      let nextIndex = 0;
+      let failedCount = 0;
+      let succeededCount = 0;
+      let pendingCount = 0;
+      const workers = Array.from(
+        { length: Math.min(MAX_CONCURRENT_PHOTO_UPLOADS, files.length) },
+        async () => {
+          while (nextIndex < files.length) {
+            const index = nextIndex++;
+            const item = photoUploadsForBatch[index]!;
+            const id = item.id;
+            if (cancelledPhotoUploadIds.current.has(id)) continue;
+            setPhotoUploads((items) =>
+              items.map((item) =>
+                item.id === id ? { ...item, status: "uploading" } : item,
+              ),
+            );
+            const controller = new AbortController();
+            photoUploadControllers.current.set(id, controller);
+            try {
+              const result = await uploadPhoto(
+                listingId,
+                { image: item.image, is_cover: item.isCover },
+                item.idempotencyKey,
+                controller.signal,
+              );
+              if (result.state === "pending") {
+                pendingCount++;
+                setPhotoUploads((items) =>
+                  items.map((item) =>
+                    item.id === id
+                      ? {
+                          ...item,
+                          status: "pending",
+                          cancellable: false,
+                        }
+                      : item,
+                  ),
+                );
+              } else {
+                succeededCount++;
+                setPhotoUploads((items) =>
+                  items.map((item) =>
+                    item.id === id
+                      ? { ...item, status: "completed", cancellable: false }
+                      : item,
+                  ),
+                );
+              }
+            } catch (err) {
+              if (cancelledPhotoUploadIds.current.has(id)) {
+                if (!reconciledCancelledUploads.current.has(id)) {
+                  reconciledCancelledUploads.current.add(id);
+                  try {
+                    const status = await getPhotoUploadStatus(
+                      listingId,
+                      item.idempotencyKey,
+                    );
+                    if (status.state === "ready") {
+                      await loadPhotos(listingId);
+                      if (item.isCover)
+                        await setCoverPhoto(listingId, status.photo_id);
+                      succeededCount++;
+                      setPhotoUploads((items) =>
+                        items.map((upload) =>
+                          upload.id === id
+                            ? {
+                                ...upload,
+                                status: "completed",
+                                error: undefined,
+                                cancelRequested: false,
+                                cancellable: false,
+                              }
+                            : upload,
+                        ),
+                      );
+                    } else if (
+                      status.state === "failed" ||
+                      status.state === "not_found"
+                    ) {
+                      failedCount++;
+                      setPhotoUploads((items) =>
+                        items.map((upload) =>
+                          upload.id === id
+                            ? {
+                                ...upload,
+                                status: "failed",
+                                error:
+                                  "La carga no se completó. Puedes reintentar explícitamente.",
+                                cancellable: false,
+                              }
+                            : upload,
+                        ),
+                      );
+                    } else {
+                      pendingCount++;
+                      setPhotoUploads((items) =>
+                        items.map((upload) =>
+                          upload.id === id
+                            ? {
+                                ...upload,
+                                status: "pending",
+                                cancelRequested: true,
+                                cancellable: false,
+                                error:
+                                  "Cancelación solicitada; el estado remoto sigue pendiente.",
+                              }
+                            : upload,
+                        ),
+                      );
+                    }
+                  } catch {
+                    pendingCount++;
+                    setPhotoUploads((items) =>
+                      items.map((upload) =>
+                        upload.id === id
+                          ? {
+                              ...upload,
+                              status: "pending",
+                              cancelRequested: true,
+                              cancellable: false,
+                              error:
+                                "No se pudo confirmar el estado remoto. Revisa el estado antes de reintentar.",
+                            }
+                          : upload,
+                      ),
+                    );
+                  }
+                }
+              } else {
+                failedCount++;
+                const message =
+                  err instanceof Error ? err.message : "Error al subir imagen";
+                setPhotoUploads((items) =>
+                  items.map((item) =>
+                    item.id === id
+                      ? {
+                          ...item,
+                          status: "failed",
+                          error: message,
+                          cancellable: false,
+                        }
+                      : item,
+                  ),
+                );
+              }
+            } finally {
+              photoUploadControllers.current.delete(id);
+            }
+          }
+        },
+      );
+      await Promise.all(workers);
+      setUploadingPhotos(false);
+      if (failedCount > 0) {
+        setFeedbackError(
+          failedCount === files.length
+            ? `No se pudieron agregar ${failedCount} imágenes a la galería.`
+            : `Se agregaron ${succeededCount} imágenes; ${failedCount} no se pudieron subir.`,
+        );
       }
-    });
+      if (succeededCount > 0 || pendingCount > 0) {
+        const completionSummary = `${succeededCount} ${succeededCount === 1 ? "correcta" : "correctas"}`;
+        const pendingSummary =
+          pendingCount > 0
+            ? `; ${pendingCount} pendiente${pendingCount === 1 ? "" : "s"} de confirmación`
+            : "";
+        setFeedbackSuccess(
+          `Lote de galería finalizado: ${completionSummary}${pendingSummary}.`,
+        );
+      }
+    })();
+  };
+
+  const handleReplaceImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    const photoId = replacementTargetPhotoId.current;
+    replacementTargetPhotoId.current = null;
+    if (
+      !file ||
+      !photoId ||
+      authSnapshot.status !== "authenticated" ||
+      pendingPhotoReplacement
+    )
+      return;
+
+    setFeedbackError(null);
+    setFeedbackSuccess(null);
+    const extension = file.name.match(/\.[^.]+$/)?.[0].toLowerCase();
+    if (
+      PHOTO_MIME_BY_EXTENSION[extension ?? ""] !== file.type ||
+      file.size > MAX_PHOTO_INPUT_BYTES
+    ) {
+      setFeedbackError(
+        "Usa imágenes JPG, PNG o WebP de hasta 10 MiB cada una.",
+      );
+      return;
+    }
+    const ifMatch = currentListing?.etag;
+    if (!ifMatch) {
+      setFeedbackError("Recarga el espacio antes de reemplazar una imagen.");
+      return;
+    }
+
+    const replacement: PendingPhotoReplacement = {
+      filename: file.name,
+      image: file,
+      targetPhotoId: photoId,
+      idempotencyKey: crypto.randomUUID(),
+      ifMatch,
+      status: "pending",
+    };
+    setReplacingPhotoId(photoId);
+    try {
+      const result = await replacePhoto(
+        listingId,
+        photoId,
+        { image: file },
+        replacement.idempotencyKey,
+        ifMatch,
+      );
+      if (result.state === "pending") {
+        setPendingPhotoReplacement(replacement);
+        setFeedbackSuccess(
+          "El reemplazo está pendiente de confirmación; la foto actual se conserva.",
+        );
+      } else {
+        setPendingPhotoReplacement(null);
+        setFeedbackSuccess("Foto reemplazada correctamente.");
+      }
+    } catch (err) {
+      setPendingPhotoReplacement(
+        shouldDiscardPendingPhotoReplacement(err) ? null : replacement,
+      );
+      const message =
+        err instanceof Error ? err.message : "Error al reemplazar la imagen";
+      setFeedbackError(message);
+    } finally {
+      setReplacingPhotoId(null);
+    }
+  };
+
+  const handleReviewPendingPhotoReplacement = async () => {
+    const replacement = pendingPhotoReplacement;
+    if (!replacement || checkingPhotoReplacement) return;
+
+    setCheckingPhotoReplacement(true);
+    setFeedbackError(null);
+    setFeedbackSuccess(null);
+    try {
+      const status = await getPhotoUploadStatus(
+        listingId,
+        replacement.idempotencyKey,
+      );
+      if (status.state === "deleting") {
+        setPendingPhotoReplacement(null);
+        setFeedbackError(
+          "El reemplazo no se completó; el archivo reservado está en limpieza. La foto actual se conserva. Elige nuevamente una imagen para iniciar otro intento.",
+        );
+        return;
+      }
+      if (status.state === "pending") {
+        setPendingPhotoReplacement({ ...replacement, status: "pending" });
+        setFeedbackSuccess(
+          "El reemplazo continúa pendiente; la foto actual se conserva.",
+        );
+        return;
+      }
+      if (status.state === "failed" || status.state === "not_found") {
+        setPendingPhotoReplacement({ ...replacement, status: "failed" });
+        setFeedbackError(
+          "No se confirmó el reemplazo. Puedes reintentar con el mismo archivo.",
+        );
+        return;
+      }
+
+      const refreshed = await selectListing(listingId);
+      if (!refreshed) throw new Error("No se pudo actualizar la galería.");
+      setPendingPhotoReplacement(null);
+      setFeedbackSuccess("Foto reemplazada correctamente.");
+    } catch (err) {
+      if (shouldDiscardPendingPhotoReplacement(err)) {
+        setPendingPhotoReplacement(null);
+      }
+      const message =
+        err instanceof Error
+          ? err.message
+          : "No se pudo consultar el estado del reemplazo.";
+      setFeedbackError(message);
+    } finally {
+      setCheckingPhotoReplacement(false);
+    }
+  };
+
+  const handleRetryPendingPhotoReplacement = async () => {
+    const replacement = pendingPhotoReplacement;
+    if (
+      !replacement ||
+      replacement.status !== "failed" ||
+      replacingPhotoId !== null
+    )
+      return;
+
+    setReplacingPhotoId(replacement.targetPhotoId);
+    setFeedbackError(null);
+    setFeedbackSuccess(null);
+    try {
+      const result = await replacePhoto(
+        listingId,
+        replacement.targetPhotoId,
+        { image: replacement.image },
+        replacement.idempotencyKey,
+        replacement.ifMatch,
+      );
+      if (result.state === "pending") {
+        setPendingPhotoReplacement({ ...replacement, status: "pending" });
+        setFeedbackSuccess(
+          "El reemplazo está pendiente de confirmación; la foto actual se conserva.",
+        );
+      } else {
+        setPendingPhotoReplacement(null);
+        setFeedbackSuccess("Foto reemplazada correctamente.");
+      }
+    } catch (err) {
+      setPendingPhotoReplacement(
+        shouldDiscardPendingPhotoReplacement(err)
+          ? null
+          : { ...replacement, status: "pending" },
+      );
+      const message =
+        err instanceof Error ? err.message : "Error al reintentar el reemplazo";
+      setFeedbackError(message);
+    } finally {
+      setReplacingPhotoId(null);
+    }
+  };
+
+  const handleCancelQueuedPhoto = (id: number) => {
+    const item = photoUploads.find((upload) => upload.id === id);
+    if (!item || item.status !== "queued") return;
+    cancelledPhotoUploadIds.current.add(id);
+    setPhotoUploads((items) =>
+      items.map((upload) =>
+        upload.id === id ? { ...upload, status: "cancelled" } : upload,
+      ),
+    );
+  };
+
+  const handleCancelDispatchedPhoto = (id: number) => {
+    const item = photoUploads.find((upload) => upload.id === id);
+    const controller = photoUploadControllers.current.get(id);
+    if (!item || item.status !== "uploading" || !controller) return;
+    cancelledPhotoUploadIds.current.add(id);
+    setPhotoUploads((items) =>
+      items.map((upload) =>
+        upload.id === id
+          ? {
+              ...upload,
+              status: "pending",
+              cancelRequested: true,
+              cancellable: false,
+              error: "Cancelación solicitada; verificando estado remoto…",
+            }
+          : upload,
+      ),
+    );
+    controller.abort();
+  };
+
+  const handleRetryPhoto = async (id: number) => {
+    if (uploadingPhotos || authSnapshot.status !== "authenticated") return;
+    const item = photoUploads.find((upload) => upload.id === id);
+    if (!item || (item.status !== "failed" && item.status !== "pending"))
+      return;
+
+    const cancelRequested = item.cancelRequested === true;
+    let reconciling = item.status === "pending";
+    setUploadingPhotos(true);
+    setPhotoUploads((items) =>
+      items.map((upload) =>
+        upload.id === id
+          ? {
+              ...upload,
+              status: "uploading",
+              cancellable: false,
+              error: undefined,
+            }
+          : upload,
+      ),
+    );
+    try {
+      if (reconciling) {
+        const status = await getPhotoUploadStatus(
+          listingId,
+          item.idempotencyKey,
+        );
+        if (status.state === "ready") {
+          await loadPhotos(listingId);
+          if (item.isCover) {
+            await setCoverPhoto(listingId, status.photo_id);
+          }
+          setPhotoUploads((items) =>
+            items.map((upload) =>
+              upload.id === id
+                ? {
+                    ...upload,
+                    status: "completed",
+                    cancelRequested: false,
+                    cancellable: false,
+                    error: undefined,
+                  }
+                : upload,
+            ),
+          );
+          return;
+        }
+        if (status.state === "pending" || status.state === "deleting") {
+          setPhotoUploads((items) =>
+            items.map((upload) =>
+              upload.id === id
+                ? {
+                    ...upload,
+                    status: "pending",
+                    cancelRequested,
+                    cancellable: false,
+                    error: cancelRequested
+                      ? "La cancelación local no detuvo el servidor; la carga sigue pendiente."
+                      : undefined,
+                  }
+                : upload,
+            ),
+          );
+          return;
+        }
+        if (cancelRequested) {
+          setPhotoUploads((items) =>
+            items.map((upload) =>
+              upload.id === id
+                ? {
+                    ...upload,
+                    status: "failed",
+                    cancellable: false,
+                    error:
+                      "No se encontró una reserva. Reintentar enviará el mismo archivo con la misma clave.",
+                  }
+                : upload,
+            ),
+          );
+          return;
+        }
+        reconciling = false;
+      }
+
+      const result = await uploadPhoto(
+        listingId,
+        { image: item.image, is_cover: item.isCover },
+        item.idempotencyKey,
+      );
+      setPhotoUploads((items) =>
+        items.map((upload) =>
+          upload.id === id
+            ? {
+                ...upload,
+                status: result.state === "pending" ? "pending" : "completed",
+                cancelRequested: false,
+                cancellable: false,
+                error: undefined,
+              }
+            : upload,
+        ),
+      );
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Error al subir imagen";
+      setPhotoUploads((items) =>
+        items.map((upload) =>
+          upload.id === id
+            ? {
+                ...upload,
+                status: reconciling ? "pending" : "failed",
+                cancelRequested: reconciling && cancelRequested,
+                cancellable: false,
+                error: message,
+              }
+            : upload,
+        ),
+      );
+    } finally {
+      setUploadingPhotos(false);
+    }
   };
 
   const handleSetCover = async (photoId: string) => {
@@ -359,7 +1223,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     if (authSnapshot.status !== "authenticated") return;
     startTransition(async () => {
       try {
-        await removePhoto(listingId, photoId);
+        const ifMatch =
+          currentListing?.id === listingId ? currentListing.etag : undefined;
+        if (!ifMatch)
+          throw new Error("No se pudo validar la versión del espacio");
+        await removePhoto(listingId, photoId, ifMatch);
         setFeedbackSuccess("Foto eliminada de la galería.");
       } catch (err) {
         const msg =
@@ -374,15 +1242,17 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     const targetIndex = direction === "up" ? index - 1 : index + 1;
     if (targetIndex < 0 || targetIndex >= snapshot.photos.length) return;
 
-    const newOrder = [...snapshot.photos];
-    const temp = newOrder[index]!;
-    newOrder[index] = newOrder[targetIndex]!;
-    newOrder[targetIndex] = temp;
-
-    const photoIds = newOrder.map((p) => p.id);
+    const photoId = snapshot.photos[index]!.id;
+    const ifMatch = currentListing?.etag;
+    if (!ifMatch) {
+      setFeedbackError(
+        "Recarga el espacio antes de reordenar las fotografías.",
+      );
+      return;
+    }
     startTransition(async () => {
       try {
-        await reorderPhotos(listingId, photoIds);
+        await movePhoto(listingId, photoId, targetIndex + 1, ifMatch);
         setFeedbackSuccess("Orden de fotografías actualizado.");
       } catch (err) {
         const msg =
@@ -408,7 +1278,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
     startTransition(async () => {
       try {
-        await publishListing(listingId);
+        await publishListing(listingId, currentListing.etag);
         setFeedbackSuccess(
           "¡El espacio ha sido publicado exitosamente y está activo en el catálogo!",
         );
@@ -424,7 +1294,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     if (authSnapshot.status !== "authenticated") return;
     startTransition(async () => {
       try {
-        await archiveListing(listingId);
+        await archiveListing(listingId, currentListing?.etag);
         setFeedbackSuccess(
           "El espacio ha sido archivado (oculto del catálogo público).",
         );
@@ -755,23 +1625,73 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                   <Label htmlFor="editor-title">Título del anuncio *</Label>
                   <Input
                     id="editor-title"
+                    ref={titleRef}
+                    aria-invalid={Boolean(fieldErrors.title)}
+                    aria-describedby={
+                      fieldErrors.title
+                        ? "editor-title-error"
+                        : "editor-title-count"
+                    }
                     value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    maxLength={120}
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      setFieldErrors((errors) => ({ ...errors, title: "" }));
+                    }}
                     required
                   />
+                  <p
+                    id="editor-title-count"
+                    className="text-xs text-muted-foreground"
+                  >
+                    {Array.from(title).length}/70 caracteres
+                  </p>
+                  {fieldErrors.title && (
+                    <p
+                      id="editor-title-error"
+                      className="text-sm text-destructive"
+                    >
+                      {fieldErrors.title}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="editor-desc">Descripción detallada *</Label>
                   <textarea
                     id="editor-desc"
+                    ref={descriptionRef}
+                    aria-invalid={Boolean(fieldErrors.description)}
+                    aria-describedby={
+                      fieldErrors.description
+                        ? "editor-desc-error"
+                        : "editor-desc-count"
+                    }
                     rows={4}
                     value={description}
-                    onChange={(e) => setDescription(e.target.value)}
+                    onChange={(e) => {
+                      setDescription(e.target.value);
+                      setFieldErrors((errors) => ({
+                        ...errors,
+                        description: "",
+                      }));
+                    }}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     required
                   />
+                  <p
+                    id="editor-desc-count"
+                    className="text-xs text-muted-foreground"
+                  >
+                    {Array.from(description).length}/100 caracteres mínimos
+                  </p>
+                  {fieldErrors.description && (
+                    <p
+                      id="editor-desc-error"
+                      className="text-sm text-destructive"
+                    >
+                      {fieldErrors.description}
+                    </p>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -779,28 +1699,87 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                     <Label htmlFor="editor-address">Dirección *</Label>
                     <Input
                       id="editor-address"
+                      ref={addressRef}
+                      aria-invalid={Boolean(fieldErrors.address)}
+                      aria-describedby={
+                        fieldErrors.address
+                          ? "editor-address-error"
+                          : "editor-address-count"
+                      }
                       value={address}
-                      onChange={(e) => setAddress(e.target.value)}
+                      onChange={(e) => {
+                        setAddress(e.target.value);
+                        setFieldErrors((errors) => ({
+                          ...errors,
+                          address: "",
+                        }));
+                      }}
                       required
                     />
+                    <p
+                      id="editor-address-count"
+                      className="text-xs text-muted-foreground"
+                    >
+                      {Array.from(address).length}/500 caracteres
+                    </p>
+                    {fieldErrors.address && (
+                      <p
+                        id="editor-address-error"
+                        className="text-sm text-destructive"
+                      >
+                        {fieldErrors.address}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="editor-comuna">Comuna</Label>
                     <Input
                       id="editor-comuna"
+                      aria-invalid={Boolean(fieldErrors.comuna_code)}
+                      aria-describedby={
+                        fieldErrors.comuna_code
+                          ? "editor-comuna-error"
+                          : undefined
+                      }
                       value={comunaCode}
-                      onChange={(e) => setComunaCode(e.target.value)}
+                      onChange={(e) => {
+                        setComunaCode(e.target.value);
+                        setFieldErrors((errors) => ({
+                          ...errors,
+                          comuna_code: "",
+                        }));
+                      }}
                       placeholder="Ej: Santiago o 13101"
                     />
+                    {fieldErrors.comuna_code && (
+                      <p
+                        id="editor-comuna-error"
+                        className="text-sm text-destructive"
+                      >
+                        {fieldErrors.comuna_code}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="editor-region">Región</Label>
                     <select
                       id="editor-region"
+                      aria-invalid={Boolean(fieldErrors.region_code)}
+                      aria-describedby={
+                        fieldErrors.region_code
+                          ? "editor-region-error"
+                          : undefined
+                      }
                       value={regionCode}
-                      onChange={(e) => setRegionCode(e.target.value)}
+                      onChange={(e) => {
+                        setRegionCode(e.target.value);
+                        setFieldErrors((errors) => ({
+                          ...errors,
+                          region_code: "",
+                        }));
+                      }}
                       className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     >
                       <option value="13">Región Metropolitana (13)</option>
@@ -810,6 +1789,14 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                       <option value="09">La Araucanía (09)</option>
                       <option value="10">Los Lagos (10)</option>
                     </select>
+                    {fieldErrors.region_code && (
+                      <p
+                        id="editor-region-error"
+                        className="text-sm text-destructive"
+                      >
+                        {fieldErrors.region_code}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -818,24 +1805,64 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                     </Label>
                     <Input
                       id="editor-capacity"
+                      ref={capacityRef}
+                      aria-invalid={Boolean(fieldErrors.capacity)}
+                      aria-describedby={
+                        fieldErrors.capacity
+                          ? "editor-capacity-error"
+                          : undefined
+                      }
                       type="number"
-                      min={1}
+                      step="1"
                       value={capacity}
-                      onChange={(e) => setCapacity(Number(e.target.value))}
+                      onChange={(e) => {
+                        setCapacity(Number(e.target.value));
+                        setFieldErrors((errors) => ({
+                          ...errors,
+                          capacity: "",
+                        }));
+                      }}
                       required
                     />
+                    {fieldErrors.capacity && (
+                      <p
+                        id="editor-capacity-error"
+                        className="text-sm text-destructive"
+                      >
+                        {fieldErrors.capacity}
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
                     <Label htmlFor="editor-area">Superficie (m²) *</Label>
                     <Input
                       id="editor-area"
+                      ref={areaRef}
+                      aria-invalid={Boolean(fieldErrors.area_m2)}
+                      aria-describedby={
+                        fieldErrors.area_m2 ? "editor-area-error" : undefined
+                      }
                       type="number"
-                      min={1}
+                      step="any"
                       value={areaM2}
-                      onChange={(e) => setAreaM2(Number(e.target.value))}
+                      onChange={(e) => {
+                        setAreaM2(Number(e.target.value));
+                        setFieldErrors((errors) => ({
+                          ...errors,
+                          area_m2: "",
+                        }));
+                      }}
                       required
                     />
+                    {fieldErrors.area_m2 && (
+                      <p
+                        id="editor-area-error"
+                        className="text-sm text-destructive"
+                      >
+                        {fieldErrors.area_m2}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -845,11 +1872,38 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                   </Label>
                   <textarea
                     id="editor-rules"
+                    ref={rulesRef}
+                    aria-invalid={Boolean(fieldErrors.usage_rules)}
+                    aria-describedby={
+                      fieldErrors.usage_rules
+                        ? "editor-rules-error"
+                        : "editor-rules-count"
+                    }
                     rows={3}
                     value={usageRules}
-                    onChange={(e) => setUsageRules(e.target.value)}
+                    onChange={(e) => {
+                      setUsageRules(e.target.value);
+                      setFieldErrors((errors) => ({
+                        ...errors,
+                        usage_rules: "",
+                      }));
+                    }}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   />
+                  <p
+                    id="editor-rules-count"
+                    className="text-xs text-muted-foreground"
+                  >
+                    {Array.from(usageRules).length}/250 caracteres
+                  </p>
+                  {fieldErrors.usage_rules && (
+                    <p
+                      id="editor-rules-error"
+                      className="text-sm text-destructive"
+                    >
+                      {fieldErrors.usage_rules}
+                    </p>
+                  )}
                 </div>
 
                 {/* Atributos dinámicos de categoría */}
@@ -870,32 +1924,54 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-muted/20 p-4 rounded-lg border">
                       {currentSchema.attributes.map((def) => {
                         const val = attributes[def.code];
-                        const inputId = `attr-editor-${def.code}`;
+                        const inputId = `attr-editor-${encodeURIComponent(def.code)}`;
+                        const attributeError =
+                          fieldErrors[`attributes.${def.code}`] ?? "";
+                        const attributeErrorId = `${inputId}-error`;
+                        const clearAttributeError = () =>
+                          setFieldErrors((errors) => ({
+                            ...errors,
+                            [`attributes.${def.code}`]: "",
+                          }));
 
                         if (def.type === "boolean") {
                           return (
-                            <div
-                              key={def.code}
-                              className="flex items-center justify-between p-2.5 rounded bg-background border"
-                            >
-                              <Label
-                                htmlFor={inputId}
-                                className="text-xs cursor-pointer"
-                              >
-                                {def.label}
-                              </Label>
-                              <input
-                                id={inputId}
-                                type="checkbox"
-                                checked={Boolean(val)}
-                                onChange={(e) =>
-                                  setAttributes((prev) => ({
-                                    ...prev,
-                                    [def.code]: e.target.checked,
-                                  }))
-                                }
-                                className="size-4 rounded text-primary focus:ring-primary"
-                              />
+                            <div key={def.code} className="space-y-1">
+                              <div className="flex items-center justify-between p-2.5 rounded bg-background border">
+                                <Label
+                                  htmlFor={inputId}
+                                  className="text-xs cursor-pointer"
+                                >
+                                  {def.label}
+                                </Label>
+                                <input
+                                  id={inputId}
+                                  type="checkbox"
+                                  aria-invalid={Boolean(attributeError)}
+                                  aria-describedby={
+                                    attributeError
+                                      ? attributeErrorId
+                                      : undefined
+                                  }
+                                  checked={Boolean(val)}
+                                  onChange={(e) => {
+                                    setAttributes((prev) => ({
+                                      ...prev,
+                                      [def.code]: e.target.checked,
+                                    }));
+                                    clearAttributeError();
+                                  }}
+                                  className="size-4 rounded text-primary focus:ring-primary"
+                                />
+                              </div>
+                              {attributeError && (
+                                <p
+                                  id={attributeErrorId}
+                                  className="text-sm text-destructive"
+                                >
+                                  {attributeError}
+                                </p>
+                              )}
                             </div>
                           );
                         }
@@ -911,22 +1987,121 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                               </Label>
                               <Input
                                 id={inputId}
+                                aria-invalid={Boolean(attributeError)}
+                                aria-describedby={
+                                  attributeError ? attributeErrorId : undefined
+                                }
                                 type="number"
                                 min={def.minimum}
                                 max={def.maximum}
                                 step={def.step ?? 1}
                                 value={val !== undefined ? String(val) : ""}
-                                onChange={(e) =>
+                                onChange={(e) => {
                                   setAttributes((prev) => ({
                                     ...prev,
                                     [def.code]:
                                       e.target.value === ""
                                         ? undefined
                                         : Number(e.target.value),
-                                  }))
-                                }
+                                  }));
+                                  clearAttributeError();
+                                }}
                               />
+                              {attributeError && (
+                                <p
+                                  id={attributeErrorId}
+                                  className="text-sm text-destructive"
+                                >
+                                  {attributeError}
+                                </p>
+                              )}
                             </div>
+                          );
+                        }
+
+                        if (def.type === "enum_list" && def.options) {
+                          const options = def.options;
+                          const selected = Array.isArray(val)
+                            ? options.filter(
+                                (option) =>
+                                  typeof option === "string" &&
+                                  val.includes(option),
+                              )
+                            : [];
+                          const fieldsetId = `attr-editor-${encodeURIComponent(def.code)}`;
+                          return (
+                            <fieldset key={def.code} className="space-y-2">
+                              <legend className="text-xs font-semibold">
+                                {def.label}
+                              </legend>
+                              <div className="space-y-2">
+                                {def.options.map((option, index) => {
+                                  const optionId = `${fieldsetId}-option-${index}`;
+                                  return (
+                                    <div
+                                      key={`${index}-${option}`}
+                                      className="flex items-center gap-2"
+                                    >
+                                      <input
+                                        id={optionId}
+                                        type="checkbox"
+                                        aria-invalid={Boolean(attributeError)}
+                                        aria-describedby={
+                                          attributeError
+                                            ? attributeErrorId
+                                            : undefined
+                                        }
+                                        checked={selected.includes(option)}
+                                        onChange={(event) => {
+                                          setAttributes((previous) => {
+                                            const currentValue =
+                                              previous[def.code];
+                                            const current: string[] =
+                                              Array.isArray(currentValue)
+                                                ? (
+                                                    currentValue as unknown[]
+                                                  ).filter(
+                                                    (item): item is string =>
+                                                      typeof item ===
+                                                        "string" &&
+                                                      options.includes(item),
+                                                  )
+                                                : [];
+                                            const next = event.target.checked
+                                              ? [...current, option]
+                                              : current.filter(
+                                                  (item) => item !== option,
+                                                );
+                                            return {
+                                              ...previous,
+                                              [def.code]: def.options!.filter(
+                                                (item) => next.includes(item),
+                                              ),
+                                            };
+                                          });
+                                          clearAttributeError();
+                                        }}
+                                        className="size-4 rounded text-primary focus:ring-primary"
+                                      />
+                                      <Label
+                                        htmlFor={optionId}
+                                        className="text-xs cursor-pointer"
+                                      >
+                                        {option}
+                                      </Label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {attributeError && (
+                                <p
+                                  id={attributeErrorId}
+                                  className="text-sm text-destructive"
+                                >
+                                  {attributeError}
+                                </p>
+                              )}
+                            </fieldset>
                           );
                         }
 
@@ -941,13 +2116,19 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                               </Label>
                               <select
                                 id={inputId}
+                                aria-required={def.required || undefined}
+                                aria-invalid={Boolean(attributeError)}
+                                aria-describedby={
+                                  attributeError ? attributeErrorId : undefined
+                                }
                                 value={typeof val === "string" ? val : ""}
-                                onChange={(e) =>
+                                onChange={(e) => {
                                   setAttributes((prev) => ({
                                     ...prev,
                                     [def.code]: e.target.value,
-                                  }))
-                                }
+                                  }));
+                                  clearAttributeError();
+                                }}
                                 className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                               >
                                 <option value="">-- Selecciona --</option>
@@ -957,6 +2138,14 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                   </option>
                                 ))}
                               </select>
+                              {attributeError && (
+                                <p
+                                  id={attributeErrorId}
+                                  className="text-sm text-destructive"
+                                >
+                                  {attributeError}
+                                </p>
+                              )}
                             </div>
                           );
                         }
@@ -1028,12 +2217,31 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                       <Input
                         id="editor-price"
                         type="number"
-                        min={100}
-                        step={100}
+                        step="any"
+                        aria-invalid={Boolean(fieldErrors.base_price)}
+                        aria-describedby={
+                          fieldErrors.base_price
+                            ? "editor-price-error"
+                            : undefined
+                        }
                         value={basePrice}
-                        onChange={(e) => setBasePrice(Number(e.target.value))}
+                        onChange={(e) => {
+                          setBasePrice(Number(e.target.value));
+                          setFieldErrors((errors) => ({
+                            ...errors,
+                            base_price: "",
+                          }));
+                        }}
                         required
                       />
+                      {fieldErrors.base_price && (
+                        <p
+                          id="editor-price-error"
+                          className="text-sm text-destructive"
+                        >
+                          {fieldErrors.base_price}
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         Precio actual configurado: $
                         {new Intl.NumberFormat("es-CL").format(basePrice)} CLP /
@@ -1337,46 +2545,155 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
       >
         {activeTab === "photos" && (
           <div className="space-y-6">
-            {/* Aviso Permanente de Ensayo / Fotos Sintéticas */}
-            <div
-              role="note"
-              className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 flex items-start gap-3"
-            >
-              <Info
-                className="size-4 text-amber-700 shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div className="space-y-0.5">
-                <div className="font-semibold">
-                  Entorno de ensayo de galería privada
-                </div>
-                <p className="text-amber-800">
-                  Aviso permanente: Las fotografías cargadas en este entorno de
-                  desarrollo son simuladas y sintéticas para pruebas y ensayos
-                  locales de layout y concurrencia. No se almacenan en
-                  servidores productivos externos.
-                </p>
-              </div>
-            </div>
-
             <Card>
               <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                   <CardTitle className="text-lg">Galería de imágenes</CardTitle>
                   <CardDescription>
-                    Selecciona la imagen principal de portada y reorganiza el
-                    orden de visualización.
+                    Agrega imágenes del espacio. Puedes elegir una portada y
+                    organizar su orden.
                   </CardDescription>
                 </div>
-                <Button
-                  type="button"
-                  onClick={handleUploadSyntheticPhoto}
-                  disabled={isPending}
-                  className="gap-1.5 shrink-0"
-                >
-                  <Plus className="size-4" aria-hidden="true" />
-                  Agregar foto de ensayo
-                </Button>
+                <div className="w-full sm:max-w-xs space-y-2">
+                  <Label htmlFor="gallery-upload">Subir imágenes</Label>
+                  <Input
+                    id="gallery-upload"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    onChange={handleUploadImages}
+                    disabled={
+                      isPending ||
+                      uploadingPhotos ||
+                      replacingPhotoId !== null ||
+                      pendingPhotoReplacement !== null ||
+                      snapshot.photos.length >= MAX_CURRENT_GALLERY_PHOTOS
+                    }
+                    aria-describedby="gallery-upload-help"
+                  />
+                  <p
+                    id="gallery-upload-help"
+                    className="text-xs text-muted-foreground"
+                  >
+                    JPG, PNG o WebP; hasta 10 MiB por imagen y un máximo actual
+                    de 30 por espacio.
+                  </p>
+                  <Input
+                    ref={replacementInputRef}
+                    id="gallery-replace-input"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    className="sr-only"
+                    tabIndex={-1}
+                    aria-hidden="true"
+                    onChange={handleReplaceImage}
+                  />
+                  {photoUploads.length > 0 && (
+                    <ul aria-live="polite" className="space-y-1 text-xs">
+                      {photoUploads.map((item) => (
+                        <li key={item.id} className="flex items-center gap-2">
+                          <span
+                            role="status"
+                            className="flex items-center gap-2"
+                          >
+                            {item.status === "uploading" && (
+                              <Loader2
+                                className="size-3 animate-spin"
+                                aria-hidden="true"
+                              />
+                            )}
+                            {item.status === "queued"
+                              ? `En cola ${item.filename}`
+                              : item.status === "uploading"
+                                ? `Subiendo ${item.filename}`
+                                : item.status === "completed"
+                                  ? `Carga completada: ${item.filename}`
+                                  : item.status === "pending"
+                                    ? `Carga pendiente de confirmación: ${item.filename}`
+                                    : item.status === "cancelled"
+                                      ? `Carga cancelada: ${item.filename}`
+                                      : `Error al subir ${item.filename}: ${item.error}`}
+                          </span>
+                          {item.error && (
+                            <span className="text-amber-800 dark:text-amber-300">
+                              {item.error}
+                            </span>
+                          )}
+                          {(item.status === "queued" ||
+                            (item.status === "uploading" &&
+                              item.cancellable !== false)) && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              aria-label={`Cancelar carga ${item.filename}`}
+                              onClick={() =>
+                                item.status === "queued"
+                                  ? handleCancelQueuedPhoto(item.id)
+                                  : handleCancelDispatchedPhoto(item.id)
+                              }
+                            >
+                              Cancelar
+                            </Button>
+                          )}
+                          {(item.status === "failed" ||
+                            item.status === "pending") && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={uploadingPhotos}
+                              aria-label={`${item.status === "pending" ? "Revisar estado" : "Reintentar"} ${item.filename}`}
+                              onClick={() => void handleRetryPhoto(item.id)}
+                            >
+                              {item.status === "pending"
+                                ? "Revisar estado"
+                                : "Reintentar"}
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {pendingPhotoReplacement && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border border-amber-300 p-2 text-xs">
+                      <p role="status" aria-live="polite">
+                        {pendingPhotoReplacement.status === "pending"
+                          ? `Reemplazo pendiente: ${pendingPhotoReplacement.filename}. La foto actual se conserva.`
+                          : `Reemplazo no confirmado: ${pendingPhotoReplacement.filename}. La foto actual se conserva.`}
+                      </p>
+                      {pendingPhotoReplacement.status === "pending" ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={checkingPhotoReplacement}
+                          aria-label={`Revisar estado del reemplazo ${pendingPhotoReplacement.filename}`}
+                          onClick={() =>
+                            void handleReviewPendingPhotoReplacement()
+                          }
+                        >
+                          {checkingPhotoReplacement
+                            ? "Consultando estado…"
+                            : "Revisar estado del reemplazo"}
+                        </Button>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={replacingPhotoId !== null}
+                          aria-label={`Reintentar reemplazo ${pendingPhotoReplacement.filename}`}
+                          onClick={() =>
+                            void handleRetryPendingPhotoReplacement()
+                          }
+                        >
+                          Reintentar reemplazo
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {snapshot.photos.length === 0 ? (
@@ -1386,21 +2703,12 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                       aria-hidden="true"
                     />
                     <p className="text-sm font-medium text-foreground">
-                      No hay imágenes en la galería
+                      Aún no hay imágenes
                     </p>
                     <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                      Agrega al menos una fotografía para ilustrar el espacio a
-                      tus futuros clientes.
+                      Selecciona imágenes desde el control superior para
+                      comenzar tu galería.
                     </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleUploadSyntheticPhoto}
-                      disabled={isPending}
-                      className="mt-2"
-                    >
-                      Generar primera fotografía
-                    </Button>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -1440,7 +2748,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleSetCover(photo.id)}
-                                disabled={isPending}
+                                disabled={
+                                  isPending ||
+                                  replacingPhotoId !== null ||
+                                  pendingPhotoReplacement !== null
+                                }
                                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
                               >
                                 Marcar portada
@@ -1448,19 +2760,42 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                             )}
                           </div>
 
-                          {/* Ilustración visual sintética */}
-                          <div className="h-32 rounded-lg bg-muted/60 flex flex-col items-center justify-center p-2 text-center border">
-                            <ImageIcon
-                              className="size-6 text-muted-foreground mb-1"
-                              aria-hidden="true"
+                          {/* Variante privada descargada vía BFF y revocada al salir */}
+                          {photo.is_synthetic ? (
+                            <div className="relative h-32 overflow-hidden rounded-lg border bg-muted/60">
+                              <div className="flex h-full flex-col items-center justify-center p-2 text-center">
+                                <ImageIcon
+                                  className="size-6 text-muted-foreground mb-1"
+                                  aria-hidden="true"
+                                />
+                                <span className="text-xs font-medium text-foreground line-clamp-1">
+                                  {photo.alt_text || `Imagen ${idx + 1}`}
+                                </span>
+                              </div>
+                            </div>
+                          ) : photo.variants?.some(
+                              (variant) => variant.name === "thumbnail",
+                            ) ? (
+                            <PrivateGalleryThumbnail
+                              key={`${authSnapshot.accountId ?? "anonymous"}:${listingId}:${photo.id}`}
+                              accountId={authSnapshot.accountId}
+                              listingId={listingId}
+                              photo={photo}
+                              index={idx}
                             />
-                            <span className="text-xs font-medium text-foreground line-clamp-1">
-                              {photo.alt_text || "Foto de ensayo"}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground font-mono truncate max-w-full">
-                              {photo.sha256.slice(0, 12)}...
-                            </span>
-                          </div>
+                          ) : (
+                            <div className="relative h-32 overflow-hidden rounded-lg border bg-muted/60">
+                              <div className="flex h-full flex-col items-center justify-center p-2 text-center">
+                                <ImageIcon
+                                  className="size-6 text-muted-foreground mb-1"
+                                  aria-hidden="true"
+                                />
+                                <span className="text-xs font-medium text-foreground line-clamp-1">
+                                  {photo.alt_text || `Imagen ${idx + 1}`}
+                                </span>
+                              </div>
+                            </div>
+                          )}
 
                           {/* Botones de acción: Mover arriba/abajo y eliminar */}
                           <div className="flex items-center justify-between border-t pt-2">
@@ -1469,7 +2804,12 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                 type="button"
                                 variant="outline"
                                 size="sm"
-                                disabled={idx === 0 || isPending}
+                                disabled={
+                                  idx === 0 ||
+                                  isPending ||
+                                  replacingPhotoId !== null ||
+                                  pendingPhotoReplacement !== null
+                                }
                                 onClick={() => handleMovePhoto(idx, "up")}
                                 className="size-7 p-0"
                                 aria-label="Mover foto antes"
@@ -1485,7 +2825,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                                 size="sm"
                                 disabled={
                                   idx === snapshot.photos.length - 1 ||
-                                  isPending
+                                  isPending ||
+                                  replacingPhotoId !== null ||
+                                  pendingPhotoReplacement !== null
                                 }
                                 onClick={() => handleMovePhoto(idx, "down")}
                                 className="size-7 p-0"
@@ -1500,10 +2842,38 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
                             <Button
                               type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={
+                                isPending ||
+                                uploadingPhotos ||
+                                replacingPhotoId !== null ||
+                                pendingPhotoReplacement !== null ||
+                                photo.is_synthetic ||
+                                !currentListing.etag
+                              }
+                              aria-label={`Reemplazar imagen ${idx + 1}`}
+                              onClick={() => {
+                                replacementTargetPhotoId.current = photo.id;
+                                replacementInputRef.current?.click();
+                              }}
+                              className="h-7 px-2 text-xs"
+                            >
+                              {replacingPhotoId === photo.id
+                                ? "Reemplazando…"
+                                : "Reemplazar"}
+                            </Button>
+                            <Button
+                              type="button"
                               variant="ghost"
                               size="sm"
                               onClick={() => handleRemovePhoto(photo.id)}
-                              disabled={isPending}
+                              disabled={
+                                isPending ||
+                                uploadingPhotos ||
+                                replacingPhotoId !== null ||
+                                pendingPhotoReplacement !== null
+                              }
                               className="h-7 px-2 text-destructive hover:bg-destructive/10 text-xs"
                               aria-label="Eliminar foto"
                             >

@@ -19,11 +19,17 @@ import (
 	"unicode/utf8"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identityverification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 )
 
+type BookingIdentityVerifier interface {
+	RequireForBooking(context.Context, string, string, time.Time) error
+}
+
 type Service struct {
 	repo                      Repository
+	identityVerifier          BookingIdentityVerifier
 	ids                       identity.CredentialGenerator
 	payment                   LocalPaymentAdapter
 	refund                    LocalRefundAdapter
@@ -43,6 +49,12 @@ func (s *Service) SetLocalRefundAdapter(adapter LocalRefundAdapter)         { s.
 func (s *Service) SetLocalNoticeSender(sender LocalNoticeSender)            { s.notices = sender }
 func (s *Service) SetLocalGuaranteeOutcome(outcome func() string)           { s.guaranteeOutcome = outcome }
 func (s *Service) SetLocalSettlementAdapter(adapter LocalSettlementAdapter) { s.settlement = adapter }
+
+// SetBookingIdentityVerifier installs the documentary identity gate used when
+// the host approves a reservation. A nil gate fails closed for approvals.
+func (s *Service) SetBookingIdentityVerifier(verifier BookingIdentityVerifier) {
+	s.identityVerifier = verifier
+}
 
 func (s *Service) repositoryContext(ctx context.Context) context.Context {
 	if s.globalExpirySweeps {
@@ -869,6 +881,22 @@ func (s *Service) AvailableIntervals(ctx context.Context, actor, spaceID string,
 	return result, nil
 }
 
+func (s *Service) OwnerWeeklyHours(ctx context.Context, owner, spaceID string) (WeeklyHours, error) {
+	repo, ok := s.repo.(OwnerWeeklyHoursRepository)
+	if !ok {
+		return WeeklyHours{}, ErrNotFound
+	}
+	return NewOwnerWeeklyHoursService(repo).OwnerWeeklyHours(ctx, owner, spaceID)
+}
+
+func (s *Service) SaveOwnerWeeklyHoursCAS(ctx context.Context, owner, spaceID string, value WeeklyHours, expected time.Time) (WeeklyHours, error) {
+	repo, ok := s.repo.(OwnerWeeklyHoursRepository)
+	if !ok {
+		return WeeklyHours{}, ErrNotFound
+	}
+	return NewOwnerWeeklyHoursService(repo).SaveOwnerWeeklyHoursCAS(ctx, owner, spaceID, value, expected)
+}
+
 func (s *Service) WeeklyHours(ctx context.Context, host, spaceID string) (WeeklyHours, error) {
 	if !uuid.MatchString(host) || !uuid.MatchString(spaceID) {
 		return WeeklyHours{}, ErrNotFound
@@ -878,6 +906,17 @@ func (s *Service) WeeklyHours(ctx context.Context, host, spaceID string) (Weekly
 		return WeeklyHours{}, ErrNotFound
 	}
 	return repo.WeeklyHoursForHost(ctx, host, spaceID)
+}
+
+func (s *Service) SaveWeeklyHoursCAS(ctx context.Context, host, spaceID string, value WeeklyHours, expected time.Time) (WeeklyHours, error) {
+	if !uuid.MatchString(host) || !uuid.MatchString(spaceID) || expected.IsZero() || ValidateWeeklyHours(value) != nil {
+		return WeeklyHours{}, ErrInvalid
+	}
+	repo, ok := s.repo.(WeeklyHoursRepository)
+	if !ok {
+		return WeeklyHours{}, ErrNotFound
+	}
+	return repo.SaveWeeklyHoursCAS(ctx, host, spaceID, value, expected.UTC())
 }
 
 func (s *Service) SaveWeeklyHours(ctx context.Context, host, spaceID string, value WeeklyHours) (WeeklyHours, error) {
@@ -1237,6 +1276,27 @@ func (s *Service) Decide(ctx context.Context, host, id, decision, reason string)
 	}
 	if err := s.expireDueBookings(ctx); err != nil {
 		return Reservation{}, err
+	}
+	if decision == "aprobar" {
+		if s.identityVerifier == nil {
+			return Reservation{}, ErrIdentityVerificationUnavailable
+		}
+		participants, err := s.repo.Get(ctx, host, id)
+		if err != nil {
+			return Reservation{}, err
+		}
+		if participants.ID != id || participants.HostID != host || !uuid.MatchString(participants.RenterID) {
+			return Reservation{}, ErrNotFound
+		}
+		if err := s.identityVerifier.RequireForBooking(ctx, participants.HostID, participants.RenterID, s.now().UTC()); err != nil {
+			if errors.Is(err, identityverification.ErrNotVerified) {
+				return Reservation{}, ErrIdentityVerificationRequired
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return Reservation{}, err
+			}
+			return Reservation{}, ErrIdentityVerificationUnavailable
+		}
 	}
 	return s.repo.Decide(ctx, host, id, decision, reason, s.now)
 }

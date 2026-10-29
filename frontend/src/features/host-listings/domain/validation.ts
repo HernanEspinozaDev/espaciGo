@@ -32,17 +32,18 @@ export function generateIdempotencyKey(): string {
 
 export function isValidPriceCLP(price: unknown): boolean {
   if (typeof price !== "number") return false;
-  return Number.isSafeInteger(price) && price > 0;
+  return Number.isSafeInteger(price) && price > 5000;
 }
 
 export function isValidAreaM2(area: unknown): boolean {
   if (typeof area !== "number") return false;
-  return Number.isFinite(area) && area > 0;
+  if (!Number.isFinite(area) || area < 0.01 || area > 99999999.99) return false;
+  return Math.abs(area * 100 - Math.round(area * 100)) <= 1e-7;
 }
 
 export function isValidCapacity(capacity: unknown): boolean {
   if (typeof capacity !== "number") return false;
-  return Number.isSafeInteger(capacity) && capacity >= 1;
+  return Number.isInteger(capacity) && capacity > 0 && capacity <= 2147483647;
 }
 
 export function isValidTimeFormat(
@@ -100,12 +101,12 @@ export function validateListingDraftInput(
 
   if (!input.title || input.title.trim().length === 0) {
     errors.title = "El título es obligatorio.";
-  } else if (input.title.trim().length > 120) {
-    errors.title = "El título no puede superar los 120 caracteres.";
+  } else if (Array.from(input.title).length > 70) {
+    errors.title = "El título no puede superar los 70 caracteres.";
   }
 
-  if (!input.description || input.description.trim().length === 0) {
-    errors.description = "La descripción es obligatoria.";
+  if (!input.description || Array.from(input.description.trim()).length < 100) {
+    errors.description = "La descripción debe tener al menos 100 caracteres.";
   }
 
   if (!input.category_code || input.category_code.trim().length === 0) {
@@ -135,6 +136,14 @@ export function validateListingDraftInput(
 
   if (!input.address || input.address.trim().length === 0) {
     errors.address = "La dirección es obligatoria.";
+  } else if (Array.from(input.address).length > 500) {
+    errors.address = "La dirección no puede superar los 500 caracteres.";
+  }
+  if (!input.usage_rules || input.usage_rules.trim().length === 0) {
+    errors.usage_rules = "Las reglas de uso son obligatorias.";
+  } else if (Array.from(input.usage_rules).length > 250) {
+    errors.usage_rules =
+      "Las reglas de uso no pueden superar los 250 caracteres.";
   }
 
   return {
@@ -151,6 +160,7 @@ export interface AttributeValidationResult {
 export function validateCategoryAttributes(
   attributes: Record<string, unknown> | undefined,
   schema: CategoryProfileSchema,
+  areaM2?: number,
 ): AttributeValidationResult {
   const errors: Record<string, string> = {};
   const attrs = attributes ?? {};
@@ -225,6 +235,13 @@ export function validateCategoryAttributes(
           errors[def.code] =
             `El atributo '${def.label}' debe ser una lista de opciones.`;
         } else if (
+          val.some((item) => typeof item !== "string") ||
+          (def.required && val.length === 0) ||
+          new Set(val).size !== val.length
+        ) {
+          errors[def.code] =
+            `El atributo '${def.label}' debe contener opciones únicas.`;
+        } else if (
           def.options &&
           !val.every(
             (item) => typeof item === "string" && def.options!.includes(item),
@@ -238,6 +255,32 @@ export function validateCategoryAttributes(
     }
   }
 
+  const num = (key: string): number | undefined => {
+    const value = attrs[key];
+    return typeof value === "number" ? value : undefined;
+  };
+  if (schema.category_code === "quincho") {
+    const type = attrs.tipo_parrilla;
+    const count = num("parrillas_disponibles");
+    if (type === "sin_parrilla" && count !== 0)
+      errors.parrillas_disponibles = "Debe ser 0 si no hay parrilla.";
+    if (type && type !== "sin_parrilla" && count !== undefined && count < 1)
+      errors.parrillas_disponibles = "Debe haber al menos una parrilla.";
+  }
+  if (
+    schema.category_code === "parcela_eventos" &&
+    areaM2 !== undefined &&
+    areaM2 > 0
+  ) {
+    for (const key of [
+      "superficie_exterior_util_m2",
+      "superficie_cubierta_util_m2",
+    ]) {
+      const value = num(key);
+      if (value !== undefined && value > areaM2)
+        errors[key] = "No puede superar el área total.";
+    }
+  }
   return {
     valid: Object.keys(errors).length === 0,
     errors: Object.freeze(errors),

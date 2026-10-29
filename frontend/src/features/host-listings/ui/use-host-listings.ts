@@ -8,6 +8,7 @@ import type {
   CategoryProfileSchema,
   ContentUpdateInput,
   GalleryPhoto,
+  GalleryUploadStatus,
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
@@ -39,7 +40,7 @@ export interface HostListingsView {
   updateDraft(
     listingId: string,
     input: ListingDraftInput,
-    ifMatch?: string,
+    ifMatch: string,
   ): Promise<ListingDetail>;
   deleteListing(listingId: string): Promise<ListingDeletionReceipt>;
   updateContent(
@@ -53,29 +54,56 @@ export interface HostListingsView {
   updatePricing(
     listingId: string,
     input: PricingInput,
-    ifMatch?: string,
+    ifMatch: string,
   ): Promise<PricingHistoryItem>;
   loadPricingHistory(listingId: string): Promise<readonly PricingHistoryItem[]>;
   configureTimeZone(
     listingId: string,
     timeZone: string,
-    ifMatch?: string,
-  ): Promise<void>;
+    ifMatch: string,
+  ): Promise<{ listingId: string; timeZone: string; etag: string }>;
   loadWeeklySchedule(listingId: string): Promise<ScheduleData | null>;
   updateWeeklySchedule(
     listingId: string,
     input: ScheduleInput,
-    ifMatch?: string,
+    ifMatch: string,
   ): Promise<ScheduleData>;
-  loadPhotos(listingId: string): Promise<readonly GalleryPhoto[]>;
+  loadPhotos(
+    listingId: string,
+    signal?: AbortSignal,
+  ): Promise<readonly GalleryPhoto[]>;
+  getPhotoUploadStatus(
+    listingId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryUploadStatus>;
   uploadPhoto(
     listingId: string,
     input?: PhotoUploadInput,
     idempotencyKey?: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryPhoto>;
+  replacePhoto(
+    listingId: string,
+    photoId: string,
+    input: PhotoUploadInput,
+    idempotencyKey: string,
+    ifMatch: string,
+    signal?: AbortSignal,
   ): Promise<GalleryPhoto>;
   setCoverPhoto(listingId: string, photoId: string): Promise<void>;
-  removePhoto(listingId: string, photoId: string): Promise<void>;
-  reorderPhotos(listingId: string, photoIds: string[]): Promise<void>;
+  removePhoto(
+    listingId: string,
+    photoId: string,
+    ifMatch: string,
+    signal?: AbortSignal,
+  ): Promise<string>;
+  movePhoto(
+    listingId: string,
+    photoId: string,
+    targetPosition: number,
+    ifMatch: string,
+  ): Promise<void>;
   setFilter(filter: Partial<HostListingsSnapshot["filter"]>): void;
   clear(): void;
 }
@@ -116,7 +144,7 @@ export function useHostListings(): HostListingsView {
   );
 
   const updateDraft = useCallback(
-    (listingId: string, input: ListingDraftInput, ifMatch?: string) =>
+    (listingId: string, input: ListingDraftInput, ifMatch: string) =>
       hostListingsFacade.updateDraft(listingId, input, ifMatch),
     [],
   );
@@ -127,7 +155,7 @@ export function useHostListings(): HostListingsView {
   );
 
   const updateContent = useCallback(
-    (listingId: string, input: ContentUpdateInput, ifMatch?: string) =>
+    (listingId: string, input: ContentUpdateInput, ifMatch: string) =>
       hostListingsFacade.updateContent(listingId, input, ifMatch),
     [],
   );
@@ -150,7 +178,7 @@ export function useHostListings(): HostListingsView {
   );
 
   const updatePricing = useCallback(
-    (listingId: string, input: PricingInput, ifMatch?: string) =>
+    (listingId: string, input: PricingInput, ifMatch: string) =>
       hostListingsFacade.updatePricing(listingId, input, ifMatch),
     [],
   );
@@ -161,7 +189,7 @@ export function useHostListings(): HostListingsView {
   );
 
   const configureTimeZone = useCallback(
-    (listingId: string, timeZone: string, ifMatch?: string) =>
+    (listingId: string, timeZone: string, ifMatch: string) =>
       hostListingsFacade.configureTimeZone(listingId, timeZone, ifMatch),
     [],
   );
@@ -172,19 +200,55 @@ export function useHostListings(): HostListingsView {
   );
 
   const updateWeeklySchedule = useCallback(
-    (listingId: string, input: ScheduleInput, ifMatch?: string) =>
+    (listingId: string, input: ScheduleInput, ifMatch: string) =>
       hostListingsFacade.updateWeeklySchedule(listingId, input, ifMatch),
     [],
   );
 
   const loadPhotos = useCallback(
-    (listingId: string) => hostListingsFacade.loadPhotos(listingId),
+    (listingId: string, signal?: AbortSignal) =>
+      hostListingsFacade.loadPhotos(listingId, signal),
+    [],
+  );
+
+  const getPhotoUploadStatus = useCallback(
+    (listingId: string, idempotencyKey: string, signal?: AbortSignal) =>
+      hostListingsFacade.getPhotoUploadStatus(
+        listingId,
+        idempotencyKey,
+        signal,
+      ),
     [],
   );
 
   const uploadPhoto = useCallback(
-    (listingId: string, input?: PhotoUploadInput, idempotencyKey?: string) =>
-      hostListingsFacade.uploadPhoto(listingId, input, idempotencyKey),
+    (
+      listingId: string,
+      input?: PhotoUploadInput,
+      idempotencyKey?: string,
+      signal?: AbortSignal,
+    ) =>
+      hostListingsFacade.uploadPhoto(listingId, input, idempotencyKey, signal),
+    [],
+  );
+
+  const replacePhoto = useCallback(
+    (
+      listingId: string,
+      photoId: string,
+      input: PhotoUploadInput,
+      idempotencyKey: string,
+      ifMatch: string,
+      signal?: AbortSignal,
+    ) =>
+      hostListingsFacade.replacePhoto(
+        listingId,
+        photoId,
+        input,
+        idempotencyKey,
+        ifMatch,
+        signal,
+      ),
     [],
   );
 
@@ -195,14 +259,19 @@ export function useHostListings(): HostListingsView {
   );
 
   const removePhoto = useCallback(
-    (listingId: string, photoId: string) =>
-      hostListingsFacade.removePhoto(listingId, photoId),
+    (listingId: string, photoId: string, ifMatch: string) =>
+      hostListingsFacade.removePhoto(listingId, photoId, ifMatch),
     [],
   );
 
-  const reorderPhotos = useCallback(
-    (listingId: string, photoIds: string[]) =>
-      hostListingsFacade.reorderPhotos(listingId, photoIds),
+  const movePhoto = useCallback(
+    (
+      listingId: string,
+      photoId: string,
+      targetPosition: number,
+      ifMatch: string,
+    ) =>
+      hostListingsFacade.movePhoto(listingId, photoId, targetPosition, ifMatch),
     [],
   );
 
@@ -233,10 +302,12 @@ export function useHostListings(): HostListingsView {
     loadWeeklySchedule,
     updateWeeklySchedule,
     loadPhotos,
+    getPhotoUploadStatus,
     uploadPhoto,
+    replacePhoto,
     setCoverPhoto,
     removePhoto,
-    reorderPhotos,
+    movePhoto,
     setFilter,
     clear,
   };

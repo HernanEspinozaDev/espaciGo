@@ -9,7 +9,7 @@ import (
 	_ "time/tzdata"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
-	verificationdb "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification/dbgen"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaceversion"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
 	"github.com/jackc/pgx/v5"
@@ -26,14 +26,14 @@ func New(pool *pgxpool.Pool, ids identity.CredentialGenerator) *Repository {
 	return &Repository{pool: pool, ids: ids}
 }
 
-const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria,COALESCE(e.portada_foto_id::text,''),e.region_codigo,e.comuna_codigo`
+const fields = `e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::float8,e.capacidad_maxima,e.reglas_uso,e.modalidad_tarifa,e.precio_base_clp,e.direccion,e.estado,COALESCE(ec.perfil_version,1),COALESCE(ec.valores,'{}'::jsonb),e.zona_horaria,COALESCE(e.portada_foto_id::text,''),e.region_codigo,e.comuna_codigo,e.actualizado_en`
 const joins = ` FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo LEFT JOIN public.espacio_caracteristicas ec ON ec.espacio_id=e.id`
 
 func scan(row pgx.Row) (spaces.Draft, error) {
 	var d spaces.Draft
 	var raw []byte
 	var coverPhotoID string
-	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone, &coverPhotoID, &d.RegionCode, &d.CommuneCode)
+	err := row.Scan(&d.ID, &d.CategoryCode, &d.CategoryName, &d.Title, &d.Description, &d.AreaM2, &d.Capacity, &d.UsageRules, &d.RateUnit, &d.BasePriceCLP, &d.Address, &d.State, &d.AttributeSchemaVersion, &raw, &d.TimeZone, &coverPhotoID, &d.RegionCode, &d.CommuneCode, &d.UpdatedAt)
 	if err == nil {
 		if coverPhotoID != "" {
 			d.CoverPhotoID = &coverPhotoID
@@ -367,6 +367,17 @@ func lockActiveRetirementOwner(ctx context.Context, tx pgx.Tx, owner string) err
 }
 
 func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, correlationID string) (spaces.Draft, error) {
+	return r.setPublicationState(ctx, owner, id, state, correlationID, nil)
+}
+
+func (r *Repository) SetPublicationStateIfRevision(ctx context.Context, owner, id, state, correlationID string, expected time.Time) (spaces.Draft, error) {
+	if expected.IsZero() {
+		return spaces.Draft{}, spaces.ErrInvalid
+	}
+	return r.setPublicationState(ctx, owner, id, state, correlationID, &expected)
+}
+
+func (r *Repository) setPublicationState(ctx context.Context, owner, id, state, correlationID string, expected *time.Time) (spaces.Draft, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return spaces.Draft{}, err
@@ -378,6 +389,11 @@ func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, 
 	draft, err := scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2 FOR UPDATE OF e`, owner, id))
 	if err != nil {
 		return spaces.Draft{}, err
+	}
+	if expected != nil {
+		if err := checkRevision(*expected, draft.UpdatedAt); err != nil {
+			return spaces.Draft{}, err
+		}
 	}
 	if state == "activa" && !validIANAZone(draft.TimeZone) {
 		return spaces.Draft{}, spaces.ErrTimeZoneRequired
@@ -403,25 +419,6 @@ func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, 
 		if draft.State != "borrador" && draft.State != "oculta" {
 			return spaces.Draft{}, spaces.ErrPublicationConflict
 		}
-		rows, err := verificationdb.New(tx).ListSyntheticEligibility(ctx, owner)
-		if err != nil {
-			return spaces.Draft{}, err
-		}
-		kycEligible := false
-		for _, row := range rows {
-			kind, kindOK := row.Type.(string)
-			eligible, eligibleOK := row.Eligible.(bool)
-			if !kindOK || !eligibleOK {
-				return spaces.Draft{}, spaces.ErrInvalid
-			}
-			if kind == "kyc" {
-				kycEligible = eligible
-				break
-			}
-		}
-		if !kycEligible {
-			return spaces.Draft{}, spaces.ErrEligibilityRequired
-		}
 	} else if state == "oculta" {
 		if draft.State != "activa" {
 			return spaces.Draft{}, spaces.ErrPublicationConflict
@@ -434,8 +431,11 @@ func (r *Repository) SetPublicationState(ctx context.Context, owner, id, state, 
 		VALUES($1,$2,$3,$4,now(),$5)`, id, owner, draft.State, state, correlationID); err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET estado=$3,actualizado_en=now() WHERE propietario_id=$1 AND id=$2`, owner, id, state); err != nil {
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET estado=$3 WHERE propietario_id=$1 AND id=$2`, owner, id, state); err != nil {
 		return spaces.Draft{}, mapError(err)
+	}
+	if _, err = spaceversion.Bump(ctx, tx, id); err != nil {
+		return spaces.Draft{}, err
 	}
 	draft, err = scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2`, owner, id))
 	if err != nil {
@@ -456,6 +456,17 @@ func validIANAZone(zone *string) bool {
 }
 
 func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, in spaces.PublishedContentInput) (spaces.Draft, error) {
+	return r.updatePublishedOwn(ctx, owner, id, in, nil)
+}
+
+func (r *Repository) UpdatePublishedOwnIfRevision(ctx context.Context, owner, id string, expected time.Time, in spaces.PublishedContentInput) (spaces.Draft, error) {
+	if expected.IsZero() {
+		return spaces.Draft{}, spaces.ErrInvalid
+	}
+	return r.updatePublishedOwn(ctx, owner, id, in, &expected)
+}
+
+func (r *Repository) updatePublishedOwn(ctx context.Context, owner, id string, in spaces.PublishedContentInput, expected *time.Time) (spaces.Draft, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return spaces.Draft{}, err
@@ -463,6 +474,14 @@ func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, i
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lockActiveOwner(ctx, tx, owner); err != nil {
 		return spaces.Draft{}, err
+	}
+	var currentUpdatedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta') FOR UPDATE`, owner, id).Scan(&currentUpdatedAt)
+	if err != nil {
+		return spaces.Draft{}, mapError(err)
+	}
+	if expected != nil && !expected.Equal(currentUpdatedAt) {
+		return spaces.Draft{}, spaces.ErrPreconditionFailed
 	}
 	var oldTitle, oldDescription, oldUsageRules, rateUnit, oldRegionCode, oldCommuneCode string
 	var oldCapacity int32
@@ -509,9 +528,12 @@ func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, i
 		}
 	}
 	if nextTitle != nil || nextDescription != nil || nextCapacity != nil || nextUsageRules != nil || nextPrice != nil || updateLocation {
-		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),ubicacion_catalogo_version=CASE WHEN $8 THEN $9 ELSE ubicacion_catalogo_version END,region_codigo=CASE WHEN $8 THEN $10 ELSE region_codigo END,comuna_codigo=CASE WHEN $8 THEN $11 ELSE comuna_codigo END,actualizado_en=now()
+		if _, err = tx.Exec(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),ubicacion_catalogo_version=CASE WHEN $8 THEN $9 ELSE ubicacion_catalogo_version END,region_codigo=CASE WHEN $8 THEN $10 ELSE region_codigo END,comuna_codigo=CASE WHEN $8 THEN $11 ELSE comuna_codigo END
 			WHERE propietario_id=$1 AND id=$2 AND estado IN ('activa','oculta')`, owner, id, nextTitle, nextDescription, nextCapacity, nextUsageRules, nextPrice, updateLocation, nextLocationVersion, nextRegionCode, nextCommuneCode); err != nil {
 			return spaces.Draft{}, mapError(err)
+		}
+		if _, err = spaceversion.Bump(ctx, tx, id); err != nil {
+			return spaces.Draft{}, err
 		}
 	}
 	draft, err := scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.propietario_id=$1 AND e.id=$2`, owner, id))
@@ -524,7 +546,22 @@ func (r *Repository) UpdatePublishedOwn(ctx context.Context, owner, id string, i
 	return draft, nil
 }
 
+func checkRevision(expected, current time.Time) error {
+	if !expected.Equal(current) {
+		return spaces.ErrPreconditionFailed
+	}
+	return nil
+}
+
 func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.Input) (spaces.Draft, error) {
+	return r.updateOwn(ctx, owner, id, in, nil)
+}
+
+func (r *Repository) UpdateOwnIfRevision(ctx context.Context, owner, id string, expectedUpdatedAt time.Time, in spaces.Input) (spaces.Draft, error) {
+	return r.updateOwn(ctx, owner, id, in, &expectedUpdatedAt)
+}
+
+func (r *Repository) updateOwn(ctx context.Context, owner, id string, in spaces.Input, expectedUpdatedAt *time.Time) (spaces.Draft, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return spaces.Draft{}, err
@@ -535,15 +572,21 @@ func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.
 	}
 	var oldUnit string
 	var oldAmount int64
-	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&oldUnit, &oldAmount)
+	var currentUpdatedAt time.Time
+	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp,actualizado_en FROM public.espacio WHERE propietario_id=$1 AND id=$2 AND estado='borrador' FOR UPDATE`, owner, id).Scan(&oldUnit, &oldAmount, &currentUpdatedAt)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
+	}
+	if expectedUpdatedAt != nil {
+		if err = checkRevision(*expectedUpdatedAt, currentUpdatedAt); err != nil {
+			return spaces.Draft{}, err
+		}
 	}
 	_, err = tx.Exec(ctx, `DELETE FROM public.espacio_caracteristicas WHERE espacio_id=$1`, id)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
-	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,ubicacion_catalogo_version=CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,region_codigo=NULLIF($12,''),comuna_codigo=NULLIF($13,''),actualizado_en=now() WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode)
+	tag, err := tx.Exec(ctx, `UPDATE public.espacio SET categoria_codigo=$3,titulo=$4,descripcion=$5,superficie_m2=$6,capacidad_maxima=$7,reglas_uso=$8,modalidad_tarifa=$9,precio_base_clp=$10,direccion=$11,ubicacion_catalogo_version=CASE WHEN $12='' THEN NULL ELSE 'SUBDERE_DPA_2018' END,region_codigo=NULLIF($12,''),comuna_codigo=NULLIF($13,'') WHERE propietario_id=$1 AND id=$2 AND estado='borrador'`, owner, id, in.CategoryCode, in.Title, in.Description, in.AreaM2, in.Capacity, in.UsageRules, in.RateUnit, in.BasePriceCLP, in.Address, in.RegionCode, in.CommuneCode)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
 	}
@@ -563,6 +606,9 @@ func (r *Repository) UpdateOwn(ctx context.Context, owner, id string, in spaces.
 	_, err = tx.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,$2,$3,$4::jsonb)`, id, in.CategoryCode, in.AttributeSchemaVersion, values)
 	if err != nil {
 		return spaces.Draft{}, mapError(err)
+	}
+	if _, err = spaceversion.Bump(ctx, tx, id); err != nil {
+		return spaces.Draft{}, err
 	}
 	d, err := scan(tx.QueryRow(ctx, `SELECT `+fields+joins+` WHERE e.id=$1`, id))
 	if err != nil {

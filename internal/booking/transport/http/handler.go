@@ -17,6 +17,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/booking"
 	"github.com/HernanEspinozaDev/espaciGo/internal/conversation"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
+	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 )
 
 type Authenticator interface {
@@ -247,8 +249,23 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			value, err := h.service.WeeklyHours(r.Context(), actor, spaceID)
+			if err == nil {
+				w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: value.UpdatedAt}))
+			}
 			h.reply(w, value, err)
 		case http.MethodPut:
+			stamp, pe := spaceshttp.ParseIfMatch(r.Header.Values("If-Match"), spaceID)
+			if pe != nil {
+				if errors.Is(pe, spaceshttp.ErrMissingPrecondition) {
+					fail(w, 428, "precondition_required")
+				} else if errors.Is(pe, spaceshttp.ErrStalePrecondition) {
+					fail(w, 412, "precondition_failed")
+				} else {
+					fail(w, 400, "invalid_request")
+				}
+				return
+			}
+			expected, _ := time.Parse(time.RFC3339Nano, stamp)
 			var in struct {
 				Enabled bool                `json:"enabled"`
 				Days    []booking.WeeklyDay `json:"days"`
@@ -256,7 +273,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !decode(w, r, &in) {
 				return
 			}
-			value, err := h.service.SaveWeeklyHours(r.Context(), actor, spaceID, booking.WeeklyHours{Enabled: in.Enabled, Days: in.Days})
+			value, err := h.service.SaveWeeklyHoursCAS(r.Context(), actor, spaceID, booking.WeeklyHours{Enabled: in.Enabled, Days: in.Days}, expected)
+			if errors.Is(err, booking.ErrConflict) {
+				fail(w, http.StatusPreconditionFailed, "precondition_failed")
+				return
+			}
+			if err == nil {
+				w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: value.UpdatedAt}))
+			}
 			h.reply(w, value, err)
 		default:
 			fail(w, 404, "not_found")
@@ -810,6 +834,10 @@ func (h *Handler) reply(w http.ResponseWriter, v any, err error) {
 			fail(w, 422, "invalid_request")
 		case errors.Is(err, booking.ErrNotFound):
 			fail(w, 404, "not_found")
+		case errors.Is(err, booking.ErrIdentityVerificationRequired):
+			fail(w, 409, "identity_verification_required")
+		case errors.Is(err, booking.ErrIdentityVerificationUnavailable):
+			fail(w, 503, "identity_verification_unavailable")
 		case errors.Is(err, booking.ErrConflict):
 			fail(w, 409, "conflict")
 		case errors.Is(err, booking.ErrAdminAuditExportLimit):

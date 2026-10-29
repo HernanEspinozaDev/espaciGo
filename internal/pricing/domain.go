@@ -19,10 +19,12 @@ type ArchiveSectionRepository interface {
 }
 
 var (
-	ErrInvalid          = errors.New("pricing: invalid request")
-	ErrNotFound         = errors.New("pricing: private resource not found")
-	ErrConflict         = errors.New("pricing: interval unavailable")
-	ErrCalendarConflict = errors.New("pricing: rate mode conflicts with active weekly schedule")
+	ErrInvalid             = errors.New("pricing: invalid request")
+	ErrNotFound            = errors.New("pricing: private resource not found")
+	ErrConflict            = errors.New("pricing: interval unavailable")
+	ErrCalendarConflict    = errors.New("pricing: rate mode conflicts with active weekly schedule")
+	ErrPreconditionFailed  = errors.New("pricing: rate revision precondition failed")
+	ErrRevisionUnsupported = errors.New("pricing: revision-aware rate updates unsupported")
 )
 
 type Rate struct {
@@ -57,6 +59,10 @@ type RateInput struct {
 type SimulationInput struct {
 	StartAt string `json:"start_at"`
 	EndAt   string `json:"end_at"`
+}
+
+type RevisionAwareRateRepository interface {
+	UpdateRateIfRevision(context.Context, string, string, time.Time, RateInput) (Rate, time.Time, error)
 }
 
 type Repository interface {

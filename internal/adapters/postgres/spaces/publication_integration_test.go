@@ -110,7 +110,7 @@ func waitForAccountLockWaiters(t *testing.T, ctx context.Context, pool *pgxpool.
 	t.Fatalf("timed out waiting for %d account-lock waiter(s)", count)
 }
 
-func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testing.T) {
+func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *testing.T) {
 	adminURL := os.Getenv("TEST_DATABASE_URL")
 	if adminURL == "" {
 		t.Skip("TEST_DATABASE_URL is required for disposable PostgreSQL integration")
@@ -135,6 +135,9 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 		t.Fatal(err)
 	}
 	u.Path = "/" + db
+	if _, err = admin.Exec(ctx, `CREATE ROLE espacigo_runtime LOGIN PASSWORD 'runtime-test-only'`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = migrator.Run(ctx, u.String(), "../../../../db/migrations"); err != nil {
 		t.Fatal(err)
 	}
@@ -184,37 +187,16 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if _, err = adminPool.Exec(ctx, `UPDATE public.espacio SET zona_horaria='UTC' WHERE id=$1`, draft.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-no-kyc"); err != spaces.ErrEligibilityRequired {
-		t.Fatalf("publication without KYC error=%v", err)
+	var initialEligibilityCount int
+	if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.elegibilidad_verificacion_local WHERE usuario_id=$1 AND tipo='kyc' AND estado='elegible'`, owner).Scan(&initialEligibilityCount); err != nil || initialEligibilityCount != 0 {
+		t.Fatalf("new synthetic owner unexpectedly has identity eligibility count=%d err=%v", initialEligibilityCount, err)
+	}
+	publishedWithoutIdentity, err := svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-without-identity")
+	if err != nil || publishedWithoutIdentity.State != "activa" {
+		t.Fatalf("publication without verified identity=%+v err=%v", publishedWithoutIdentity, err)
 	}
 	if _, err = repo.SetPublicationState(ctx, other, draft.ID, "activa", "foreign-owner"); err != spaces.ErrNotFound {
 		t.Fatalf("foreign owner error=%v", err)
-	}
-	// A pending/rejected case and KYB are not a substitute for an effective personal KYC approval.
-	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia) VALUES
-	('10000000-0000-4000-8000-000000000001',$1,'kyb','en_revision','fixture:10000000-0000-4000-8000-000000000001','pending-kyb')`, owner); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "still-no-kyc"); err != spaces.ErrEligibilityRequired {
-		t.Fatalf("KYB substituted for KYC: %v", err)
-	}
-	verificationID := "10000000-0000-4000-8000-000000000002"
-	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
-	VALUES($1,$2,'kyc','aprobada',$3,'approved-kyc',$4,now())`, verificationID, owner, "fixture:"+verificationID, adminID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, owner, verificationID); err != nil {
-		t.Fatal(err)
-	}
-	// An enabled synthetic fixture intentionally remains in the existing
-	// draft-only catalog/reservation flow. Publication must conflict atomically.
-	renterVerification := "10000000-0000-4000-8000-000000000003"
-	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
-	VALUES($1,$2,'kyc','aprobada',$3,'approved-renter-kyc',$4,now())`, renterVerification, other, "fixture:"+renterVerification, adminID); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, other, renterVerification); err != nil {
-		t.Fatal(err)
 	}
 	// Exercise the HTTP APIs for create-without-zone -> clear publication
 	// rejection -> explicit configuration -> publication -> renter search,
@@ -276,6 +258,24 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	publishResponse := invokePublicationAPI(spacesAPI, http.MethodPut, "/api/v1/spaces/"+created.ID+"/publication", "owner-token", publicationBody)
 	if publishResponse.Code != http.StatusOK || !strings.Contains(publishResponse.Body.String(), `"state":"activa"`) {
 		t.Fatalf("publish configured draft response=%d body=%s", publishResponse.Code, publishResponse.Body.String())
+	}
+	// Identity verification remains a prerequisite for booking, not for
+	// preparing or publishing a listing.
+	verificationID := "10000000-0000-4000-8000-000000000002"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
+	VALUES($1,$2,'kyc','aprobada',$3,'approved-kyc',$4,now())`, verificationID, owner, "fixture:"+verificationID, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, owner, verificationID); err != nil {
+		t.Fatal(err)
+	}
+	renterVerification := "10000000-0000-4000-8000-000000000003"
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,referencia_evidencia,clave_idempotencia,revisor_id,resuelta_en)
+	VALUES($1,$2,'kyc','aprobada',$3,'approved-renter-kyc',$4,now())`, renterVerification, other, "fixture:"+renterVerification, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = adminPool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, other, renterVerification); err != nil {
+		t.Fatal(err)
 	}
 	searchResponse := invokePublicationAPI(bookingAPI, http.MethodGet, "/api/v1/local/booking-trial/catalog?category_code=oficina&page_size=25", "renter-token", nil)
 	if searchResponse.Code != http.StatusOK || !strings.Contains(searchResponse.Body.String(), created.ID) || strings.Contains(searchResponse.Body.String(), "Dirección sintética privada") {
@@ -737,8 +737,9 @@ func TestLocalPublicationRequiresEffectiveKYCAndRecordsOwnerTransitions(t *testi
 	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "oculta", "hide-2"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-after-revoke"); err != spaces.ErrEligibilityRequired {
-		t.Fatalf("revoked KYC publication error=%v", err)
+	republishedWithoutCurrentIdentity, err := svc.SetPublicationState(ctx, owner, draft.ID, "activa", "publish-after-revoke")
+	if err != nil || republishedWithoutCurrentIdentity.State != "activa" {
+		t.Fatalf("publication after identity eligibility revocation=%+v err=%v", republishedWithoutCurrentIdentity, err)
 	}
 	// A pending reservation is an atomic blocker: the failed request must keep
 	// the offer, rate snapshots, and booking history available.

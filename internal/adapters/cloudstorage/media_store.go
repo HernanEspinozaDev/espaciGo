@@ -8,6 +8,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/storage"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
@@ -113,22 +114,27 @@ func (s *MediaStore) Delete(ctx context.Context, key string, generation int64) e
 
 func validateMediaKey(key string) error {
 	parts := strings.Split(key, "/")
-	if len(parts) != 7 || parts[0] != "media" || parts[1] != "v1" {
-		return media.ErrInvalid
-	}
-	if parts[2] == "spaces" {
-		if !mediaUUID.MatchString(parts[3]) || !mediaUUID.MatchString(parts[4]) || !validToken(parts[5]) || (parts[6] != "display.webp" && parts[6] != "thumbnail.webp") {
-			return media.ErrInvalid
+	if len(parts) == 7 && parts[0] == "media" && parts[1] == "v1" {
+		if parts[2] == "spaces" && mediaUUID.MatchString(parts[3]) && mediaUUID.MatchString(parts[4]) && validToken(parts[5]) && (parts[6] == "display.webp" || parts[6] == "thumbnail.webp") {
+			return nil
 		}
-		return nil
-	}
-	if parts[2] == "profiles" {
-		if !mediaUUID.MatchString(parts[3]) || !mediaUUID.MatchString(parts[4]) || !validToken(parts[5]) || parts[6] != "avatar.webp" {
-			return media.ErrInvalid
+		if parts[2] == "profiles" && mediaUUID.MatchString(parts[3]) && mediaUUID.MatchString(parts[4]) && validToken(parts[5]) && parts[6] == "avatar.webp" {
+			return nil
 		}
-		return nil
+	}
+	if len(parts) == 8 && parts[0] == "users" && mediaUUID.MatchString(parts[1]) && parts[2] == "spaces" && mediaUUID.MatchString(parts[3]) && parts[4] == "images" && parts[5] == "v2" && mediaUUID.MatchString(parts[6]) {
+		bits := strings.Split(parts[7], "_")
+		if len(bits) == 3 && validMediaTimestamp(bits[0]) && validToken(bits[1]) && (bits[2] == "display.webp" || bits[2] == "thumbnail.webp") {
+			return nil
+		}
 	}
 	return media.ErrInvalid
+}
+
+func validMediaTimestamp(v string) bool {
+	const layout = "20060102T150405.000000000Z"
+	parsed, err := time.Parse(layout, v)
+	return err == nil && parsed.UTC().Format(layout) == v
 }
 
 func validToken(v string) bool {

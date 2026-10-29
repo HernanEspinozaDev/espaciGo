@@ -3,6 +3,7 @@ import type {
   CategoryProfileSchema,
   ContentUpdateInput,
   GalleryPhoto,
+  GalleryUploadStatus,
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
@@ -38,7 +39,7 @@ export interface HostListingsPort {
   updateDraft(
     listingId: string,
     input: ListingDraftInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail>;
   deleteListing(
@@ -48,7 +49,7 @@ export interface HostListingsPort {
   updateContent(
     listingId: string,
     input: ContentUpdateInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail>;
   publishListing(
@@ -68,7 +69,7 @@ export interface HostListingsPort {
   updatePricing(
     listingId: string,
     input: PricingInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<PricingHistoryItem>;
   listPricingHistory(
@@ -78,9 +79,9 @@ export interface HostListingsPort {
   configureTimeZone(
     listingId: string,
     timeZone: string,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
-  ): Promise<{ listingId: string; timeZone: string }>;
+  ): Promise<{ listingId: string; timeZone: string; etag: string }>;
   getWeeklySchedule(
     listingId: string,
     signal?: AbortSignal,
@@ -88,14 +89,27 @@ export interface HostListingsPort {
   updateWeeklySchedule(
     listingId: string,
     input: ScheduleInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ScheduleData>;
   listPhotos(listingId: string, signal?: AbortSignal): Promise<GalleryPhoto[]>;
+  getPhotoUploadStatus(
+    listingId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryUploadStatus>;
   uploadPhoto(
     listingId: string,
     input?: PhotoUploadInput,
     idempotencyKey?: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryPhoto>;
+  replacePhoto(
+    listingId: string,
+    photoId: string,
+    input: PhotoUploadInput,
+    idempotencyKey: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<GalleryPhoto>;
   setCoverPhoto(
@@ -106,11 +120,14 @@ export interface HostListingsPort {
   removePhoto(
     listingId: string,
     photoId: string,
+    ifMatch: string,
     signal?: AbortSignal,
-  ): Promise<void>;
-  reorderPhotos(
+  ): Promise<string>;
+  movePhoto(
     listingId: string,
-    photoIds: string[],
+    photoId: string,
+    targetPosition: number,
+    ifMatch: string,
     signal?: AbortSignal,
-  ): Promise<void>;
+  ): Promise<string>;
 }

@@ -10,6 +10,7 @@ import type {
   CategoryProfileSchema,
   ContentUpdateInput,
   GalleryPhoto,
+  GalleryUploadStatus,
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
@@ -61,7 +62,17 @@ function mapAttributeProfile(
   };
 }
 
-function mapSpaceDraftToDetail(draft: OpenApiSpaceDraft): ListingDetail {
+function requireStrongEtag(value: string | null): string {
+  if (!value || !/^"[\x21\x23-\x7e\x80-\xff]+"$/.test(value)) {
+    throw new ApiProtocolError();
+  }
+  return value;
+}
+
+function mapSpaceDraftToDetail(
+  draft: OpenApiSpaceDraft,
+  etag?: string,
+): ListingDetail {
   return {
     id: draft.id,
     category_code: draft.category_code,
@@ -83,6 +94,7 @@ function mapSpaceDraftToDetail(draft: OpenApiSpaceDraft): ListingDetail {
       (draft.attributes as Record<string, unknown>) ?? {},
     ),
     cover_photo_id: draft.cover_photo_id ?? null,
+    ...(etag ? { etag } : {}),
   };
 }
 
@@ -115,8 +127,12 @@ function mapRate(rate: OpenApiRate): PricingHistoryItem {
   };
 }
 
-function mapWeeklyHours(data: OpenApiLocalWeeklyHours): ScheduleData {
+function mapWeeklyHours(
+  data: OpenApiLocalWeeklyHours,
+  etag: string,
+): ScheduleData {
   return {
+    etag,
     space_id: data.space_id,
     enabled: data.enabled,
     time_zone: data.time_zone,
@@ -130,7 +146,10 @@ function mapWeeklyHours(data: OpenApiLocalWeeklyHours): ScheduleData {
 function mapPhotoToGalleryPhoto(raw: unknown): GalleryPhoto {
   const p = raw as Record<string, unknown>;
   const isSynthetic =
-    p.fixture_code === "synthetic-png-v1" || !Array.isArray(p.variants);
+    p.fixture_code === "synthetic-png-v1" ||
+    (p.state !== "pending" && !Array.isArray(p.variants));
+  const state =
+    p.state === "pending" || p.state === "ready" ? p.state : undefined;
   return {
     id: String(p.id ?? ""),
     space_id: p.space_id ? String(p.space_id) : undefined,
@@ -151,7 +170,50 @@ function mapPhotoToGalleryPhoto(raw: unknown): GalleryPhoto {
     visible: p.visible !== false,
     position: typeof p.position === "number" ? p.position : 0,
     alt_text: typeof p.alt_text === "string" ? p.alt_text : undefined,
+    variants: mapPhotoVariants(p.variants, p.space_id, p.id),
+    ...(state ? { state } : {}),
   };
+}
+
+function mapPhotoVariants(
+  value: unknown,
+  spaceId: unknown,
+  photoId: unknown,
+): GalleryPhoto["variants"] {
+  if (
+    !Array.isArray(value) ||
+    typeof spaceId !== "string" ||
+    typeof photoId !== "string"
+  )
+    return [];
+  const result: NonNullable<GalleryPhoto["variants"]>[number][] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const variant = item as Record<string, unknown>;
+    const name = variant.name;
+    if (name !== "thumbnail" && name !== "display") continue;
+    if (variant.mime_type !== "image/webp" || typeof variant.url !== "string")
+      continue;
+    const expected = `/api/v1/spaces/${spaceId}/gallery/${photoId}/variants/${name}`;
+    if (variant.url !== expected) continue;
+    if (
+      typeof variant.size_bytes !== "number" ||
+      typeof variant.sha256 !== "string" ||
+      typeof variant.width !== "number" ||
+      typeof variant.height !== "number"
+    )
+      continue;
+    result.push({
+      name,
+      url: `/api/backend/spaces/${spaceId}/gallery/${photoId}/variants/${name}`,
+      mime_type: "image/webp",
+      size_bytes: variant.size_bytes,
+      sha256: variant.sha256,
+      width: variant.width,
+      height: variant.height,
+    });
+  }
+  return result;
 }
 
 export class OpenApiHostListingsAdapter implements HostListingsPort {
@@ -239,7 +301,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async createDraft(
@@ -274,20 +339,23 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async updateDraft(
     listingId: string,
     input: ListingDraftInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
     const result = await apiClient.PUT("/spaces/{spaceId}", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch) },
       },
-      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: {
         category_code: input.category_code,
         title: input.title,
@@ -310,7 +378,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async deleteListing(
@@ -341,7 +412,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   async updateContent(
     listingId: string,
     input: ContentUpdateInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
     const result = await apiClient.PUT(
@@ -349,8 +420,8 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       {
         params: {
           path: { spaceId: listingId },
+          header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
         },
-        headers: ifMatch ? { "If-Match": ifMatch } : undefined,
         body: {
           title: input.title,
           description: input.description,
@@ -368,19 +439,22 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async publishListing(
     listingId: string,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
     const result = await apiClient.PUT("/spaces/{spaceId}/publication", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
       },
-      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: { state: "activa" },
       bodySerializer: serializeExactJson,
       signal,
@@ -389,19 +463,22 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async archiveListing(
     listingId: string,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
     const result = await apiClient.PUT("/spaces/{spaceId}/publication", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
       },
-      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: { state: "oculta" },
       bodySerializer: serializeExactJson,
       signal,
@@ -410,7 +487,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async getPricing(
@@ -434,14 +514,14 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   async updatePricing(
     listingId: string,
     input: PricingInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<PricingHistoryItem> {
     const result = await apiClient.PUT("/spaces/{spaceId}/tariff", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch) },
       },
-      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: {
         rate_unit: input.rate_unit,
         base_price: input.base_price,
@@ -453,7 +533,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapRate(result.data);
+    return {
+      ...mapRate(result.data),
+      etag: requireStrongEtag(result.response.headers.get("ETag")),
+    };
   }
 
   async listPricingHistory(
@@ -476,14 +559,14 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   async configureTimeZone(
     listingId: string,
     timeZone: string,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
-  ): Promise<{ listingId: string; timeZone: string }> {
+  ): Promise<{ listingId: string; timeZone: string; etag: string }> {
     const result = await apiClient.PUT("/spaces/{spaceId}/availability", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch) },
       },
-      headers: ifMatch ? { "If-Match": ifMatch } : undefined,
       body: { time_zone: timeZone },
       bodySerializer: serializeExactJson,
       signal,
@@ -495,6 +578,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     return {
       listingId: result.data.space_id,
       timeZone: result.data.time_zone,
+      etag: requireStrongEtag(result.response.headers.get("ETag")),
     };
   }
 
@@ -502,58 +586,58 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     listingId: string,
     signal?: AbortSignal,
   ): Promise<ScheduleData | null> {
-    const result = await apiClient.GET(
-      "/local/booking-trial/catalog/{spaceId}/weekly-hours",
-      {
-        params: {
-          path: { spaceId: listingId },
-        },
-        signal,
+    const result = await apiClient.GET("/spaces/{spaceId}/weekly-hours", {
+      params: {
+        path: { spaceId: listingId },
       },
-    );
+      signal,
+    });
     if (result.response.status === 404) return null;
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data?.data) throw new ApiProtocolError();
-    return mapWeeklyHours(result.data.data);
+    return mapWeeklyHours(
+      result.data.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async updateWeeklySchedule(
     listingId: string,
     input: ScheduleInput,
-    ifMatch?: string,
+    ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ScheduleData> {
     const days = input.weekly_slots
       ? convertSlotsToWeeklyDays(input.weekly_slots)
       : [];
-    const result = await apiClient.PUT(
-      "/local/booking-trial/catalog/{spaceId}/weekly-hours",
-      {
-        params: {
-          path: { spaceId: listingId },
-        },
-        headers: ifMatch ? { "If-Match": ifMatch } : undefined,
-        body: {
-          enabled: input.enabled ?? true,
-          days: days.map((d) => ({
-            weekday: d.weekday,
-            periods: d.periods.map((p) => ({
-              open: p.open,
-              close: p.close,
-            })),
-          })),
-        },
-        bodySerializer: serializeExactJson,
-        signal,
+    const result = await apiClient.PUT("/spaces/{spaceId}/weekly-hours", {
+      params: {
+        path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch) },
       },
-    );
+      body: {
+        enabled: input.enabled ?? true,
+        days: days.map((d) => ({
+          weekday: d.weekday,
+          periods: d.periods.map((p) => ({
+            open: p.open,
+            close: p.close,
+          })),
+        })),
+      },
+      bodySerializer: serializeExactJson,
+      signal,
+    });
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data?.data) throw new ApiProtocolError();
-    return mapWeeklyHours(result.data.data);
+    return mapWeeklyHours(
+      result.data.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async listPhotos(
@@ -572,6 +656,31 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     }
     const items = result.data?.items ?? [];
     return items.map(mapPhotoToGalleryPhoto);
+  }
+
+  async getPhotoUploadStatus(
+    listingId: string,
+    idempotencyKey: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryUploadStatus> {
+    const result = await apiClient.GET(
+      "/spaces/{spaceId}/gallery/upload-status",
+      {
+        params: {
+          header: { "Idempotency-Key": idempotencyKey },
+          path: { spaceId: listingId },
+        },
+        signal,
+      },
+    );
+    if (result.response.status === 404) return { state: "not_found" };
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.photo_id || !result.data.state) {
+      throw new ApiProtocolError();
+    }
+    return { photo_id: result.data.photo_id, state: result.data.state };
   }
 
   async uploadPhoto(
@@ -605,10 +714,42 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     }
     if (!result.data?.photo) throw new ApiProtocolError();
     const photo = mapPhotoToGalleryPhoto(result.data.photo);
-    if (input?.is_cover) {
+    if (input?.is_cover && photo.state !== "pending") {
       await this.setCoverPhoto(listingId, photo.id, signal);
     }
     return photo;
+  }
+
+  async replacePhoto(
+    listingId: string,
+    photoId: string,
+    input: PhotoUploadInput,
+    idempotencyKey: string,
+    ifMatch: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryPhoto> {
+    if (!input.image) throw new ApiProtocolError();
+    const formData = new FormData();
+    formData.append("image", input.image);
+    const result = await apiClient.PUT(
+      "/spaces/{spaceId}/gallery/{photoId}/content",
+      {
+        params: {
+          header: {
+            "Idempotency-Key": idempotencyKey || generateIdempotencyKey(),
+            "If-Match": requireStrongEtag(ifMatch),
+          },
+          path: { spaceId: listingId, photoId },
+        },
+        body: formData as unknown as { image: string },
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.photo) throw new ApiProtocolError();
+    return mapPhotoToGalleryPhoto(result.data.photo);
   }
 
   async setCoverPhoto(
@@ -632,44 +773,44 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   async removePhoto(
     listingId: string,
     photoId: string,
+    ifMatch: string,
     signal?: AbortSignal,
-  ): Promise<void> {
+  ): Promise<string> {
     const result = await apiClient.DELETE(
       "/spaces/{spaceId}/gallery/{photoId}",
       {
         params: {
           path: { spaceId: listingId, photoId },
+          header: { "If-Match": requireStrongEtag(ifMatch) },
         },
         signal,
       },
     );
-    if (result.response.status === 404) return;
     if (!result.response.ok) {
       throw normalizeApiError(result.response, result.error);
     }
+    return requireStrongEtag(result.response.headers.get("ETag"));
   }
 
-  async reorderPhotos(
+  async movePhoto(
     listingId: string,
-    photoIds: string[],
+    photoId: string,
+    targetPosition: number,
+    ifMatch: string,
     signal?: AbortSignal,
-  ): Promise<void> {
-    for (let index = 0; index < photoIds.length; index += 1) {
-      const photoId = photoIds[index];
-      const result = await apiClient.PUT(
-        "/spaces/{spaceId}/gallery/{photoId}",
-        {
-          params: {
-            path: { spaceId: listingId, photoId },
-          },
-          body: { position: index + 1 },
-          bodySerializer: serializeExactJson,
-          signal,
-        },
-      );
-      if (!result.response.ok) {
-        throw normalizeApiError(result.response, result.error);
-      }
+  ): Promise<string> {
+    const result = await apiClient.PUT("/spaces/{spaceId}/gallery/{photoId}", {
+      params: {
+        path: { spaceId: listingId, photoId },
+        header: { "If-Match": requireStrongEtag(ifMatch) },
+      },
+      body: { position: targetPosition },
+      bodySerializer: serializeExactJson,
+      signal,
+    });
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
     }
+    return requireStrongEtag(result.response.headers.get("ETag"));
   }
 }

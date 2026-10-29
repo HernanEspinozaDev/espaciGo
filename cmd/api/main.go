@@ -97,6 +97,13 @@ func newHTTPServer(addr string, handler http.Handler) *http.Server {
 }
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "local-readonly-probe" {
+		if runLocalReadOnlyProbe() != nil {
+			log.Print("local read-only PostgreSQL probe failed; no connection details logged")
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) >= 2 && (os.Args[1] == "local-privacy-retention-purge" || os.Args[1] == "local-privacy-replay-export" || os.Args[1] == "local-privacy-replay-apply") {
 		if err := runLocalPrivacyCommand(os.Args[1], os.Args[2:]); err != nil {
 			log.Print("local privacy operation failed; verify the command, restored database, and administrator authorization")
@@ -150,6 +157,10 @@ func main() {
 }
 
 func run() error {
+	runtimeProfileValue, err := runtimeProfile(os.Getenv)
+	if err != nil {
+		return errors.New("invalid API runtime profile")
+	}
 	cfg, err := loadConfig(os.Getenv)
 	if err != nil {
 		return errors.New("invalid API configuration")
@@ -316,6 +327,9 @@ func run() error {
 		spacesHandler := spaceshttp.NewHandlerWithPricing(service, spacesService, cfg.allowedOrigins, calendarService, pricingService)
 		mux.Handle("/api/v1/spaces", spacesHandler)
 		mux.Handle("/api/v1/spaces/", spacesHandler)
+		ownerWeeklyHoursService := booking.NewOwnerWeeklyHoursService(bookingpg.New(pool))
+		ownerWeeklyHoursHandler := bookinghttp.NewOwnerWeeklyHoursHandler(service, ownerWeeklyHoursService, cfg.allowedOrigins)
+		registerOwnerWeeklyHoursRoutes(mux, ownerWeeklyHoursHandler)
 		galleryService, err := gallery.NewService(gallerypg.New(pool), evidenceStore, credentials.Generator{}, time.Now)
 		if err != nil {
 			return errors.New("local synthetic gallery initialization failed")
@@ -451,88 +465,59 @@ func run() error {
 			http.ServeFile(w, r, "/openapi.yaml")
 		})
 	}
-	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(localIdentityService, mux, cfg.allowedOrigins...))
-	serverErrors := make(chan error, 1)
-	go func() {
-		serverErrors <- server.ListenAndServe()
-	}()
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Keep every mutating background loop in this registry so the explicit
+	// worker-free profile can suppress them as one enforceable startup gate.
+	workers := make([]namedWorker, 0, 13)
 	if localPaymentService != nil && !isolatedDatasetClock {
-		go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second)
-		go localPaymentService.RunGuaranteeReconciler(ctx, 5*time.Second)
-		go localPaymentService.RunSettlementReconciler(ctx, 5*time.Second)
+		workers = append(workers,
+			namedWorker{"payment-reconciler", func() { go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second) }},
+			namedWorker{"guarantee-reconciler", func() { go localPaymentService.RunGuaranteeReconciler(ctx, 5*time.Second) }},
+			namedWorker{"settlement-reconciler", func() { go localPaymentService.RunSettlementReconciler(ctx, 5*time.Second) }},
+		)
 	}
 	if localContractService != nil && !isolatedDatasetClock {
-		go func() {
-			ticker := time.NewTicker(5 * time.Second)
-			defer ticker.Stop()
-			_, _ = localContractService.EnsureApproved(ctx)
-			_, _ = localContractService.ExpireDue(ctx)
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					_, _ = localContractService.EnsureApproved(ctx)
-					_, _ = localContractService.ExpireDue(ctx)
-				}
-			}
-		}()
-	}
-	if localMediaService != nil && !isolatedDatasetClock {
-		go func() {
-			ticker := time.NewTicker(time.Minute)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					// Reconciliation is bounded and logs no media/account identifiers.
-					if err := localMediaService.CleanOnce(ctx, 50); err != nil {
-						log.Print("private media cleanup pass failed")
+		workers = append(workers, namedWorker{"contract-lifecycle", func() {
+			go func() {
+				ticker := time.NewTicker(5 * time.Second)
+				defer ticker.Stop()
+				_, _ = localContractService.EnsureApproved(ctx)
+				_, _ = localContractService.ExpireDue(ctx)
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						_, _ = localContractService.EnsureApproved(ctx)
+						_, _ = localContractService.ExpireDue(ctx)
 					}
 				}
-			}
-		}()
+			}()
+		}})
+	}
+	if localMediaService != nil && !isolatedDatasetClock {
+		workers = append(workers, namedWorker{"media-cleanup", func() {
+			go func() {
+				ticker := time.NewTicker(time.Minute)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						// Reconciliation is bounded and logs no media/account identifiers.
+						if err := localMediaService.CleanOnce(ctx, 50); err != nil {
+							log.Print("private media cleanup pass failed")
+						}
+					}
+				}
+			}()
+		}})
 	}
 	if localOperationService != nil && !isolatedDatasetClock {
-		go func() {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					_ = localOperationService.CleanRetiredOnce(ctx, 50)
-				}
-			}
-		}()
-	}
-	if localIdentityService != nil {
-		go localIdentityService.RunCredentialNoticeWorker(ctx, time.Second)
-	}
-	if localNoticeService != nil {
-		go localNoticeService.Run(ctx, time.Second)
-		go func() {
-			ticker := time.NewTicker(time.Hour)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					_, _ = localNoticeService.Purge(ctx, 100)
-				}
-			}
-		}()
-	}
-	if localPrivacyService != nil {
-		go localPrivacyService.RunSuppressionReplayExportWorker(ctx, 10*time.Second, privacyReplayRegistryPath, privacyReplayStore)
-		if localM02Service != nil {
+		workers = append(workers, namedWorker{"operation-cleanup", func() {
 			go func() {
 				ticker := time.NewTicker(15 * time.Second)
 				defer ticker.Stop()
@@ -541,26 +526,88 @@ func run() error {
 					case <-ctx.Done():
 						return
 					case <-ticker.C:
-						_ = localM02Service.CleanRetiredPhotos(ctx, 20)
+						_ = localOperationService.CleanRetiredOnce(ctx, 50)
 					}
 				}
 			}()
+		}})
+	}
+	if localIdentityService != nil {
+		workers = append(workers, namedWorker{"credential-notices", func() {
+			go localIdentityService.RunCredentialNoticeWorker(ctx, time.Second)
+		}})
+	}
+	if localNoticeService != nil {
+		workers = append(workers,
+			namedWorker{"notice-delivery", func() { go localNoticeService.Run(ctx, time.Second) }},
+			namedWorker{"notice-purge", func() {
+				go func() {
+					ticker := time.NewTicker(time.Hour)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							_, _ = localNoticeService.Purge(ctx, 100)
+						}
+					}
+				}()
+			}},
+		)
+	}
+	if localPrivacyService != nil {
+		workers = append(workers,
+			namedWorker{"privacy-suppression-replay-export", func() {
+				go localPrivacyService.RunSuppressionReplayExportWorker(ctx, 10*time.Second, privacyReplayRegistryPath, privacyReplayStore)
+			}},
+			namedWorker{"local-privacy-retention", func() {
+				go localPrivacyService.RunLocalRetentionWorker(ctx, time.Hour, 100, privacyEvidenceCleaner)
+			}},
+		)
+		if localM02Service != nil {
+			workers = append(workers, namedWorker{"retired-photo-cleanup", func() {
+				go func() {
+					ticker := time.NewTicker(15 * time.Second)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							_ = localM02Service.CleanRetiredPhotos(ctx, 20)
+						}
+					}
+				}()
+			}})
 		}
-		go localPrivacyService.RunLocalRetentionWorker(ctx, time.Hour, 100, privacyEvidenceCleaner)
 	}
 	if localGalleryService != nil {
-		go func() {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					_ = localGalleryService.CleanRetiredOnce(ctx, 50)
+		workers = append(workers, namedWorker{"gallery-retention", func() {
+			go func() {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						_ = localGalleryService.CleanRetiredOnce(ctx, 50)
+					}
 				}
-			}
-		}()
+			}()
+		}})
+	}
+	if err := validateWorkerRegistry(runtimeProfileValue, workers); err != nil {
+		return errors.New("background worker registry is invalid")
+	}
+	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(localIdentityService, mux, cfg.allowedOrigins...))
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- server.ListenAndServe()
+	}()
+	if err := launchWorkers(runtimeProfileValue, workers); err != nil {
+		return errors.New("background worker registry is invalid")
 	}
 	select {
 	case err := <-serverErrors:

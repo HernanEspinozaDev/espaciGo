@@ -12,7 +12,7 @@ const (
 	MaxInputBytes = 10 << 20
 	MaxPixels     = int64(25_000_000)
 	MaxSide       = 12_000
-	MaxSpaceMedia = 10
+	MaxSpaceMedia = 30
 	MaxAltText    = 250
 )
 
@@ -25,6 +25,7 @@ var (
 	ErrNotFound     = errors.New("media: not found")
 	ErrLimit        = errors.New("media: gallery limit reached")
 	ErrConflict     = errors.New("media: idempotency or state conflict")
+	ErrPrecondition = errors.New("media: stale replacement precondition")
 	ErrUnavailable  = errors.New("media: private object store unavailable")
 	ErrNotSupported = errors.New("media: image format not supported")
 )
@@ -74,14 +75,16 @@ type Photo struct {
 }
 
 type Reservation struct {
-	ID        string
-	OwnerID   string
-	SpaceID   string
-	Purpose   Purpose
-	Token     int64
-	LeaseTill time.Time
-	State     string
-	InputHash string
+	ID                  string
+	OwnerID             string
+	SpaceID             string
+	Purpose             Purpose
+	Token               int64
+	LeaseTill           time.Time
+	State               string
+	InputHash           string
+	ReplacementTargetID string
+	ExpectedRevision    string
 }
 
 type StoredObject struct {
@@ -100,17 +103,63 @@ type ObjectStore interface {
 	Delete(context.Context, string, int64) error
 }
 
+type ReservationOptions struct {
+	ReplacementTargetID string
+	ExpectedRevision    string
+}
+
+func NormalizeReservationOptions(options ReservationOptions) (ReservationOptions, error) {
+	return normalizeReservationOptions(options)
+}
+
+// normalizeReservationOptions validates and canonicalizes optional replacement metadata.
+func normalizeReservationOptions(options ReservationOptions) (ReservationOptions, error) {
+	target := strings.TrimSpace(options.ReplacementTargetID)
+	revision := options.ExpectedRevision
+	if target == "" && revision == "" {
+		return ReservationOptions{}, nil
+	}
+	if target == "" || revision == "" || !validUUID(target) {
+		return ReservationOptions{}, ErrInvalid
+	}
+	target = strings.ToLower(target)
+	parsed, err := time.Parse(time.RFC3339Nano, revision)
+	if err != nil || parsed.Location() != time.UTC || parsed.Format(time.RFC3339Nano) != revision {
+		return ReservationOptions{}, ErrInvalid
+	}
+	options.ReplacementTargetID = target
+	return options, nil
+}
+
+// CheckExpectedRevision validates the canonical revision and rejects stale values only.
+func CheckExpectedRevision(actual time.Time, expected string) error {
+	parsed, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || parsed.Location() != time.UTC || parsed.Format(time.RFC3339Nano) != expected {
+		return ErrInvalid
+	}
+	if !actual.Equal(parsed) {
+		return ErrPrecondition
+	}
+	return nil
+}
+
+// checkExpectedRevision preserves the package-local helper used by internal callers/tests.
+func checkExpectedRevision(actual time.Time, expected string) error {
+	return CheckExpectedRevision(actual, expected)
+}
+
 type Repository interface {
-	Reserve(context.Context, string, string, string, Purpose, string, string, time.Time, time.Time) (Reservation, bool, error)
+	Reserve(context.Context, string, string, string, Purpose, string, string, time.Time, time.Time, ReservationOptions) (Reservation, bool, error)
 	PlanVariant(context.Context, string, int64, VariantName, string) error
 	FinishVariantWrite(context.Context, string, VariantName, string) error
 	RecordVariant(context.Context, string, int64, Variant) error
-	FinalizeSpace(context.Context, string, int64, string, string, time.Time) (Photo, error)
+	FinalizeSpace(context.Context, string, int64, string, string, string, time.Time) (Photo, error)
 	FailReservation(context.Context, string, int64, time.Time) error
 	ListSpace(context.Context, string, string) ([]Photo, error)
 	GetSpace(context.Context, string, string, string) (Photo, error)
 	UpdateSpacePhoto(context.Context, string, string, string, *string, *bool, *int, time.Time) (Photo, error)
 	SelectSpaceCover(context.Context, string, string, string, time.Time) error
+	SelectSpaceCoverCAS(context.Context, string, string, string, time.Time) (time.Time, error)
 	RemoveSpacePhoto(context.Context, string, string, string, time.Time) error
 	GetVariant(context.Context, string, string, string) (Variant, error)
 	FinalizeProfile(context.Context, string, string, int64, time.Time) error
@@ -119,6 +168,14 @@ type Repository interface {
 	ClaimCleanup(context.Context, int, time.Time) ([]CleanupItem, error)
 	CompleteCleanup(context.Context, string, int64, time.Time) error
 	FailCleanup(context.Context, string, int64, time.Time) error
+}
+
+type SpacePhotoRemoveCASRepository interface {
+	RemoveSpacePhotoCAS(context.Context, string, string, string, time.Time, time.Time) (time.Time, error)
+}
+
+type SpacePhotoUpdateCASRepository interface {
+	UpdateSpacePhotoCAS(context.Context, string, string, string, *string, *bool, *int, time.Time, time.Time) (Photo, time.Time, error)
 }
 
 type CleanupItem struct {

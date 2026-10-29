@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
 	"net/http"
 	"sort"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
+	"github.com/HernanEspinozaDev/espaciGo/internal/spaces"
+	spaceshttp "github.com/HernanEspinozaDev/espaciGo/internal/spaces/transport/http"
 )
 
 type Authenticator interface {
@@ -58,8 +61,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, ETag")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key, If-Match")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
@@ -96,7 +99,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch {
-	case photoID == "" && r.Method == http.MethodPost && strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data"):
+	case photoID == "" && r.Method == http.MethodPost && isMultipartFormData(r.Header.Get("Content-Type")):
 		if h.media == nil {
 			failure(w, 404, "not_found", "Recurso no encontrado.")
 			return
@@ -107,7 +110,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// expected field: malformed and missing-field uploads can spill files.
 		defer removeMultipartTempFiles(r)
 		if parseErr != nil {
-			failure(w, 413, "upload_too_large", "La imagen supera el tamaño permitido.")
+			multipartParseError(w, parseErr)
 			return
 		}
 		file, _, err := r.FormFile("image")
@@ -124,6 +127,79 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		result, err := h.media.UploadSpace(r.Context(), principal.AccountID, spaceID, r.Header.Get("Idempotency-Key"), body)
 		if err != nil {
 			mediaError(w, err)
+			return
+		}
+		if result.Pending {
+			w.Header().Set("Retry-After", "2")
+			write(w, http.StatusAccepted, map[string]any{
+				"photo": map[string]any{
+					"id":       result.Photo.ID,
+					"space_id": result.Photo.SpaceID,
+					"state":    "pending",
+				},
+				"reused": result.Reused,
+			})
+			return
+		}
+		status := http.StatusCreated
+		if result.Reused {
+			status = http.StatusOK
+		}
+		write(w, status, map[string]any{"photo": result.Photo, "reused": result.Reused})
+	case photoID != "" && content && r.Method == http.MethodPut:
+		revision, err := spaceshttp.ParseIfMatch(r.Header.Values("If-Match"), spaceID)
+		if err != nil {
+			switch {
+			case errors.Is(err, spaceshttp.ErrMissingPrecondition):
+				failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match para reemplazar una imagen.")
+			case errors.Is(err, spaceshttp.ErrStalePrecondition):
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió; vuelve a cargar la galería.")
+			default:
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match debe contener un único ETag fuerte válido.")
+			}
+			return
+		}
+		if h.media == nil {
+			failure(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+			return
+		}
+		if !isMultipartFormData(r.Header.Get("Content-Type")) {
+			failure(w, http.StatusUnsupportedMediaType, "invalid_content_type", "Adjunta una imagen multipart en el campo image.")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, media.MaxInputBytes+(1<<20))
+		parseErr := r.ParseMultipartForm(1 << 20)
+		defer removeMultipartTempFiles(r)
+		if parseErr != nil {
+			multipartParseError(w, parseErr)
+			return
+		}
+		file, _, err := r.FormFile("image")
+		if err != nil {
+			failure(w, http.StatusUnprocessableEntity, "validation_error", "Adjunta una imagen en el campo image.")
+			return
+		}
+		defer file.Close()
+		body, err := io.ReadAll(io.LimitReader(file, media.MaxInputBytes+1))
+		if err != nil || len(body) > media.MaxInputBytes {
+			failure(w, http.StatusRequestEntityTooLarge, "upload_too_large", "La imagen supera el tamaño permitido.")
+			return
+		}
+		result, err := h.media.UploadSpaceReplacement(r.Context(), principal.AccountID, spaceID, r.Header.Get("Idempotency-Key"), photoID, revision, body)
+		if err != nil {
+			mediaError(w, err)
+			return
+		}
+		if result.Pending {
+			w.Header().Set("Retry-After", "2")
+			write(w, http.StatusAccepted, map[string]any{
+				"photo": map[string]any{
+					"id":       result.Photo.ID,
+					"space_id": result.Photo.SpaceID,
+					"state":    "pending",
+				},
+				"reused": result.Reused,
+			})
 			return
 		}
 		status := http.StatusCreated
@@ -149,13 +225,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(body)
 	case photoID == "cover" && r.Method == http.MethodPut:
+		revision, err := spaceshttp.ParseIfMatch(r.Header.Values("If-Match"), spaceID)
+		if err != nil {
+			switch {
+			case errors.Is(err, spaceshttp.ErrMissingPrecondition):
+				failure(w, 428, "precondition_required", "Se requiere If-Match para seleccionar la portada.")
+			case errors.Is(err, spaceshttp.ErrStalePrecondition):
+				failure(w, 412, "precondition_failed", "La versión del espacio cambió; vuelve a cargar la galería.")
+			default:
+				failure(w, 400, "invalid_precondition", "If-Match debe contener un único ETag fuerte válido.")
+			}
+			return
+		}
 		var input struct {
 			PhotoID string `json:"photo_id"`
 		}
 		decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&input); err != nil || strings.TrimSpace(input.PhotoID) == "" {
-			failure(w, 422, "validation_error", "Indica una imagen sintética activa de la galería propia.")
+			failure(w, 422, "validation_error", "Indica una imagen activa de la galería propia.")
 			return
 		}
 		var extra any
@@ -163,20 +251,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 422, "validation_error", "El cuerpo JSON debe contener un único objeto.")
 			return
 		}
-		result, err := h.service.SelectCover(r.Context(), principal.AccountID, spaceID, input.PhotoID)
-		if err != nil {
-			if h.media == nil || !errors.Is(err, gallery.ErrNotFound) {
-				galleryError(w, err)
-				return
-			}
-			if mediaErr := h.media.SelectCover(r.Context(), principal.AccountID, spaceID, input.PhotoID); mediaErr != nil {
+		result, err := h.service.SelectCoverCAS(r.Context(), principal.AccountID, spaceID, input.PhotoID, revision)
+		if err != nil && errors.Is(err, gallery.ErrNotFound) && h.media != nil {
+			updated, mediaErr := h.media.SelectCoverCAS(r.Context(), principal.AccountID, spaceID, input.PhotoID, revision)
+			if mediaErr != nil {
 				mediaError(w, mediaErr)
 				return
 			}
-			write(w, 200, map[string]any{"space_id": spaceID, "photo_id": input.PhotoID, "selected": true})
+			result = gallery.Cover{SpaceID: spaceID, PhotoID: input.PhotoID, Selected: true, UpdatedAt: updated}
+		} else if err != nil {
+			galleryError(w, err)
 			return
 		}
+		w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: result.UpdatedAt}))
 		write(w, 200, result)
+	case photoID == "upload-status" && !content && r.Method == http.MethodGet:
+		if h.media == nil {
+			failure(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+			return
+		}
+		photoID, state, err := h.media.LookupSpaceUpload(r.Context(), principal.AccountID, spaceID, r.Header.Get("Idempotency-Key"))
+		if err != nil {
+			mediaError(w, err)
+			return
+		}
+		write(w, http.StatusOK, map[string]string{"photo_id": photoID, "state": state})
 	case photoID == "" && r.Method == http.MethodGet:
 		items, err := h.service.List(r.Context(), principal.AccountID, spaceID)
 		if err != nil {
@@ -209,6 +308,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		write(w, 200, map[string]any{"items": items, "max_photos": gallery.MaxPhotosPerSpace, "synthetic": true})
+	case photoID == "" && r.Method == http.MethodPost && strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data"):
+		failure(w, http.StatusUnsupportedMediaType, "invalid_content_type", "Adjunta una imagen multipart en el campo image.")
 	case photoID == "" && r.Method == http.MethodPost:
 		if !emptyBody(w, r) {
 			return
@@ -235,6 +336,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(blob)
 	case photoID != "" && strings.HasSuffix(r.URL.Path, "/publication") && r.Method == http.MethodPut:
+		revision, err := spaceshttp.ParseIfMatch(r.Header.Values("If-Match"), spaceID)
+		if err != nil {
+			switch {
+			case errors.Is(err, spaceshttp.ErrMissingPrecondition):
+				failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match para publicar la imagen.")
+			case errors.Is(err, spaceshttp.ErrStalePrecondition):
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió; vuelve a cargar la galería.")
+			default:
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match debe contener un único ETag fuerte válido.")
+			}
+			return
+		}
 		var input struct {
 			PublicInCatalog *bool `json:"public_in_catalog"`
 		}
@@ -249,23 +362,37 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 422, "validation_error", "El cuerpo JSON debe contener un único objeto.")
 			return
 		}
-		result, err := h.service.SetPublicInCatalog(r.Context(), principal.AccountID, spaceID, photoID, *input.PublicInCatalog)
+		result, renewed, err := h.service.SetPublicInCatalogCAS(r.Context(), principal.AccountID, spaceID, photoID, *input.PublicInCatalog, revision)
 		if err != nil {
 			if h.media == nil || !errors.Is(err, gallery.ErrNotFound) {
 				galleryError(w, err)
 				return
 			}
 			visible := *input.PublicInCatalog
-			real, mediaErr := h.media.UpdateSpace(r.Context(), principal.AccountID, spaceID, photoID, nil, &visible, nil)
+			real, mediaRevision, mediaErr := h.media.UpdateSpaceCAS(r.Context(), principal.AccountID, spaceID, photoID, nil, &visible, nil, revision)
 			if mediaErr != nil {
 				mediaError(w, mediaErr)
 				return
 			}
+			w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: mediaRevision}))
 			write(w, 200, real)
 			return
 		}
+		w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: renewed}))
 		write(w, 200, result)
 	case photoID != "" && !content && r.Method == http.MethodPut && h.media != nil:
+		revision, err := spaceshttp.ParseIfMatch(r.Header.Values("If-Match"), spaceID)
+		if err != nil {
+			switch {
+			case errors.Is(err, spaceshttp.ErrMissingPrecondition):
+				failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match para actualizar los metadatos de la imagen.")
+			case errors.Is(err, spaceshttp.ErrStalePrecondition):
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió; vuelve a cargar la galería.")
+			default:
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match debe contener un único ETag fuerte válido.")
+			}
+			return
+		}
 		var input struct {
 			AltText  *string `json:"alt_text"`
 			Visible  *bool   `json:"visible"`
@@ -282,12 +409,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 422, "validation_error", "El cuerpo JSON debe contener un único objeto.")
 			return
 		}
-		item, err := h.media.UpdateSpace(r.Context(), principal.AccountID, spaceID, photoID, input.AltText, input.Visible, input.Position)
+		item, updatedAt, err := h.media.UpdateSpaceCAS(r.Context(), principal.AccountID, spaceID, photoID, input.AltText, input.Visible, input.Position, revision)
 		if err != nil {
 			mediaError(w, err)
 			return
 		}
-		write(w, 200, item)
+		w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: updatedAt}))
+		write(w, http.StatusOK, item)
 	case photoID != "" && !content && r.Method == http.MethodGet:
 		item, err := h.service.Metadata(r.Context(), principal.AccountID, spaceID, photoID)
 		if err != nil {
@@ -305,23 +433,41 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		write(w, 200, item)
 	case photoID != "" && !content && r.Method == http.MethodDelete:
-		result, err := h.service.Remove(r.Context(), principal.AccountID, spaceID, photoID)
+		revision, err := spaceshttp.ParseIfMatch(r.Header.Values("If-Match"), spaceID)
+		if err != nil {
+			switch {
+			case errors.Is(err, spaceshttp.ErrMissingPrecondition):
+				failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match para retirar una imagen.")
+			case errors.Is(err, spaceshttp.ErrStalePrecondition):
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió; vuelve a cargar la galería.")
+			default:
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match debe contener un único ETag fuerte válido.")
+			}
+			return
+		}
+		result, updated, err := h.service.RemoveCAS(r.Context(), principal.AccountID, spaceID, photoID, revision)
 		if err != nil {
 			if h.media == nil || !errors.Is(err, gallery.ErrNotFound) {
 				galleryError(w, err)
 				return
 			}
-			if mediaErr := h.media.RemoveSpace(r.Context(), principal.AccountID, spaceID, photoID); mediaErr != nil {
-				mediaError(w, mediaErr)
+			updated, err = h.media.RemoveSpaceCAS(r.Context(), principal.AccountID, spaceID, photoID, revision)
+			if err != nil {
+				mediaError(w, err)
 				return
 			}
-			write(w, 200, map[string]any{"photo_id": photoID, "removed": true})
-			return
+			result = gallery.Removal{PhotoID: photoID, Removed: true}
 		}
-		write(w, 200, result)
+		w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: updated}))
+		write(w, http.StatusOK, result)
 	default:
 		failure(w, 405, "method_not_allowed", "Método no permitido.")
 	}
+}
+
+func isMultipartFormData(value string) bool {
+	mediaType, _, err := mime.ParseMediaType(value)
+	return err == nil && strings.EqualFold(mediaType, "multipart/form-data")
 }
 
 func removeMultipartTempFiles(r *http.Request) {
@@ -378,9 +524,11 @@ func galleryError(w http.ResponseWriter, err error) {
 	case errors.Is(err, gallery.ErrInvalid):
 		failure(w, 422, "validation_error", "Revisa la clave de idempotencia.")
 	case errors.Is(err, gallery.ErrLimit):
-		failure(w, 409, "gallery_limit", "El espacio ya tiene el máximo de 10 imágenes activas.")
+		failure(w, 409, "gallery_limit", "El espacio ya tiene el máximo de 30 imágenes activas.")
 	case errors.Is(err, gallery.ErrCandidateUnavailable):
 		failure(w, 409, "gallery_operation_pending", "La operación de imagen requiere limpieza o recuperación; vuelve a intentarlo.")
+	case errors.Is(err, gallery.ErrConflict):
+		failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió; vuelve a cargar la galería.")
 	case errors.Is(err, gallery.ErrNotFound):
 		failure(w, 404, "not_found", "Espacio o imagen no encontrados.")
 	case errors.Is(err, gallery.ErrFileStore):
@@ -390,12 +538,23 @@ func galleryError(w http.ResponseWriter, err error) {
 	}
 }
 
+func multipartParseError(w http.ResponseWriter, err error) {
+	var maxBytesErr *http.MaxBytesError
+	if errors.As(err, &maxBytesErr) {
+		failure(w, http.StatusRequestEntityTooLarge, "upload_too_large", "La imagen supera el tamaño permitido.")
+		return
+	}
+	failure(w, http.StatusBadRequest, "invalid_request", "El cuerpo multipart no es válido.")
+}
+
 func mediaError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, media.ErrInvalid), errors.Is(err, media.ErrNotSupported):
 		failure(w, 422, "validation_error", "La imagen o solicitud no cumple los requisitos.")
+	case errors.Is(err, media.ErrPrecondition):
+		failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió; vuelve a cargar la galería.")
 	case errors.Is(err, media.ErrLimit):
-		failure(w, 409, "gallery_limit", "El espacio ya tiene el máximo de 10 imágenes activas.")
+		failure(w, 409, "gallery_limit", "El espacio ya tiene el máximo de 30 imágenes activas.")
 	case errors.Is(err, media.ErrConflict):
 		failure(w, 409, "media_conflict", "La operación de imagen está pendiente o la clave de idempotencia ya se usó.")
 	case errors.Is(err, media.ErrNotFound):

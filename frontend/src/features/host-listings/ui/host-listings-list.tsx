@@ -42,6 +42,7 @@ export function HostListingsList() {
     publishListing,
     archiveListing,
     deleteListing,
+    selectListing,
   } = useHostListings();
 
   const [activeFilter, setActiveFilter] = useState<FilterStatus>("all");
@@ -88,7 +89,11 @@ export function HostListingsList() {
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        await publishListing(listingId);
+        const detail = await selectListing(listingId);
+        if (!detail?.etag || authSnapshot.status !== "authenticated") {
+          throw new Error("No fue posible obtener la revisión del espacio");
+        }
+        await publishListing(listingId, detail.etag);
         setActionSuccess("Espacio publicado exitosamente con estado activo.");
       } catch (err) {
         const message =
@@ -109,7 +114,11 @@ export function HostListingsList() {
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        await archiveListing(listingId);
+        const detail = await selectListing(listingId);
+        if (!detail?.etag || authSnapshot.status !== "authenticated") {
+          throw new Error("No fue posible obtener la revisión del espacio");
+        }
+        await archiveListing(listingId, detail.etag);
         setActionSuccess(
           "Espacio archivado. Ya no será visible en el catálogo público.",
         );
