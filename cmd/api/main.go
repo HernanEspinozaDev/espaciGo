@@ -14,6 +14,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	clamavadapter "github.com/HernanEspinozaDev/espaciGo/internal/adapters/clamav"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/devauth"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/fakebooking"
@@ -23,6 +24,7 @@ import (
 	conversationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/conversation"
 	damageclaimpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/damageclaim"
 	disputepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/dispute"
+	documentverificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/documentverification"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
@@ -49,10 +51,14 @@ import (
 	damageclaimhttp "github.com/HernanEspinozaDev/espaciGo/internal/damageclaim/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/dispute"
 	disputehttp "github.com/HernanEspinozaDev/espaciGo/internal/dispute/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/documentverification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/documentverification/inspection"
+	documentverificationhttp "github.com/HernanEspinozaDev/espaciGo/internal/documentverification/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/gallery"
 	galleryhttp "github.com/HernanEspinozaDev/espaciGo/internal/gallery/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	identityhttp "github.com/HernanEspinozaDev/espaciGo/internal/identity/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/identityverification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
 	noticehttp "github.com/HernanEspinozaDev/espaciGo/internal/localnotice/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/m02local"
@@ -192,6 +198,8 @@ func run() error {
 	var localM02Service *m02local.Service
 	var localGalleryService *gallery.Service
 	var localMediaService *media.Service
+	var documentScanProcessor *documentverificationpg.ScanProcessor
+	var documentRetentionProcessor *documentverificationpg.RetentionProcessor
 	var localContractService *contract.Service
 	var localOperationService *operation.Service
 	var localNoticeService *localnotice.Service
@@ -230,8 +238,54 @@ func run() error {
 			return errors.New("local authentication initialization failed")
 		}
 		localIdentityService = service
-		verificationRepository := verificationpg.New(pool)
+		documentVerificationRepository := documentverificationpg.New(pool)
+		documentVerificationService, err := documentverification.NewService(documentVerificationRepository)
+		if err != nil {
+			return errors.New("local document verification initialization failed")
+		}
 		evidenceRoot := os.Getenv("M03_EVIDENCE_DIR")
+		documentStore, err := newRuntimeDocumentStore(os.Getenv, evidenceRoot)
+		if err != nil {
+			return errors.New("private document storage is unavailable")
+		}
+		var documentUploadService *documentverification.UploadService
+		var documentDownloadHandler http.Handler
+		if runtimeProfileValue == runtimeProfileDocumentScanOnly {
+			if documentStore == nil {
+				return errors.New("document scan profile requires private document storage")
+			}
+			scanConfig, enabled, scanErr := documentScanConfigFromEnv(os.Getenv)
+			if scanErr != nil || !enabled {
+				return errors.New("document scanner configuration is invalid")
+			}
+			scanner, scannerErr := clamavadapter.New(clamavadapter.Config{
+				Address: scanConfig.address, Timeout: 10 * time.Second,
+				MaxBytes: documentverification.MaxUploadBytes, MaxSignatureAge: scanConfig.maxSignatureAge,
+			})
+			if scannerErr != nil {
+				return errors.New("document scanner initialization failed")
+			}
+			documentScanProcessor = documentverificationpg.NewScanProcessor(documentVerificationRepository, documentStore, scanner, 2*time.Minute, 30*time.Second, scanConfig.maxSignatureAge)
+			documentRetentionProcessor = documentverificationpg.NewRetentionProcessor(documentVerificationRepository, documentStore, 2*time.Minute, 30*time.Second)
+			if documentScanProcessor == nil || documentRetentionProcessor == nil {
+				return errors.New("document scan processor initialization failed")
+			}
+			documentInspector := inspection.New(inspection.Config{PDFInfoPath: "/usr/bin/pdfinfo", PDFDetachPath: "/usr/bin/pdfdetach"})
+			if documentInspector == nil {
+				return errors.New("trusted document inspection tools are unavailable")
+			}
+			documentUploadService, err = documentverification.NewUploadService(documentVerificationService, documentInspector, documentStore)
+			if err != nil {
+				return errors.New("document upload service initialization failed")
+			}
+			downloadService, downloadErr := documentverification.NewSpaceDownloadService(documentVerificationRepository, documentStore)
+			if downloadErr != nil {
+				return errors.New("document download service initialization failed")
+			}
+			documentDownloadHandler = documentverificationhttp.NewOwnerDownloadHandler(service, downloadService)
+		}
+		registerDocumentVerificationRoutes(mux, documentverificationhttp.NewOwnerCasesHandlerWithUpload(service, documentVerificationService, documentUploadService), documentDownloadHandler)
+		verificationRepository := verificationpg.New(pool)
 		evidenceStore, err := newRuntimeFileStore(context.Background(), os.Getenv, evidenceRoot)
 		if err != nil {
 			return errors.New("private evidence storage is unavailable")
@@ -391,6 +445,11 @@ func run() error {
 			if err != nil {
 				return errors.New("local booking trial initialization failed")
 			}
+			identityVerifier, err := identityverification.NewService(documentverificationpg.New(pool))
+			if err != nil {
+				return errors.New("local documentary identity verifier initialization failed")
+			}
+			bookingService.SetBookingIdentityVerifier(identityVerifier)
 			globalAdminService.SetWeeklyHoursManager(bookingService)
 			bookingService.SetLocalRefundAdapter(paymentAdapter)
 			bookingService.SetLocalSettlementAdapter(paymentAdapter)
@@ -467,6 +526,8 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	documentWorkers := newTrackedWorkerGroup(ctx)
+	defer documentWorkers.StopAndWait()
 
 	// Keep every mutating background loop in this registry so the explicit
 	// worker-free profile can suppress them as one enforceable startup gate.
@@ -598,10 +659,34 @@ func run() error {
 			}()
 		}})
 	}
+	if documentScanProcessor != nil {
+		workers = append(workers, namedWorker{"document-verification-scan", func() {
+			documentWorkers.Go(func(workerCtx context.Context) {
+				if err := documentScanProcessor.Run(workerCtx, time.Second, func(error) {
+					log.Print("document verification scan pass failed")
+				}); err != nil {
+					log.Print("document verification scan worker stopped")
+				}
+			})
+		}})
+		workers = append(workers, namedWorker{"document-verification-retention", func() {
+			documentWorkers.Go(func(workerCtx context.Context) {
+				if err := documentRetentionProcessor.Run(workerCtx, time.Second, func(error) {
+					log.Print("document verification retention pass failed")
+				}); err != nil {
+					log.Print("document verification retention worker stopped")
+				}
+			})
+		}})
+	}
 	if err := validateWorkerRegistry(runtimeProfileValue, workers); err != nil {
 		return errors.New("background worker registry is invalid")
 	}
-	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(localIdentityService, mux, cfg.allowedOrigins...))
+	apiHandler := http.Handler(mux)
+	if runtimeProfileValue == runtimeProfileDocumentScanOnly {
+		apiHandler = restrictDocumentVerificationRoutes(apiHandler)
+	}
+	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(localIdentityService, apiHandler, cfg.allowedOrigins...))
 	serverErrors := make(chan error, 1)
 	go func() {
 		serverErrors <- server.ListenAndServe()

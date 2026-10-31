@@ -500,11 +500,11 @@ func (r *Repository) GetSpace(ctx context.Context, owner, spaceID, id string) (m
 	var p media.Photo
 	p.OwnerID = owner
 	p.SpaceID = spaceID
-	err := r.pool.QueryRow(ctx, `SELECT a.id::text,o.position,sm.alt_text,sm.visible,COALESCE(e.portada_media_id=sm.id,false),a.created_at,a.estado
+	err := r.pool.QueryRow(ctx, `SELECT a.id::text,o.position,sm.alt_text,sm.visible,COALESCE(e.portada_media_id=sm.id,false),a.created_at,a.estado,e.actualizado_en
 		FROM public.space_media sm JOIN public.media_asset a ON a.id=sm.media_id JOIN public.espacio e ON e.id=sm.espacio_id
 		JOIN public.gallery_item_order o ON o.space_media_id=sm.id
 		WHERE sm.id=$1 AND sm.espacio_id=$2 AND sm.propietario_id=$3 AND sm.retired_at IS NULL AND a.estado='ready'`, id, spaceID, owner).
-		Scan(&p.ID, &p.Position, &p.AltText, &p.Visible, &p.Cover, &p.CreatedAt, &p.State)
+		Scan(&p.ID, &p.Position, &p.AltText, &p.Visible, &p.Cover, &p.CreatedAt, &p.State, &p.SpaceRevision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return media.Photo{}, media.ErrNotFound
 	}
@@ -561,9 +561,9 @@ func (r *Repository) UpdateSpacePhoto(ctx context.Context, owner, spaceID, id st
 			return media.Photo{}, media.ErrInvalid
 		}
 		_, err = tx.Exec(ctx, `UPDATE public.gallery_item_order SET position=CASE
-			WHEN space_media_id=$2 THEN $3
-			WHEN $3<$4 AND position >= $3 AND position < $4 THEN position+1
-			WHEN $3>$4 AND position > $4 AND position <= $3 THEN position-1
+			WHEN space_media_id=$2 THEN $3::smallint
+			WHEN $3::smallint<$4::smallint AND position >= $3::smallint AND position < $4::smallint THEN (position+1)::smallint
+			WHEN $3::smallint>$4::smallint AND position > $4::smallint AND position <= $3::smallint THEN (position-1)::smallint
 			ELSE position END WHERE espacio_id=$1`, spaceID, id, *position, old)
 		if err != nil {
 			return media.Photo{}, mapError(err)
@@ -631,7 +631,7 @@ func (r *Repository) UpdateSpacePhotoCAS(ctx context.Context, owner, spaceID, id
 		if *position > count {
 			return media.Photo{}, time.Time{}, media.ErrInvalid
 		}
-		_, err = tx.Exec(ctx, `UPDATE public.gallery_item_order SET position=CASE WHEN space_media_id=$2 THEN $3 WHEN $3<$4 AND position >= $3 AND position < $4 THEN position+1 WHEN $3>$4 AND position > $4 AND position <= $3 THEN position-1 ELSE position END WHERE espacio_id=$1`, spaceID, id, *position, old)
+		_, err = tx.Exec(ctx, `UPDATE public.gallery_item_order SET position=CASE WHEN space_media_id=$2 THEN $3::smallint WHEN $3::smallint<$4::smallint AND position >= $3::smallint AND position < $4::smallint THEN (position+1)::smallint WHEN $3::smallint>$4::smallint AND position > $4::smallint AND position <= $3::smallint THEN (position-1)::smallint ELSE position END WHERE espacio_id=$1`, spaceID, id, *position, old)
 		if err != nil {
 			return media.Photo{}, time.Time{}, mapError(err)
 		}

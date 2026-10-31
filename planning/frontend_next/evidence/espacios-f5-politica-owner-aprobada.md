@@ -43,17 +43,30 @@ Todo archivo inicia en cuarentena. Estados técnicos separados: `pendiente`, `li
 
 ### Aclaraciones del owner — 2026-10-29 (prevalecen sobre notas anteriores)
 
-- Las capacidades `review_identity` y `review_space` son distintas y requieren asignación explícita por persona. La implementación local autoriza por actor autenticado + grant con `ReviewerID` igual al actor + capacidad + scope exacto; mapea identidad al `SubjectID` del caso y espacio al `SpaceID`. No crea roster ni persistencia de grants.
+- Las capacidades `review_identity` y `review_space` son distintas y requieren asignación explícita por persona. La implementación autoriza por actor autenticado + grant con `ReviewerID` igual al actor + capacidad + scope exacto; mapea identidad al `SubjectID` del caso y espacio al `SpaceID`. La prohibición de persistir grants de este párrafo fue supersedida únicamente por la enmienda del owner del 2026-10-30, más abajo.
 - El administrador vigente del espacio no puede revisar ni revocar un caso de ese espacio, aunque `SubjectID` histórico sea otra persona. Un cambio de titular/administrador exige un caso nuevo; el caso previo no se transfiere.
 - El titular vigente solo puede descargar archivos `limpio` mientras el caso siga abierto. Al cerrar el caso, la descarga termina. Soporte no recibe acceso a binarios por defecto.
-- No está aprobado que una persona tenga ambas capacidades ni existe todavía roster/scope administrativo persistido. El servicio local rechaza grants duales y solo acepta scope por recurso explícito; no inferir roles más amplios.
+- No está aprobado que una persona tenga ambas capacidades. El servicio rechaza grants duales y solo acepta scope por recurso explícito; no inferir roles más amplios. La enmienda del 2026-10-30 autoriza persistir esos grants explícitos, pero no cambia este rechazo de capacidad dual.
 - El límite de firmas de 48 horas se usa únicamente en la prueba local configurable. La política productiva de antigüedad de firmas sigue pendiente.
+
+### Enmienda expresa del owner — 2026-10-30
+
+- La instrucción expresa del owner del 2026-10-30 autoriza completar el flujo F5 en el target PostgreSQL sintético separado `espacigo_f5_synth_20261029` y ejecutar mediante `cmd/dbmigrate` la cadena pendiente verificada de ese target. Esto no amplía el alcance a otra base, datos/cuentas/documentos reales, Cloud SQL, GCP/IAM/Terraform, publicación o despliegue.
+- Se supersede la prohibición previa de roster/grants persistidos: las asignaciones explícitas de reviewer deben tener fuente persistida por persona, capacidad y scope exacto. La administración de asignaciones queda separada del runtime; no se expone autoasignación ni se infiere acceso por rol general. Se conserva la denegación de capacidad dual, el conflicto del administrador vigente del espacio y el resto de las reglas de ownership.
+- La fuente persistida y sus eventos deberán conservar motivo controlado, actor responsable, alcance, expiración/revocación cuando aplique y protección append-only. El rol runtime podrá leer grants vigentes, pero no otorgarlos, revocarlos ni alterar la auditoría. Esta enmienda autoriza el diseño local; no afirma que el esquema, los grants o el flujo estén ya implementados o probados.
+- La autorización también cubre recuperar el scanner F5 exacto ya retenido, actualizar/verificar firmas en la red de ensayo acotada y ejecutar pruebas exclusivamente con muestras sintéticas. No autoriza enviar documentos a proveedores ni usar archivos personales.
 
 ## Cambio de contrato Go requerido
 
 El flujo de publicación no debe exigir la elegibilidad KYC sintética vigente que hoy verifica `internal/adapters/postgres/spaces.Repository.SetPublicationState`; se conservan zona IANA, estado válido, ownership, suppression/administrative blocks y conflicto de fixture. El flujo de contratación conserva la comprobación de identidad para ambas partes y debe alinearse a esta verificación de identidad aprobada, no a documentos de espacio. La prueba actual que exige KYC para publicar se debe sustituir por prueba de publicación sin identidad/documentos y reserva bloqueada hasta verificar ambas partes.
 
 No confundir «identidad verificada» de esta política con documentación de espacio. La clasificación/decisión de si la verificación KYC sintética existente es una fuente válida para el nuevo distintivo de identidad debe quedar explícita en el contrato; no autoaprobar ni trasladar estados mediante migración sin una regla de reconciliación aprobada.
+
+### Resolución técnica conservadora para el corte local — 2026-10-30
+
+- La verificación KYC/KYB sintética de la tabla heredada `verificacion` no se considera evidencia de una revisión documental de identidad y no se migra ni autoaprueba. Para la contratación, la única fuente implementada es un caso documental de identidad aprobado manualmente, vigente y no revocado; ante ausencia de ese caso, el gate falla cerrado. Esta decisión técnica evita ampliar elegibilidad y no constituye aceptación de producto ni una nueva regla legal.
+- Los grants de revisores se leen desde la fuente persistida del esquema F5 y se mantienen separados del runtime. La prueba usa grants sintéticos transaccionales; no crea un roster persistente ni asigna reviewers reales. La administración operativa de grants y la interfaz de revisión siguen abiertas.
+- El adaptador `CurrentForAccount` y el cableado del gate en `cmd/api` están implementados. La integración del gate con el flujo de booking a través de HTTP/BFF/navegador y su revalidación en la transacción final siguen pendientes.
 
 ## Autorización y límites operativos
 

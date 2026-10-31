@@ -117,7 +117,6 @@ export function ListingWizard() {
   // Paso 3: Tarifas
   const [rateUnit, setRateUnit] = useState<RateUnit>("hora");
   const [basePriceCLP, setBasePriceCLP] = useState<number>(15000);
-  const [depositCLP, setDepositCLP] = useState<string>("");
   const [cancellationPolicy, setCancellationPolicy] =
     useState<string>("flexible");
   const [usageRules, setUsageRules] = useState<string>(
@@ -384,11 +383,7 @@ export function ListingWizard() {
       region_code: regionCode || undefined,
       comuna_code: comunaCode.trim() || undefined,
       attribute_schema_version: currentSchema?.schema_version ?? 1,
-      attributes: {
-        ...dynamicAttributes,
-        cancellation_policy: cancellationPolicy,
-        ...(depositCLP ? { security_deposit_clp: Number(depositCLP) } : {}),
-      },
+      attributes: dynamicAttributes,
     };
 
     const overallVal = validateListingDraftInput(draftPayload);
@@ -1141,21 +1136,6 @@ export function ListingWizard() {
                   <p className="text-xs text-muted-foreground">
                     Monto en pesos chilenos por cada {rateUnit}.
                   </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="wizard-deposit" className="font-semibold">
-                    Depósito de garantía (opcional)
-                  </Label>
-                  <Input
-                    id="wizard-deposit"
-                    type="number"
-                    min={0}
-                    step={1000}
-                    value={depositCLP}
-                    onChange={(e) => setDepositCLP(e.target.value)}
-                    placeholder="Ej: 50000"
-                  />
                 </div>
 
                 <div className="space-y-2">

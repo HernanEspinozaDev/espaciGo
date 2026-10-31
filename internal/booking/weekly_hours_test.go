@@ -1,6 +1,8 @@
 package booking
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,6 +66,21 @@ func TestWeeklyHoursValidationAndHalfOpenIntervals(t *testing.T) {
 	invalid = testWeek(WeeklyPeriod{Open: "24:00", Close: "24:00"})
 	if ValidateWeeklyHours(invalid) == nil {
 		t.Fatal("non-positive 24:00 period accepted")
+	}
+}
+
+func TestNormalizeWeeklyDaysSerializesClosedDaysAsEmptyArrays(t *testing.T) {
+	days := make([]WeeklyDay, 7)
+	for i := range days {
+		days[i] = WeeklyDay{Weekday: i + 1}
+	}
+
+	encoded, err := json.Marshal(normalizeWeeklyDays(days))
+	if err != nil {
+		t.Fatalf("marshal normalized schedule: %v", err)
+	}
+	if strings.Contains(string(encoded), `"periods":null`) {
+		t.Fatalf("closed-day periods must serialize as arrays, got %s", encoded)
 	}
 }
 

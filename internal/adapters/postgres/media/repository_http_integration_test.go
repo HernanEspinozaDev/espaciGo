@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,7 +55,7 @@ func img01fHTTPETag(spaceID string, revision time.Time) string {
 	return `"` + base64.RawURLEncoding.EncodeToString([]byte(payload)) + `"`
 }
 
-func img01fExerciseHTTPReplacement(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner, spaceID, targetID, idempotencyKey string, expected time.Time) string {
+func img01fExerciseHTTPReplacement(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner, foreignOwner, spaceID, targetID, idempotencyKey string, expected time.Time) string {
 	t.Helper()
 	storageRoot := filepath.Clean(strings.TrimSpace(os.Getenv("IMG01F_TEST_STORAGE_ROOT")))
 	if storageRoot != img01fHTTPStorageRoot {
@@ -167,6 +169,28 @@ func img01fExerciseHTTPReplacement(t *testing.T, ctx context.Context, pool *pgxp
 	if content.Header().Get("X-Content-SHA256") != fmt.Sprintf("%x", digest) {
 		t.Fatal("filesystem-backed variant digest header does not match returned bytes")
 	}
+	foreignHandler := galleryhttp.NewHandlerWithMedia(img01fHTTPAuthenticator{owner: foreignOwner}, galleryService, mediaService, []string{"http://127.0.0.1:4205"})
+	foreignGet := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+spaceID+"/gallery/"+newPhotoID+"/variants/display", nil)
+	foreignGet.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+	foreignGet.Header.Set("Origin", "http://127.0.0.1:4205")
+	foreignResponse := httptest.NewRecorder()
+	foreignHandler.ServeHTTP(foreignResponse, foreignGet)
+	if foreignResponse.Code != http.StatusNotFound {
+		t.Fatalf("foreign-owner private variant status=%d, want not found", foreignResponse.Code)
+	}
+
+	restartProbe := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestSpaceMediaVariantAfterProcessRestart$", "-test.v")
+	restartProbe.Env = append(os.Environ(),
+		"IMG01F_RESTART_CHECK=1",
+		"IMG01F_RESTART_STORAGE_DIR="+storageDir,
+		"IMG01F_RESTART_OWNER_ID="+owner,
+		"IMG01F_RESTART_SPACE_ID="+spaceID,
+		"IMG01F_RESTART_PHOTO_ID="+newPhotoID,
+	)
+	restartOutput, restartErr := restartProbe.CombinedOutput()
+	if restartErr != nil || !strings.Contains(string(restartOutput), "--- PASS: TestSpaceMediaVariantAfterProcessRestart") {
+		t.Fatalf("private variant was not rehydrated by a fresh process: %v", restartErr)
+	}
 
 	replayed := request(expected)
 	if replayed.Code != http.StatusOK {
@@ -214,6 +238,301 @@ func img01fExerciseHTTPReplacement(t *testing.T, ctx context.Context, pool *pgxp
 		t.Fatalf("filesystem object count=%d, want two sanitized variants", fileCount)
 	}
 	return newPhotoID
+}
+
+func img01fExerciseHTTPGalleryMutation(t *testing.T, ctx context.Context, pool *pgxpool.Pool, owner, foreignOwner, spaceID, idempotencyKey string) {
+	t.Helper()
+	storageRoot := filepath.Clean(strings.TrimSpace(os.Getenv("IMG01F_TEST_STORAGE_ROOT")))
+	if storageRoot != img01fHTTPStorageRoot {
+		t.Fatal("IMG01F_TEST_STORAGE_ROOT must be the authorized private scratch media root")
+	}
+	rootInfo, err := os.Lstat(storageRoot)
+	if err != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || rootInfo.Mode().Perm()&0o077 != 0 {
+		t.Fatalf("authorized storage root must be a private, non-symlink directory: %v", err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(storageRoot)
+	if err != nil || resolvedRoot != storageRoot {
+		t.Fatal("authorized storage root must resolve to itself")
+	}
+	storageDir, err := os.MkdirTemp(storageRoot, "img01f-gallery-http-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(storageDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(storageDir); err != nil {
+			t.Errorf("remove exact synthetic gallery storage directory: %v", err)
+		}
+	})
+	store, err := mediafs.New(storageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	galleryService, err := gallery.NewService(gallerypg.New(pool), img01fHTTPGalleryFiles{}, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaService, err := media.NewService(New(pool), store, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := galleryhttp.NewHandlerWithMedia(img01fHTTPAuthenticator{owner: owner}, galleryService, mediaService, []string{"http://127.0.0.1:4205"})
+	imageBytes, err := verification.SyntheticPNG()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("image", "synthetic-gallery-upload.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(imageBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/spaces/"+spaceID+"/gallery", &body)
+	req.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+	req.Header.Set("Origin", "http://127.0.0.1:4205")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	req.Header.Set("Idempotency-Key", idempotencyKey)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, req)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("gallery upload HTTP status=%d body=%s", response.Code, response.Body.String())
+	}
+	etag := response.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("successful gallery upload omitted the updated space ETag required for the next CAS mutation")
+	}
+	var result struct {
+		Photo media.Photo `json:"photo"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Photo.ID == "" || result.Photo.State != "ready" || result.Photo.Position != 2 || result.Photo.Cover {
+		t.Fatalf("gallery upload response state=%s position=%d cover=%t", result.Photo.State, result.Photo.Position, result.Photo.Cover)
+	}
+	list := func(h http.Handler) []struct {
+		ID       string `json:"id"`
+		Position int    `json:"position"`
+		Cover    bool   `json:"cover"`
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+spaceID+"/gallery", nil)
+		req.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+		req.Header.Set("Origin", "http://127.0.0.1:4205")
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, req)
+		var body struct {
+			Items []struct {
+				ID       string `json:"id"`
+				Position int    `json:"position"`
+				Cover    bool   `json:"cover"`
+			} `json:"items"`
+		}
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &body) != nil {
+			t.Fatalf("gallery list HTTP status=%d", response.Code)
+		}
+		return body.Items
+	}
+	items := list(handler)
+	if len(items) != 2 {
+		t.Fatalf("gallery list count=%d, want two active photos", len(items))
+	}
+	if items[0].Position != 1 || items[1].Position != 2 || !items[0].Cover || items[1].Cover || items[1].ID != result.Photo.ID {
+		t.Fatalf("gallery list positions=%d,%d covers=%t,%t new_photo_at_position_2=%t", items[0].Position, items[1].Position, items[0].Cover, items[1].Cover, items[1].ID == result.Photo.ID)
+	}
+	foreignHandler := galleryhttp.NewHandlerWithMedia(img01fHTTPAuthenticator{owner: foreignOwner}, galleryService, mediaService, []string{"http://127.0.0.1:4205"})
+	foreignList := httptest.NewRecorder()
+	foreignRequest := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+spaceID+"/gallery", nil)
+	foreignRequest.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+	foreignRequest.Header.Set("Origin", "http://127.0.0.1:4205")
+	foreignHandler.ServeHTTP(foreignList, foreignRequest)
+	if foreignList.Code != http.StatusNotFound {
+		t.Fatalf("foreign-owner gallery list status=%d, want not found", foreignList.Code)
+	}
+	coverBody, err := json.Marshal(map[string]string{"photo_id": result.Photo.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverRequest := httptest.NewRequest(http.MethodPut, "/api/v1/spaces/"+spaceID+"/cover", bytes.NewReader(coverBody))
+	coverRequest.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+	coverRequest.Header.Set("Origin", "http://127.0.0.1:4205")
+	coverRequest.Header.Set("Content-Type", "application/json")
+	coverRequest.Header.Set("If-Match", etag)
+	coverResponse := httptest.NewRecorder()
+	handler.ServeHTTP(coverResponse, coverRequest)
+	if coverResponse.Code != http.StatusOK || coverResponse.Header().Get("ETag") == "" || coverResponse.Header().Get("ETag") == etag {
+		t.Fatalf("select gallery cover status=%d renewed_etag=%t", coverResponse.Code, coverResponse.Header().Get("ETag") != "" && coverResponse.Header().Get("ETag") != etag)
+	}
+	var selected gallery.Cover
+	if err := json.Unmarshal(coverResponse.Body.Bytes(), &selected); err != nil || selected.PhotoID != result.Photo.ID || !selected.Selected {
+		t.Fatalf("cover selection response selected=%t err=%v", selected.Selected, err)
+	}
+	var persistedCover string
+	if err := pool.QueryRow(ctx, `SELECT portada_media_id::text FROM public.espacio WHERE id=$1`, spaceID).Scan(&persistedCover); err != nil || persistedCover != result.Photo.ID {
+		t.Fatalf("persisted cover matches uploaded photo=%t err=%v", persistedCover == result.Photo.ID, err)
+	}
+	items = list(handler)
+	if len(items) != 2 {
+		t.Fatalf("gallery list after cover selection count=%d, want two active photos", len(items))
+	}
+	if items[0].Cover || !items[1].Cover || items[1].ID != result.Photo.ID {
+		t.Fatalf("gallery list did not rehydrate selected cover: selected_cover=%t", items[1].Cover && items[1].ID == result.Photo.ID)
+	}
+	etag = coverResponse.Header().Get("ETag")
+	positionBody, err := json.Marshal(map[string]int{"position": 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moveRequest := httptest.NewRequest(http.MethodPut, "/api/v1/spaces/"+spaceID+"/gallery/"+result.Photo.ID, bytes.NewReader(positionBody))
+	moveRequest.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+	moveRequest.Header.Set("Origin", "http://127.0.0.1:4205")
+	moveRequest.Header.Set("Content-Type", "application/json")
+	moveRequest.Header.Set("If-Match", etag)
+	moveResponse := httptest.NewRecorder()
+	handler.ServeHTTP(moveResponse, moveRequest)
+	if moveResponse.Code != http.StatusOK || moveResponse.Header().Get("ETag") == "" || moveResponse.Header().Get("ETag") == etag {
+		t.Fatalf("reorder gallery photo status=%d renewed_etag=%t", moveResponse.Code, moveResponse.Header().Get("ETag") != "" && moveResponse.Header().Get("ETag") != etag)
+	}
+	var moved media.Photo
+	if err := json.Unmarshal(moveResponse.Body.Bytes(), &moved); err != nil || moved.ID != result.Photo.ID || moved.Position != 1 || !moved.Cover {
+		t.Fatalf("reordered photo position=%d cover=%t err=%v", moved.Position, moved.Cover, err)
+	}
+	items = list(handler)
+	if len(items) != 2 {
+		t.Fatalf("gallery list after reorder count=%d, want two active photos", len(items))
+	}
+	if items[0].ID != result.Photo.ID || items[0].Position != 1 || !items[0].Cover || items[1].Position != 2 || items[1].Cover {
+		t.Fatalf("gallery order/cover after reorder correct=%t", items[0].ID == result.Photo.ID && items[0].Position == 1 && items[0].Cover && items[1].Position == 2 && !items[1].Cover)
+	}
+	photoBeforeRemoval, err := mediaService.GetSpace(ctx, owner, spaceID, result.Photo.ID)
+	if err != nil {
+		t.Fatalf("load media before logical removal: %v", err)
+	}
+	var display media.Variant
+	for _, variant := range photoBeforeRemoval.Variants {
+		if variant.Name == media.VariantDisplay {
+			display = variant
+			break
+		}
+	}
+	if display.ObjectKey == "" || display.Generation == 0 {
+		t.Fatal("uploaded display variant metadata missing before retirement")
+	}
+	removeRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/spaces/"+spaceID+"/gallery/"+result.Photo.ID, nil)
+	removeRequest.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+	removeRequest.Header.Set("Origin", "http://127.0.0.1:4205")
+	removeRequest.Header.Set("If-Match", moveResponse.Header().Get("ETag"))
+	removeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(removeResponse, removeRequest)
+	if removeResponse.Code != http.StatusOK || removeResponse.Header().Get("ETag") == "" {
+		t.Fatalf("logical photo retirement status=%d has_etag=%t", removeResponse.Code, removeResponse.Header().Get("ETag") != "")
+	}
+	var removal gallery.Removal
+	if err := json.Unmarshal(removeResponse.Body.Bytes(), &removal); err != nil || !removal.Removed || removal.PhotoID != result.Photo.ID {
+		t.Fatalf("logical removal response removed=%t err=%v", removal.Removed, err)
+	}
+	var retired, visible bool
+	var assetState string
+	if err := pool.QueryRow(ctx, `SELECT sm.retired_at IS NOT NULL,sm.visible,a.estado FROM public.space_media sm JOIN public.media_asset a ON a.id=sm.media_id WHERE sm.id=$1`, result.Photo.ID).Scan(&retired, &visible, &assetState); err != nil || !retired || visible || assetState != "deleting" {
+		t.Fatalf("retirement persisted=%t visible=%t asset_state=%s err=%v", retired, visible, assetState, err)
+	}
+	storedBytes, err := store.Get(ctx, display.ObjectKey, display.Generation)
+	if err != nil || int64(len(storedBytes)) != display.Size || fmt.Sprintf("%x", sha256.Sum256(storedBytes)) != display.SHA256 {
+		t.Fatalf("logical retirement preserves private object bytes=%t err=%v", err == nil && len(storedBytes) > 0, err)
+	}
+	retiredContent := httptest.NewRecorder()
+	retiredRequest := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+spaceID+"/gallery/"+result.Photo.ID+"/variants/display", nil)
+	retiredRequest.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+	retiredRequest.Header.Set("Origin", "http://127.0.0.1:4205")
+	handler.ServeHTTP(retiredContent, retiredRequest)
+	if retiredContent.Code != http.StatusNotFound {
+		t.Fatalf("retired private variant status=%d, want not found", retiredContent.Code)
+	}
+	items = list(handler)
+	if len(items) != 1 || items[0].Position != 1 || items[0].Cover {
+		t.Fatalf("gallery after retirement count=%d remaining_position=%d remaining_cover=%t", len(items), func() int {
+			if len(items) == 0 {
+				return 0
+			}
+			return items[0].Position
+		}(), len(items) == 1 && items[0].Cover)
+	}
+}
+
+func TestSpaceMediaVariantAfterProcessRestart(t *testing.T) {
+	if os.Getenv("IMG01F_RESTART_CHECK") != "1" {
+		t.Skip("child-process probe for persisted private media")
+	}
+	cfg, err := pgxpool.ParseConfig(os.Getenv("IMG01F_TEST_DATABASE_URL"))
+	if err != nil || !img01fTargetAllowed(cfg.ConnConfig.Host, cfg.ConnConfig.Port, cfg.ConnConfig.Database, cfg.ConnConfig.User) {
+		t.Fatal("restart probe must use the authorized isolated PostgreSQL target")
+	}
+	storageRoot := filepath.Clean(strings.TrimSpace(os.Getenv("IMG01F_TEST_STORAGE_ROOT")))
+	storageDir := filepath.Clean(strings.TrimSpace(os.Getenv("IMG01F_RESTART_STORAGE_DIR")))
+	if storageRoot != img01fHTTPStorageRoot || filepath.Dir(storageDir) != storageRoot {
+		t.Fatal("restart probe storage must remain inside the authorized private scratch root")
+	}
+	rootInfo, rootErr := os.Lstat(storageRoot)
+	storeInfo, storeErr := os.Lstat(storageDir)
+	resolved, resolveErr := filepath.EvalSymlinks(storageDir)
+	if rootErr != nil || storeErr != nil || resolveErr != nil || !rootInfo.IsDir() || !storeInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 || storeInfo.Mode()&os.ModeSymlink != 0 || rootInfo.Mode().Perm()&0o077 != 0 || storeInfo.Mode().Perm()&0o077 != 0 || resolved != storageDir {
+		t.Fatal("restart probe requires existing private non-symlink storage")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = make(map[string]string)
+	}
+	cfg.ConnConfig.RuntimeParams["application_name"] = fmt.Sprintf("img01f-restart-%d", os.Getpid())
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal("restart probe could not connect to the authorized PostgreSQL target")
+	}
+	defer pool.Close()
+	if err = pool.Ping(ctx); err != nil {
+		t.Fatal("restart probe could not rehydrate media metadata")
+	}
+	store, err := mediafs.New(storageDir)
+	if err != nil {
+		t.Fatal("restart probe could not reopen private storage")
+	}
+	galleryService, err := gallery.NewService(gallerypg.New(pool), img01fHTTPGalleryFiles{}, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal("restart probe could not initialize gallery service")
+	}
+	mediaService, err := media.NewService(New(pool), store, credentials.Generator{}, time.Now)
+	if err != nil {
+		t.Fatal("restart probe could not initialize media service")
+	}
+	handler := galleryhttp.NewHandlerWithMedia(img01fHTTPAuthenticator{owner: os.Getenv("IMG01F_RESTART_OWNER_ID")}, galleryService, mediaService, []string{"http://127.0.0.1:4205"})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/v1/spaces/"+os.Getenv("IMG01F_RESTART_SPACE_ID")+"/gallery/"+os.Getenv("IMG01F_RESTART_PHOTO_ID")+"/variants/display", nil)
+	if err != nil {
+		t.Fatal("restart probe could not construct private content request")
+	}
+	request.Header.Set("Authorization", "Bearer synthetic-http-test-token")
+	request.Header.Set("Origin", "http://127.0.0.1:4205")
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal("fresh HTTP server could not read the persisted private variant")
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal("fresh HTTP server returned an unreadable private variant")
+	}
+	digest := sha256.Sum256(body)
+	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") != "image/webp" || response.Header.Get("Cache-Control") != "private, no-store" || response.Header.Get("X-Content-SHA256") != fmt.Sprintf("%x", digest) || len(body) < 12 || string(body[0:4]) != "RIFF" || string(body[8:12]) != "WEBP" {
+		t.Fatal("fresh process could not rehydrate the persisted private WebP variant")
+	}
 }
 
 func img01fAssertReserveFinalizeRevisionRace(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *Repository, owner, spaceID, targetID, idempotencyKey, candidateID, appName string, now, lease time.Time) {

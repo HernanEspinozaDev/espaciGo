@@ -314,9 +314,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   ): Promise<ListingDetail> {
     const key = idempotencyKey ?? generateIdempotencyKey();
     const result = await apiClient.POST("/spaces", {
-      headers: {
-        "Idempotency-Key": key,
-      },
+      params: { header: { "Idempotency-Key": key } },
       body: {
         category_code: input.category_code,
         title: input.title,

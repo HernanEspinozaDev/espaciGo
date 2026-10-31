@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"github.com/google/uuid"
-	"strings"
+
 	"time"
 )
 
@@ -65,13 +65,37 @@ const (
 	DecisionNeedsEvidence Decision = "needs_evidence"
 )
 
+type ReasonCode string
+
+const (
+	ReasonDocumentUnreadable ReasonCode = "documento_ilegible"
+	ReasonDocumentInvalid    ReasonCode = "documento_invalido"
+	ReasonDocumentExpired    ReasonCode = "documento_vencido"
+	ReasonEvidenceIncomplete ReasonCode = "antecedentes_incompletos"
+	ReasonOwnershipChanged   ReasonCode = "cambio_titularidad"
+	ReasonConflictOfInterest ReasonCode = "conflicto_interes"
+	ReasonMalwareDetected    ReasonCode = "malware_detectado"
+	ReasonScannerUnavailable ReasonCode = "scanner_no_disponible"
+	ReasonSignaturesStale    ReasonCode = "firmas_desactualizadas"
+	ReasonOwnerRequest       ReasonCode = "solicitud_titular"
+	ReasonRetentionDue       ReasonCode = "retencion_vencida"
+)
+
+type TransitionAudit struct {
+	Action     string
+	ResultCode string
+	ReasonCode ReasonCode
+}
+
 // Metadata must be produced by trusted content inspection, never copied from client headers.
 type File struct {
-	ID    string
-	State FileState
-	Size  int64
-	MIME  string
-	Pages int
+	ID            string
+	State         FileState
+	Size          int64
+	MIME          string
+	Pages         int
+	ContentSHA256 [32]byte
+	RetentionAt   time.Time
 }
 type Snapshot struct {
 	Purpose                                      Purpose
@@ -82,10 +106,12 @@ type Snapshot struct {
 	ReviewerID                                   string
 	VerifiedAt, VerifiedUntil, DocumentExpiresAt time.Time
 	RevokedAt                                    *time.Time
+	SupersededAt                                 *time.Time
 }
 type CreateInput struct {
-	Purpose Purpose
-	SpaceID string
+	Purpose           Purpose
+	SpaceID           string
+	DocumentExpiresAt time.Time
 }
 type ReviewerGrant struct {
 	ReviewerID string
@@ -105,7 +131,7 @@ type Authorization struct {
 
 // CreateCase must atomically authorize actor, derive subject from authorization, and enforce authoritative space ownership.
 type Repository interface {
-	CreateCase(context.Context, Purpose, string, func(Authorization) (Snapshot, error)) error
+	CreateCase(context.Context, string, Purpose, string, func(Authorization) (Snapshot, error)) (Snapshot, error)
 	// Transition must lock the scoped case, bind the actor to authenticated context,
 	// load that actor's current reviewer grants for the exact person/resource scope,
 	// and derive identity eligibility from trusted data. For PurposeSpace, SpaceOwnerID must be
@@ -113,8 +139,14 @@ type Repository interface {
 	// commit the changed snapshot with an advanced revision atomically. Callback/backend
 	// errors must roll back all changes. A CAS on the case alone does not serialize identity
 	// revocation; adapters must lock/revalidate that dependency in the same transaction.
-	Transition(context.Context, Purpose, string, uint64, func(*Snapshot, Authorization) error) error
+	Transition(context.Context, string, Purpose, string, uint64, TransitionAudit, func(*Snapshot, Authorization) error) error
 }
+
+type OwnCaseReader interface {
+	ListOwnCases(context.Context, string) ([]Snapshot, error)
+	LoadOwnCase(context.Context, string, string) (Snapshot, error)
+}
+
 type Service struct {
 	repo  Repository
 	clock func() time.Time
@@ -156,6 +188,9 @@ func ValidateQuota(p Purpose, fs []File) error {
 		if ValidateID(f.ID) != nil || seen[f.ID] {
 			return ErrInvalid
 		}
+		if f.ContentSHA256 == ([32]byte{}) {
+			return ErrInvalid
+		}
 		seen[f.ID] = true
 		if f.State != FilePending && f.State != FileClean && f.State != FileBlocked && f.State != FileError {
 			return ErrInvalid
@@ -195,32 +230,84 @@ func validSnapshot(x Snapshot) bool {
 	if x.Purpose == PurposeSpace && ValidateID(x.SpaceID) != nil {
 		return false
 	}
+	if x.SupersededAt != nil && x.Purpose != PurposeSpace {
+		return false
+	}
 	return ValidateQuota(x.Purpose, x.Files) == nil
 }
-func (s *Service) Create(ctx context.Context, actor string, in CreateInput) error {
+func (s *Service) Start(ctx context.Context, actor string, in CreateInput) (Snapshot, error) {
 	if s == nil || s.repo == nil || ValidateID(actor) != nil || in.Purpose != PurposeIdentity && in.Purpose != PurposeSpace {
-		return ErrInvalid
+		return Snapshot{}, ErrInvalid
 	}
 	if in.Purpose == PurposeIdentity && in.SpaceID != "" {
-		return ErrInvalid
+		return Snapshot{}, ErrInvalid
 	}
 	if in.Purpose == PurposeSpace && ValidateID(in.SpaceID) != nil {
-		return ErrInvalid
+		return Snapshot{}, ErrInvalid
 	}
-	return s.repo.CreateCase(ctx, in.Purpose, in.SpaceID, func(a Authorization) (Snapshot, error) {
+	now := s.clock().UTC()
+	if in.Purpose == PurposeIdentity && (in.DocumentExpiresAt.IsZero() || !in.DocumentExpiresAt.After(now)) ||
+		!in.DocumentExpiresAt.IsZero() && !in.DocumentExpiresAt.After(now) {
+		return Snapshot{}, ErrInvalid
+	}
+	return s.repo.CreateCase(ctx, actor, in.Purpose, in.SpaceID, func(a Authorization) (Snapshot, error) {
 		if a.ActorID != actor || a.SubjectID != actor || ValidateID(a.SubjectID) != nil {
 			return Snapshot{}, ErrCapability
 		}
 		if in.Purpose == PurposeSpace && (a.SpaceOwnerID != actor) {
 			return Snapshot{}, ErrCapability
 		}
-		x := Snapshot{Purpose: in.Purpose, ID: uuid.NewString(), SubjectID: a.SubjectID, SpaceID: in.SpaceID, State: CaseDraft}
+		x := Snapshot{Purpose: in.Purpose, ID: uuid.NewString(), SubjectID: a.SubjectID, SpaceID: in.SpaceID, State: CaseDraft, DocumentExpiresAt: in.DocumentExpiresAt}
 		if !validSnapshot(x) {
 			return Snapshot{}, ErrInvalid
 		}
 		return x, nil
 	})
 }
+
+func (s *Service) Create(ctx context.Context, actor string, in CreateInput) error {
+	_, err := s.Start(ctx, actor, in)
+	return err
+}
+
+func (s *Service) ListOwnCases(ctx context.Context, actor string) ([]Snapshot, error) {
+	if s == nil || s.repo == nil || ValidateID(actor) != nil {
+		return nil, ErrInvalid
+	}
+	reader, ok := s.repo.(OwnCaseReader)
+	if !ok {
+		return nil, ErrInvalid
+	}
+	return reader.ListOwnCases(ctx, actor)
+}
+
+func (s *Service) LoadOwnCase(ctx context.Context, actor, id string) (Snapshot, error) {
+	if s == nil || s.repo == nil || ValidateID(actor) != nil || ValidateID(id) != nil {
+		return Snapshot{}, ErrInvalid
+	}
+	reader, ok := s.repo.(OwnCaseReader)
+	if !ok {
+		return Snapshot{}, ErrInvalid
+	}
+	return reader.LoadOwnCase(ctx, actor, id)
+}
+
+func (s *Service) AddFile(ctx context.Context, actor, id string, p Purpose, rev uint64, file File) error {
+	if file.State != FilePending || ValidateQuota(p, []File{file}) != nil {
+		return ErrInvalid
+	}
+	return s.transact(ctx, p, id, rev, actor, "", TransitionAudit{Action: "file_added", ResultCode: string(FilePending)}, func(x *Snapshot, a Authorization) error {
+		if x.SubjectID != actor || p == PurposeSpace && x.SubjectID != a.SpaceOwnerID {
+			return ErrCapability
+		}
+		if x.State != CaseDraft && x.State != CaseNeedsEvidence {
+			return ErrTransition
+		}
+		x.Files = append(x.Files, file)
+		return ValidateQuota(p, x.Files)
+	})
+}
+
 func allClean(fs []File) bool {
 	if len(fs) == 0 {
 		return false
@@ -242,29 +329,36 @@ func validFiles(x *Snapshot) error {
 	return nil
 }
 func (s *Service) Submit(ctx context.Context, actor, id string, p Purpose, rev uint64) error {
-	return s.transact(ctx, p, id, rev, actor, "", func(x *Snapshot, a Authorization) error {
+	return s.transact(ctx, p, id, rev, actor, "", TransitionAudit{Action: "case_transitioned", ResultCode: string(CaseSubmitted)}, func(x *Snapshot, a Authorization) error {
 		if x.SubjectID != actor {
 			return ErrCapability
 		}
 		if p == PurposeSpace && x.SubjectID != a.SpaceOwnerID {
 			return ErrConflict
 		}
-		if x.State != CaseDraft {
+		if x.State != CaseDraft && x.State != CaseNeedsEvidence {
 			return ErrTransition
 		}
 		if err := validFiles(x); err != nil {
 			return err
 		}
 		x.State = CaseSubmitted
+		x.ReviewerID = ""
 		return nil
 	})
 }
 func (s *Service) Review(ctx context.Context, actor, id string, cap Capability, d Decision, requestedExpiry time.Time, rev uint64) error {
+	return s.ReviewWithReason(ctx, actor, id, cap, d, "", requestedExpiry, rev)
+}
+
+func (s *Service) ReviewWithReason(ctx context.Context, actor, id string, cap Capability, d Decision, reason ReasonCode, requestedExpiry time.Time, rev uint64) error {
 	p := purposeForCap(cap)
-	if p == "" || ValidateID(actor) != nil {
+	if p == "" || ValidateID(actor) != nil || !validReviewReason(d, reason) {
 		return ErrInvalid
 	}
-	return s.transact(ctx, p, id, rev, actor, cap, func(x *Snapshot, a Authorization) error {
+	resultCode := map[Decision]string{DecisionApprove: string(CaseApproved), DecisionReject: string(CaseRejected), DecisionNeedsEvidence: string(CaseNeedsEvidence)}[d]
+	audit := TransitionAudit{Action: "review_decision", ResultCode: resultCode, ReasonCode: reason}
+	return s.transact(ctx, p, id, rev, actor, cap, audit, func(x *Snapshot, a Authorization) error {
 		if a.ActorID != actor || !hasReviewerGrant(a, cap, reviewerScopeID(p, *x)) {
 			return ErrCapability
 		}
@@ -305,10 +399,11 @@ func (s *Service) Review(ctx context.Context, actor, id string, cap Capability, 
 			if !requestedExpiry.IsZero() && requestedExpiry.Before(deadline) {
 				deadline = requestedExpiry
 			}
-			if x.DocumentExpiresAt.IsZero() || !x.DocumentExpiresAt.After(now) {
+			if x.Purpose == PurposeIdentity && (x.DocumentExpiresAt.IsZero() || !x.DocumentExpiresAt.After(now)) ||
+				!x.DocumentExpiresAt.IsZero() && !x.DocumentExpiresAt.After(now) {
 				return ErrInvalid
 			}
-			if x.DocumentExpiresAt.Before(deadline) {
+			if !x.DocumentExpiresAt.IsZero() && x.DocumentExpiresAt.Before(deadline) {
 				deadline = x.DocumentExpiresAt
 			}
 			if !deadline.After(now) {
@@ -321,15 +416,16 @@ func (s *Service) Review(ctx context.Context, actor, id string, cap Capability, 
 		return nil
 	})
 }
-func (s *Service) Revoke(ctx context.Context, actor, id string, p Purpose, reason string, rev uint64) error {
-	if strings.TrimSpace(reason) == "" || ValidateID(actor) != nil || (p != PurposeIdentity && p != PurposeSpace) {
+func (s *Service) Revoke(ctx context.Context, actor, id string, p Purpose, reason ReasonCode, rev uint64) error {
+	if !validRevokeReason(reason) || ValidateID(actor) != nil || (p != PurposeIdentity && p != PurposeSpace) {
 		return ErrInvalid
 	}
 	cap := CapabilityIdentity
 	if p == PurposeSpace {
 		cap = CapabilitySpace
 	}
-	return s.transact(ctx, p, id, rev, actor, cap, func(x *Snapshot, a Authorization) error {
+	audit := TransitionAudit{Action: "revoked", ResultCode: string(CaseRevoked), ReasonCode: reason}
+	return s.transact(ctx, p, id, rev, actor, cap, audit, func(x *Snapshot, a Authorization) error {
 		if a.ActorID != actor || !hasReviewerGrant(a, cap, reviewerScopeID(p, *x)) {
 			return ErrCapability
 		}
@@ -352,6 +448,24 @@ func (s *Service) Revoke(ctx context.Context, actor, id string, p Purpose, reaso
 		return nil
 	})
 }
+
+func validReviewReason(decision Decision, reason ReasonCode) bool {
+	switch decision {
+	case DecisionApprove:
+		return reason == ""
+	case DecisionReject:
+		return reason == ReasonDocumentUnreadable || reason == ReasonDocumentInvalid || reason == ReasonDocumentExpired || reason == ReasonOwnershipChanged
+	case DecisionNeedsEvidence:
+		return reason == ReasonEvidenceIncomplete
+	default:
+		return false
+	}
+}
+
+func validRevokeReason(reason ReasonCode) bool {
+	return reason == ReasonDocumentInvalid || reason == ReasonDocumentExpired || reason == ReasonOwnershipChanged || reason == ReasonConflictOfInterest || reason == ReasonOwnerRequest
+}
+
 func purposeForCap(c Capability) Purpose {
 	if c == CapabilityIdentity {
 		return PurposeIdentity
@@ -395,13 +509,16 @@ func reviewerScopeID(p Purpose, x Snapshot) string {
 	return ""
 }
 
-func (s *Service) transact(ctx context.Context, p Purpose, id string, rev uint64, actor string, cap Capability, change func(*Snapshot, Authorization) error) error {
+func (s *Service) transact(ctx context.Context, p Purpose, id string, rev uint64, actor string, cap Capability, audit TransitionAudit, change func(*Snapshot, Authorization) error) error {
 	if s == nil || s.repo == nil || ValidateID(id) != nil || ValidateID(actor) != nil || (p != PurposeIdentity && p != PurposeSpace) {
 		return ErrInvalid
 	}
-	return s.repo.Transition(ctx, p, id, rev, func(x *Snapshot, a Authorization) error {
+	return s.repo.Transition(ctx, actor, p, id, rev, audit, func(x *Snapshot, a Authorization) error {
 		if x == nil || x.Purpose != p || x.ID != id || !validSnapshot(*x) {
 			return ErrNotFound
+		}
+		if x.SupersededAt != nil {
+			return ErrConflict
 		}
 		if x.Revision != rev {
 			return ErrConflict

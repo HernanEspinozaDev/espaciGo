@@ -19,9 +19,24 @@ func TestSubmitPersistsStateAndChecksOwner(t *testing.T) {
 		t.Fatalf("submission not persisted: %+v", r.state)
 	}
 }
+
+func TestSubmitAfterEvidenceRequestClearsPriorReviewer(t *testing.T) {
+	s, r, x := fixture(t, PurposeIdentity)
+	r.state.State = CaseNeedsEvidence
+	r.state.ReviewerID = actor
+	r.state.Revision = 3
+	r.auth.ActorID = subject
+	if err := s.Submit(context.Background(), subject, x.ID, PurposeIdentity, 3); err != nil {
+		t.Fatal(err)
+	}
+	if r.state.State != CaseSubmitted || r.state.ReviewerID != "" {
+		t.Fatalf("resubmission retained reviewer or wrong state: %+v", r.state)
+	}
+}
+
 func TestCreateCannotCreateIdentityForAnotherAccount(t *testing.T) {
 	s, _, _ := fixture(t, PurposeIdentity)
-	if err := s.Create(context.Background(), actor, CreateInput{Purpose: PurposeIdentity}); !errors.Is(err, ErrCapability) {
+	if err := s.Create(context.Background(), actor, CreateInput{Purpose: PurposeIdentity, DocumentExpiresAt: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)}); !errors.Is(err, ErrCapability) {
 		t.Fatalf("foreign subject accepted: %v", err)
 	}
 }
@@ -107,11 +122,11 @@ func TestRevokeUsesClockAndRequiresCapability(t *testing.T) {
 	s.SetClock(func() time.Time { return now })
 	r.state.State = CaseApproved
 	r.auth.ReviewerGrants = nil
-	if err := s.Revoke(context.Background(), actor, x.ID, x.Purpose, "synthetic reason", 0); !errors.Is(err, ErrCapability) {
+	if err := s.Revoke(context.Background(), actor, x.ID, x.Purpose, ReasonOwnerRequest, 0); !errors.Is(err, ErrCapability) {
 		t.Fatalf("got %v", err)
 	}
 	r.auth.ReviewerGrants = []ReviewerGrant{{ReviewerID: actor, Capability: CapabilitySpace, ScopeID: space}}
-	if err := s.Revoke(context.Background(), actor, x.ID, x.Purpose, "synthetic reason", 0); err != nil {
+	if err := s.Revoke(context.Background(), actor, x.ID, x.Purpose, ReasonOwnerRequest, 0); err != nil {
 		t.Fatal(err)
 	}
 	if r.state.State != CaseRevoked || r.state.RevokedAt == nil || !r.state.RevokedAt.Equal(now) {

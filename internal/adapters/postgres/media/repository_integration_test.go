@@ -252,11 +252,12 @@ func TestSpacePhotoReplacementAtomic(t *testing.T) {
 		b[8] = (b[8] & 0x3f) | 0x80
 		return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 	}
-	owner, spaceID, oldID, nextID, orderID, keyProbeID := newID(), newID(), newID(), newID(), newID(), newID()
+	owner, foreignOwner, spaceID, oldID, nextID, orderID, keyProbeID := newID(), newID(), newID(), newID(), newID(), newID(), newID()
 	staleSpace, staleOld, staleNew, staleOrder := newID(), newID(), newID(), newID()
 	tag := "img01f-" + hex.EncodeToString([]byte(newID()))
 	httpKey := newID()
 	raceKey := newID()
+	galleryKey := newID()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	lease := now.Add(10 * time.Minute)
 	t.Cleanup(func() {
@@ -542,13 +543,14 @@ func TestSpacePhotoReplacementAtomic(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT replacement_expected_revision,replacement_target_space_media_id::text FROM public.media_asset WHERE id=$1`, nextID).Scan(&storedExpected, &storedTarget); err != nil || storedExpected.UTC().Format(time.RFC3339Nano) != expected || storedTarget != oldID {
 		t.Fatalf("stored replacement metadata changed: target=%s revision=%s err=%v", storedTarget, storedExpected.UTC().Format(time.RFC3339Nano), err)
 	}
-	httpPhotoID := img01fExerciseHTTPReplacement(t, ctx, pool, owner, spaceID, nextID, httpKey, after)
+	httpPhotoID := img01fExerciseHTTPReplacement(t, ctx, pool, owner, foreignOwner, spaceID, nextID, httpKey, after)
 	if httpPhotoID == "" {
 		t.Fatal("HTTP replacement returned no photo ID")
 	}
 	img01fAssertReserveFinalizeRevisionRace(t, ctx, pool, repo, owner, spaceID, httpPhotoID, raceKey, newID(), appName, now, lease)
+	img01fExerciseHTTPGalleryMutation(t, ctx, pool, owner, foreignOwner, spaceID, galleryKey)
 
-	// Fill to 29 active gallery slots, then race two reservations for the 30th.
+	// Fill the one remaining active slot to 29, then race two reservations for the 30th.
 	for position := 2; position < media.MaxSpaceMedia; position++ {
 		assetID := newID()
 		if _, err = pool.Exec(ctx, `INSERT INTO public.media_asset(id,propietario_id,espacio_id,proposito,estado,idempotency_key,input_sha256,created_at,updated_at) VALUES($1,$2,$3,'espacio','ready',$4,repeat('c',64),$5,$5)`, assetID, owner, spaceID, fmt.Sprintf("%s-cap-%02d", tag, position), now); err != nil {

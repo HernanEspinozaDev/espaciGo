@@ -1262,7 +1262,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     });
   };
 
-  // Acciones Globales: Publicar / Archivar / Eliminar
+  // Acciones Globales: Publicar / Archivar / Retirar
   const handleGlobalPublish = async () => {
     if (authSnapshot.status !== "authenticated" || !currentListing) return;
     setFeedbackError(null);
@@ -1306,10 +1306,16 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     });
   };
 
-  const handleGlobalDelete = async () => {
-    if (authSnapshot.status !== "authenticated" || !currentListing) return;
+  const handleGlobalRetire = async () => {
+    if (
+      authSnapshot.status !== "authenticated" ||
+      !currentListing ||
+      (currentListing.state !== "activa" && currentListing.state !== "oculta")
+    ) {
+      return;
+    }
     const confirmed = window.confirm(
-      `¿Eliminar definitivamente el borrador "${currentListing.title}"?`,
+      `¿Retirar la publicación "${currentListing.title}" del catálogo? Las reservas e historiales se conservarán; esto no elimina el espacio físicamente.`,
     );
     if (!confirmed) return;
 
@@ -1319,7 +1325,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         router.push("/anfitrion/espacios");
       } catch (err) {
         const msg =
-          err instanceof Error ? err.message : "Error al eliminar borrador";
+          err instanceof Error ? err.message : "Error al retirar publicación";
         setFeedbackError(msg);
       }
     });
@@ -1429,16 +1435,6 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                 <Send className="size-4" aria-hidden="true" />
                 Publicar
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={isPending}
-                onClick={handleGlobalDelete}
-                className="text-destructive hover:bg-destructive/10"
-              >
-                <Trash2 className="size-4" aria-hidden="true" />
-                Eliminar
-              </Button>
             </>
           )}
 
@@ -1465,6 +1461,20 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             >
               <Send className="size-4" aria-hidden="true" />
               Reactivar
+            </Button>
+          )}
+
+          {(currentListing.state === "activa" ||
+            currentListing.state === "oculta") && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isPending}
+              onClick={handleGlobalRetire}
+              className="gap-1.5 text-destructive hover:bg-destructive/10"
+            >
+              <Trash2 className="size-4" aria-hidden="true" />
+              Retirar publicación
             </Button>
           )}
         </div>

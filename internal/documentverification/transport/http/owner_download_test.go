@@ -43,7 +43,7 @@ func TestOwnerDownloadHTTPRouteComposesPolicyAndPrivateStore(t *testing.T) {
 		snapshot: documentverification.Snapshot{
 			Purpose: documentverification.PurposeSpace, ID: caseID, SubjectID: owner, SpaceID: spaceID,
 			State: documentverification.CaseInReview,
-			Files: []documentverification.File{{ID: fileID, State: documentverification.FileClean, Size: int64(len(content)), MIME: "application/pdf", Pages: 1}},
+			Files: []documentverification.File{{ID: fileID, State: documentverification.FileClean, Size: int64(len(content)), MIME: "application/pdf", Pages: 1, ContentSHA256: [32]byte{1}}},
 		},
 		auth: documentverification.Authorization{ActorID: owner, SpaceOwnerID: owner},
 	}

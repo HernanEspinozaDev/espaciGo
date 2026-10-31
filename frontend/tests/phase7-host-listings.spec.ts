@@ -145,6 +145,7 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
   page,
 }) => {
   // 8 espacios sintéticos para ejercitar paginación (PAGE_SIZE = 6): 3 borradores, 3 activos, 2 ocultos
+  const retireSpaceId = "00000000-0000-4000-8000-000000000021";
   const spaces = [
     {
       id: "00000000-0000-4000-8000-000000000011",
@@ -186,7 +187,7 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
       comuna_code: "Quilicura",
     },
     {
-      id: "space-activa-1",
+      id: retireSpaceId,
       category_code: "evento",
       category_name: "Salas de Eventos",
       title: "Sala de Eventos Bellavista D",
@@ -264,10 +265,10 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
     }
 
     if (
-      pathname === "/api/backend/spaces/00000000-0000-4000-8000-000000000011" &&
+      pathname === `/api/backend/spaces/${retireSpaceId}` &&
       method === "DELETE"
     ) {
-      const spaceId = "00000000-0000-4000-8000-000000000011";
+      const spaceId = retireSpaceId;
       const spaceIndex = spaces.findIndex((space) => space.id === spaceId);
       if (spaceIndex >= 0) spaces.splice(spaceIndex, 1);
       return {
@@ -352,6 +353,16 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
     "span:has-text('Archivado'):not([role='tab'])",
   );
   expect(await archivadoBadges.count()).toBeGreaterThanOrEqual(2);
+  await expect(
+    page.getByRole("button", {
+      name: "Retirar publicación Oficina Vitacura G (Archivada)",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Retirar publicación Bodega Maipú H (Archivada)",
+    }),
+  ).toBeVisible();
 
   // 5. Verificación de ausencia de desbordamiento horizontal
   const dimensions = await page.evaluate(() => ({
@@ -360,28 +371,39 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
   }));
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
 
-  // CRUD de borrador: confirmar el borrado y comprobar el DELETE observado.
+  // Un borrador no se elimina físicamente; la retirada aplica a publicaciones elegibles.
   await page.getByRole("tab", { name: /Borradores \(3\)/ }).click();
   await expect(page.getByText("Oficina Providencia A")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Eliminar borrador/ }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: /Retirar publicación/ }),
+  ).toHaveCount(0);
+
+  await page.getByRole("tab", { name: /Publicados \(3\)/ }).click();
   page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Oficina Providencia A");
+    expect(dialog.message()).toContain("Sala de Eventos Bellavista D");
+    expect(dialog.message()).toMatch(/reservas e historiales se conservarán/i);
     await dialog.accept();
   });
-  const deleteResponsePromise = page.waitForResponse(
+  const retireResponsePromise = page.waitForResponse(
     (response) =>
       response.request().method() === "DELETE" &&
       new URL(response.url()).pathname ===
-        "/api/backend/spaces/00000000-0000-4000-8000-000000000011",
+        `/api/backend/spaces/${retireSpaceId}`,
   );
   await page
-    .getByRole("button", { name: "Eliminar borrador Oficina Providencia A" })
+    .getByRole("button", {
+      name: "Retirar publicación Sala de Eventos Bellavista D",
+    })
     .click();
-  const deleteResponse = await deleteResponsePromise;
-  expect(deleteResponse.status()).toBe(200);
+  const retireResponse = await retireResponsePromise;
+  expect(retireResponse.status()).toBe(200);
   await expect(
-    page.getByText(/borrador eliminado|espacio eliminado/i),
+    page.getByText("Publicación retirada correctamente."),
   ).toBeVisible();
-  await expect(page.getByText("Oficina Providencia A")).toHaveCount(0);
+  await expect(page.getByText("Sala de Eventos Bellavista D")).toHaveCount(0);
 });
 
 test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 1: selección dinámica de categorías desde /spaces/categories, título; Paso 2: dirección y atributos dinámicos con attribute_schema_version; Paso 3: tarifas CLP; Paso 4: disponibilidad semanal; Paso 5: confirmación y creación con Idempotency-Key en POST /spaces redirigiendo a /anfitrion/espacios/{id}/editar)", async ({
@@ -823,6 +845,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await expect(
     page.getByText("Paso 3: Tarifas iniciales y condiciones"),
   ).toBeVisible();
+  await expect(page.locator("#wizard-deposit")).toHaveCount(0);
   await page.locator("#wizard-rate-unit").selectOption("hora");
   const priceField = page.locator("#wizard-price");
   await priceField.fill("5000");
@@ -979,11 +1002,16 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   expect(createBody.base_price_clp).toBe(5001);
   expect(createBody.rate_unit).toBe("hora");
   expect(createBody.attribute_schema_version).toBe(1);
+  expect(createBody.usage_rules).toEqual(
+    expect.stringContaining("Política de cancelación:"),
+  );
   expect(createBody.attributes).toMatchObject({
     puestos_trabajo: 6,
     wifi: true,
     climatizacion: ["calefaccion"],
   });
+  expect(createBody.attributes).not.toHaveProperty("cancellation_policy");
+  expect(createBody.attributes).not.toHaveProperty("security_deposit_clp");
 
   await page.reload();
   await expect(page.locator("h1")).toHaveText("Oficina Ejecutiva El Golf");
@@ -2694,6 +2722,9 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   ).toBeVisible();
   expect(putPublicationBody!.state).toBe("activa");
   await expect(page.getByText("Publicado").first()).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retirar publicación" }),
+  ).toBeVisible();
 
   await page.getByRole("tab", { name: "Información" }).click();
   const postPublishEtag = currentSpaceEtag;

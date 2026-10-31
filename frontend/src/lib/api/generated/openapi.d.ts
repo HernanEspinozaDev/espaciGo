@@ -1182,6 +1182,119 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/document-verification/cases": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Listar los expedientes documentales propios */
+    get: operations["listOwnDocumentVerificationCases"];
+    put?: never;
+    /**
+     * Crear un expediente documental propio
+     * @description El actor se deriva de la sesión. El expediente pertenece al titular autenticado; Go valida el propósito y la titularidad del espacio cuando corresponde.
+     */
+    post: operations["createOwnDocumentVerificationCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/cases/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    /** Leer un expediente documental propio */
+    get: operations["getOwnDocumentVerificationCase"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/cases/{id}/submit": {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Una sola etiqueta fuerte canónica emitida por el servidor para la revisión actual del expediente. */
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Enviar un expediente documental propio a revisión
+     * @description Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto y no aplica la transición.
+     */
+    post: operations["submitOwnDocumentVerificationCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/cases/{id}/files": {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Revisión fuerte actual del expediente; formato de etiqueta decimal entre comillas. */
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Cargar un documento al expediente propio
+     * @description La sesión determina al titular y el espacio autorizado. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.
+     */
+    post: operations["uploadOwnDocumentVerificationFile"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/space-cases/{caseID}/files/{fileID}/content": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        fileID: string;
+      };
+      cookie?: never;
+    };
+    /**
+     * Descargar un archivo propio aprobado
+     * @description Solo el titular actual puede descargar archivos limpios dentro de la vigencia autorizada. La respuesta no revela claves de almacenamiento ni permite acceso a revisores o titulares históricos.
+     */
+    get: operations["downloadOwnSpaceDocumentVerificationFile"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/verifications/{id}/evidence": {
     parameters: {
       query?: never;
@@ -4705,6 +4818,59 @@ export interface components {
         | "antecedentes_incompletos"
         | "inicio_actividades_no_confirmado";
     };
+    DocumentVerificationCaseCreate:
+      | {
+          /** @constant */
+          purpose: "identity";
+          /** Format: date-time */
+          document_expires_at: string;
+        }
+      | {
+          /** @constant */
+          purpose: "space";
+          /** Format: uuid */
+          space_id: string;
+          /** Format: date-time */
+          document_expires_at?: string;
+        };
+    DocumentVerificationOwnerFile: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      state: "pendiente" | "limpio" | "bloqueado" | "error";
+      /** Format: int64 */
+      size: number | string;
+      /** @enum {string} */
+      mime: "image/jpeg" | "image/png" | "application/pdf";
+      pages: number;
+    };
+    DocumentVerificationOwnerCase: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      purpose: "identity" | "space";
+      /** Format: uuid */
+      space_id?: string;
+      /** @enum {string} */
+      state:
+        | "borrador"
+        | "enviada"
+        | "en_revision"
+        | "requiere_antecedentes"
+        | "aprobada"
+        | "rechazada"
+        | "vencida"
+        | "revocada";
+      /** Format: int64 */
+      revision: number | string;
+      /** Format: date-time */
+      document_expires_at?: string;
+      /** Format: date-time */
+      verified_at?: string;
+      /** Format: date-time */
+      verified_until?: string;
+      files: components["schemas"]["DocumentVerificationOwnerFile"][];
+    };
     VerificationCase: {
       /** Format: uuid */
       id: string;
@@ -7610,6 +7776,220 @@ export interface operations {
       422: components["responses"]["UnprocessableEntity"];
     };
   };
+  listOwnDocumentVerificationCases: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expedientes del titular autenticado, sin datos internos de revisión ni almacenamiento. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"][];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  createOwnDocumentVerificationCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DocumentVerificationCaseCreate"];
+      };
+    };
+    responses: {
+      /** @description Expediente creado. */
+      201: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      /** @description El cuerpo JSON supera el límite de 16 KiB. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getOwnDocumentVerificationCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expediente propio; incluye únicamente campos allowlistados. */
+      200: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  submitOwnDocumentVerificationCase: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Una sola etiqueta fuerte canónica emitida por el servidor para la revisión actual del expediente. */
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expediente enviado; devuelve el estado y ETag vigentes. */
+      200: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  uploadOwnDocumentVerificationFile: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Revisión fuerte actual del expediente; formato de etiqueta decimal entre comillas. */
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          /** Format: binary */
+          file: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Archivo guardado en estado pendiente y revisión avanzada. */
+      201: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: int64 */
+            revision: number | string;
+            file: {
+              /** Format: uuid */
+              id: string;
+              /** @enum {string} */
+              state: "pendiente";
+              /** Format: int64 */
+              size: number | string;
+              /** @enum {string} */
+              mime: "image/jpeg" | "image/png" | "application/pdf";
+              pages: number;
+            };
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      /** @description El archivo o el cuerpo multipart supera el límite autorizado. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Se requiere multipart/form-data. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  downloadOwnSpaceDocumentVerificationFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        fileID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Contenido documental limpio, entregado como adjunto privado. */
+      200: {
+        headers: {
+          "Cache-Control": "private, no-store";
+          "Content-Disposition": string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+          "image/jpeg": string;
+          "image/png": string;
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
   listOwnSyntheticEvidence: {
     parameters: {
       query?: never;
@@ -8056,7 +8436,10 @@ export interface operations {
   createOwnSpaceDraft: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description Clave opaca que identifica una misma operación para reintentos seguros. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+      };
       path?: never;
       cookie?: never;
     };

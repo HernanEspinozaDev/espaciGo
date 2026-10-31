@@ -40,9 +40,12 @@ func TestScanCleanInfectedAndMalformedResponses(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			state, err := a.Scan(context.Background(), []byte("synthetic"))
-			if state != tc.want || (err != nil) != tc.wantErr {
-				t.Fatalf("Scan() = %q, %v; want %q, error=%t", state, err, tc.want, tc.wantErr)
+			result, err := a.ScanDetailed(context.Background(), []byte("synthetic"))
+			if result.State != tc.want || (err != nil) != tc.wantErr {
+				t.Fatalf("ScanDetailed() = %+v, %v; want state %q, error=%t", result, err, tc.want, tc.wantErr)
+			}
+			if !tc.wantErr && (result.ScannerVersion != "ClamAV 1.5.4/28167/Wed Oct 28 06:24:17 2026" || !result.SignaturesAt.Equal(time.Date(2026, 10, 28, 6, 24, 17, 0, time.UTC))) {
+				t.Fatalf("scan metadata missing or incorrect: %+v", result)
 			}
 		})
 	}
@@ -53,8 +56,33 @@ func TestValidateVersionUsesClamDSignatureTimestamp(t *testing.T) {
 	if err := validateVersion("ClamAV 1.5.4/28167/Wed Oct 28 06:24:17 2026", now, 48*time.Hour); err != nil {
 		t.Fatalf("fresh ClamD version rejected: %v", err)
 	}
-	if err := validateVersion("ClamAV 1.5.4/28167/Tue Oct 20 06:24:17 2026", now, 48*time.Hour); err == nil {
+	if err := validateVersion("ClamAV 1.5.4/28100/Tue Oct 20 06:24:17 2026", now, 48*time.Hour); err == nil {
 		t.Fatal("stale ClamD signature timestamp accepted")
+	}
+}
+
+func TestValidateScanResultMetadata(t *testing.T) {
+	valid := ScanResult{
+		State:          dv.FileBlocked,
+		ScannerVersion: "ClamAV 1.5.4/28167/Wed Oct 28 06:24:17 2026",
+		SignaturesAt:   time.Date(2026, 10, 28, 6, 24, 17, 0, time.UTC),
+	}
+	for _, tc := range []struct {
+		name   string
+		result ScanResult
+		valid  bool
+	}{
+		{name: "valid infected result", result: valid, valid: true},
+		{name: "malformed version", result: ScanResult{State: valid.State, ScannerVersion: valid.ScannerVersion + "\nforged", SignaturesAt: valid.SignaturesAt}},
+		{name: "mismatched timestamp", result: ScanResult{State: valid.State, ScannerVersion: valid.ScannerVersion, SignaturesAt: valid.SignaturesAt.Add(time.Second)}},
+		{name: "unsupported state", result: ScanResult{State: dv.FileError, ScannerVersion: valid.ScannerVersion, SignaturesAt: valid.SignaturesAt}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateScanResultMetadata(tc.result)
+			if (err == nil) != tc.valid {
+				t.Fatalf("ValidateScanResultMetadata() error=%v, valid=%t", err, tc.valid)
+			}
+		})
 	}
 }
 
@@ -78,9 +106,9 @@ func TestStaleSignaturesFailClosedAsBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := a.Scan(context.Background(), []byte("synthetic"))
-	if err == nil || state != dv.FileBlocked {
-		t.Fatalf("Scan() = %q, %v; want blocked with stale-signature error", state, err)
+	result, err := a.ScanDetailed(context.Background(), []byte("synthetic"))
+	if err == nil || result.State != dv.FileBlocked || result.ScannerVersion != "" || !result.SignaturesAt.IsZero() {
+		t.Fatalf("ScanDetailed() = %+v, %v; want blocked with no metadata on stale signatures", result, err)
 	}
 }
 
@@ -92,9 +120,9 @@ func TestScannerUnavailableFailsClosedAsBlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	state, err := a.Scan(context.Background(), []byte("synthetic"))
-	if err == nil || state != dv.FileBlocked {
-		t.Fatalf("Scan() = %q, %v; want blocked with error", state, err)
+	result, err := a.ScanDetailed(context.Background(), []byte("synthetic"))
+	if err == nil || result.State != dv.FileBlocked || result.ScannerVersion != "" || !result.SignaturesAt.IsZero() {
+		t.Fatalf("ScanDetailed() = %+v, %v; want blocked with no metadata when unavailable", result, err)
 	}
 }
 
@@ -163,12 +191,21 @@ func TestScanStreamTimeoutFailsClosed(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond) // Simulate a scanner that never completes.
 	}()
-	a, err := New(Config{Address: listener.Addr().String(), Timeout: 25 * time.Millisecond, MaxBytes: 1024, MaxSignatureAge: 48 * time.Hour})
+	now := time.Date(2026, 10, 29, 0, 0, 0, 0, time.UTC)
+	a, err := New(Config{
+		Address: listener.Addr().String(), Timeout: 25 * time.Millisecond,
+		MaxBytes: 1024, MaxSignatureAge: 48 * time.Hour,
+		Now: func() time.Time { return now },
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	state, err := a.Scan(context.Background(), []byte("synthetic"))
-	<-done
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("synthetic ClamAV server did not finish its timeout exchange")
+	}
 	if err == nil || state != dv.FileBlocked {
 		t.Fatalf("Scan() = %q, %v; want blocked with scan-timeout error", state, err)
 	}

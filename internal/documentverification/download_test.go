@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 type downloadCaseRepo struct {
@@ -75,6 +76,20 @@ func TestSpaceDownloadNeverReadsClosedOrUncleanFiles(t *testing.T) {
 				t.Fatal("unauthorized or unclean file reached private storage")
 			}
 		})
+	}
+}
+
+func TestSpaceDownloadNeverReadsExpiredRetentionObject(t *testing.T) {
+	x := downloadPolicySnapshot(CaseInReview, FileClean)
+	x.Files[0].RetentionAt = time.Now().UTC().Add(-time.Minute)
+	repo := &downloadCaseRepo{snapshot: x, auth: Authorization{ActorID: downloadingOwnerID, SpaceOwnerID: downloadingOwnerID}}
+	store := &syntheticDocumentStore{content: []byte("synthetic clean document")}
+	svc, _ := NewSpaceDownloadService(repo, store)
+	if _, err := svc.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired retention download err=%v, want %v", err, ErrNotFound)
+	}
+	if store.calls != 0 {
+		t.Fatal("expired-retention object reached private storage")
 	}
 }
 

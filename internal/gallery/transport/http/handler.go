@@ -145,6 +145,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if result.Reused {
 			status = http.StatusOK
 		}
+		if !result.Photo.SpaceRevision.IsZero() {
+			w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: result.Photo.SpaceRevision}))
+		}
 		write(w, status, map[string]any{"photo": result.Photo, "reused": result.Reused})
 	case photoID != "" && content && r.Method == http.MethodPut:
 		revision, err := spaceshttp.ParseIfMatch(r.Header.Values("If-Match"), spaceID)
@@ -205,6 +208,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusCreated
 		if result.Reused {
 			status = http.StatusOK
+		}
+		if !result.Photo.SpaceRevision.IsZero() {
+			w.Header().Set("ETag", spaceshttp.DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: result.Photo.SpaceRevision}))
 		}
 		write(w, status, map[string]any{"photo": result.Photo, "reused": result.Reused})
 	case photoID != "" && strings.HasPrefix(r.URL.Path, "/api/v1/spaces/") && strings.Contains(r.URL.Path, "/variants/") && r.Method == http.MethodGet:

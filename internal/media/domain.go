@@ -61,17 +61,18 @@ type Variant struct {
 }
 
 type Photo struct {
-	ID         string    `json:"id"`
-	SpaceID    string    `json:"space_id"`
-	OwnerID    string    `json:"-"`
-	AltText    string    `json:"alt_text"`
-	Visible    bool      `json:"visible"`
-	Cover      bool      `json:"cover"`
-	Position   int       `json:"position"`
-	State      string    `json:"state"`
-	CreatedAt  time.Time `json:"created_at"`
-	Variants   []Variant `json:"variants"`
-	Idempotent bool      `json:"reused,omitempty"`
+	ID            string    `json:"id"`
+	SpaceID       string    `json:"space_id"`
+	OwnerID       string    `json:"-"`
+	AltText       string    `json:"alt_text"`
+	Visible       bool      `json:"visible"`
+	Cover         bool      `json:"cover"`
+	Position      int       `json:"position"`
+	State         string    `json:"state"`
+	CreatedAt     time.Time `json:"created_at"`
+	SpaceRevision time.Time `json:"-"`
+	Variants      []Variant `json:"variants"`
+	Idempotent    bool      `json:"reused,omitempty"`
 }
 
 type Reservation struct {

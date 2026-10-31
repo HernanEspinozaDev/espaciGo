@@ -3,6 +3,7 @@ package documentverification
 import (
 	"errors"
 	"testing"
+	"time"
 )
 
 const (
@@ -20,7 +21,7 @@ func downloadPolicySnapshot(state CaseState, fileState FileState) Snapshot {
 		SubjectID: downloadingOwnerID,
 		SpaceID:   downloadingSpaceID,
 		State:     state,
-		Files:     []File{{ID: downloadingFileID, State: fileState, Size: 64, MIME: "image/jpeg", Pages: 1}},
+		Files:     []File{{ID: downloadingFileID, State: fileState, Size: 64, MIME: "image/jpeg", Pages: 1, ContentSHA256: [32]byte{1}}},
 	}
 }
 
@@ -59,6 +60,26 @@ func TestAuthorizeSpaceOwnerDownloadDeniesNonCleanFile(t *testing.T) {
 				t.Fatalf("non-clean file download err=%v, want %v", err, ErrFilesNotClean)
 			}
 		})
+	}
+}
+
+func TestAuthorizeSpaceOwnerDownloadDeniesExpiredRetention(t *testing.T) {
+	x := downloadPolicySnapshot(CaseInReview, FileClean)
+	now := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	x.Files[0].RetentionAt = now
+	a := Authorization{ActorID: downloadingOwnerID, SpaceOwnerID: downloadingOwnerID}
+	if err := AuthorizeSpaceOwnerDownloadAt(x, a, downloadingOwnerID, downloadingFileID, now); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expired retained document download err=%v, want %v", err, ErrNotFound)
+	}
+}
+
+func TestAuthorizeSpaceOwnerDownloadAllowsUntilRetentionDeadline(t *testing.T) {
+	x := downloadPolicySnapshot(CaseInReview, FileClean)
+	deadline := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
+	x.Files[0].RetentionAt = deadline
+	a := Authorization{ActorID: downloadingOwnerID, SpaceOwnerID: downloadingOwnerID}
+	if err := AuthorizeSpaceOwnerDownloadAt(x, a, downloadingOwnerID, downloadingFileID, deadline.Add(-time.Nanosecond)); err != nil {
+		t.Fatalf("download before retention deadline err=%v, want nil", err)
 	}
 }
 

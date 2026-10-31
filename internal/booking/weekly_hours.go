@@ -150,7 +150,8 @@ func IntervalFitsWeeklyHours(start, end time.Time, zone string, schedule WeeklyH
 func normalizeWeeklyDays(days []WeeklyDay) []WeeklyDay {
 	out := make([]WeeklyDay, 0, len(days))
 	for _, day := range days {
-		periods := append([]WeeklyPeriod(nil), day.Periods...)
+		periods := make([]WeeklyPeriod, len(day.Periods))
+		copy(periods, day.Periods)
 		sort.Slice(periods, func(i, j int) bool { return strings.Compare(periods[i].Open, periods[j].Open) < 0 })
 		out = append(out, WeeklyDay{Weekday: day.Weekday, Periods: periods})
 	}
