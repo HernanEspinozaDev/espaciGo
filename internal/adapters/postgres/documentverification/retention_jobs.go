@@ -62,7 +62,7 @@ ORDER BY j.available_at,j.id LIMIT 1`, jobFilter, readyBeforeFilter).Scan(&c.Job
 	}
 	if c.SpaceID != "" {
 		var ok bool
-		if e = tx.QueryRow(ctx, `SELECT public.document_verification_lock_space_row($1::uuid)`, c.SpaceID).Scan(&ok); e != nil {
+		if e = tx.QueryRow(ctx, `SELECT document_verification_private.document_verification_lock_space_row($1::uuid)`, c.SpaceID).Scan(&ok); e != nil {
 			return nil, e
 		}
 		if !ok {
@@ -113,7 +113,7 @@ func (r *Repository) finishRetention(ctx context.Context, c RetentionClaim, dele
 	}
 	if space != "" {
 		var ok bool
-		if e = tx.QueryRow(ctx, `SELECT public.document_verification_lock_space_row($1::uuid)`, space).Scan(&ok); e != nil {
+		if e = tx.QueryRow(ctx, `SELECT document_verification_private.document_verification_lock_space_row($1::uuid)`, space).Scan(&ok); e != nil {
 			return e
 		}
 		if !ok {

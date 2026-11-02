@@ -13,6 +13,8 @@ import (
 func main() {
 	migrationDir := flag.String("dir", "db/migrations", "directory containing V<version>__<description>.sql files")
 	planOnly := flag.Bool("plan-only", false, "print the read-only applied/pending migration inventory without executing SQL")
+	applyRuntimeACL := flag.Bool("apply-runtime-acl", false, "apply the reviewed runtime ACL as administrator after migrations")
+	confirmRuntimeACL := flag.String("confirm-runtime-acl", "", "must exactly equal the isolated F5 target name")
 	flag.Parse()
 
 	settings, err := loadConnectionSettings(os.Getenv)
@@ -22,6 +24,26 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
 	defer cancel()
+	if *applyRuntimeACL {
+		if *planOnly || *confirmRuntimeACL != runtimeACLConfirmation {
+			fmt.Fprintln(os.Stderr, "runtime ACL phase requires a separate invocation and exact target confirmation")
+			os.Exit(2)
+		}
+		if err := validateRuntimeACLAdminIdentity(settings.databaseURL, settings.mode, settings.setRole); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := applyRuntimeACLPhase(ctx, settings.databaseURL, *migrationDir); err != nil {
+			fmt.Fprintf(os.Stderr, "runtime ACL phase failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("runtime ACL phase applied; core readback passed")
+		return
+	}
+	if *confirmRuntimeACL != "" {
+		fmt.Fprintln(os.Stderr, "-confirm-runtime-acl is valid only with -apply-runtime-acl")
+		os.Exit(2)
+	}
 	if *planOnly {
 		var plan migrator.PlanResult
 		if settings.mode == "cloudsql" {

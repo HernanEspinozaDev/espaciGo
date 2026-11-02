@@ -125,7 +125,7 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 		t.Fatal("cannot assume restricted runtime role for mapped check")
 	}
 	var active bool
-	if err := readerTx.QueryRow(ctx, `SELECT public.document_verification_lock_active_actor($1)`, oldOwner).Scan(&active); err != nil || !active {
+	if err := readerTx.QueryRow(ctx, `SELECT document_verification_private.document_verification_lock_active_actor($1)`, oldOwner).Scan(&active); err != nil || !active {
 		_ = rollbackV81RaceTx(readerTx)
 		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatal("unable to establish runtime snapshot for ownership race")
@@ -155,7 +155,7 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 		t.Fatal("competing synthetic ownership transfer did not commit")
 	}
 	var staleOwned bool
-	err = readerTx.QueryRow(ctx, `SELECT public.document_verification_space_owned_by($1,$2)`, spaceID, oldOwner).Scan(&staleOwned)
+	err = readerTx.QueryRow(ctx, `SELECT document_verification_private.document_verification_space_owned_by($1,$2)`, spaceID, oldOwner).Scan(&staleOwned)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "40001" {
 		_ = rollbackV81RaceTx(readerTx)
@@ -182,13 +182,13 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 		t.Fatal("cannot assume restricted runtime role for fresh ownership check")
 	}
 	var oldOwned, newOwned, rowExists bool
-	if err := checkTx.QueryRow(ctx, `SELECT public.document_verification_lock_space_owner($1,$2)`, spaceID, oldOwner).Scan(&oldOwned); err != nil {
+	if err := checkTx.QueryRow(ctx, `SELECT document_verification_private.document_verification_lock_space_owner($1,$2)`, spaceID, oldOwner).Scan(&oldOwned); err != nil {
 		t.Fatal("old-owner check failed after transfer")
 	}
-	if err := checkTx.QueryRow(ctx, `SELECT public.document_verification_space_owned_by($1,$2)`, spaceID, newOwner).Scan(&newOwned); err != nil {
+	if err := checkTx.QueryRow(ctx, `SELECT document_verification_private.document_verification_space_owned_by($1,$2)`, spaceID, newOwner).Scan(&newOwned); err != nil {
 		t.Fatal("new-owner check failed after transfer")
 	}
-	if err := checkTx.QueryRow(ctx, `SELECT public.document_verification_lock_space_row($1)`, spaceID).Scan(&rowExists); err != nil {
+	if err := checkTx.QueryRow(ctx, `SELECT document_verification_private.document_verification_lock_space_row($1)`, spaceID).Scan(&rowExists); err != nil {
 		t.Fatal("space-row lock failed after transfer")
 	}
 	if oldOwned || !newOwned || !rowExists {

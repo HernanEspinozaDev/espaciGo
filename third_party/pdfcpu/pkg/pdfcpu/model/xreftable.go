@@ -2261,6 +2261,20 @@ func (xRefTable *XRefTable) PageContent(d types.Dict, pageNr int) ([]byte, error
 	return bb, nil
 }
 
+// ValidateContentImagePixels validates content operators while applying the configured
+// maximum pixel count to inline images.
+func (xRefTable *XRefTable) ValidateContentImagePixels(content []byte) error {
+	if xRefTable == nil {
+		return ErrMissingXRefTable
+	}
+	maxImagePixels := int64(0)
+	if xRefTable.Conf != nil {
+		maxImagePixels = xRefTable.Conf.Limits.MaxImagePixels
+	}
+	_, err := parseContent(string(content), xRefTable.ValidationMode == ValidationRelaxed, xRefTable.PDF20(), maxImagePixels)
+	return err
+}
+
 func (xRefTable *XRefTable) consolidateResourceSubDict(d types.Dict, key string, prn PageResourceNames, pageNr int) error {
 	if !prn.HasResources(key) {
 		d.Delete(key)
@@ -2377,7 +2391,11 @@ func (xRefTable *XRefTable) consolidateResourcesWithContent(pageDict, resDict ty
 	}
 
 	// Calculate resources required by the content stream of this page.
-	prn, err := parseContent(string(bb), xRefTable.ValidationMode == ValidationRelaxed, xRefTable.PDF20())
+	maxImagePixels := int64(0)
+	if xRefTable.Conf != nil {
+		maxImagePixels = xRefTable.Conf.Limits.MaxImagePixels
+	}
+	prn, err := parseContent(string(bb), xRefTable.ValidationMode == ValidationRelaxed, xRefTable.PDF20(), maxImagePixels)
 	if err != nil {
 		return fmt.Errorf("%s: %w", contentContext, &contentParseError{err})
 	}

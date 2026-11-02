@@ -315,8 +315,11 @@ func inlineImageLength(s string, previous *int) (*int, error) {
 }
 
 type inlineImageState struct {
-	firstFilter string
-	length      *int
+	firstFilter    string
+	length         *int
+	width          *int
+	height         *int
+	maxImagePixels int64
 }
 
 func skipBIEntry(s string, prn PageResourceNames, pdf20 bool, state *inlineImageState) (string, error) {
@@ -334,6 +337,18 @@ func skipBIEntry(s string, prn PageResourceNames, pdf20 bool, state *inlineImage
 				return "", err
 			}
 		}
+	case "W", "Width":
+		var err error
+		state.width, err = inlineImageLength(s[i:], state.width)
+		if err != nil {
+			return "", err
+		}
+	case "H", "Height":
+		var err error
+		state.height, err = inlineImageLength(s[i:], state.height)
+		if err != nil {
+			return "", err
+		}
 	case "CS", "ColorSpace":
 		return skipBIColorSpaceName(s[i:], prn)
 	case "F", "Filter":
@@ -346,9 +361,9 @@ func skipBIEntry(s string, prn PageResourceNames, pdf20 bool, state *inlineImage
 	return s[i:], nil
 }
 
-func skipBI(l *string, prn PageResourceNames, relaxed, pdf20 bool) error {
+func skipBI(l *string, prn PageResourceNames, relaxed, pdf20 bool, maxImagePixels int64) error {
 	s := *l
-	var state inlineImageState
+	state := inlineImageState{maxImagePixels: maxImagePixels}
 	//fmt.Printf("skipBI <%s>\n", s)
 	for {
 		s = strings.TrimLeftFunc(s, whitespaceOrEOLOrClosingBracket)
@@ -356,6 +371,10 @@ func skipBI(l *string, prn PageResourceNames, relaxed, pdf20 bool) error {
 			return errBIExpressionCorrupt
 		}
 		if len(s) > 2 && strings.HasPrefix(s, "ID") && whitespaceOrEOL(rune(s[2])) {
+			if state.maxImagePixels > 0 && (state.width == nil || state.height == nil || *state.width <= 0 || *state.height <= 0 ||
+				int64(*state.width) > state.maxImagePixels/int64(*state.height)) {
+				return errBIExpressionCorrupt
+			}
 			if pdf20 && !relaxed && state.length == nil {
 				return errBIExpressionCorrupt
 			}
@@ -384,7 +403,7 @@ func skipBI(l *string, prn PageResourceNames, relaxed, pdf20 bool) error {
 	return nil
 }
 
-func skipInlineImage(l *string, prn PageResourceNames, relaxed, pdf20 bool) (bool, error) {
+func skipInlineImage(l *string, prn PageResourceNames, relaxed, pdf20 bool, maxImagePixels int64) (bool, error) {
 	s := *l
 	if !strings.HasPrefix(s, "BI") {
 		return false, nil
@@ -396,14 +415,14 @@ func skipInlineImage(l *string, prn PageResourceNames, relaxed, pdf20 bool) (boo
 		return false, nil
 	}
 	s = s[2:]
-	if err := skipBI(&s, prn, relaxed, pdf20); err != nil {
+	if err := skipBI(&s, prn, relaxed, pdf20, maxImagePixels); err != nil {
 		return false, err
 	}
 	*l = s
 	return true, nil
 }
 
-func positionToNextContentToken(line *string, prn PageResourceNames, relaxed, pdf20 bool) (bool, error) {
+func positionToNextContentToken(line *string, prn PageResourceNames, relaxed, pdf20 bool, maxImagePixels int64) (bool, error) {
 	l := *line
 	for {
 		l = strings.TrimLeftFunc(l, whitespaceOrEOL)
@@ -440,7 +459,7 @@ func positionToNextContentToken(line *string, prn PageResourceNames, relaxed, pd
 			}
 			continue
 		}
-		ok, err := skipInlineImage(&l, prn, relaxed, pdf20)
+		ok, err := skipInlineImage(&l, prn, relaxed, pdf20, maxImagePixels)
 		if err != nil {
 			return true, err
 		}
@@ -452,7 +471,7 @@ func positionToNextContentToken(line *string, prn PageResourceNames, relaxed, pd
 	}
 }
 
-func nextContentToken(pre string, line *string, prn PageResourceNames, relaxed, pdf20 bool) (string, error) {
+func nextContentToken(pre string, line *string, prn PageResourceNames, relaxed, pdf20 bool, maxImagePixels int64) (string, error) {
 	// A token is either a name or some chunk terminated by white space or one of /, (, [
 	if noBuf(line) {
 		return "", nil
@@ -463,7 +482,7 @@ func nextContentToken(pre string, line *string, prn PageResourceNames, relaxed, 
 	//log.Parse.Printf("nextContentToken: start buf= <%s>\n", *line)
 
 	// Skip Tj, TJ and inline images.
-	done, err := positionToNextContentToken(&l, prn, relaxed, pdf20)
+	done, err := positionToNextContentToken(&l, prn, relaxed, pdf20, maxImagePixels)
 	if err != nil {
 		return t, err
 	}
@@ -594,7 +613,7 @@ func resourceNameAtPos2(s, name string, prn PageResourceNames) (string, bool) {
 	return "", false
 }
 
-func parseContent(s string, relaxed, pdf20 bool) (PageResourceNames, error) {
+func parseContent(s string, relaxed, pdf20 bool, maxImagePixels int64) (PageResourceNames, error) {
 	var (
 		pre  string
 		name string
@@ -606,7 +625,7 @@ func parseContent(s string, relaxed, pdf20 bool) (PageResourceNames, error) {
 	//fmt.Printf("parseContent:\n%s\n", hex.Dump([]byte(s)))
 
 	for pos := 0; ; {
-		t, err := nextContentToken(pre, &s, prn, relaxed, pdf20)
+		t, err := nextContentToken(pre, &s, prn, relaxed, pdf20, maxImagePixels)
 		pre = ""
 		if log.ParseEnabled() {
 			log.Parse.Printf("t = <%s>\n", t)

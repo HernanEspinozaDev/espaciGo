@@ -120,3 +120,51 @@ func TestLoadConnectionSettingsRejectsInvalidCloudSQLSettingsWithoutLeakingURL(t
 		}
 	}
 }
+
+func TestValidateRuntimeACLAdminIdentityRequiresExactLocalTargetAndPrivatePassfile(t *testing.T) {
+	passfile := filepath.Join(t.TempDir(), "pgpass")
+	if err := os.WriteFile(passfile, []byte("synthetic-test-line\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PGPASSFILE", passfile)
+	t.Setenv("PGPASSWORD", "")
+	t.Setenv("PGSERVICE", "")
+	t.Setenv("PGSERVICEFILE", "")
+	validURL := "postgres://postgres@127.0.0.1:15434/espacigo_f5_gate_20261101?sslmode=disable"
+	if err := validateRuntimeACLAdminIdentity(validURL, "direct", ""); err != nil {
+		t.Fatalf("accepted exact local administrative target: %v", err)
+	}
+	for _, test := range []struct {
+		name, databaseURL, mode, setRole, passfile string
+	}{
+		{name: "wrong port", databaseURL: "postgres://postgres@127.0.0.1:15433/espacigo_f5_gate_20261101", mode: "direct", passfile: passfile},
+		{name: "wrong database", databaseURL: "postgres://postgres@127.0.0.1:15434/espacigo_f5_synth_20261101", mode: "direct", passfile: passfile},
+		{name: "wrong user", databaseURL: "postgres://espacigo_runtime@127.0.0.1:15434/espacigo_f5_gate_20261101", mode: "direct", passfile: passfile},
+		{name: "embedded password", databaseURL: "postgres://postgres:synthetic-test-password@127.0.0.1:15434/espacigo_f5_gate_20261101", mode: "direct", passfile: passfile},
+		{name: "query password", databaseURL: "postgres://postgres@127.0.0.1:15434/espacigo_f5_gate_20261101?password=synthetic-test-password", mode: "direct", passfile: passfile},
+		{name: "cloud mode", databaseURL: validURL, mode: "cloudsql", passfile: passfile},
+		{name: "set role", databaseURL: validURL, mode: "direct", setRole: "espacigo_schema_owner", passfile: passfile},
+		{name: "disabled passfile", databaseURL: validURL, mode: "direct", passfile: "/dev/null"},
+		{name: "relative passfile", databaseURL: validURL, mode: "direct", passfile: "pgpass"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("PGPASSFILE", test.passfile)
+			if err := validateRuntimeACLAdminIdentity(test.databaseURL, test.mode, test.setRole); err == nil {
+				t.Fatal("accepted unsafe runtime ACL administrative identity")
+			}
+		})
+	}
+	t.Setenv("PGPASSWORD", "synthetic-test-password")
+	if err := validateRuntimeACLAdminIdentity(validURL, "direct", ""); err == nil {
+		t.Fatal("accepted PGPASSWORD as an alternate credential source")
+	}
+	t.Setenv("PGPASSWORD", "")
+	worldReadable := filepath.Join(t.TempDir(), "pgpass")
+	if err := os.WriteFile(worldReadable, []byte("synthetic-test-line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PGPASSFILE", worldReadable)
+	if err := validateRuntimeACLAdminIdentity(validURL, "direct", ""); err == nil {
+		t.Fatal("accepted a passfile with group/world permissions")
+	}
+}

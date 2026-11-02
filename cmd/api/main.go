@@ -147,7 +147,7 @@ func main() {
 			log.Print("local migration failed; no credentials or SQL details logged")
 			os.Exit(1)
 		}
-		log.Print("local migrations and runtime grants ready")
+		log.Print("local migrations ready")
 		return
 	}
 	if len(os.Args) == 2 && os.Args[1] == "check" {

@@ -378,6 +378,61 @@ func TestValidatePDFStructureEnforcesAggregateBudgetAcrossImageStream(t *testing
 	}
 }
 
+func TestValidatePDFStructureEnforcesEmbeddedImagePixelLimit(t *testing.T) {
+	imageStream := "<< /Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 /Length 2 >>\nstream\n" + string([]byte{0, 0}) + "\nendstream"
+	data := syntheticPDFWithObjects(t,
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+		"<< /Length 0 >>\nstream\n\nendstream",
+		imageStream,
+	)
+
+	if err := validatePDFStructure(data, 2, 1); err != nil {
+		t.Fatalf("valid two-pixel PDF image rejected at its exact limit: %v", err)
+	}
+	if err := validatePDFStructure(data, 1, 1); !errors.Is(err, ErrRejected) {
+		t.Fatalf("two-pixel PDF image returned %v at a one-pixel limit, want rejection", err)
+	}
+}
+
+func TestValidatePDFStructureEnforcesInlineImagePixelLimit(t *testing.T) {
+	content := "BI /W 2 /H 1 /CS /DeviceGray /BPC 8 ID " + string([]byte{0, 0}) + " EI"
+	contentStream := fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(content), content)
+	data := syntheticPDFWithObjects(t,
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> /Contents 4 0 R >>",
+		contentStream,
+	)
+
+	if err := validatePDFStructure(data, 2, 1); err != nil {
+		t.Fatalf("valid two-pixel inline image rejected at its exact limit: %v", err)
+	}
+	if err := validatePDFStructure(data, 1, 1); !errors.Is(err, ErrRejected) {
+		t.Fatalf("two-pixel inline image returned %v at a one-pixel limit, want rejection", err)
+	}
+}
+
+func TestValidatePDFStructureEnforcesFormInlineImagePixelLimit(t *testing.T) {
+	formContent := "BI /W 2 /H 1 /CS /DeviceGray /BPC 8 ID " + string([]byte{0, 0}) + " EI"
+	formStream := fmt.Sprintf("<< /Type /XObject /Subtype /Form /BBox [0 0 10 10] /Resources << >> /Length %d >>\nstream\n%s\nendstream", len(formContent), formContent)
+	data := syntheticPDFWithObjects(t,
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << /XObject << /Fm0 5 0 R >> >> /Contents 4 0 R >>",
+		"<< /Length 0 >>\nstream\n\nendstream",
+		formStream,
+	)
+
+	if err := validatePDFStructure(data, 2, 1); err != nil {
+		t.Fatalf("valid two-pixel form inline image rejected at its exact limit: %v", err)
+	}
+	if err := validatePDFStructure(data, 1, 1); !errors.Is(err, ErrRejected) {
+		t.Fatalf("two-pixel form inline image returned %v at a one-pixel limit, want rejection", err)
+	}
+}
+
 func TestReadContextParsesRepeatedHybridXRefStreams(t *testing.T) {
 	const hybridRevisions = 8
 	data := syntheticPDFWithRepeatedHybridXRefStream(t, hybridRevisions)

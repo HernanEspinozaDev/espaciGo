@@ -209,7 +209,7 @@ func (r *Repository) ListOwnCases(ctx context.Context, actor string) ([]dv.Snaps
 	if err = lockActor(ctx, tx, actor); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.subject_id=$1 AND c.superseded_at IS NULL AND (c.purpose='identity' OR (c.purpose='space' AND public.document_verification_space_owned_by(c.space_id,$1::uuid))) ORDER BY c.updated_at DESC,c.id`, actor)
+	rows, err := tx.Query(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.subject_id=$1 AND c.superseded_at IS NULL AND (c.purpose='identity' OR (c.purpose='space' AND document_verification_private.document_verification_space_owned_by(c.space_id,$1::uuid))) ORDER BY c.updated_at DESC,c.id`, actor)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -250,7 +250,7 @@ func (r *Repository) LoadOwnCase(ctx context.Context, actor, id string) (dv.Snap
 	if err = lockActor(ctx, tx, actor); err != nil {
 		return dv.Snapshot{}, err
 	}
-	x, err := scanSnapshot(tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.id=$1 AND c.subject_id=$2 AND c.superseded_at IS NULL AND (c.purpose='identity' OR (c.purpose='space' AND public.document_verification_space_owned_by(c.space_id,$2::uuid)))`, id, actor))
+	x, err := scanSnapshot(tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.id=$1 AND c.subject_id=$2 AND c.superseded_at IS NULL AND (c.purpose='identity' OR (c.purpose='space' AND document_verification_private.document_verification_space_owned_by(c.space_id,$2::uuid)))`, id, actor))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return dv.Snapshot{}, dv.ErrNotFound
 	}
@@ -286,7 +286,7 @@ func (r *Repository) WithSpaceCaseForDownload(ctx context.Context, actor, id str
 	}
 	defer tx.Rollback(context.Background())
 	var x dv.Snapshot
-	err = tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.id=$1 AND c.purpose='space' AND c.superseded_at IS NULL AND public.document_verification_lock_space_owner(c.space_id,$2::uuid)`, id, actor).Scan(&x.ID, &x.Purpose, &x.SubjectID, &x.SpaceID, &x.State, &x.Revision, &x.ReviewerID, &nullableT{v: &x.VerifiedAt}, &nullableT{v: &x.VerifiedUntil}, &nullableT{v: &x.DocumentExpiresAt}, &nullablePT{v: &x.RevokedAt}, &nullablePT{v: &x.SupersededAt})
+	err = tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.id=$1 AND c.purpose='space' AND c.superseded_at IS NULL AND document_verification_private.document_verification_lock_space_owner(c.space_id,$2::uuid)`, id, actor).Scan(&x.ID, &x.Purpose, &x.SubjectID, &x.SpaceID, &x.State, &x.Revision, &x.ReviewerID, &nullableT{v: &x.VerifiedAt}, &nullableT{v: &x.VerifiedUntil}, &nullableT{v: &x.DocumentExpiresAt}, &nullablePT{v: &x.RevokedAt}, &nullablePT{v: &x.SupersededAt})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return dv.ErrNotFound
 	}
@@ -357,7 +357,7 @@ func validUUID(s string) bool {
 }
 func lockActor(ctx context.Context, tx pgx.Tx, id string) error {
 	var active bool
-	e := tx.QueryRow(ctx, `SELECT public.document_verification_lock_active_actor($1::uuid)`, id).Scan(&active)
+	e := tx.QueryRow(ctx, `SELECT document_verification_private.document_verification_lock_active_actor($1::uuid)`, id).Scan(&active)
 	if e == nil && !active {
 		return dv.ErrCapability
 	}
@@ -365,7 +365,7 @@ func lockActor(ctx context.Context, tx pgx.Tx, id string) error {
 }
 func lockSpace(ctx context.Context, tx pgx.Tx, id, expectedOwner string) (bool, error) {
 	var owned bool
-	e := tx.QueryRow(ctx, `SELECT public.document_verification_lock_space_owner($1::uuid,$2::uuid)`, id, expectedOwner).Scan(&owned)
+	e := tx.QueryRow(ctx, `SELECT document_verification_private.document_verification_lock_space_owner($1::uuid,$2::uuid)`, id, expectedOwner).Scan(&owned)
 	return owned, mapError(e)
 }
 func loadFiles(ctx context.Context, tx pgx.Tx, x *dv.Snapshot) error {

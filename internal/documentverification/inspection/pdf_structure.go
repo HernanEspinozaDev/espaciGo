@@ -82,6 +82,7 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 	conf.Offline = true
 	conf.Optimize = false
 	conf.OptimizeBeforeWriting = false
+	conf.OptimizeResourceDicts = true
 	conf.Limits.MaxInputBytes = maxBytes
 	conf.Limits.MaxObjectBytes = maxBytes
 	conf.Limits.MaxStreamBytes = maxBytes
@@ -113,6 +114,7 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 	scanner := pdfStructureScanner{
 		ctx:                  ctx,
 		xref:                 parsed.XRefTable,
+		maxImagePixels:       maxPixels,
 		visited:              make(map[pdfObjectRef]struct{}, len(parsed.Table)),
 		decodedObjectStreams: make(map[int]struct{}),
 	}
@@ -157,6 +159,17 @@ func readAndValidatePDFWithinBudget(ctx context.Context, data []byte, conf *mode
 	}
 	if err := api.ValidateContext(ctx, parsed); err != nil {
 		return nil, ErrRejected
+	}
+	// ValidateContext does not parse page content operators unless resource
+	// consolidation runs. PageDict's content parser applies MaxImagePixels to
+	// inline images as well as the scanner's check for image XObjects.
+	for pageNumber := 1; pageNumber <= parsed.PageCount; pageNumber++ {
+		if ctx.Err() != nil {
+			return nil, ErrRejected
+		}
+		if _, _, _, err := parsed.XRefTable.PageDict(ctx, pageNumber, true); err != nil {
+			return nil, ErrRejected
+		}
 	}
 	return parsed, nil
 }
@@ -237,6 +250,7 @@ type decodedPDFObjectStream struct {
 type pdfStructureScanner struct {
 	ctx                  context.Context
 	xref                 *model.XRefTable
+	maxImagePixels       int64
 	visited              map[pdfObjectRef]struct{}
 	decodedObjectStreams map[int]struct{}
 	objectStreams        map[int]decodedPDFObjectStream
@@ -715,9 +729,15 @@ func (s *pdfStructureScanner) walk(object types.Object, depth int) error {
 			}
 		}
 	case types.StreamDict:
+		if err := s.validateFormInlineImagePixelLimit(value.Dict, value.Content); err != nil {
+			return ErrRejected
+		}
 		return s.walkDict(value.Dict, depth+1)
 	case *types.StreamDict:
 		if value == nil {
+			return ErrRejected
+		}
+		if err := s.validateFormInlineImagePixelLimit(value.Dict, value.Content); err != nil {
 			return ErrRejected
 		}
 		return s.walkDict(value.Dict, depth+1)
@@ -774,6 +794,11 @@ func (s *pdfStructureScanner) walkDict(dict types.Dict, depth int) error {
 			if name == "Widget" || name == "RichMedia" || name == "3D" || name == "Movie" || name == "Sound" {
 				return errPDFActiveContent
 			}
+			if name == "Image" {
+				if err := s.validateImagePixelLimit(dict); err != nil {
+					return ErrRejected
+				}
+			}
 		case "S":
 			if _, forbidden := forbiddenPDFActions[name]; forbidden {
 				return errPDFActiveContent
@@ -787,6 +812,54 @@ func (s *pdfStructureScanner) walkDict(dict types.Dict, depth int) error {
 		}
 	}
 	return nil
+}
+
+func (s *pdfStructureScanner) validateImagePixelLimit(dict types.Dict) error {
+	if s.maxImagePixels <= 0 {
+		return ErrRejected
+	}
+	width, err := s.positiveIntegerEntry(dict, "Width")
+	if err != nil {
+		return err
+	}
+	height, err := s.positiveIntegerEntry(dict, "Height")
+	if err != nil {
+		return err
+	}
+	if width > s.maxImagePixels/height {
+		return ErrRejected
+	}
+	return nil
+}
+
+func (s *pdfStructureScanner) positiveIntegerEntry(dict types.Dict, key string) (int64, error) {
+	object, found := dict.Find(key)
+	if !found || object == nil {
+		return 0, ErrRejected
+	}
+	resolved, err := s.dereference(object)
+	if err != nil {
+		return 0, ErrRejected
+	}
+	integer, ok := resolved.(types.Integer)
+	if !ok || int64(integer) <= 0 {
+		return 0, ErrRejected
+	}
+	return int64(integer), nil
+}
+
+func (s *pdfStructureScanner) validateFormInlineImagePixelLimit(dict types.Dict, content []byte) error {
+	subtype, found, err := s.nameEntry(dict, "Subtype")
+	if err != nil {
+		return err
+	}
+	if !found || subtype != "Form" {
+		return nil
+	}
+	if s.xref == nil {
+		return ErrRejected
+	}
+	return s.xref.ValidateContentImagePixels(content)
 }
 
 func (s *pdfStructureScanner) nameEntry(dict types.Dict, key string) (string, bool, error) {

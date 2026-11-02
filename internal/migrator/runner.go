@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
-	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -196,11 +195,6 @@ func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir, se
 	if err != nil {
 		return result, err
 	}
-	if setRole == "espacigo_schema_owner" {
-		if err := dbbootstrap.GrantRuntimePermissions(ctx, conn); err != nil {
-			return result, fmt.Errorf("apply restricted runtime grants: %w", err)
-		}
-	}
 	return result, nil
 }
 
@@ -214,14 +208,29 @@ func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Resu
 		return Result{}, fmt.Errorf("checksum migrator executable: %w", err)
 	}
 
-	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1, $2)", advisoryLockClass, advisoryLockObject); err != nil {
-		return Result{}, fmt.Errorf("acquire migration advisory lock: %w", err)
+	releaseMigrationLock, err := AcquireMigrationAdvisoryLock(ctx, conn)
+	if err != nil {
+		return Result{}, err
 	}
 	defer func() {
-		_, _ = conn.Exec(context.Background(), "SELECT pg_advisory_unlock($1, $2)", advisoryLockClass, advisoryLockObject)
+		_ = releaseMigrationLock(context.Background())
 	}()
 
 	if err := guardHistoryInitialization(ctx, conn); err != nil {
+		return Result{}, err
+	}
+	var historyExists, canCreateHistory bool
+	if err := conn.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_catalog.pg_class c
+			JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public' AND c.relname = 'schema_migrations'
+		), pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE')
+	`).Scan(&historyExists, &canCreateHistory); err != nil {
+		return Result{}, fmt.Errorf("inspect migration history initialization privileges: %w", err)
+	}
+	initializeHistory, err := shouldInitializeMigrationHistory(historyExists, canCreateHistory)
+	if err != nil {
 		return Result{}, err
 	}
 	const createHistory = `CREATE TABLE IF NOT EXISTS public.schema_migrations (
@@ -231,8 +240,10 @@ func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Resu
 		runner_checksum text NOT NULL CHECK (runner_checksum ~ '^[0-9a-f]{64}$'),
 		applied_at timestamptz NOT NULL DEFAULT clock_timestamp()
 	)`
-	if _, err := conn.Exec(ctx, createHistory); err != nil {
-		return Result{}, fmt.Errorf("initialize migration history: %w", err)
+	if initializeHistory {
+		if _, err := conn.Exec(ctx, createHistory); err != nil {
+			return Result{}, fmt.Errorf("initialize migration history: %w", err)
+		}
 	}
 	history, err := readHistory(ctx, conn)
 	if err != nil {
@@ -268,6 +279,41 @@ func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Resu
 		result.Applied = append(result.Applied, migration.Version)
 	}
 	return result, nil
+}
+
+// AcquireMigrationAdvisoryLock serializes migration and administrator-only
+// phases that must observe a stable migration ledger. The returned release
+// function must be called before closing conn; closing conn also releases it.
+func AcquireMigrationAdvisoryLock(ctx context.Context, conn *pgx.Conn) (func(context.Context) error, error) {
+	if conn == nil {
+		return nil, errors.New("migration advisory lock connection is required")
+	}
+	if _, err := conn.Exec(ctx, "SELECT pg_advisory_lock($1, $2)", advisoryLockClass, advisoryLockObject); err != nil {
+		return nil, fmt.Errorf("acquire migration advisory lock: %w", err)
+	}
+	return func(releaseCtx context.Context) error {
+		if releaseCtx == nil {
+			releaseCtx = context.Background()
+		}
+		var released bool
+		if err := conn.QueryRow(releaseCtx, "SELECT pg_advisory_unlock($1, $2)", advisoryLockClass, advisoryLockObject).Scan(&released); err != nil {
+			return fmt.Errorf("release migration advisory lock: %w", err)
+		}
+		if !released {
+			return errors.New("migration advisory lock was not held")
+		}
+		return nil
+	}, nil
+}
+
+func shouldInitializeMigrationHistory(historyExists, canCreate bool) (bool, error) {
+	if historyExists {
+		return false, nil
+	}
+	if !canCreate {
+		return false, errors.New("public.schema_migrations is absent and the current role cannot create it; pre-provision the migration ledger as administrator")
+	}
+	return true, nil
 }
 
 // guardHistoryInitialization prevents an existing application schema from

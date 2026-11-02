@@ -2,7 +2,9 @@ package main
 
 import (
 	"errors"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +37,43 @@ func validateMigrationExecutionIdentity(databaseURL, setRole string) error {
 	}
 	if config.User != "espacigo_migrator_login" {
 		return errors.New("DATABASE_URL user must be espacigo_migrator_login for migration execution")
+	}
+	return nil
+}
+
+func validateRuntimeACLAdminIdentity(databaseURL, mode, setRole string) error {
+	if mode != "direct" || setRole != "" {
+		return errors.New("runtime ACL phase requires direct mode without DATABASE_SET_ROLE")
+	}
+	passfile := os.Getenv("PGPASSFILE")
+	if !filepath.IsAbs(passfile) || filepath.Clean(passfile) == "/dev/null" {
+		return errors.New("runtime ACL phase requires an absolute private PGPASSFILE")
+	}
+	info, err := os.Lstat(passfile)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		return errors.New("runtime ACL phase requires a regular PGPASSFILE with mode 0600")
+	}
+	parsedURL, err := url.Parse(databaseURL)
+	if err != nil || (parsedURL.Scheme != "postgres" && parsedURL.Scheme != "postgresql") {
+		return errors.New("runtime ACL phase requires a PostgreSQL URL without embedded credentials")
+	}
+	if parsedURL.User != nil {
+		if _, hasPassword := parsedURL.User.Password(); hasPassword {
+			return errors.New("runtime ACL phase requires credentials from the protected PGPASSFILE")
+		}
+	}
+	for _, key := range []string{"password", "passfile", "service", "servicefile"} {
+		if parsedURL.Query().Has(key) {
+			return errors.New("runtime ACL phase rejects credential or service-file URL overrides")
+		}
+	}
+	if os.Getenv("PGPASSWORD") != "" || os.Getenv("PGSERVICE") != "" || os.Getenv("PGSERVICEFILE") != "" {
+		return errors.New("runtime ACL phase requires the protected PGPASSFILE as its only credential source")
+	}
+	config, err := pgx.ParseConfig(databaseURL)
+	if err != nil || config.Host != "127.0.0.1" || config.Port != 15434 ||
+		config.Database != "espacigo_f5_gate_20261101" || config.User != "postgres" {
+		return errors.New("runtime ACL phase requires the exact local F5 gate target and administrator identity")
 	}
 	return nil
 }
