@@ -2,6 +2,11 @@
 CREATE ROLE espacigo_document_verification_fn NOLOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB NOREPLICATION NOBYPASSRLS NOINHERIT;
 GRANT USAGE ON SCHEMA public TO espacigo_document_verification_fn;
 GRANT SELECT(id,estado) ON public.usuario TO espacigo_document_verification_fn;
+-- PostgreSQL requires UPDATE privilege on at least one column of each table
+-- used by SELECT ... FOR NO KEY UPDATE / FOR UPDATE. Grant only the row key;
+-- the fixed SECURITY DEFINER helpers use it to lock rows and never update it.
+-- This owner is NOLOGIN, is not granted to the runtime role, and its helpers
+-- expose no caller-controlled DML.
 GRANT UPDATE(id) ON public.usuario TO espacigo_document_verification_fn;
 GRANT SELECT(id,propietario_id) ON public.espacio TO espacigo_document_verification_fn;
 GRANT UPDATE(id) ON public.espacio TO espacigo_document_verification_fn;
@@ -59,8 +64,8 @@ AS $function$
 DECLARE
     current_owner_id uuid;
 BEGIN
-    -- The caller retains this row lock through its document read, serializing
-    -- owner-scoped visibility with the ownership-change trigger.
+    -- The row lock lasts only through the caller's transaction and serializes
+    -- this ownership check with a concurrent ownership change.
     SELECT e.propietario_id
       INTO current_owner_id
       FROM public.espacio AS e

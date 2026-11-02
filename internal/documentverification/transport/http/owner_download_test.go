@@ -22,6 +22,10 @@ func (r *routeCaseRepository) LoadSpaceCaseForDownload(_ context.Context, actor,
 	return r.snapshot, r.auth, nil
 }
 
+func (r *routeCaseRepository) WithSpaceCaseForDownload(ctx context.Context, _, _ string, read func(context.Context, documentverification.Snapshot, documentverification.Authorization) error) error {
+	return read(ctx, r.snapshot, r.auth)
+}
+
 type routePrivateStore struct {
 	content []byte
 	calls   int

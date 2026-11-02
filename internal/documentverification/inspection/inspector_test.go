@@ -16,6 +16,7 @@ import (
 	"image/jpeg"
 	"image/png"
 	"io"
+	stdlog "log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +27,7 @@ import (
 	dv "github.com/HernanEspinozaDev/espaciGo/internal/documentverification"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/filter"
+	pdfcpulog "github.com/pdfcpu/pdfcpu/pkg/log"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 	"golang.org/x/sys/unix"
@@ -271,6 +273,25 @@ func TestValidatePDFStructureEnforcesAggregateDecodeBudgetBeforeParserMaterializ
 	if metadataDecodedBytes+xrefDecodedBytes <= aggregateBudget {
 		t.Fatalf("fixture aggregate=%d does not exceed budget=%d", metadataDecodedBytes+xrefDecodedBytes, aggregateBudget)
 	}
+	phaseConf := model.NewStatelessConfiguration()
+	phaseConf.ValidationMode = model.ValidationStrict
+	phaseConf.Offline = true
+	phaseConf.Cmd = model.VALIDATE
+	phaseConf.Limits.MaxDecodeBytes = perStreamLimit
+	phaseConf.Limits.MaxTotalDecodeBytes = aggregateBudget
+	phaseCtx, cancelPhase := context.WithTimeout(context.Background(), pdfParseTimeout)
+	defer cancelPhase()
+	phaseParsed, err := api.ReadContext(phaseCtx, bytes.NewReader(data), phaseConf)
+	if err != nil {
+		t.Fatalf("ReadContext must remain within budget before validation: %v", err)
+	}
+	if phaseParsed.XRefTable.DecodeBudget.Used() >= aggregateBudget {
+		t.Fatalf("ReadContext consumed the full document budget before validation: used=%d budget=%d", phaseParsed.XRefTable.DecodeBudget.Used(), aggregateBudget)
+	}
+	if err := api.ValidateContext(phaseCtx, phaseParsed); !errors.Is(err, filter.ErrDecodeLimitExceeded) {
+		t.Fatalf("ValidateContext did not use the remaining shared budget: %v", err)
+	}
+
 	underLimitConf := model.NewStatelessConfiguration()
 	underLimitConf.ValidationMode = model.ValidationStrict
 	underLimitConf.Offline = true
@@ -295,6 +316,207 @@ func TestValidatePDFStructureEnforcesAggregateDecodeBudgetBeforeParserMaterializ
 	}
 	if err := validatePDFStructureWithBudget(data, 40_000_000, 1, aggregateBudget); !errors.Is(err, ErrRejected) {
 		t.Fatalf("aggregate decoded output exceeded budget %d but parser accepted it: %v", aggregateBudget, err)
+	}
+}
+
+func TestValidatePDFStructureEnforcesAggregateBudgetAcrossContentStream(t *testing.T) {
+	const xrefEntryCount = 16
+	const contentDecodedBytes = 64 << 10
+	content := bytes.Repeat([]byte(" "), contentDecodedBytes)
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	contentStream := fmt.Sprintf("<< /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream", compressed.Len(), compressed.Bytes())
+	data := syntheticPDFWithXRefStream(t, xrefEntryCount,
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> /Contents 4 0 R >>",
+		contentStream,
+	)
+	aggregateBudget := int64(xrefEntryCount*7 + contentDecodedBytes)
+
+	if err := validatePDFStructureWithBudget(data, 40_000_000, 1, aggregateBudget-1); !errors.Is(err, ErrRejected) {
+		t.Fatalf("content stream exceeding aggregate budget by one byte returned %v, want rejection", err)
+	}
+	if err := validatePDFStructureWithBudget(data, 40_000_000, 1, aggregateBudget); err != nil {
+		t.Fatalf("content stream at exact aggregate budget was rejected: %v", err)
+	}
+}
+
+func TestValidatePDFStructureEnforcesAggregateBudgetAcrossImageStream(t *testing.T) {
+	const xrefEntryCount = 16
+	const imageWidth, imageHeight = 128, 256
+	imageData := bytes.Repeat([]byte{0x7f}, imageWidth*imageHeight)
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write(imageData); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	imageStream := fmt.Sprintf("<< /Type /XObject /Subtype /Image /Width %d /Height %d /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream", imageWidth, imageHeight, compressed.Len(), compressed.Bytes())
+	data := syntheticPDFWithXRefStream(t, xrefEntryCount,
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << /XObject << /Im1 5 0 R >> >> /Contents 4 0 R >>",
+		"<< /Length 0 >>\nstream\n\nendstream",
+		imageStream,
+	)
+	aggregateBudget := int64(xrefEntryCount*7 + len(imageData))
+
+	if err := validatePDFStructureWithBudget(data, 40_000_000, 1, aggregateBudget-1); !errors.Is(err, ErrRejected) {
+		t.Fatalf("image stream exceeding aggregate budget by one byte returned %v, want rejection", err)
+	}
+	if err := validatePDFStructureWithBudget(data, 40_000_000, 1, aggregateBudget); err != nil {
+		t.Fatalf("image stream at exact aggregate budget was rejected: %v", err)
+	}
+}
+
+func TestReadContextParsesRepeatedHybridXRefStreams(t *testing.T) {
+	const hybridRevisions = 8
+	data := syntheticPDFWithRepeatedHybridXRefStream(t, hybridRevisions)
+
+	var parserLog bytes.Buffer
+	if pdfcpulog.ReadEnabled() {
+		t.Skip("pdfcpu read logger is already configured")
+	}
+	pdfcpulog.SetReadLogger(stdlog.New(&parserLog, "", 0))
+	t.Cleanup(func() { pdfcpulog.SetReadLogger(nil) })
+	conf := model.NewStatelessConfiguration()
+	conf.Reader15 = true
+	conf.ValidationMode = model.ValidationStrict
+	conf.Offline = true
+	conf.Optimize = false
+	conf.Limits.MaxInputBytes = maxBytes
+	conf.Limits.MaxObjectBytes = maxBytes
+	conf.Limits.MaxStreamBytes = maxBytes
+	conf.Limits.MaxDecodeBytes = 1 << 20
+	conf.Limits.MaxTotalDecodeBytes = 1 << 20
+	conf.Limits.MaxObjectCount = maxPDFObjects
+	conf.Limits.MaxObjectStreamCount = maxPDFObjectStreams
+	conf.Limits.MaxObjectStreamFirst = maxPDFObjectProlog
+	conf.Limits.MaxXRefEntries = maxPDFObjects
+	conf.Limits.MaxRecursionDepth = maxPDFRecursion
+	conf.Cmd = model.VALIDATE
+	readCtx, cancel := context.WithTimeout(context.Background(), pdfParseTimeout)
+	defer cancel()
+	parsed, err := api.ReadContext(readCtx, bytes.NewReader(data), conf)
+	if err != nil {
+		t.Fatalf("pdfcpu rejected repeated hybrid xref fixture: %v", err)
+	}
+	if parsed == nil || !parsed.Read.Hybrid {
+		t.Fatal("pdfcpu did not recognize the hybrid xref fixture")
+	}
+	gotReads := strings.Count(parserLog.String(), "parseXRefStream: begin at offset")
+	if gotReads != hybridRevisions {
+		t.Fatalf("pdfcpu parsed the shared xref stream %d times, want %d", gotReads, hybridRevisions)
+	}
+
+}
+
+func TestReadContextEnforcesAggregateDecodeBudgetAcrossRepeatedHybridXRefReads(t *testing.T) {
+	const hybridRevisions = 8
+	const decodedXRefStreamBytes = 8 * 7
+	data := syntheticPDFWithRepeatedHybridXRefStream(t, hybridRevisions)
+	conf := model.NewStatelessConfiguration()
+	conf.Reader15 = true
+	conf.ValidationMode = model.ValidationStrict
+	conf.Offline = true
+	conf.Optimize = false
+	conf.Limits.MaxInputBytes = maxBytes
+	conf.Limits.MaxObjectBytes = maxBytes
+	conf.Limits.MaxStreamBytes = maxBytes
+	conf.Limits.MaxDecodeBytes = 1 << 20
+	conf.Limits.MaxTotalDecodeBytes = decodedXRefStreamBytes * (hybridRevisions - 1)
+	conf.Limits.MaxObjectCount = maxPDFObjects
+	conf.Limits.MaxObjectStreamCount = maxPDFObjectStreams
+	conf.Limits.MaxObjectStreamFirst = maxPDFObjectProlog
+	conf.Limits.MaxXRefEntries = maxPDFObjects
+	conf.Limits.MaxRecursionDepth = maxPDFRecursion
+	conf.Cmd = model.VALIDATE
+
+	ctx, cancel := context.WithTimeout(context.Background(), pdfParseTimeout)
+	defer cancel()
+	parsed, err := api.ReadContext(ctx, bytes.NewReader(data), conf)
+	if parsed != nil {
+		t.Fatal("ReadContext returned a partial context after exhausting the shared decode budget")
+	}
+	if !errors.Is(err, filter.ErrDecodeLimitExceeded) {
+		t.Fatalf("repeated hybrid xref reads exceeded the aggregate decode budget: error=%v, want decode-limit error", err)
+	}
+}
+
+func TestPredecodePDFStreamsCountsSoleOpaqueFilterOutput(t *testing.T) {
+	const xrefEntries = 8
+	const xrefDecodedBytes = xrefEntries * 7
+	raw := []byte("synthetic encoded image")
+	opaqueStream := func(filterName string) string {
+		return fmt.Sprintf("<< /Filter /%s /Length %d >>\nstream\n%s\nendstream", filterName, len(raw), raw)
+	}
+	data := syntheticPDFWithXRefStream(t, xrefEntries,
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> /Contents 4 0 R >>",
+		"<< /Length 0 >>\nstream\n\nendstream",
+		opaqueStream("JPXDecode"),
+		opaqueStream("JBIG2Decode"),
+	)
+	const perStreamLimit = 64
+	aggregateBudget := int64(xrefDecodedBytes + 2*len(raw))
+	for _, testCase := range []struct {
+		name         string
+		budget       int64
+		wantRejected bool
+	}{
+		{name: "one byte short", budget: aggregateBudget - 1, wantRejected: true},
+		{name: "exact aggregate limit", budget: aggregateBudget},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			conf := model.NewStatelessConfiguration()
+			conf.Reader15 = true
+			conf.ValidationMode = model.ValidationStrict
+			conf.Offline = true
+			conf.Limits.MaxInputBytes = maxBytes
+			conf.Limits.MaxObjectBytes = maxBytes
+			conf.Limits.MaxStreamBytes = maxBytes
+			conf.Limits.MaxDecodeBytes = perStreamLimit
+			conf.Limits.MaxTotalDecodeBytes = testCase.budget
+			conf.Limits.MaxObjectCount = maxPDFObjects
+			conf.Limits.MaxObjectStreamCount = maxPDFObjectStreams
+			conf.Limits.MaxObjectStreamFirst = maxPDFObjectProlog
+			conf.Limits.MaxXRefEntries = maxPDFObjects
+			conf.Limits.MaxRecursionDepth = maxPDFRecursion
+			conf.Cmd = model.VALIDATE
+
+			ctx, cancel := context.WithTimeout(context.Background(), pdfParseTimeout)
+			defer cancel()
+			parsed, err := api.ReadContext(ctx, bytes.NewReader(data), conf)
+			if err != nil {
+				t.Fatalf("ReadContext failed before stream predecode: %v", err)
+			}
+			err = predecodePDFStreams(ctx, parsed)
+			if testCase.wantRejected {
+				if !errors.Is(err, ErrRejected) {
+					t.Fatalf("predecode error = %v, want inspection rejection at the aggregate decode boundary", err)
+				}
+				if got := parsed.XRefTable.DecodeBudget.Used(); got != testCase.budget {
+					t.Fatalf("aggregate budget after rejected second opaque stream = %d, want conservatively charged limit %d", got, testCase.budget)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("predecode at exact aggregate budget failed: %v", err)
+			}
+			if got := parsed.XRefTable.DecodeBudget.Used(); got != aggregateBudget {
+				t.Fatalf("aggregate decoded output = %d, want %d including xref and both opaque streams", got, aggregateBudget)
+			}
+		})
 	}
 }
 
@@ -327,7 +549,7 @@ func TestPDFParserBudgetCachesSharedStreamBeforeValidation(t *testing.T) {
 		lookupStream,
 	)
 
-	parserLimit, _, scannerBudget, err := pdfDecodeLimits(data, aggregateBudget, 1)
+	parserLimit, err := pdfDecodeLimits(aggregateBudget)
 	if err != nil {
 		t.Fatalf("compute parser limit: %v", err)
 	}
@@ -342,25 +564,24 @@ func TestPDFParserBudgetCachesSharedStreamBeforeValidation(t *testing.T) {
 	conf.ValidationMode = model.ValidationStrict
 	conf.Offline = true
 	conf.Limits.MaxDecodeBytes = parserLimit
+	conf.Limits.MaxTotalDecodeBytes = aggregateBudget
 	conf.Cmd = model.VALIDATE
-	if _, err := api.ReadAndValidate(context.Background(), bytes.NewReader(data), conf); err != nil {
-		t.Fatalf("fixture must reach repeated parser decoding under the per-stream limit: %v", err)
+	if _, err := api.ReadAndValidate(context.Background(), bytes.NewReader(data), conf.Clone()); !errors.Is(err, filter.ErrDecodeLimitExceeded) {
+		t.Fatalf("repeated shared-stream materializations did not exhaust the aggregate budget: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), pdfParseTimeout)
 	defer cancel()
-	parsed, usage, err := readAndValidatePDFWithinBudget(ctx, data, conf, parserLimit, aggregateBudget-scannerBudget)
+	parsed, err := readAndValidatePDFWithinBudget(ctx, data, conf, parserLimit, aggregateBudget)
 	if err != nil {
-		t.Fatalf("budgeted parser rejected valid shared lookup stream: %v", err)
+		t.Fatalf("budgeted parser rejected shared lookup stream after predecode caching: %v", err)
 	}
 	if parsed == nil || parsed.PageCount != 1 {
 		t.Fatal("budgeted parser returned an incomplete PDF context")
 	}
-	if usage.predecodedBytes < lookupDecodedBytes || usage.predecodedBytes >= lookupReferences*lookupDecodedBytes {
-		t.Fatalf("shared stream was not counted once before validation: decoded=%d references=%d stream-bytes=%d", usage.predecodedBytes, lookupReferences, lookupDecodedBytes)
-	}
-	if usage.total() > aggregateBudget-scannerBudget {
-		t.Fatalf("parser budget exceeded: usage=%d budget=%d", usage.total(), aggregateBudget-scannerBudget)
+	used := parsed.XRefTable.DecodeBudget.Used()
+	if used < lookupDecodedBytes || used >= int64(lookupReferences*lookupDecodedBytes) || used > aggregateBudget {
+		t.Fatalf("shared output was not cached within the aggregate budget: used=%d references=%d stream-bytes=%d budget=%d", used, lookupReferences, lookupDecodedBytes, aggregateBudget)
 	}
 }
 
@@ -410,6 +631,44 @@ func syntheticPDFWithXRefStream(t *testing.T, xrefEntryCount int, objects ...str
 	return b.Bytes()
 }
 
+func syntheticPDFWithRepeatedHybridXRefStream(t *testing.T, revisions int) []byte {
+	t.Helper()
+	if revisions < 1 {
+		t.Fatal("hybrid xref fixture requires at least one revision")
+	}
+	base := syntheticPDFWithXRefStream(t, 8,
+		"<< /Type /Catalog /Pages 2 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> /Contents 4 0 R >>",
+		"<< /Length 0 >>\nstream\n\nendstream",
+	)
+	startXRefMarker := []byte("startxref\n")
+	startXRefIndex := bytes.LastIndex(base, startXRefMarker)
+	if startXRefIndex < 0 {
+		t.Fatal("synthetic xref-stream fixture lacks startxref")
+	}
+	var xrefStreamOffset int
+	if _, err := fmt.Sscanf(string(base[startXRefIndex+len(startXRefMarker):]), "%d", &xrefStreamOffset); err != nil {
+		t.Fatalf("parse synthetic xref-stream offset: %v", err)
+	}
+
+	var pdf bytes.Buffer
+	pdf.Write(base[:startXRefIndex])
+	previousXRefOffset := -1
+	for revision := 0; revision < revisions; revision++ {
+		currentXRefOffset := pdf.Len()
+		pdf.WriteString("xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 8 /Root 1 0 R /XRef#53tm ")
+		fmt.Fprintf(&pdf, "%d", xrefStreamOffset)
+		if previousXRefOffset >= 0 {
+			fmt.Fprintf(&pdf, " /Pr#65v %d", previousXRefOffset)
+		}
+		pdf.WriteString(" >>\n")
+		fmt.Fprintf(&pdf, "startxref\n%d\n%%%%EOF\n", currentXRefOffset)
+		previousXRefOffset = currentXRefOffset
+	}
+	return pdf.Bytes()
+}
+
 func TestPDFParserBudgetIncludesCompressedObjectStreamRead(t *testing.T) {
 	data := syntheticPDFWithIndirectLengthObjectStream(t, 8<<10)
 	for _, testCase := range []struct {
@@ -417,11 +676,11 @@ func TestPDFParserBudgetIncludesCompressedObjectStreamRead(t *testing.T) {
 		budget       int64
 		wantRejected bool
 	}{
-		{name: "object stream exceeds parser share", budget: 64 << 10, wantRejected: true},
+		{name: "object stream exceeds aggregate budget", budget: 4 << 10, wantRejected: true},
 		{name: "object stream fits parser share", budget: 1 << 20},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			parserLimit, _, scannerBudget, err := pdfDecodeLimits(data, testCase.budget, 1)
+			parserLimit, err := pdfDecodeLimits(testCase.budget)
 			if err != nil {
 				t.Fatalf("compute parser limit: %v", err)
 			}
@@ -434,6 +693,7 @@ func TestPDFParserBudgetIncludesCompressedObjectStreamRead(t *testing.T) {
 			conf.Limits.MaxObjectBytes = maxBytes
 			conf.Limits.MaxStreamBytes = maxBytes
 			conf.Limits.MaxDecodeBytes = parserLimit
+			conf.Limits.MaxTotalDecodeBytes = testCase.budget
 			conf.Limits.MaxObjectCount = maxPDFObjects
 			conf.Limits.MaxObjectStreamCount = maxPDFObjectStreams
 			conf.Limits.MaxObjectStreamFirst = min(maxPDFObjectProlog, parserLimit)
@@ -460,7 +720,7 @@ func TestPDFParserBudgetIncludesCompressedObjectStreamRead(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), pdfParseTimeout)
 			defer cancel()
-			parsed, usage, err := readAndValidatePDFWithinBudget(ctx, data, conf, parserLimit, testCase.budget-scannerBudget)
+			parsed, err := readAndValidatePDFWithinBudget(ctx, data, conf, parserLimit, testCase.budget)
 			if testCase.wantRejected {
 				if !errors.Is(err, ErrRejected) {
 					t.Fatalf("oversized compressed object stream was not rejected before scanning: parsed=%v err=%v", parsed != nil, err)
@@ -477,17 +737,46 @@ func TestPDFParserBudgetIncludesCompressedObjectStreamRead(t *testing.T) {
 			if !found || entry == nil || entry.Object != types.Integer(4) {
 				t.Fatalf("indirect stream length was not materialized from the object stream: entry=%#v", entry)
 			}
-			if usage.total() > testCase.budget-scannerBudget {
-				t.Fatalf("parser budget exceeded: usage=%d budget=%d", usage.total(), testCase.budget-scannerBudget)
-			}
 		})
 	}
 }
 
-func syntheticPDFWithIndirectLengthObjectStream(t *testing.T, paddingBytes int) []byte {
+func TestReadContextEnforcesAggregateBudgetOnObjectStreamProlog(t *testing.T) {
+	data := syntheticPDFWithIndirectLengthObjectStream(t, 32<<10, 16<<10)
+	conf := model.NewStatelessConfiguration()
+	conf.Reader15 = true
+	conf.ValidationMode = model.ValidationStrict
+	conf.Offline = true
+	conf.Limits.MaxInputBytes = maxBytes
+	conf.Limits.MaxObjectBytes = maxBytes
+	conf.Limits.MaxStreamBytes = maxBytes
+	conf.Limits.MaxDecodeBytes = 64 << 10
+	conf.Limits.MaxTotalDecodeBytes = 4 << 10
+	conf.Limits.MaxObjectCount = maxPDFObjects
+	conf.Limits.MaxObjectStreamCount = maxPDFObjectStreams
+	conf.Limits.MaxObjectStreamFirst = 64 << 10
+	conf.Limits.MaxXRefEntries = maxPDFObjects
+	conf.Limits.MaxRecursionDepth = maxPDFRecursion
+	conf.Cmd = model.VALIDATE
+
+	ctx, cancel := context.WithTimeout(context.Background(), pdfParseTimeout)
+	defer cancel()
+	parsed, err := api.ReadContext(ctx, bytes.NewReader(data), conf)
+	if parsed != nil {
+		t.Fatal("ReadContext returned a context after the object-stream prolog exhausted the aggregate budget")
+	}
+	if !errors.Is(err, filter.ErrDecodeLimitExceeded) || !strings.Contains(err.Error(), "decode object stream prolog") {
+		t.Fatalf("ReadContext prolog decode error=%v, want aggregate decode-limit error from prolog decoding", err)
+	}
+}
+
+func syntheticPDFWithIndirectLengthObjectStream(t *testing.T, paddingBytes int, prologPadding ...int) []byte {
 	t.Helper()
 	objectStreamBody := "4 (" + strings.Repeat("A", paddingBytes) + ")"
 	objectStreamProlog := fmt.Sprintf("6 0 7 %d ", len("4 "))
+	if len(prologPadding) > 0 {
+		objectStreamProlog += strings.Repeat(" ", prologPadding[0])
+	}
 	objectStreamContent := objectStreamProlog + objectStreamBody
 	var compressedObjectStream bytes.Buffer
 	objectStreamWriter := zlib.NewWriter(&compressedObjectStream)
@@ -623,25 +912,21 @@ func TestPDFStructureScannerRejectsNilSecurityNameValues(t *testing.T) {
 	}
 }
 
-func TestReserveDecodedPDFBytesEnforcesAggregateLimit(t *testing.T) {
-	if used, ok := reserveDecodedPDFBytes(6, 4, 10); !ok || used != 10 {
-		t.Fatalf("exact budget boundary: used=%d accepted=%v", used, ok)
-	}
-	if used, ok := reserveDecodedPDFBytes(6, 5, 10); ok || used != 6 {
-		t.Fatalf("over-budget reservation: used=%d accepted=%v", used, ok)
-	}
-	if used, ok := reserveDecodedPDFBytes(1<<63-1, 1, 1<<63-1); ok || used != 1<<63-1 {
-		t.Fatalf("overflowing reservation: used=%d accepted=%v", used, ok)
-	}
-}
-
 func TestPDFStructureScannerEnforcesAggregateObjectStreamBudget(t *testing.T) {
 	generation := 0
 	streamOneNumber, streamTwoNumber := 5, 7
 	newStream := func(objectNumber int) *types.ObjectStreamDict {
 		prolog := fmt.Sprintf("%d 0 ", objectNumber)
+		var compressed bytes.Buffer
+		writer := zlib.NewWriter(&compressed)
+		if _, err := writer.Write([]byte(prolog + "1")); err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Fatal(err)
+		}
 		stream := &types.ObjectStreamDict{
-			StreamDict:     types.StreamDict{Content: []byte(prolog + "1")},
+			StreamDict:     types.StreamDict{Raw: compressed.Bytes(), FilterPipeline: []types.PDFFilter{{Name: "FlateDecode"}}},
 			MaxDecodeBytes: maxPDFDecodedStream,
 			ObjCount:       1,
 			FirstObjOffset: len(prolog),
@@ -667,10 +952,9 @@ func TestPDFStructureScannerEnforcesAggregateObjectStreamBudget(t *testing.T) {
 		8:               {Generation: &generation, Object: newLazy(streamTwo), ObjectStream: &streamTwoNumber, ObjectStreamInd: &objectStreamIndex},
 	}
 	scanner := pdfStructureScanner{
-		xref:                 &model.XRefTable{Table: entries},
+		xref:                 &model.XRefTable{DecodeBudget: model.NewDecodeBudget(9), Table: entries},
 		visited:              make(map[pdfObjectRef]struct{}),
 		decodedObjectStreams: make(map[int]struct{}),
-		decodedByteLimit:     9,
 	}
 	if err := scanner.walk(types.IndirectRef{ObjectNumber: 6, GenerationNumber: 0}, 0); err != nil {
 		t.Fatalf("first object stream unexpectedly rejected: %v", err)
@@ -707,11 +991,10 @@ func TestPDFStructureScannerReservesBudgetBeforeObjectStreamDecode(t *testing.T)
 		}),
 	}
 	scanner := pdfStructureScanner{
-		xref: &model.XRefTable{Table: map[int]*model.XRefTableEntry{
+		xref: &model.XRefTable{DecodeBudget: model.NewDecodeBudget(5), Table: map[int]*model.XRefTableEntry{
 			5: {Generation: &generation, Object: stream},
 		}},
 		decodedObjectStreams: make(map[int]struct{}),
-		decodedByteLimit:     5,
 	}
 	if err := scanner.accountObjectStream(5); !errors.Is(err, ErrRejected) {
 		t.Fatalf("over-budget object stream was accepted: %v", err)
@@ -746,11 +1029,11 @@ func TestPDFStructureScannerPublishesBoundedObjectStreamDecodeToXRef(t *testing.
 		return types.Dict{"Type": types.Name("Example")}, nil
 	})
 	stream.ObjArray = types.Array{lazy}
-	xref := &model.XRefTable{Table: map[int]*model.XRefTableEntry{
+	xref := &model.XRefTable{DecodeBudget: model.NewDecodeBudget(maxPDFDecodedTotal), Table: map[int]*model.XRefTableEntry{
 		objectStreamNumber: {Generation: &generation, Object: *stream},
 		6:                  {Generation: &generation, Object: lazy, ObjectStream: &objectStreamNumber, ObjectStreamInd: &objectStreamIndex},
 	}}
-	scanner := pdfStructureScanner{xref: xref, decodedObjectStreams: make(map[int]struct{}), decodedByteLimit: maxPDFDecodedTotal}
+	scanner := pdfStructureScanner{xref: xref, decodedObjectStreams: make(map[int]struct{})}
 	if err := scanner.accountObjectStream(objectStreamNumber); err != nil {
 		t.Fatalf("object stream rejected: %v", err)
 	}
@@ -1227,5 +1510,171 @@ func TestExecutablePathMustBeExplicit(t *testing.T) {
 	pdfinfo, pdfdetach := popplerBinaries(t)
 	if _, _, e := New(Config{PDFInfoPath: filepath.Base(pdfinfo), PDFDetachPath: filepath.Base(pdfdetach)}).Inspect(dv.PurposeIdentity, "opaque", syntheticPDF(t, "")); e == nil {
 		t.Fatal("resolved a parser executable by searching PATH")
+	}
+}
+
+type cancelOnSecondErrContext struct {
+	checks   int
+	done     chan struct{}
+	canceled bool
+}
+
+func (c *cancelOnSecondErrContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *cancelOnSecondErrContext) Done() <-chan struct{}       { return c.done }
+func (c *cancelOnSecondErrContext) Value(any) any               { return nil }
+func (c *cancelOnSecondErrContext) Err() error {
+	c.checks++
+	if c.checks < 2 {
+		return nil
+	}
+	if !c.canceled {
+		close(c.done)
+		c.canceled = true
+	}
+	return context.Canceled
+}
+
+func TestPredecodePDFStreamsPropagatesRequestCancellationIntoFilterDecode(t *testing.T) {
+	const decodedBytes = 64 << 10
+	conf := model.NewStatelessConfiguration()
+	conf.Limits.MaxDecodeBytes = 128 << 10
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write(bytes.Repeat([]byte("x"), decodedBytes)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stream := types.NewStreamDict(types.NewDict(), 0, nil, nil, []types.PDFFilter{{Name: filter.Flate}})
+	stream.Raw = compressed.Bytes()
+	entry := &model.XRefTableEntry{Object: stream}
+	budget := model.NewDecodeBudget(128 << 10)
+	xref := &model.XRefTable{
+		Conf:         conf,
+		DecodeBudget: budget,
+		Table:        map[int]*model.XRefTableEntry{1: entry},
+	}
+	parsed := &model.Context{
+		Configuration: conf,
+		XRefTable:     xref,
+	}
+	requestCtx := &cancelOnSecondErrContext{done: make(chan struct{})}
+	if err := predecodePDFStreams(requestCtx, parsed); !errors.Is(err, ErrRejected) {
+		t.Fatalf("predecodePDFStreams() error=%v, want cancellation to reject the document", err)
+	}
+}
+
+type cancelAtErrCallContext struct {
+	checks   int
+	cancelAt int
+	done     chan struct{}
+	canceled bool
+}
+
+func (c *cancelAtErrCallContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *cancelAtErrCallContext) Done() <-chan struct{}       { return c.done }
+func (c *cancelAtErrCallContext) Value(any) any               { return nil }
+func (c *cancelAtErrCallContext) Err() error {
+	c.checks++
+	if c.checks < c.cancelAt {
+		return nil
+	}
+	if !c.canceled {
+		close(c.done)
+		c.canceled = true
+	}
+	return context.Canceled
+}
+
+func TestValidateContextPropagatesCancellationIntoMetadataFilterDecode(t *testing.T) {
+	const metadataDecodedBytes = 64 << 10
+	const xrefEntryCount = 8 << 10
+	prefix := `<x:xmpmeta xmlns:x="adobe:ns:meta/">`
+	suffix := `</x:xmpmeta>`
+	metadata := append([]byte(prefix), bytes.Repeat([]byte(" "), metadataDecodedBytes-len(prefix)-len(suffix))...)
+	metadata = append(metadata, suffix...)
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write(metadata); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	metadataStream := fmt.Sprintf("<< /Type /Metadata /Subtype /XML /Filter /FlateDecode /Length %d >>\nstream\n%s\nendstream", compressed.Len(), compressed.Bytes())
+	data := syntheticPDFWithXRefStream(t, xrefEntryCount,
+		"<< /Type /Catalog /Pages 2 0 R /Metadata 5 0 R >>",
+		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 10 10] /Resources << >> /Contents 4 0 R >>",
+		"<< /Length 0 >>\nstream\n\nendstream",
+		metadataStream,
+	)
+	conf := model.NewStatelessConfiguration()
+	conf.ValidationMode = model.ValidationStrict
+	conf.Offline = true
+	conf.Limits.MaxDecodeBytes = 128 << 10
+	conf.Limits.MaxTotalDecodeBytes = 256 << 10
+	conf.Cmd = model.VALIDATE
+	parsed, err := api.ReadContext(context.Background(), bytes.NewReader(data), conf)
+	if err != nil {
+		t.Fatalf("ReadContext() error=%v", err)
+	}
+	if parsed == nil || parsed.XRefTable == nil || parsed.XRefTable.DecodeBudget == nil {
+		t.Fatal("ReadContext() returned no shared decode budget")
+	}
+	usedBeforeValidation := parsed.XRefTable.DecodeBudget.Used()
+	requestCtx := &cancelAtErrCallContext{cancelAt: 6, done: make(chan struct{})}
+	err = api.ValidateContext(requestCtx, parsed)
+	if !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "decode catalog metadata") {
+		t.Fatalf("ValidateContext() error=%v, want cancellation from metadata filter decoding", err)
+	}
+	if used := parsed.XRefTable.DecodeBudget.Used(); used-usedBeforeValidation != 128<<10 {
+		t.Fatalf("metadata filter decode charged %d bytes after cancellation, want conservative 128 KiB reservation; before=%d after=%d", used-usedBeforeValidation, usedBeforeValidation, used)
+	}
+}
+
+func TestPDFStructureScannerPropagatesRequestCancellationIntoObjectStreamDecode(t *testing.T) {
+	const streamLimit = 64
+	prolog := []byte("6 0 ")
+	decoded := append(append([]byte(nil), prolog...), []byte("<< /Type /Example >>")...)
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	if _, err := writer.Write(decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	generation, objectStreamNumber, objectStreamIndex := 0, 5, 0
+	stream := &types.ObjectStreamDict{
+		StreamDict: types.StreamDict{
+			Raw:            compressed.Bytes(),
+			FilterPipeline: []types.PDFFilter{{Name: filter.Flate}},
+		},
+		MaxDecodeBytes: streamLimit,
+		FirstObjOffset: len(prolog),
+		ObjCount:       1,
+	}
+	stream.ObjArray = types.Array{
+		types.NewLazyObjectStreamObject(stream, 0, -1, func(context.Context, string) (types.Object, error) {
+			return types.Dict{"Type": types.Name("Example")}, nil
+		}),
+	}
+	budget := model.NewDecodeBudget(streamLimit)
+	requestCtx := &cancelOnSecondErrContext{done: make(chan struct{})}
+	scanner := pdfStructureScanner{
+		ctx: requestCtx,
+		xref: &model.XRefTable{DecodeBudget: budget, Table: map[int]*model.XRefTableEntry{
+			objectStreamNumber: {Generation: &generation, Object: *stream},
+			6:                  {Generation: &generation, ObjectStream: &objectStreamNumber, ObjectStreamInd: &objectStreamIndex},
+		}},
+		decodedObjectStreams: make(map[int]struct{}),
+	}
+	if err := scanner.accountObjectStream(objectStreamNumber); !errors.Is(err, ErrRejected) {
+		t.Fatalf("accountObjectStream() error=%v, want cancellation to reject the document", err)
+	}
+	if used := budget.Used(); used != streamLimit {
+		t.Fatalf("object stream decode used %d budget bytes after cancellation, want conservative reservation %d", used, streamLimit)
 	}
 }

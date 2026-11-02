@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
+	"github.com/jackc/pgx/v5"
 )
 
 func validDatabaseRoleName(value string) bool {
@@ -22,6 +23,20 @@ func validDatabaseRoleName(value string) bool {
 		return false
 	}
 	return true
+}
+
+func validateMigrationExecutionIdentity(databaseURL, setRole string) error {
+	if setRole != "espacigo_schema_owner" {
+		return errors.New("DATABASE_SET_ROLE must be explicitly set to espacigo_schema_owner for migration execution")
+	}
+	config, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		return errors.New("DATABASE_URL must identify the dedicated migration login")
+	}
+	if config.User != "espacigo_migrator_login" {
+		return errors.New("DATABASE_URL user must be espacigo_migrator_login for migration execution")
+	}
+	return nil
 }
 
 type connectionSettings struct {

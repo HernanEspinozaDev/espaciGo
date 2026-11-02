@@ -107,6 +107,42 @@ func TestPrivateStoreRejectsInvalidIDsOversizeAndCancelledContext(t *testing.T) 
 	}
 }
 
+type cancelContextOnErrCheck struct {
+	context.Context
+	cancel   context.CancelFunc
+	checks   int
+	cancelAt int
+}
+
+func (c *cancelContextOnErrCheck) Err() error {
+	c.checks++
+	if c.checks == c.cancelAt {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+func TestPrivateStoreReadStopsWhenContextCancelsDuringFileRead(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "private-documents"), testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := bytes.Repeat([]byte("synthetic encrypted document "), 4096)
+	if err := store.PutSpaceDocument(context.Background(), ownerID, spaceID, caseID, fileID, content); err != nil {
+		t.Fatal(err)
+	}
+	base, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ctx := &cancelContextOnErrCheck{Context: base, cancel: cancel, cancelAt: 3}
+	got, err := store.ReadSpaceDocument(ctx, ownerID, spaceID, caseID, fileID)
+	if !errors.Is(err, context.Canceled) || got != nil {
+		t.Fatalf("cancelled read returned %d plaintext bytes, err=%v", len(got), err)
+	}
+	if ctx.checks < 3 {
+		t.Fatalf("read checked cancellation only %d times; want a check while streaming the file", ctx.checks)
+	}
+}
+
 func TestPrivateStoreRejectsSymlinkRootWithoutChangingTargetPermissions(t *testing.T) {
 	parent := t.TempDir()
 	target := filepath.Join(parent, "target")

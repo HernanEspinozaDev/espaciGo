@@ -374,7 +374,7 @@ func ownerError(w http.ResponseWriter, err error) {
 		http.Error(w, "not found", 404)
 	case errors.Is(err, documentverification.ErrConflict):
 		http.Error(w, "case revision conflict", 409)
-	case errors.Is(err, documentverification.ErrInvalid):
+	case errors.Is(err, documentverification.ErrInvalid), errors.Is(err, documentverification.ErrFilesNotClean):
 		http.Error(w, "invalid request", 400)
 	default:
 		http.Error(w, "temporarily unavailable", 503)

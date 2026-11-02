@@ -24,7 +24,7 @@ func TestPostgresOwnershipSupersessionPreservesEarlierRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -33,7 +33,7 @@ func TestPostgresOwnershipSupersessionPreservesEarlierRetention(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	var database, setupRole string
-	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_synth_20261029" {
+	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing unexpected F5 integration target")
 	}
 	if setupRole == "espacigo_runtime" {

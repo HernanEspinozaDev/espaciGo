@@ -27,7 +27,7 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -36,7 +36,7 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 	}
 	t.Cleanup(pool.Close)
 	var database, setupRole string
-	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_synth_20261029" || setupRole == "espacigo_runtime" {
+	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_gate_20261101" || setupRole == "espacigo_runtime" {
 		t.Fatal("refusing unexpected database or runtime fixture setup role")
 	}
 	oldOwner, newOwner, spaceID := uuid.NewString(), uuid.NewString(), uuid.NewString()
@@ -45,11 +45,13 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 		t.Fatal("cannot begin V81 concurrency fixture setup")
 	}
 	t.Cleanup(func() {
-		if rollbackErr := setupTx.Rollback(context.Background()); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if rollbackErr := setupTx.Rollback(cleanupCtx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
 			t.Errorf("rollback V81 synthetic fixture setup: %v", rollbackErr)
 			return
 		}
-		cleanupTx, err := pool.Begin(context.Background())
+		cleanupTx, err := pool.Begin(cleanupCtx)
 		if err != nil {
 			t.Errorf("begin V81 concurrency fixture cleanup: %v", err)
 			return
@@ -64,20 +66,20 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 			{"space", `DELETE FROM public.espacio WHERE id=$1`, []any{spaceID}},
 			{"owners", `DELETE FROM public.usuario WHERE id IN($1,$2)`, []any{oldOwner, newOwner}},
 		} {
-			if _, err := cleanupTx.Exec(context.Background(), query.sql, query.args...); err != nil {
+			if _, err := cleanupTx.Exec(cleanupCtx, query.sql, query.args...); err != nil {
 				t.Errorf("delete V81 synthetic %s: %v", query.name, err)
-				if rollbackErr := cleanupTx.Rollback(context.Background()); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+				if rollbackErr := cleanupTx.Rollback(cleanupCtx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
 					t.Errorf("rollback V81 synthetic fixture cleanup: %v", rollbackErr)
 				}
 				return
 			}
 		}
-		if err := cleanupTx.Commit(context.Background()); err != nil {
+		if err := cleanupTx.Commit(cleanupCtx); err != nil {
 			t.Errorf("commit V81 synthetic fixture cleanup: %v", err)
 			return
 		}
 		var remaining int
-		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.espacio WHERE id=$3)+(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$3)+(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=$3)`, oldOwner, newOwner, spaceID).Scan(&remaining); err != nil {
+		if err := pool.QueryRow(cleanupCtx, `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.espacio WHERE id=$3)+(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$3)+(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=$3)`, oldOwner, newOwner, spaceID).Scan(&remaining); err != nil {
 			t.Errorf("verify V81 synthetic fixture cleanup: %v", err)
 		} else if remaining != 0 {
 			t.Errorf("V81 concurrency fixture cleanup left %d rows", remaining)
@@ -108,66 +110,66 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 	registerOwnershipRaceTxCleanup(t, readerTx, "repeatable-read ownership check")
 	mappedReaderTx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
-		_ = readerTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(readerTx)
 		t.Fatal("cannot begin repeatable-read mapped ownership check")
 	}
 	registerOwnershipRaceTxCleanup(t, mappedReaderTx, "mapped repeatable-read ownership check")
 	if _, err := readerTx.Exec(ctx, `SET LOCAL ROLE espacigo_runtime`); err != nil {
-		_ = readerTx.Rollback(context.Background())
-		_ = mappedReaderTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(readerTx)
+		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatal("cannot assume restricted runtime role")
 	}
 	if _, err := mappedReaderTx.Exec(ctx, `SET LOCAL ROLE espacigo_runtime`); err != nil {
-		_ = readerTx.Rollback(context.Background())
-		_ = mappedReaderTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(readerTx)
+		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatal("cannot assume restricted runtime role for mapped check")
 	}
 	var active bool
 	if err := readerTx.QueryRow(ctx, `SELECT public.document_verification_lock_active_actor($1)`, oldOwner).Scan(&active); err != nil || !active {
-		_ = readerTx.Rollback(context.Background())
-		_ = mappedReaderTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(readerTx)
+		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatal("unable to establish runtime snapshot for ownership race")
 	}
 	var snapshot int
 	if err := mappedReaderTx.QueryRow(ctx, `SELECT 1`).Scan(&snapshot); err != nil || snapshot != 1 {
-		_ = readerTx.Rollback(context.Background())
-		_ = mappedReaderTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(readerTx)
+		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatal("unable to establish mapped runtime ownership snapshot")
 	}
 	writerTx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		_ = readerTx.Rollback(context.Background())
-		_ = mappedReaderTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(readerTx)
+		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatal("cannot begin competing ownership transfer")
 	}
 	registerOwnershipRaceTxCleanup(t, writerTx, "competing ownership transfer")
 	if _, err := writerTx.Exec(ctx, `UPDATE public.espacio SET propietario_id=$2,actualizado_en=clock_timestamp() WHERE id=$1`, spaceID, newOwner); err != nil {
-		_ = writerTx.Rollback(context.Background())
-		_ = readerTx.Rollback(context.Background())
-		_ = mappedReaderTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(writerTx)
+		_ = rollbackV81RaceTx(readerTx)
+		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatal("competing synthetic ownership transfer failed")
 	}
 	if err := writerTx.Commit(ctx); err != nil {
-		_ = readerTx.Rollback(context.Background())
-		_ = mappedReaderTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(readerTx)
+		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatal("competing synthetic ownership transfer did not commit")
 	}
 	var staleOwned bool
 	err = readerTx.QueryRow(ctx, `SELECT public.document_verification_space_owned_by($1,$2)`, spaceID, oldOwner).Scan(&staleOwned)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "40001" {
-		_ = readerTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(readerTx)
 		t.Fatalf("repeatable-read ownership check did not fail closed after transfer: owned=%t err=%v", staleOwned, err)
 	}
-	if err := readerTx.Rollback(context.Background()); err != nil && err != pgx.ErrTxClosed {
+	if err := rollbackV81RaceTx(readerTx); err != nil && err != pgx.ErrTxClosed {
 		t.Fatal("rollback stale ownership snapshot failed")
 	}
 	mappedOwned, mappedErr := lockSpace(ctx, mappedReaderTx, spaceID, oldOwner)
 	if !errors.Is(mappedErr, dv.ErrConflict) || mappedOwned {
-		_ = mappedReaderTx.Rollback(context.Background())
+		_ = rollbackV81RaceTx(mappedReaderTx)
 		t.Fatalf("repository ownership check did not map stale snapshot to conflict: owned=%t err=%v", mappedOwned, mappedErr)
 	}
-	if err := mappedReaderTx.Rollback(context.Background()); err != nil && err != pgx.ErrTxClosed {
+	if err := rollbackV81RaceTx(mappedReaderTx); err != nil && err != pgx.ErrTxClosed {
 		t.Fatal("rollback mapped stale ownership snapshot failed")
 	}
 
@@ -197,10 +199,18 @@ func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.
 func registerOwnershipRaceTxCleanup(t *testing.T, tx pgx.Tx, name string) {
 	t.Helper()
 	t.Cleanup(func() {
-		if err := tx.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := tx.Rollback(cleanupCtx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
 			t.Errorf("rollback %s: %v", name, err)
 		}
 	})
+}
+
+func rollbackV81RaceTx(tx pgx.Tx) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return tx.Rollback(cleanupCtx)
 }
 
 func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.T) {
@@ -214,7 +224,7 @@ func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -223,7 +233,7 @@ func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.
 	}
 	t.Cleanup(pool.Close)
 	var database, setupRole string
-	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_synth_20261029" || setupRole == "espacigo_runtime" {
+	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_gate_20261101" || setupRole == "espacigo_runtime" {
 		t.Fatal("refusing unexpected database or runtime fixture setup role")
 	}
 	oldOwner, newOwner, spaceID, caseID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
@@ -231,11 +241,21 @@ func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.
 	if err != nil {
 		t.Fatal("cannot begin ownership deadlock fixture setup")
 	}
+	setupCommitted := false
+	fixtureCleanupSafe := true
 	t.Cleanup(func() {
-		if rollbackErr := setupTx.Rollback(context.Background()); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-			t.Errorf("rollback ownership deadlock fixture setup: %v", rollbackErr)
+		if !fixtureCleanupSafe {
+			t.Error("skipping fixture cleanup because a CreateCase goroutine did not stop")
 			return
 		}
+		if !setupCommitted {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if rollbackErr := setupTx.Rollback(cleanupCtx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+				t.Errorf("rollback ownership deadlock fixture setup: %v", rollbackErr)
+			}
+		}
+		cleanupV81DeadlockFixture(t, pool, oldOwner, newOwner, spaceID, caseID)
 	})
 	for _, owner := range []string{oldOwner, newOwner} {
 		if _, err := setupTx.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic','activo')`, owner, owner+"@example.invalid"); err != nil {
@@ -254,44 +274,10 @@ func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.
 	if err := setupTx.Commit(ctx); err != nil {
 		t.Fatal("cannot commit ownership deadlock fixture")
 	}
-	t.Cleanup(func() {
-		cleanupTx, err := pool.Begin(context.Background())
-		if err != nil {
-			t.Errorf("begin ownership deadlock fixture cleanup: %v", err)
-			return
-		}
-		for _, statement := range []struct {
-			name string
-			sql  string
-			args []any
-		}{
-			{"events", `DELETE FROM public.document_verification_event WHERE case_id=$1`, []any{caseID}},
-			{"case", `DELETE FROM public.document_verification_case WHERE id=$1`, []any{caseID}},
-			{"attributes", `DELETE FROM public.espacio_caracteristicas WHERE espacio_id=$1`, []any{spaceID}},
-			{"tariff", `DELETE FROM public.tarifa_espacio WHERE espacio_id=$1`, []any{spaceID}},
-			{"space", `DELETE FROM public.espacio WHERE id=$1`, []any{spaceID}},
-			{"owners", `DELETE FROM public.usuario WHERE id IN($1,$2)`, []any{oldOwner, newOwner}},
-		} {
-			if _, err := cleanupTx.Exec(context.Background(), statement.sql, statement.args...); err != nil {
-				t.Errorf("delete ownership deadlock fixture %s: %v", statement.name, err)
-				if rollbackErr := cleanupTx.Rollback(context.Background()); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-					t.Errorf("rollback ownership deadlock fixture cleanup: %v", rollbackErr)
-				}
-				return
-			}
-		}
-		if err := cleanupTx.Commit(context.Background()); err != nil {
-			t.Errorf("commit ownership deadlock fixture cleanup: %v", err)
-			return
-		}
-		var remaining int
-		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.espacio WHERE id=$3)+(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$3)+(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=$3)+(SELECT count(*) FROM public.document_verification_case WHERE id=$4)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$4)`, oldOwner, newOwner, spaceID, caseID).Scan(&remaining); err != nil {
-			t.Errorf("verify ownership deadlock fixture cleanup: %v", err)
-		} else if remaining != 0 {
-			t.Errorf("ownership deadlock fixture cleanup left %d rows", remaining)
-		}
-	})
+	setupCommitted = true
 
+	// Ownership changes have no separate application mutation; this UPDATE is the
+	// production trigger path, with the target space locked before its FK check.
 	transferTx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		t.Fatal("cannot begin ownership transfer transaction")
@@ -305,7 +291,7 @@ func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.
 		t.Fatal("cannot establish transfer-first space lock")
 	}
 
-	actorLocked := make(chan struct{})
+	actorLocked := make(chan int32, 1)
 	repository := newWithTransactionBeginner(&v81ActorLockSignalBeginner{pool: pool, actorLocked: actorLocked})
 	createResult := make(chan error, 1)
 	createDone := make(chan struct{})
@@ -320,6 +306,7 @@ func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.
 		select {
 		case <-createDone:
 		case <-time.After(5 * time.Second):
+			fixtureCleanupSafe = false
 			t.Error("CreateCase goroutine did not finish before fixture cleanup")
 		}
 	})
@@ -343,6 +330,7 @@ func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.
 		select {
 		case <-transferDone:
 		case <-time.After(5 * time.Second):
+			fixtureCleanupSafe = false
 			t.Error("ownership transfer goroutine did not finish before fixture cleanup")
 		}
 	})
@@ -382,7 +370,7 @@ func TestPostgresV81NewOwnerCaseDoesNotDeadlockWithOwnershipTransfer(t *testing.
 
 type v81ActorLockSignalBeginner struct {
 	pool        *pgxpool.Pool
-	actorLocked chan struct{}
+	actorLocked chan int32
 	once        sync.Once
 }
 
@@ -392,31 +380,40 @@ func (b *v81ActorLockSignalBeginner) BeginTx(ctx context.Context, options pgx.Tx
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE espacigo_runtime`); err != nil {
-		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
 			err = errors.Join(err, rollbackErr)
 		}
 		return nil, err
 	}
-	return &v81ActorLockSignalTx{Tx: tx, actorLocked: b.actorLocked, once: &b.once}, nil
+	var backendPID int32
+	if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&backendPID); err != nil {
+		if rollbackErr := rollbackV81RaceTx(tx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			err = errors.Join(err, rollbackErr)
+		}
+		return nil, err
+	}
+	return &v81ActorLockSignalTx{Tx: tx, actorLocked: b.actorLocked, backendPID: backendPID, once: &b.once}, nil
 }
 
 type v81ActorLockSignalTx struct {
 	pgx.Tx
-	actorLocked chan struct{}
+	actorLocked chan int32
+	backendPID  int32
 	once        *sync.Once
 }
 
 func (tx *v81ActorLockSignalTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
 	row := tx.Tx.QueryRow(ctx, sql, args...)
 	if strings.Contains(sql, "document_verification_lock_active_actor") {
-		return v81ActorLockSignalRow{Row: row, actorLocked: tx.actorLocked, once: tx.once}
+		return v81ActorLockSignalRow{Row: row, actorLocked: tx.actorLocked, backendPID: tx.backendPID, once: tx.once}
 	}
 	return row
 }
 
 type v81ActorLockSignalRow struct {
 	pgx.Row
-	actorLocked chan struct{}
+	actorLocked chan int32
+	backendPID  int32
 	once        *sync.Once
 }
 
@@ -424,6 +421,49 @@ func (row v81ActorLockSignalRow) Scan(dest ...any) error {
 	if err := row.Row.Scan(dest...); err != nil {
 		return err
 	}
-	row.once.Do(func() { close(row.actorLocked) })
+	row.once.Do(func() { row.actorLocked <- row.backendPID })
 	return nil
+}
+
+func cleanupV81DeadlockFixture(t *testing.T, pool *pgxpool.Pool, oldOwner, newOwner, spaceID, caseID string) {
+	t.Helper()
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cleanupTx, err := pool.Begin(cleanupCtx)
+	if err != nil {
+		t.Errorf("begin ownership deadlock fixture cleanup: %v", err)
+		return
+	}
+	failed := false
+	for _, statement := range []struct {
+		name string
+		sql  string
+		args []any
+	}{
+		{"events", `DELETE FROM public.document_verification_event WHERE case_id=$1`, []any{caseID}},
+		{"case", `DELETE FROM public.document_verification_case WHERE id=$1`, []any{caseID}},
+		{"attributes", `DELETE FROM public.espacio_caracteristicas WHERE espacio_id=$1`, []any{spaceID}},
+		{"tariff", `DELETE FROM public.tarifa_espacio WHERE espacio_id=$1`, []any{spaceID}},
+		{"space", `DELETE FROM public.espacio WHERE id=$1`, []any{spaceID}},
+		{"owners", `DELETE FROM public.usuario WHERE id IN($1,$2)`, []any{oldOwner, newOwner}},
+	} {
+		if _, err := cleanupTx.Exec(cleanupCtx, statement.sql, statement.args...); err != nil {
+			t.Errorf("delete ownership deadlock fixture %s: %v", statement.name, err)
+			failed = true
+			break
+		}
+	}
+	if failed {
+		if err := cleanupTx.Rollback(cleanupCtx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("rollback ownership deadlock fixture cleanup: %v", err)
+		}
+	} else if err := cleanupTx.Commit(cleanupCtx); err != nil {
+		t.Errorf("commit ownership deadlock fixture cleanup: %v", err)
+	}
+	var remaining int
+	if err := pool.QueryRow(cleanupCtx, `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.espacio WHERE id=$3)+(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$3)+(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=$3)+(SELECT count(*) FROM public.document_verification_case WHERE id=$4)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$4)`, oldOwner, newOwner, spaceID, caseID).Scan(&remaining); err != nil {
+		t.Errorf("verify ownership deadlock fixture cleanup: %v", err)
+	} else if remaining != 0 {
+		t.Errorf("ownership deadlock fixture cleanup left %d rows", remaining)
+	}
 }

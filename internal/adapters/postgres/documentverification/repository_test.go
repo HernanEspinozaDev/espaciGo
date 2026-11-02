@@ -29,7 +29,7 @@ func TestPostgresCreateTransitionAndRollback(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -41,7 +41,7 @@ func TestPostgresCreateTransitionAndRollback(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&db); err != nil {
 		t.Fatal(err)
 	}
-	if db != "espacigo_f5_synth_20261029" {
+	if db != "espacigo_f5_gate_20261101" {
 		t.Fatalf("refusing unexpected integration database %q", db)
 	}
 
@@ -193,6 +193,77 @@ func (b commitSerializationFailureBeginner) BeginTx(context.Context, pgx.TxOptio
 type commitSerializationFailureTx struct {
 	pgx.Tx
 	actor, caseID, spaceID string
+}
+
+type scanClaimVerifyOptionsBeginner struct {
+	options pgx.TxOptions
+	query   string
+	args    []any
+}
+
+func (b *scanClaimVerifyOptionsBeginner) BeginTx(_ context.Context, options pgx.TxOptions) (pgx.Tx, error) {
+	b.options = options
+	return scanClaimVerifyTx{beginner: b}, nil
+}
+
+type scanClaimVerifyTx struct {
+	pgx.Tx
+	beginner *scanClaimVerifyOptionsBeginner
+}
+
+func (tx scanClaimVerifyTx) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
+	tx.beginner.query = query
+	tx.beginner.args = append([]any(nil), args...)
+	return commitSerializationFailureRow{values: []any{true}}
+}
+
+func (scanClaimVerifyTx) Commit(context.Context) error   { return nil }
+func (scanClaimVerifyTx) Rollback(context.Context) error { return nil }
+
+func TestVerifyScanClaimDoesNotLockSpaceDuringPolling(t *testing.T) {
+	beginner := &scanClaimVerifyOptionsBeginner{}
+	repo := &Repository{transactions: beginner}
+	claim := ScanClaim{
+		JobID: "00000000-0000-4000-8000-000000000001", FileID: "00000000-0000-4000-8000-000000000002",
+		CaseID: "00000000-0000-4000-8000-000000000003", SubjectID: "00000000-0000-4000-8000-000000000004",
+		Purpose: dv.PurposeSpace, SpaceID: "00000000-0000-4000-8000-000000000005", Attempt: 1,
+		CaseRevision: 1, LeaseUntil: time.Now().UTC().Add(time.Minute),
+	}
+	current, err := repo.VerifyScanClaim(context.Background(), claim)
+	if err != nil || !current {
+		t.Fatalf("VerifyScanClaim()=(%t,%v), want current claim", current, err)
+	}
+	if beginner.options.AccessMode != pgx.ReadOnly {
+		t.Fatalf("VerifyScanClaim transaction access mode=%v, want read-only polling", beginner.options.AccessMode)
+	}
+	if strings.Contains(beginner.query, "document_verification_space_owned_by") || strings.Contains(beginner.query, "FOR UPDATE") {
+		t.Fatalf("VerifyScanClaim polling query takes a conflicting lock: %s", beginner.query)
+	}
+}
+
+func TestVerifyScanClaimBindsTheClaimedRetentionDeadline(t *testing.T) {
+	beginner := &scanClaimVerifyOptionsBeginner{}
+	repo := &Repository{transactions: beginner}
+	prior := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	claim := ScanClaim{
+		JobID: "00000000-0000-4000-8000-000000000001", FileID: "00000000-0000-4000-8000-000000000002",
+		CaseID: "00000000-0000-4000-8000-000000000003", SubjectID: "00000000-0000-4000-8000-000000000004",
+		Purpose: dv.PurposeSpace, SpaceID: "00000000-0000-4000-8000-000000000005", Attempt: 1,
+		CaseRevision: 1, LeaseUntil: time.Now().UTC().Add(time.Minute), PriorRetentionAt: &prior,
+	}
+	if current, err := repo.VerifyScanClaim(context.Background(), claim); err != nil || !current {
+		t.Fatalf("VerifyScanClaim()=(%t,%v), want retained but current claim", current, err)
+	}
+	if !strings.Contains(beginner.query, "f.retention_at IS NOT DISTINCT FROM $10::timestamptz") {
+		t.Fatalf("VerifyScanClaim retention predicate = %q, want null-safe comparison with claimed deadline", beginner.query)
+	}
+	if len(beginner.args) != 10 {
+		t.Fatalf("VerifyScanClaim args count=%d, want 10", len(beginner.args))
+	}
+	got, ok := beginner.args[9].(*time.Time)
+	if !ok || got == nil || !got.Equal(prior) {
+		t.Fatalf("VerifyScanClaim retention argument=%#v, want claimed deadline %s", beginner.args[9], prior)
+	}
 }
 
 func (tx commitSerializationFailureTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
@@ -386,8 +457,8 @@ func (tx lostScanClaimTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.
 		return commitSerializationFailureRow{values: []any{tx.jobID, tx.fileID, tx.caseID, tx.subjectID, string(dv.PurposeIdentity), "", int64(128), "image/png", 1, make([]byte, 32), int64(1)}}
 	case strings.Contains(sql, "SELECT revision,superseded_at"):
 		return commitSerializationFailureRow{values: []any{int64(1), nil}}
-	case strings.Contains(sql, "SELECT state FROM public.document_verification_file"):
-		return commitSerializationFailureRow{values: []any{"pendiente"}}
+	case strings.Contains(sql, "SELECT retention_at FROM public.document_verification_file"):
+		return commitSerializationFailureRow{values: []any{nil}}
 	case strings.Contains(sql, "SELECT attempts FROM public.document_verification_job"):
 		return commitSerializationFailureRow{values: []any{int16(0)}}
 	case strings.Contains(sql, "UPDATE public.document_verification_job SET state='procesando'"):
@@ -414,6 +485,82 @@ func TestScanClaimReturnsNoWorkWhenConditionalUpdateLost(t *testing.T) {
 	}
 }
 
+type scanClaimRetentionBeginner struct{ tx *scanClaimRetentionTx }
+
+func (b scanClaimRetentionBeginner) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+	return b.tx, nil
+}
+
+type scanClaimRetentionTx struct {
+	pgx.Tx
+	retentionAt  *time.Time
+	reason       string
+	candidateSQL string
+}
+
+func (tx *scanClaimRetentionTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	switch {
+	case strings.Contains(sql, "FROM public.document_verification_job j"):
+		tx.candidateSQL = sql
+		return commitSerializationFailureRow{values: []any{
+			"00000000-0000-4000-8000-000000000031",
+			"00000000-0000-4000-8000-000000000032",
+			"00000000-0000-4000-8000-000000000033",
+			"00000000-0000-4000-8000-000000000034",
+			string(dv.PurposeIdentity), "", int64(128), "image/png", 1,
+			make([]byte, 32), int64(1),
+		}}
+	case strings.Contains(sql, "SELECT revision,superseded_at"):
+		return commitSerializationFailureRow{values: []any{int64(1), nil}}
+	case strings.Contains(sql, "SELECT retention_at FROM public.document_verification_file"):
+		if tx.retentionAt == nil {
+			return commitSerializationFailureRow{values: []any{nil}}
+		}
+		return commitSerializationFailureRow{values: []any{*tx.retentionAt}}
+	case strings.Contains(sql, "SELECT attempts FROM public.document_verification_job"):
+		return commitSerializationFailureRow{values: []any{int16(0)}}
+	case strings.Contains(sql, "UPDATE public.document_verification_job SET state='procesando'"):
+		return commitSerializationFailureRow{values: []any{int16(1), time.Now().UTC().Add(time.Minute)}}
+	default:
+		return commitSerializationFailureRow{err: errors.New("unexpected retention-preserving scan claim query")}
+	}
+}
+
+func (tx *scanClaimRetentionTx) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	if strings.Contains(sql, "UPDATE public.document_verification_file SET state='pendiente'") {
+		if strings.Contains(sql, "retention_at=NULL") {
+			tx.retentionAt = nil
+		}
+		if strings.Contains(sql, "retention_reason_code=NULL") {
+			tx.reason = ""
+		}
+	}
+	return pgconn.CommandTag{}, nil
+}
+
+func (tx *scanClaimRetentionTx) Commit(context.Context) error   { return nil }
+func (tx *scanClaimRetentionTx) Rollback(context.Context) error { return nil }
+
+func TestClaimReadyScanJobKeepsPriorRetentionForOwnershipTransfer(t *testing.T) {
+	deadline := time.Now().UTC().Add(6 * time.Hour)
+	tx := &scanClaimRetentionTx{retentionAt: &deadline, reason: "inspection_error"}
+	repo := newWithTransactionBeginner(scanClaimRetentionBeginner{tx: tx})
+	claim, err := repo.ClaimReadyScanJob(context.Background(), time.Minute)
+	if err != nil || claim == nil {
+		t.Fatalf("ClaimReadyScanJob()=(%+v,%v), want a claim", claim, err)
+	}
+	if strings.Contains(tx.candidateSQL, "document_verification_space_owned_by") {
+		t.Fatal("scan candidate query must not acquire locks for every matching space before the selected space is locked")
+	}
+	candidateSQL := strings.ToLower(strings.Join(strings.Fields(tx.candidateSQL), " "))
+	if !strings.Contains(candidateSQL, "exists (select 1 from public.espacio") || !strings.Contains(candidateSQL, "s.propietario_id=c.subject_id") {
+		t.Fatalf("scan candidate query must non-lockingly exclude stale space ownership before selecting the oldest job: %q", tx.candidateSQL)
+	}
+	if tx.retentionAt == nil || !tx.retentionAt.Equal(deadline) || tx.reason != "inspection_error" {
+		t.Fatalf("scan claim discarded transfer-visible retention policy: deadline=%v reason=%q", tx.retentionAt, tx.reason)
+	}
+}
+
 type dbClockExpiredScanBeginner struct{ tx pgx.Tx }
 
 func (b dbClockExpiredScanBeginner) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
@@ -424,6 +571,8 @@ type dbClockExpiredScanTx struct {
 	pgx.Tx
 	leaseUntil       time.Time
 	dbNow            time.Time
+	subjectID        string
+	caseRevision     int64
 	jobLocked        bool
 	dbClockRead      bool
 	applyExecInvoked bool
@@ -435,9 +584,11 @@ func (tx *dbClockExpiredScanTx) QueryRow(_ context.Context, sql string, _ ...any
 		tx.dbClockRead = true
 		return commitSerializationFailureRow{values: []any{tx.dbNow}}
 	case strings.Contains(sql, "SELECT purpose,subject_id::text,COALESCE(space_id::text,''),revision,superseded_at"):
-		return commitSerializationFailureRow{values: []any{string(dv.PurposeIdentity), "00000000-0000-4000-8000-000000000031", "", int64(1), nil}}
+		return commitSerializationFailureRow{values: []any{string(dv.PurposeIdentity), tx.subjectID, "", tx.caseRevision, nil}}
 	case strings.Contains(sql, "SELECT revision,superseded_at"):
 		return commitSerializationFailureRow{values: []any{int64(1), nil}}
+	case strings.Contains(sql, "SELECT state,retention_at FROM public.document_verification_file"):
+		return commitSerializationFailureRow{values: []any{"pendiente", nil}}
 	case strings.Contains(sql, "SELECT state FROM public.document_verification_file"):
 		return commitSerializationFailureRow{values: []any{"pendiente"}}
 	case strings.Contains(sql, "FROM public.document_verification_job"):
@@ -458,14 +609,16 @@ func (*dbClockExpiredScanTx) Rollback(context.Context) error { return nil }
 
 func TestFinishScanRejectsLeaseExpiredByDatabaseClock(t *testing.T) {
 	claim := ScanClaim{
-		JobID:      "00000000-0000-4000-8000-000000000032",
-		FileID:     "00000000-0000-4000-8000-000000000033",
-		CaseID:     "00000000-0000-4000-8000-000000000034",
-		SubjectID:  "00000000-0000-4000-8000-000000000031",
-		Purpose:    dv.PurposeIdentity,
-		LeaseUntil: time.Now().UTC().Add(time.Hour),
+		JobID:        "00000000-0000-4000-8000-000000000032",
+		FileID:       "00000000-0000-4000-8000-000000000033",
+		CaseID:       "00000000-0000-4000-8000-000000000034",
+		SubjectID:    "00000000-0000-4000-8000-000000000031",
+		Purpose:      dv.PurposeIdentity,
+		Attempt:      1,
+		CaseRevision: 1,
+		LeaseUntil:   time.Now().UTC().Add(time.Hour),
 	}
-	tx := &dbClockExpiredScanTx{leaseUntil: claim.LeaseUntil, dbNow: claim.LeaseUntil.Add(time.Second)}
+	tx := &dbClockExpiredScanTx{leaseUntil: claim.LeaseUntil, dbNow: claim.LeaseUntil.Add(time.Second), subjectID: claim.SubjectID, caseRevision: 1}
 	repo := newWithTransactionBeginner(dbClockExpiredScanBeginner{tx: tx})
 	applyCalled := false
 	err := repo.finishScan(context.Background(), claim, func(context.Context, pgx.Tx, time.Time) error {
@@ -477,17 +630,42 @@ func TestFinishScanRejectsLeaseExpiredByDatabaseClock(t *testing.T) {
 	}
 }
 
+func TestFinishScanRejectsChangedCaseRevisionBeforeApply(t *testing.T) {
+	claim := ScanClaim{
+		JobID:        "00000000-0000-4000-8000-000000000052",
+		FileID:       "00000000-0000-4000-8000-000000000053",
+		CaseID:       "00000000-0000-4000-8000-000000000054",
+		SubjectID:    "00000000-0000-4000-8000-000000000051",
+		Purpose:      dv.PurposeIdentity,
+		Attempt:      1,
+		CaseRevision: 2,
+		LeaseUntil:   time.Now().UTC().Add(time.Hour),
+	}
+	tx := &dbClockExpiredScanTx{leaseUntil: claim.LeaseUntil, dbNow: claim.LeaseUntil.Add(-time.Second), subjectID: claim.SubjectID, caseRevision: 1}
+	repo := newWithTransactionBeginner(dbClockExpiredScanBeginner{tx: tx})
+	applyCalled := false
+	err := repo.finishScan(context.Background(), claim, func(context.Context, pgx.Tx, time.Time) error {
+		applyCalled = true
+		return nil
+	})
+	if !errors.Is(err, dv.ErrConflict) || applyCalled || tx.applyExecInvoked {
+		t.Fatalf("changed-revision scan result=(%v), apply_called=%t writes=%t; want conflict before writes", err, applyCalled, tx.applyExecInvoked)
+	}
+}
+
 func TestFinishScanUsesDatabaseClockForOutcomeTime(t *testing.T) {
 	claim := ScanClaim{
-		JobID:      "00000000-0000-4000-8000-000000000042",
-		FileID:     "00000000-0000-4000-8000-000000000043",
-		CaseID:     "00000000-0000-4000-8000-000000000044",
-		SubjectID:  "00000000-0000-4000-8000-000000000041",
-		Purpose:    dv.PurposeIdentity,
-		LeaseUntil: time.Now().UTC().Add(time.Hour),
+		JobID:        "00000000-0000-4000-8000-000000000042",
+		FileID:       "00000000-0000-4000-8000-000000000043",
+		CaseID:       "00000000-0000-4000-8000-000000000044",
+		SubjectID:    "00000000-0000-4000-8000-000000000041",
+		Purpose:      dv.PurposeIdentity,
+		Attempt:      1,
+		CaseRevision: 1,
+		LeaseUntil:   time.Now().UTC().Add(time.Hour),
 	}
 	dbNow := time.Date(2001, time.January, 2, 3, 4, 5, 0, time.UTC)
-	tx := &dbClockExpiredScanTx{leaseUntil: claim.LeaseUntil, dbNow: dbNow}
+	tx := &dbClockExpiredScanTx{leaseUntil: claim.LeaseUntil, dbNow: dbNow, subjectID: claim.SubjectID, caseRevision: 1}
 	repo := newWithTransactionBeginner(dbClockExpiredScanBeginner{tx: tx})
 	applyErr := errors.New("stop after observing persisted outcome time")
 	var appliedAt time.Time
@@ -510,7 +688,7 @@ func TestPostgresPersistedReviewerGrantAndReasonAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -629,7 +807,7 @@ func TestPostgresBookingIdentityVerifierUsesPersistedManualCases(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -718,7 +896,7 @@ func TestPostgresSpaceCaseOwnershipTransferRequiresNewCase(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -782,8 +960,18 @@ func TestPostgresSpaceCaseOwnershipTransferRequiresNewCase(t *testing.T) {
 	if err := service.AddFile(ctx, oldOwner, caseID, dv.PurposeSpace, current.Revision, secondFile); err != nil {
 		t.Fatalf("add second transfer fixture file: %v", err)
 	}
-	if _, err := outer.Exec(ctx, `UPDATE public.document_verification_job SET state='procesando',attempts=2,lease_until=now()+interval '1 hour' WHERE file_id=$1 AND kind='scan' AND state='pendiente'`, secondFileID); err != nil {
-		t.Fatalf("seed active scan lease: %v", err)
+	scanCase, err := repo.LoadOwnCase(ctx, oldOwner, caseID)
+	if err != nil {
+		t.Fatalf("reload case before seeding an active scan lease: %v", err)
+	}
+	var scanJobID string
+	var scanAttempt int16
+	var scanLeaseUntil time.Time
+	if err := outer.QueryRow(ctx, `UPDATE public.document_verification_job SET state='procesando',attempts=attempts+1,lease_until=clock_timestamp()+interval '1 hour',updated_at=clock_timestamp() WHERE file_id=$1 AND kind='scan' AND state='pendiente' RETURNING id::text,attempts,lease_until`, secondFileID).Scan(&scanJobID, &scanAttempt, &scanLeaseUntil); err != nil {
+		t.Fatalf("seed the unique transfer scan lease without claiming the shared queue: %v", err)
+	}
+	if _, err := outer.Exec(ctx, `UPDATE public.document_verification_job SET state='completado',lease_until=NULL WHERE file_id=$1 AND kind='scan' AND state='pendiente'`, fileID); err != nil {
+		t.Fatalf("isolate the second file's scan fixture: %v", err)
 	}
 	preexistingRetentionDeadline := time.Now().UTC().Truncate(time.Microsecond).Add(24 * time.Hour)
 	if _, err := outer.Exec(ctx, `UPDATE public.document_verification_file SET retention_at=$2,retention_reason_code='abandoned_draft' WHERE id=$1`, fileID, preexistingRetentionDeadline); err != nil {
@@ -803,8 +991,24 @@ func TestPostgresSpaceCaseOwnershipTransferRequiresNewCase(t *testing.T) {
 	if runtimeRole != "espacigo_runtime" || superuser || bypassRLS {
 		t.Fatalf("ownership transfer is not running as the restricted runtime role: role=%q superuser=%t bypassRLS=%t", runtimeRole, superuser, bypassRLS)
 	}
+	activeScanClaim := ScanClaim{JobID: scanJobID, FileID: secondFileID, CaseID: caseID, SubjectID: oldOwner, Purpose: dv.PurposeSpace, SpaceID: spaceID, Size: secondFile.Size, MIME: secondFile.MIME, Pages: secondFile.Pages, ContentSHA256: secondFile.ContentSHA256, Attempt: scanAttempt, CaseRevision: int64(scanCase.Revision), LeaseUntil: scanLeaseUntil}
+	claimCurrent, err := repo.VerifyScanClaim(ctx, activeScanClaim)
+	if err != nil || !claimCurrent {
+		t.Fatalf("active scan claim validation=(%t,%v), want current before ownership transfer", claimCurrent, err)
+	}
 	if _, err := outer.Exec(ctx, `UPDATE public.espacio SET propietario_id=$2,actualizado_en=now() WHERE id=$1`, spaceID, newOwner); err != nil {
 		t.Fatalf("synthetic ownership transfer failed: %v", err)
+	}
+	claimCurrent, err = repo.VerifyScanClaim(ctx, activeScanClaim)
+	if err != nil || claimCurrent {
+		t.Fatalf("transferred scan claim validation=(%t,%v), want fenced after ownership transfer", claimCurrent, err)
+	}
+	if err := repo.RecordScanOutcome(ctx, activeScanClaim, ScanOutcome{State: dv.FileClean, ScannerVersion: "synthetic-stale-result", SignaturesAt: time.Now().UTC()}); !errors.Is(err, dv.ErrConflict) {
+		t.Fatalf("scan result claimed before transfer was not fenced after ownership changed: %v", err)
+	}
+	var staleScanEvents int
+	if err := outer.QueryRow(ctx, `SELECT count(*) FROM public.document_verification_event WHERE case_id=$1 AND file_id=$2 AND action='scan_result'`, caseID, secondFileID).Scan(&staleScanEvents); err != nil || staleScanEvents != 0 {
+		t.Fatalf("stale scan result wrote audit events: count=%d err=%v", staleScanEvents, err)
 	}
 	var oldState string
 	var oldRevision int64
@@ -877,7 +1081,7 @@ func TestPostgresSpaceCaseOwnershipTransferRequiresNewCase(t *testing.T) {
 		}
 		expectedAttempts := int16(0)
 		if transferredFileID == secondFileID {
-			expectedAttempts = 2
+			expectedAttempts = 1
 		}
 		if scanState != "completado" || scanAttempts != expectedAttempts || !scanLeaseClear {
 			t.Fatalf("scan job for %s was not cancelled/fenced: state=%q attempts=%d lease_clear=%t", transferredFileID, scanState, scanAttempts, scanLeaseClear)

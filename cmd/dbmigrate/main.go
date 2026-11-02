@@ -44,6 +44,10 @@ func main() {
 		}
 		return
 	}
+	if err := validateMigrationExecutionIdentity(settings.databaseURL, settings.setRole); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	var result migrator.Result
 	if settings.mode == "cloudsql" {
 		databaseURL, password, urlErr := settings.databaseURLAndPasswordFile()

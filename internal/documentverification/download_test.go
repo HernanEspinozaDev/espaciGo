@@ -19,6 +19,11 @@ func (r *downloadCaseRepo) LoadSpaceCaseForDownload(_ context.Context, actor, ca
 	return r.snapshot, r.auth, nil
 }
 
+func (r *downloadCaseRepo) WithSpaceCaseForDownload(ctx context.Context, actor, caseID string, read func(context.Context, Snapshot, Authorization) error) error {
+	r.actor, r.caseID = actor, caseID
+	return read(ctx, r.snapshot, r.auth)
+}
+
 type syntheticDocumentStore struct {
 	content []byte
 	calls   int
@@ -27,6 +32,56 @@ type syntheticDocumentStore struct {
 func (s *syntheticDocumentStore) ReadSpaceDocument(context.Context, string, string, string, string) ([]byte, error) {
 	s.calls++
 	return append([]byte(nil), s.content...), nil
+}
+
+type leaseAwareDownloadRepo struct {
+	snapshot Snapshot
+	auth     Authorization
+	locked   bool
+}
+
+func (r *leaseAwareDownloadRepo) LoadSpaceCaseForDownload(_ context.Context, _, _ string) (Snapshot, Authorization, error) {
+	return r.snapshot, r.auth, nil
+}
+
+func (r *leaseAwareDownloadRepo) WithSpaceCaseForDownload(ctx context.Context, _, _ string, read func(context.Context, Snapshot, Authorization) error) error {
+	r.locked = true
+	defer func() { r.locked = false }()
+	return read(ctx, r.snapshot, r.auth)
+}
+
+type leaseAwareDocumentStore struct {
+	repo    *leaseAwareDownloadRepo
+	content []byte
+}
+
+func (s *leaseAwareDocumentStore) ReadSpaceDocument(context.Context, string, string, string, string) ([]byte, error) {
+	if !s.repo.locked {
+		return nil, errors.New("space authorization lock was released before storage read")
+	}
+	return append([]byte(nil), s.content...), nil
+}
+
+func TestSpaceDownloadReadsStorageWhileAuthorizationLeaseIsHeld(t *testing.T) {
+	content := []byte("synthetic private document")
+	x := downloadPolicySnapshot(CaseInReview, FileClean)
+	x.Files[0].Size = int64(len(content))
+	repo := &leaseAwareDownloadRepo{snapshot: x, auth: Authorization{ActorID: downloadingOwnerID, SpaceOwnerID: downloadingOwnerID}}
+	store := &leaseAwareDocumentStore{repo: repo, content: content}
+	svc, err := NewSpaceDownloadService(repo, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got.Content) != string(content) {
+		t.Fatalf("unexpected download content: %q", got.Content)
+	}
+	if repo.locked {
+		t.Fatal("authorization lease remained open after download")
+	}
 }
 
 func TestSpaceDownloadAuthorizesBeforeReadingPrivateObject(t *testing.T) {

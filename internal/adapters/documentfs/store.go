@@ -173,15 +173,37 @@ func (s *Store) read(ctx context.Context, relative string) ([]byte, error) {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 || info.Size() <= int64(len(storageEnvelopeMagic)+12+16) || info.Size() > maxStoredBytes {
 		return nil, ErrStorage
 	}
-	sealed, err := io.ReadAll(io.LimitReader(file, maxStoredBytes+1))
+	sealed, err := io.ReadAll(io.LimitReader(contextReader{ctx: ctx, reader: file}, maxStoredBytes+1))
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil || len(sealed) > maxStoredBytes {
 		return nil, ErrStorage
 	}
 	content, err := s.open(relative, sealed)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 	if err != nil || len(content) == 0 || len(content) > MaxDocumentBytes {
 		return nil, ErrStorage
 	}
 	return content, nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := r.reader.Read(p)
+	if ctxErr := r.ctx.Err(); ctxErr != nil {
+		return n, ctxErr
+	}
+	return n, err
 }
 
 func (s *Store) remove(ctx context.Context, relative string) error {

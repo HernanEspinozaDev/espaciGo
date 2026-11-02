@@ -267,30 +267,43 @@ func (r *Repository) LoadOwnCase(ctx context.Context, actor, id string) (dv.Snap
 }
 
 func (r *Repository) LoadSpaceCaseForDownload(ctx context.Context, actor, id string) (dv.Snapshot, dv.Authorization, error) {
-	if r == nil || r.transactions == nil || !validUUID(actor) || !validUUID(id) {
-		return dv.Snapshot{}, dv.Authorization{}, dv.ErrInvalid
+	var snapshot dv.Snapshot
+	var authorization dv.Authorization
+	err := r.WithSpaceCaseForDownload(ctx, actor, id, func(_ context.Context, x dv.Snapshot, a dv.Authorization) error {
+		snapshot, authorization = x, a
+		return nil
+	})
+	return snapshot, authorization, err
+}
+
+func (r *Repository) WithSpaceCaseForDownload(ctx context.Context, actor, id string, read func(context.Context, dv.Snapshot, dv.Authorization) error) error {
+	if r == nil || r.transactions == nil || !validUUID(actor) || !validUUID(id) || read == nil {
+		return dv.ErrInvalid
 	}
 	tx, err := r.transactions.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
-		return dv.Snapshot{}, dv.Authorization{}, err
+		return err
 	}
 	defer tx.Rollback(context.Background())
 	var x dv.Snapshot
 	err = tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.id=$1 AND c.purpose='space' AND c.superseded_at IS NULL AND public.document_verification_lock_space_owner(c.space_id,$2::uuid)`, id, actor).Scan(&x.ID, &x.Purpose, &x.SubjectID, &x.SpaceID, &x.State, &x.Revision, &x.ReviewerID, &nullableT{v: &x.VerifiedAt}, &nullableT{v: &x.VerifiedUntil}, &nullableT{v: &x.DocumentExpiresAt}, &nullablePT{v: &x.RevokedAt}, &nullablePT{v: &x.SupersededAt})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return dv.Snapshot{}, dv.Authorization{}, dv.ErrNotFound
+		return dv.ErrNotFound
 	}
 	if err != nil {
-		return dv.Snapshot{}, dv.Authorization{}, mapError(err)
+		return mapError(err)
 	}
 	a := dv.Authorization{ActorID: actor, SubjectID: x.SubjectID, SpaceOwnerID: actor}
 	if err = loadFiles(ctx, tx, &x); err != nil {
-		return dv.Snapshot{}, a, err
+		return err
+	}
+	if err = read(ctx, x, a); err != nil {
+		return err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return dv.Snapshot{}, a, mapError(err)
+		return mapError(err)
 	}
-	return x, a, nil
+	return nil
 }
 
 type nullableT struct{ v *time.Time }

@@ -34,7 +34,7 @@ func TestPostgresUploadPersistsEncryptedObjectAndPendingScanJob(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -43,7 +43,7 @@ func TestPostgresUploadPersistsEncryptedObjectAndPendingScanJob(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Close() })
 	var database string
-	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&database); err != nil || database != "espacigo_f5_synth_20261029" {
+	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&database); err != nil || database != "espacigo_f5_gate_20261101" {
 		t.Fatalf("refusing unexpected database %q (query error: %v)", database, err)
 	}
 	var setupRole string

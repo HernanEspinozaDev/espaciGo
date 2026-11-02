@@ -27,6 +27,37 @@ type delayedRetentionDocuments struct {
 	delay time.Duration
 }
 
+func requireF5RetentionQueueIdle(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+	t.Helper()
+	var activeJobs, runtimeCapableSessions int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.document_verification_job WHERE kind='retention_delete' AND state IN ('pendiente','reintentar','procesando')`).Scan(&activeJobs); err != nil || activeJobs != 0 {
+		t.Fatalf("refusing shared retention-queue integration with preexisting work: jobs=%d err=%v", activeJobs, err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND usename IS NOT NULL AND pg_catalog.pg_has_role(usename,'espacigo_runtime','MEMBER')`).Scan(&runtimeCapableSessions); err != nil || runtimeCapableSessions != 0 {
+		t.Fatalf("refusing shared retention-queue integration while runtime-capable sessions are connected: sessions=%d err=%v", runtimeCapableSessions, err)
+	}
+}
+
+func lockF5JobQueueForTest(t *testing.T, ctx context.Context, tx pgx.Tx, kind, fixtureFileID string) {
+	t.Helper()
+	if _, err := tx.Exec(ctx, `RESET ROLE`); err != nil {
+		t.Fatalf("restore setup role before isolating the %s queue: %v", kind, err)
+	}
+	if _, err := tx.Exec(ctx, `LOCK TABLE public.document_verification_job IN ACCESS EXCLUSIVE MODE NOWAIT`); err != nil {
+		t.Fatalf("refusing to run with a concurrent document-job queue consumer: %v", err)
+	}
+	var otherActiveJobs int
+	var err error
+	if fixtureFileID == "" {
+		err = tx.QueryRow(ctx, `SELECT count(*) FROM public.document_verification_job WHERE kind=$1 AND state IN ('pendiente','reintentar','procesando')`, kind).Scan(&otherActiveJobs)
+	} else {
+		err = tx.QueryRow(ctx, `SELECT count(*) FROM public.document_verification_job WHERE kind=$1 AND state IN ('pendiente','reintentar','procesando') AND file_id<>$2`, kind, fixtureFileID).Scan(&otherActiveJobs)
+	}
+	if err != nil || otherActiveJobs != 0 {
+		t.Fatalf("refusing to claim outside the fixture queue: kind=%q other_active_jobs=%d err=%v", kind, otherActiveJobs, err)
+	}
+}
+
 func (d delayedRetentionDocuments) DeleteIdentityDocument(ctx context.Context, subjectID, caseID, fileID string) error {
 	timer := time.NewTimer(d.delay)
 	defer timer.Stop()
@@ -52,7 +83,7 @@ func TestPostgresRetentionDeletesExpiredEncryptedIdentityDocument(t *testing.T) 
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -61,21 +92,25 @@ func TestPostgresRetentionDeletesExpiredEncryptedIdentityDocument(t *testing.T) 
 	}
 	t.Cleanup(pool.Close)
 	var database, setupRole string
-	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_synth_20261029" || setupRole == "espacigo_runtime" {
+	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_gate_20261101" || setupRole == "espacigo_runtime" {
 		t.Fatal("refusing unexpected database or runtime fixture setup role")
 	}
 
+	requireF5RetentionQueueIdle(t, ctx, pool)
 	outer, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal("unable to begin rollback-scoped retention fixture")
 	}
+	lockF5JobQueueForTest(t, ctx, outer, "retention_delete", "")
 	actor, caseID, fileID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	t.Cleanup(func() {
-		if err := outer.Rollback(context.Background()); err != nil && err != pgx.ErrTxClosed {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := outer.Rollback(cleanupCtx); err != nil && err != pgx.ErrTxClosed {
 			t.Errorf("rollback retention fixture failed: %v", err)
 		}
 		var remaining int
-		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id=$1)+(SELECT count(*) FROM public.document_verification_case WHERE id=$2)+(SELECT count(*) FROM public.document_verification_file WHERE id=$3)+(SELECT count(*) FROM public.document_verification_job WHERE file_id=$3)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$2)`, actor, caseID, fileID).Scan(&remaining); err != nil {
+		if err := pool.QueryRow(cleanupCtx, `SELECT (SELECT count(*) FROM public.usuario WHERE id=$1)+(SELECT count(*) FROM public.document_verification_case WHERE id=$2)+(SELECT count(*) FROM public.document_verification_file WHERE id=$3)+(SELECT count(*) FROM public.document_verification_job WHERE file_id=$3)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$2)`, actor, caseID, fileID).Scan(&remaining); err != nil {
 			t.Errorf("verify retention fixture rollback failed: %v", err)
 		} else if remaining != 0 {
 			t.Errorf("retention fixture rollback left %d rows", remaining)
@@ -145,8 +180,8 @@ func TestPostgresRetentionDeletesExpiredEncryptedIdentityDocument(t *testing.T) 
 		t.Fatal("unable to finish synthetic scan job")
 	}
 	staleClaim, err := repo.ClaimReadyRetentionJob(ctx, 2*time.Minute)
-	if err != nil || staleClaim == nil {
-		t.Fatal("unable to claim due retention job after scan completion")
+	if err != nil || staleClaim == nil || staleClaim.FileID != fileID {
+		t.Fatalf("unable to claim the isolated due retention fixture after scan completion: claim=%+v err=%v", staleClaim, err)
 	}
 	if _, err := outer.Exec(ctx, `UPDATE public.document_verification_job SET lease_until=clock_timestamp()-interval '1 second',updated_at=clock_timestamp() WHERE id=$1 AND state='procesando'`, staleClaim.JobID); err != nil {
 		t.Fatal("unable to expire synthetic retention lease")
@@ -168,6 +203,10 @@ func TestPostgresRetentionDeletesExpiredEncryptedIdentityDocument(t *testing.T) 
 	var retryAttempts int16
 	if err := outer.QueryRow(ctx, `SELECT state,attempts,last_error_code FROM public.document_verification_job WHERE file_id=$1 AND kind='retention_delete'`, fileID).Scan(&retryState, &retryAttempts, &retryError); err != nil || retryState != "reintentar" || retryAttempts != 2 || retryError != "retention_store_error" {
 		t.Fatal("retention storage failure did not persist a bounded retry state")
+	}
+	var failedDeletionEvents int
+	if err := outer.QueryRow(ctx, `SELECT count(*) FROM public.document_verification_event WHERE case_id=$1 AND file_id=$2 AND action='retention_deleted'`, caseID, fileID).Scan(&failedDeletionEvents); err != nil || failedDeletionEvents != 0 {
+		t.Fatalf("failed storage deletion emitted %d retention-deletion events, want zero (err=%v)", failedDeletionEvents, err)
 	}
 	if retained, err := store.ReadIdentityDocument(ctx, actor, caseID, fileID); err != nil || !bytes.Equal(retained, content) {
 		t.Fatal("failed storage deletion removed the encrypted document")
@@ -207,7 +246,7 @@ func TestPostgresRetentionDeletesExpiredSupersededSpaceDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -216,21 +255,25 @@ func TestPostgresRetentionDeletesExpiredSupersededSpaceDocument(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	var database, setupRole string
-	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_synth_20261029" || setupRole == "espacigo_runtime" {
+	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_gate_20261101" || setupRole == "espacigo_runtime" {
 		t.Fatal("refusing unexpected database or runtime fixture setup role")
 	}
+	requireF5RetentionQueueIdle(t, ctx, pool)
 	outer, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal("unable to begin rollback-scoped space-retention fixture")
 	}
+	lockF5JobQueueForTest(t, ctx, outer, "retention_delete", "")
 	oldOwner, newOwner, spaceID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	caseID, fileID := uuid.NewString(), uuid.NewString()
 	t.Cleanup(func() {
-		if err := outer.Rollback(context.Background()); err != nil && err != pgx.ErrTxClosed {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := outer.Rollback(cleanupCtx); err != nil && err != pgx.ErrTxClosed {
 			t.Errorf("rollback space-retention fixture failed: %v", err)
 		}
 		var remaining int
-		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.espacio WHERE id=$3)+(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$3)+(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=$3)+(SELECT count(*) FROM public.document_verification_case WHERE id=$4)+(SELECT count(*) FROM public.document_verification_file WHERE id=$5)+(SELECT count(*) FROM public.document_verification_job WHERE file_id=$5)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$4)`, oldOwner, newOwner, spaceID, caseID, fileID).Scan(&remaining); err != nil {
+		if err := pool.QueryRow(cleanupCtx, `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.espacio WHERE id=$3)+(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$3)+(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=$3)+(SELECT count(*) FROM public.document_verification_case WHERE id=$4)+(SELECT count(*) FROM public.document_verification_file WHERE id=$5)+(SELECT count(*) FROM public.document_verification_job WHERE file_id=$5)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$4)`, oldOwner, newOwner, spaceID, caseID, fileID).Scan(&remaining); err != nil {
 			t.Errorf("verify space-retention fixture rollback failed: %v", err)
 		} else if remaining != 0 {
 			t.Errorf("space-retention fixture rollback left %d rows", remaining)
@@ -342,7 +385,7 @@ func TestPostgresRetentionDoesNotDeleteAfterOwnershipTransferResetsClaim(t *test
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -351,21 +394,25 @@ func TestPostgresRetentionDoesNotDeleteAfterOwnershipTransferResetsClaim(t *test
 	}
 	t.Cleanup(pool.Close)
 	var database, setupRole string
-	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_synth_20261029" || setupRole == "espacigo_runtime" {
+	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_gate_20261101" || setupRole == "espacigo_runtime" {
 		t.Fatal("refusing unexpected database or runtime fixture setup role")
 	}
+	requireF5RetentionQueueIdle(t, ctx, pool)
 	outer, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal("unable to begin rollback-scoped retention race fixture")
 	}
+	lockF5JobQueueForTest(t, ctx, outer, "retention_delete", "")
 	oldOwner, newOwner, spaceID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	caseID, fileID := uuid.NewString(), uuid.NewString()
 	t.Cleanup(func() {
-		if err := outer.Rollback(context.Background()); err != nil && err != pgx.ErrTxClosed {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := outer.Rollback(cleanupCtx); err != nil && err != pgx.ErrTxClosed {
 			t.Errorf("rollback retention race fixture failed: %v", err)
 		}
 		var remaining int
-		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.espacio WHERE id=$3)+(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$3)+(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=$3)+(SELECT count(*) FROM public.document_verification_case WHERE id=$4)+(SELECT count(*) FROM public.document_verification_file WHERE id=$5)+(SELECT count(*) FROM public.document_verification_job WHERE file_id=$5)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$4)`, oldOwner, newOwner, spaceID, caseID, fileID).Scan(&remaining); err != nil {
+		if err := pool.QueryRow(cleanupCtx, `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.espacio WHERE id=$3)+(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=$3)+(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=$3)+(SELECT count(*) FROM public.document_verification_case WHERE id=$4)+(SELECT count(*) FROM public.document_verification_file WHERE id=$5)+(SELECT count(*) FROM public.document_verification_job WHERE file_id=$5)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$4)`, oldOwner, newOwner, spaceID, caseID, fileID).Scan(&remaining); err != nil {
 			t.Errorf("verify retention race rollback failed: %v", err)
 		} else if remaining != 0 {
 			t.Errorf("retention race fixture rollback left %d rows", remaining)
@@ -501,13 +548,19 @@ type retentionClaimBarrierBeginner struct {
 	barrier *retentionClaimBarrier
 }
 
+func rollbackRetentionTxBounded(tx pgx.Tx) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	return tx.Rollback(cleanupCtx)
+}
+
 func (b retentionClaimBarrierBeginner) BeginTx(ctx context.Context, options pgx.TxOptions) (pgx.Tx, error) {
 	tx, err := b.pool.BeginTx(ctx, options)
 	if err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `SET LOCAL ROLE espacigo_runtime`); err != nil {
-		rollbackErr := tx.Rollback(context.Background())
+		rollbackErr := rollbackRetentionTxBounded(tx)
 		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
 			err = errors.Join(err, rollbackErr)
 		}
@@ -516,7 +569,7 @@ func (b retentionClaimBarrierBeginner) BeginTx(ctx context.Context, options pgx.
 	var role string
 	var superuser, bypassRLS bool
 	if err := tx.QueryRow(ctx, `SELECT current_user,r.rolsuper,r.rolbypassrls FROM pg_catalog.pg_roles r WHERE r.rolname=current_user`).Scan(&role, &superuser, &bypassRLS); err != nil || role != "espacigo_runtime" || superuser || bypassRLS {
-		rollbackErr := tx.Rollback(context.Background())
+		rollbackErr := rollbackRetentionTxBounded(tx)
 		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
 			err = errors.Join(err, rollbackErr)
 		}
@@ -539,7 +592,7 @@ func TestPostgresRetentionConcurrentClaimersReturnOneLeaseOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -548,7 +601,7 @@ func TestPostgresRetentionConcurrentClaimersReturnOneLeaseOwner(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	var database, setupRole string
-	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_synth_20261029" || setupRole == "espacigo_runtime" {
+	if err := pool.QueryRow(ctx, `SELECT current_database(),current_user`).Scan(&database, &setupRole); err != nil || database != "espacigo_f5_gate_20261101" || setupRole == "espacigo_runtime" {
 		t.Fatal("refusing unexpected database or runtime fixture setup role")
 	}
 	actor, caseID, fileID, jobID, decoyFileID, decoyJobID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
@@ -556,11 +609,18 @@ func TestPostgresRetentionConcurrentClaimersReturnOneLeaseOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal("unable to begin concurrent retention fixture setup")
 	}
+	fixtureCleanupSafe := true
 	t.Cleanup(func() {
-		if err := setupTx.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+		if !fixtureCleanupSafe {
+			t.Error("skipping fixture cleanup because a retention claimer did not stop")
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := setupTx.Rollback(cleanupCtx); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
 			t.Errorf("rollback concurrent retention fixture setup: %v", err)
 		}
-		cleanupTx, err := pool.Begin(context.Background())
+		cleanupTx, err := pool.Begin(cleanupCtx)
 		if err != nil {
 			t.Errorf("begin concurrent retention fixture cleanup: %v", err)
 			return
@@ -577,20 +637,20 @@ func TestPostgresRetentionConcurrentClaimersReturnOneLeaseOwner(t *testing.T) {
 			{"case", `DELETE FROM public.document_verification_case WHERE id=$1`, caseID},
 			{"actor", `DELETE FROM public.usuario WHERE id=$1`, actor},
 		} {
-			if _, err := cleanupTx.Exec(context.Background(), query.sql, query.id); err != nil {
+			if _, err := cleanupTx.Exec(cleanupCtx, query.sql, query.id); err != nil {
 				t.Errorf("delete concurrent retention fixture %s: %v", query.name, err)
-				if rollbackErr := cleanupTx.Rollback(context.Background()); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+				if rollbackErr := cleanupTx.Rollback(cleanupCtx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
 					t.Errorf("rollback concurrent retention fixture cleanup: %v", rollbackErr)
 				}
 				return
 			}
 		}
-		if err := cleanupTx.Commit(context.Background()); err != nil {
+		if err := cleanupTx.Commit(cleanupCtx); err != nil {
 			t.Errorf("commit concurrent retention fixture cleanup: %v", err)
 			return
 		}
 		var remaining int
-		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id=$1)+(SELECT count(*) FROM public.document_verification_case WHERE id=$2)+(SELECT count(*) FROM public.document_verification_file WHERE id=ANY($3::uuid[]))+(SELECT count(*) FROM public.document_verification_job WHERE id=ANY($4::uuid[]))`, actor, caseID, []string{fileID, decoyFileID}, []string{jobID, decoyJobID}).Scan(&remaining); err != nil {
+		if err := pool.QueryRow(cleanupCtx, `SELECT (SELECT count(*) FROM public.usuario WHERE id=$1)+(SELECT count(*) FROM public.document_verification_case WHERE id=$2)+(SELECT count(*) FROM public.document_verification_file WHERE id=ANY($3::uuid[]))+(SELECT count(*) FROM public.document_verification_job WHERE id=ANY($4::uuid[]))`, actor, caseID, []string{fileID, decoyFileID}, []string{jobID, decoyJobID}).Scan(&remaining); err != nil {
 			t.Errorf("verify concurrent retention fixture cleanup: %v", err)
 		} else if remaining != 0 {
 			t.Errorf("concurrent retention fixture cleanup left %d rows", remaining)
@@ -616,12 +676,27 @@ func TestPostgresRetentionConcurrentClaimersReturnOneLeaseOwner(t *testing.T) {
 	if _, err := setupTx.Exec(ctx, `INSERT INTO public.document_verification_job(id,file_id,kind,state,attempts,available_at,lease_until) VALUES($1,$2,'retention_delete','pendiente',0,clock_timestamp()+interval '1 hour',NULL)`, jobID, fileID); err != nil {
 		t.Fatal("unable to seed concurrent retention job")
 	}
+	requireF5RetentionQueueIdle(t, ctx, pool)
 	if err := setupTx.Commit(ctx); err != nil {
 		t.Fatal("unable to commit concurrent retention fixture")
 	}
 
 	barrier := newRetentionClaimBarrier()
 	repo := newWithTransactionBeginner(retentionClaimBarrierBeginner{pool: pool, barrier: barrier})
+	var claimers sync.WaitGroup
+	t.Cleanup(func() {
+		done := make(chan struct{})
+		go func() {
+			claimers.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			fixtureCleanupSafe = false
+			t.Error("retention claimers did not finish before fixture cleanup")
+		}
+	})
 	var eligibleBefore time.Time
 	if err := pool.QueryRow(ctx, `SELECT clock_timestamp()+interval '2 hours'`).Scan(&eligibleBefore); err != nil {
 		t.Fatal("cannot read server clock for the isolated claim fixture")
@@ -632,7 +707,9 @@ func TestPostgresRetentionConcurrentClaimersReturnOneLeaseOwner(t *testing.T) {
 	}
 	results := make(chan result, 2)
 	for i := 0; i < 2; i++ {
+		claimers.Add(1)
 		go func() {
+			defer claimers.Done()
 			claim, err := repo.claimReadyRetentionJob(ctx, time.Minute, jobID, eligibleBefore)
 			results <- result{claim: claim, err: err}
 		}()

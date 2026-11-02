@@ -7,11 +7,11 @@ import (
 
 var ErrDocumentStorage = errors.New("document verification: private document unavailable")
 
-// SpaceDownloadRepository must return the case, current SpaceOwnerID, and actor
-// identity from one authoritative read. It must not infer ownership from object
-// keys or from the historical SubjectID alone.
+// SpaceDownloadRepository must load the case and current owner authoritatively,
+// then invoke the callback before releasing the lock that serializes owner
+// changes. It must not infer ownership from object keys or historical SubjectID.
 type SpaceDownloadRepository interface {
-	LoadSpaceCaseForDownload(context.Context, string, string) (Snapshot, Authorization, error)
+	WithSpaceCaseForDownload(context.Context, string, string, func(context.Context, Snapshot, Authorization) error) error
 }
 
 // SpaceDocumentStore reads a private object using IDs derived from the loaded
@@ -41,32 +41,36 @@ func (s *SpaceDownloadService) Download(ctx context.Context, actor, caseID, file
 	if s == nil || s.repository == nil || s.store == nil || ValidateID(actor) != nil || ValidateID(caseID) != nil || ValidateID(fileID) != nil {
 		return DownloadedDocument{}, ErrInvalid
 	}
-	x, auth, err := s.repository.LoadSpaceCaseForDownload(ctx, actor, caseID)
-	if err != nil {
-		return DownloadedDocument{}, err
-	}
-	if x.ID != caseID {
-		return DownloadedDocument{}, ErrNotFound
-	}
-	if err := AuthorizeSpaceOwnerDownload(x, auth, actor, fileID); err != nil {
-		return DownloadedDocument{}, err
-	}
-	var selected *File
-	for i := range x.Files {
-		if x.Files[i].ID == fileID {
-			selected = &x.Files[i]
-			break
+	var downloaded DownloadedDocument
+	err := s.repository.WithSpaceCaseForDownload(ctx, actor, caseID, func(readCtx context.Context, x Snapshot, auth Authorization) error {
+		if x.ID != caseID {
+			return ErrNotFound
 		}
-	}
-	if selected == nil {
-		return DownloadedDocument{}, ErrNotFound
-	}
-	content, err := s.store.ReadSpaceDocument(ctx, auth.SpaceOwnerID, x.SpaceID, x.ID, selected.ID)
+		if err := AuthorizeSpaceOwnerDownload(x, auth, actor, fileID); err != nil {
+			return err
+		}
+		var selected *File
+		for i := range x.Files {
+			if x.Files[i].ID == fileID {
+				selected = &x.Files[i]
+				break
+			}
+		}
+		if selected == nil {
+			return ErrNotFound
+		}
+		content, err := s.store.ReadSpaceDocument(readCtx, auth.SpaceOwnerID, x.SpaceID, x.ID, selected.ID)
+		if err != nil {
+			return ErrDocumentStorage
+		}
+		if int64(len(content)) != selected.Size {
+			return ErrDocumentStorage
+		}
+		downloaded = DownloadedDocument{Content: content, MIME: selected.MIME}
+		return nil
+	})
 	if err != nil {
-		return DownloadedDocument{}, ErrDocumentStorage
+		return DownloadedDocument{}, err
 	}
-	if int64(len(content)) != selected.Size {
-		return DownloadedDocument{}, ErrDocumentStorage
-	}
-	return DownloadedDocument{Content: content, MIME: selected.MIME}, nil
+	return downloaded, nil
 }

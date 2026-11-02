@@ -61,6 +61,27 @@ func TestLoadConnectionSettingsRejectsUnsafeSetRole(t *testing.T) {
 	}
 }
 
+func TestValidateMigrationExecutionIdentityRequiresDedicatedLoginAndSchemaOwner(t *testing.T) {
+	validURL := "postgres://espacigo_migrator_login@127.0.0.1:5432/espacigo"
+	if err := validateMigrationExecutionIdentity(validURL, "espacigo_schema_owner"); err != nil {
+		t.Fatalf("accepted documented non-superuser migration identity: %v", err)
+	}
+	for _, test := range []struct {
+		name, databaseURL, setRole string
+	}{
+		{name: "missing role", databaseURL: validURL},
+		{name: "runtime role", databaseURL: validURL, setRole: "espacigo_runtime"},
+		{name: "superuser login", databaseURL: "postgres://postgres@127.0.0.1:5432/espacigo", setRole: "espacigo_schema_owner"},
+		{name: "other login", databaseURL: "postgres://other@127.0.0.1:5432/espacigo", setRole: "espacigo_schema_owner"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateMigrationExecutionIdentity(test.databaseURL, test.setRole); err == nil {
+				t.Fatalf("accepted database URL user and SET ROLE: %q / %q", test.databaseURL, test.setRole)
+			}
+		})
+	}
+}
+
 func TestDatabaseURLAndPasswordFileKeepsSecretOutOfURLAndErrors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "password")
 	if err := os.WriteFile(path, []byte("private-pass\n"), 0o600); err != nil {

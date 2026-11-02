@@ -11,24 +11,22 @@ import (
 	"time"
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
-	"github.com/pdfcpu/pdfcpu/pkg/filter"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 )
 
 const (
-	pdfParseTimeout                = 5 * time.Second
-	pdfCommandTimeout              = 5 * time.Second
-	maxParserOutputBytes           = 1 << 20
-	maxPDFDecodedStream            = int64(128 << 20)
-	maxPDFPages                    = 20
-	maxPDFObjects                  = 100_000
-	maxPDFObjectStreams            = 10_000
-	maxPDFObjectProlog             = int64(1 << 20)
-	maxPDFRecursion                = 64
-	maxPDFStructureNodes           = 500_000
-	maxPDFDecodedTotal             = int64(256 << 20)
-	pdfDecodeMaterializationFactor = int64(4)
+	pdfParseTimeout      = 5 * time.Second
+	pdfCommandTimeout    = 5 * time.Second
+	maxParserOutputBytes = 1 << 20
+	maxPDFDecodedStream  = int64(128 << 20)
+	maxPDFPages          = 20
+	maxPDFObjects        = 100_000
+	maxPDFObjectStreams  = 10_000
+	maxPDFObjectProlog   = int64(1 << 20)
+	maxPDFRecursion      = 64
+	maxPDFStructureNodes = 500_000
+	maxPDFDecodedTotal   = int64(256 << 20)
 )
 
 var (
@@ -71,7 +69,7 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 	if expectedPages > maxPDFPages {
 		return ErrRejected
 	}
-	parserDecodeLimit, scannerDecodeLimit, scannerBudget, err := pdfDecodeLimits(data, decodedBudget, expectedPages)
+	parserDecodeLimit, err := pdfDecodeLimits(decodedBudget)
 	if err != nil {
 		return ErrRejected
 	}
@@ -88,6 +86,7 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 	conf.Limits.MaxObjectBytes = maxBytes
 	conf.Limits.MaxStreamBytes = maxBytes
 	conf.Limits.MaxDecodeBytes = parserDecodeLimit
+	conf.Limits.MaxTotalDecodeBytes = decodedBudget
 	conf.Limits.MaxImagePixels = maxPixels
 	if maxPixels > math.MaxInt64/4 {
 		conf.Limits.MaxImageBytes = math.MaxInt64
@@ -106,8 +105,7 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 
 	ctx, cancel := context.WithTimeout(context.Background(), pdfParseTimeout)
 	defer cancel()
-	parserBudget := decodedBudget - scannerBudget
-	parsed, _, err := readAndValidatePDFWithinBudget(ctx, data, conf, parserDecodeLimit, parserBudget)
+	parsed, err := readAndValidatePDFWithinBudget(ctx, data, conf, parserDecodeLimit, decodedBudget)
 	if err != nil || parsed == nil || parsed.XRefTable == nil || parsed.Encrypt != nil || parsed.PageCount != expectedPages {
 		return ErrRejected
 	}
@@ -117,8 +115,6 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 		xref:                 parsed.XRefTable,
 		visited:              make(map[pdfObjectRef]struct{}, len(parsed.Table)),
 		decodedObjectStreams: make(map[int]struct{}),
-		decodedByteLimit:     scannerBudget,
-		decoderStageLimit:    scannerDecodeLimit,
 	}
 	for objectNumber, entry := range parsed.Table {
 		if entry == nil || entry.Free {
@@ -139,20 +135,7 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 	return nil
 }
 
-type pdfParserBudgetUsage struct {
-	readReserve     int64
-	predecodedBytes int64
-}
-
-func (u pdfParserBudgetUsage) total() int64 {
-	total, ok := reserveDecodedPDFBytes(u.readReserve, u.predecodedBytes, math.MaxInt64)
-	if !ok {
-		return math.MaxInt64
-	}
-	return total
-}
-
-func readAndValidatePDFWithinBudget(ctx context.Context, data []byte, conf *model.Configuration, parserLimit, parserBudget int64) (parsed *model.Context, usage pdfParserBudgetUsage, err error) {
+func readAndValidatePDFWithinBudget(ctx context.Context, data []byte, conf *model.Configuration, parserLimit, parserBudget int64) (parsed *model.Context, err error) {
 	defer func() {
 		if recover() != nil {
 			parsed = nil
@@ -160,66 +143,31 @@ func readAndValidatePDFWithinBudget(ctx context.Context, data []byte, conf *mode
 		}
 	}()
 	if ctx == nil || ctx.Err() != nil || len(data) == 0 || conf == nil || parserLimit <= 0 || parserBudget <= 0 {
-		return nil, usage, ErrRejected
+		return nil, ErrRejected
 	}
-
-	usage.readReserve, err = pdfParserReadReserve(data, parserLimit, parserBudget)
-	if err != nil || usage.readReserve > parserBudget {
-		return nil, usage, ErrRejected
-	}
+	conf.Limits.MaxDecodeBytes = parserLimit
+	conf.Limits.MaxTotalDecodeBytes = parserBudget
 	parsed, err = api.ReadContext(ctx, bytes.NewReader(data), conf)
 	if err != nil || parsed == nil || parsed.XRefTable == nil || parsed.Encrypt != nil {
-		return nil, usage, ErrRejected
+		return nil, ErrRejected
 	}
 
-	remaining := parserBudget - usage.readReserve
-	usage.predecodedBytes, err = predecodePDFStreams(ctx, parsed, parserLimit, &remaining)
-	if err != nil || usage.total() > parserBudget {
-		return nil, usage, ErrRejected
+	if err := predecodePDFStreams(ctx, parsed); err != nil {
+		return nil, ErrRejected
 	}
 	if err := api.ValidateContext(ctx, parsed); err != nil {
-		return nil, usage, ErrRejected
+		return nil, ErrRejected
 	}
-	return parsed, usage, nil
+	return parsed, nil
 }
 
-// pdfParserReadReserve covers pdfcpu's pre-validation xref/object-stream reads,
-// including object-stream prologs and one full decode of each object stream.
-// Normal streams are then decoded once under the remaining aggregate budget
-// and cached in the xref table before ValidateContext can revisit them.
-func pdfParserReadReserve(data []byte, parserLimit, parserBudget int64) (int64, error) {
-	if parserLimit <= 0 || parserBudget < 0 {
-		return 0, ErrRejected
+func predecodePDFStreams(ctx context.Context, parsed *model.Context) error {
+	if ctx == nil || parsed == nil || parsed.XRefTable == nil {
+		return ErrRejected
 	}
-	filterStages, err := countPDFDecoderStages(data)
-	if err != nil {
-		return 0, err
-	}
-	filterPasses, ok := pdfDecodedByteProduct(filterStages, 2)
-	if !ok {
-		return 0, ErrRejected
-	}
-	passCount, ok := reserveDecodedPDFBytes(filterPasses, countPDFStreamMarkers(data), math.MaxInt64)
-	if !ok {
-		return 0, ErrRejected
-	}
-	reserve, ok := pdfDecodedByteProduct(passCount, parserLimit)
-	if !ok || reserve > parserBudget {
-		return 0, ErrRejected
-	}
-	return reserve, nil
-}
-
-func pdfDecodedByteProduct(count, bytesPerItem int64) (int64, bool) {
-	if count < 0 || bytesPerItem < 0 || count > 0 && bytesPerItem > math.MaxInt64/count {
-		return 0, false
-	}
-	return count * bytesPerItem, true
-}
-
-func predecodePDFStreams(ctx context.Context, parsed *model.Context, parserLimit int64, remaining *int64) (int64, error) {
-	if ctx == nil || parsed == nil || parsed.XRefTable == nil || parserLimit <= 0 || remaining == nil || *remaining < 0 {
-		return 0, ErrRejected
+	if budget := parsed.XRefTable.DecodeBudget; budget != nil {
+		budget.SetDecodeContext(ctx)
+		defer budget.SetDecodeContext(nil)
 	}
 	objectNumbers := make([]int, 0, len(parsed.Table))
 	for objectNumber := range parsed.Table {
@@ -227,122 +175,53 @@ func predecodePDFStreams(ctx context.Context, parsed *model.Context, parserLimit
 	}
 	sort.Ints(objectNumbers)
 
-	var used int64
 	for _, objectNumber := range objectNumbers {
 		if ctx.Err() != nil {
-			return 0, ErrRejected
+			return ErrRejected
 		}
 		entry := parsed.Table[objectNumber]
 		if entry == nil || entry.Free {
 			continue
 		}
 		decodeAndStore := func(stream *types.StreamDict) error {
-			decoded, err := predecodePDFStreamStages(stream, parserLimit, remaining)
-			if err != nil {
-				return err
-			}
-			var ok bool
-			used, ok = reserveDecodedPDFBytes(used, decoded, math.MaxInt64)
-			if !ok {
+			if stream == nil {
 				return ErrRejected
 			}
-			return nil
+			return parsed.XRefTable.DecodeStream(stream)
 		}
 		switch stream := entry.Object.(type) {
 		case types.StreamDict:
 			if err := decodeAndStore(&stream); err != nil {
-				return 0, ErrRejected
+				return ErrRejected
 			}
 			entry.Object = stream
 		case *types.StreamDict:
 			if stream == nil {
-				return 0, ErrRejected
+				return ErrRejected
 			}
 			copy := *stream
 			if err := decodeAndStore(&copy); err != nil {
-				return 0, ErrRejected
+				return ErrRejected
 			}
 			entry.Object = copy
 		case types.XRefStreamDict:
 			if err := decodeAndStore(&stream.StreamDict); err != nil {
-				return 0, ErrRejected
+				return ErrRejected
 			}
 			entry.Object = stream
 		case *types.XRefStreamDict:
 			if stream == nil {
-				return 0, ErrRejected
+				return ErrRejected
 			}
 			if err := decodeAndStore(&stream.StreamDict); err != nil {
-				return 0, ErrRejected
+				return ErrRejected
 			}
 		case types.ObjectStreamDict, *types.ObjectStreamDict:
-			// pdfcpu's lazy objects share one ObjectStreamDict pointer; its full
-			// decode is covered by the pre-validation reserve above.
+			// Object streams are decoded lazily by the structural walk. Their
+			// StreamDict carries the same request-local pdfcpu decode budget.
 		}
 	}
-	return used, nil
-}
-
-func predecodePDFStreamStages(stream *types.StreamDict, parserLimit int64, remaining *int64) (int64, error) {
-	if stream == nil || parserLimit <= 0 || remaining == nil || *remaining < 0 {
-		return 0, ErrRejected
-	}
-	if stream.Content != nil {
-		return 0, nil
-	}
-	filters := stream.FilterPipeline
-	if len(filters) > 0 && filters[0].Name == "Crypt" {
-		filters = filters[1:]
-	}
-	if len(filters) == 0 || len(filters) == 1 &&
-		((filters[0].Name == filter.DCT && stream.CSComponents != 4) || filters[0].Name == filter.JPX || filters[0].Name == filter.JBIG2) {
-		stream.Content = stream.Raw
-		if stream.Content == nil {
-			stream.Content = []byte{}
-		}
-		return 0, nil
-	}
-
-	current := stream.Raw
-	var used int64
-	for index, pdfFilter := range filters {
-		if pdfFilter.Name == filter.JPX || pdfFilter.Name == filter.JBIG2 {
-			if index != len(filters)-1 {
-				return used, ErrRejected
-			}
-			continue
-		}
-		if *remaining <= 0 {
-			return used, ErrRejected
-		}
-		stageLimit := parserLimit
-		if *remaining < stageLimit {
-			stageLimit = *remaining
-		}
-		stage := *stream
-		stage.Raw = current
-		stage.Content = nil
-		stage.FilterPipeline = []types.PDFFilter{pdfFilter}
-		if err := stage.DecodeWithLimit(stageLimit); err != nil {
-			return used, ErrRejected
-		}
-		decodedBytes := int64(len(stage.Content))
-		if decodedBytes > stageLimit || decodedBytes > *remaining {
-			return used, ErrRejected
-		}
-		var ok bool
-		used, ok = reserveDecodedPDFBytes(used, decodedBytes, math.MaxInt64)
-		if !ok {
-			return used, ErrRejected
-		}
-		*remaining -= decodedBytes
-		current = stage.Content
-	}
-	if current == nil {
-		current = []byte{}
-	}
-	stream.Content = current
-	return used, nil
+	return nil
 }
 
 type pdfObjectRef struct {
@@ -361,50 +240,20 @@ type pdfStructureScanner struct {
 	visited              map[pdfObjectRef]struct{}
 	decodedObjectStreams map[int]struct{}
 	objectStreams        map[int]decodedPDFObjectStream
-	decodedBytes         int64
-	decodedByteLimit     int64
-	decoderStageLimit    int64
 	walkNodes            int
 }
 
-// pdfDecodeLimits partitions one document-wide byte budget between pdfcpu's
-// parse/validation work and the later structural object-stream walk. The raw
-// token count is deliberately an upper bound: filter names inside strings or
-// stream payloads only make the per-stage allowance more conservative.
-func pdfDecodeLimits(data []byte, total int64, expectedPages int) (parserLimit, scannerStageLimit, scannerBudget int64, err error) {
-	if total < 2 || expectedPages < 1 || expectedPages > maxPDFPages {
-		return 0, 0, 0, ErrRejected
+// pdfDecodeLimits applies the configured document budget directly while
+// retaining the independent per-stream ceiling.
+func pdfDecodeLimits(total int64) (parserLimit int64, err error) {
+	if total <= 0 {
+		return 0, ErrRejected
 	}
-	filterStages, err := countPDFDecoderStages(data)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	streamMarkers := countPDFStreamMarkers(data)
-	operations := filterStages + streamMarkers
-	parserBudget := total - total/4
-	scannerBudget = total - parserBudget
-	parserDenominator := operations * pdfDecodeMaterializationFactor
-	parserDenominator += int64(expectedPages) * 2
-	if parserDenominator == 0 {
-		parserDenominator = 1
-	}
-	if operations == 0 {
-		parserLimit = parserBudget / int64(expectedPages*2)
-		scannerStageLimit = scannerBudget
-	} else {
-		parserLimit = parserBudget / parserDenominator
-		scannerStageLimit = scannerBudget / (operations * pdfDecodeMaterializationFactor)
-	}
+	parserLimit = total
 	if parserLimit > maxPDFDecodedStream {
 		parserLimit = maxPDFDecodedStream
 	}
-	if scannerStageLimit > maxPDFDecodedStream {
-		scannerStageLimit = maxPDFDecodedStream
-	}
-	if parserLimit <= 0 || scannerStageLimit <= 0 {
-		return 0, 0, 0, ErrRejected
-	}
-	return parserLimit, scannerStageLimit, scannerBudget, nil
+	return parserLimit, nil
 }
 
 func countPDFDecoderStages(data []byte) (int64, error) {
@@ -428,6 +277,33 @@ func countPDFDecoderStages(data []byte) (int64, error) {
 		}
 	}
 	return count, nil
+}
+
+func countPDFXRefReferences(data []byte) int64 {
+	count := int64(bytes.Count(data, []byte("startxref")))
+	count += countPDFNameOccurrences(data, "Prev")
+	count += countPDFNameOccurrences(data, "XRefStm")
+	return count
+}
+
+func countPDFNameOccurrences(data []byte, expected string) int64 {
+	var count int64
+	for i := 0; i < len(data); {
+		if data[i] != '/' {
+			i++
+			continue
+		}
+		name, end := readPDFName(data, i)
+		if name == expected {
+			count++
+		}
+		if end <= i {
+			i++
+		} else {
+			i = end
+		}
+	}
+	return count
 }
 
 func readPDFName(data []byte, slash int) (string, int) {
@@ -489,23 +365,69 @@ func hasIndirectPDFFilter(data []byte, valueStart int) bool {
 		return false
 	}
 	depth := 1
-	for i := valueStart + 1; i < len(data); i++ {
+	for i := valueStart + 1; i < len(data); {
 		switch data[i] {
+		case '%':
+			for i < len(data) && data[i] != '\n' && data[i] != '\r' {
+				i++
+			}
+		case '(':
+			next, ok := skipPDFLiteralString(data, i)
+			if !ok {
+				return true
+			}
+			i = next
+		case '<':
+			if i+1 < len(data) && data[i+1] == '<' {
+				i += 2
+				continue
+			}
+			end := bytes.IndexByte(data[i+1:], '>')
+			if end < 0 {
+				return true
+			}
+			i += end + 2
 		case '[':
 			depth++
+			i++
 		case ']':
 			depth--
 			if depth == 0 {
-				for j := valueStart + 1; j < i; j++ {
-					if isPDFIndirectReferenceAt(data, j) {
-						return true
-					}
-				}
 				return false
+			}
+			i++
+		default:
+			if isPDFIndirectReferenceAt(data, i) {
+				return true
+			}
+			i++
+		}
+	}
+	return true
+}
+
+func skipPDFLiteralString(data []byte, start int) (int, bool) {
+	if start >= len(data) || data[start] != '(' {
+		return start, false
+	}
+	depth := 1
+	for i := start + 1; i < len(data); i++ {
+		switch data[i] {
+		case '\\':
+			i++
+			if i < len(data) && data[i] == '\r' && i+1 < len(data) && data[i+1] == '\n' {
+				i++
+			}
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return i + 1, true
 			}
 		}
 	}
-	return false
+	return len(data), false
 }
 
 func isPDFIndirectReferenceAt(data []byte, start int) bool {
@@ -563,8 +485,10 @@ func countPDFStreamMarkers(data []byte) int64 {
 		}
 		at := start + relative
 		after := at + len(keyword)
-		if (at == 0 || isPDFWhitespace(data[at-1])) && after < len(data) &&
-			(data[after] == '\n' || data[after] == '\r') {
+		// pdfcpu's marker scan is substring-based and its offset parser tolerates
+		// spaces before EOL; count any delimiter-terminated occurrence as a
+		// potential marker. False positives only make the reserve more conservative.
+		if after < len(data) && isPDFDelimiter(data[after]) {
 			count++
 		}
 		start = after
@@ -585,18 +509,11 @@ func isPDFWhitespace(b byte) bool {
 	}
 }
 
-func reserveDecodedPDFBytes(used, requested, limit int64) (int64, bool) {
-	if used < 0 || requested < 0 || limit < 0 || used > limit || requested > limit-used {
-		return used, false
-	}
-	return used + requested, true
-}
-
 func (s *pdfStructureScanner) accountObjectStream(objectStreamNumber int) error {
 	if s.ctx != nil && s.ctx.Err() != nil {
 		return ErrRejected
 	}
-	if s.xref == nil || s.decodedBytes < 0 || objectStreamNumber <= 0 {
+	if s.xref == nil || objectStreamNumber <= 0 {
 		return ErrRejected
 	}
 	if s.decodedObjectStreams == nil {
@@ -637,46 +554,20 @@ func (s *pdfStructureScanner) accountObjectStream(objectStreamNumber int) error 
 			return ErrRejected
 		}
 	}
-	limit := s.decodedByteLimit
-	if limit <= 0 {
-		limit = maxPDFDecodedTotal
-	}
-	if s.decodedBytes > limit {
-		return ErrRejected
-	}
-	remaining := limit - s.decodedBytes
 	streamLimit := maxPDFDecodedStream
 	if objectStream.MaxDecodeBytes > 0 && objectStream.MaxDecodeBytes < streamLimit {
 		streamLimit = objectStream.MaxDecodeBytes
 	}
-	if s.decoderStageLimit > 0 && s.decoderStageLimit < streamLimit {
-		streamLimit = s.decoderStageLimit
-	}
-	if remaining < streamLimit {
-		streamLimit = remaining
-	}
 	if streamLimit <= 0 || int64(objectStream.FirstObjOffset) > streamLimit {
 		return ErrRejected
 	}
-	if objectStream.Content == nil {
-		reserved, ok := reserveDecodedPDFBytes(s.decodedBytes, streamLimit, limit)
-		if !ok {
-			return ErrRejected
-		}
-		s.decodedBytes = reserved
-		if err := objectStream.DecodeWithLimit(streamLimit); err != nil {
-			return ErrRejected
-		}
-		if int64(len(objectStream.Content)) > streamLimit {
-			return ErrRejected
-		}
-		s.decodedBytes = reserved - streamLimit + int64(len(objectStream.Content))
-	} else {
-		used, ok := reserveDecodedPDFBytes(s.decodedBytes, int64(len(objectStream.Content)), limit)
-		if !ok || int64(len(objectStream.Content)) > streamLimit {
-			return ErrRejected
-		}
-		s.decodedBytes = used
+	if budget := s.xref.DecodeBudget; budget != nil {
+		budget.SetDecodeContext(s.ctx)
+		defer budget.SetDecodeContext(nil)
+	}
+	objectStream.SetDecodeBudget(s.xref.DecodeBudget)
+	if err := objectStream.DecodeWithLimit(streamLimit); err != nil {
+		return ErrRejected
 	}
 	if s.ctx != nil && s.ctx.Err() != nil || objectStream.Content == nil || int64(len(objectStream.Content)) > streamLimit ||
 		objectStream.FirstObjOffset > len(objectStream.Content) {

@@ -31,7 +31,7 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 		t.Fatal("invalid integration DSN")
 	}
 	cc := cfg.ConnConfig
-	if cc.Host != "127.0.0.1" || cc.Port != 15433 || cc.Database != "espacigo_f5_synth_20261029" || len(cc.Fallbacks) != 0 {
+	if cc.Host != "127.0.0.1" || cc.Port != 15434 || cc.Database != "espacigo_f5_gate_20261101" || len(cc.Fallbacks) != 0 {
 		t.Fatal("refusing integration target outside the exact loopback F5 endpoint or with fallback hosts")
 	}
 	if cc.Config.TLSConfig != nil {
@@ -45,14 +45,27 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 	var database string
 	var address net.IP
 	if err := pool.QueryRow(ctx, `SELECT current_database(),inet_server_addr()`).Scan(&database, &address); err != nil {
-		t.Fatal("cannot verify PostgreSQL target")
+		t.Fatalf("cannot verify PostgreSQL target: %v", err)
 	}
-	if database != "espacigo_f5_synth_20261029" || address == nil || address.String() != expectedAddress {
+	if database != "espacigo_f5_gate_20261101" || address == nil || address.String() != expectedAddress {
 		t.Fatalf("connected PostgreSQL target mismatch: database=%q server_address=%v", database, address)
 	}
 	var setupRole string
 	if err := pool.QueryRow(ctx, `SELECT current_user`).Scan(&setupRole); err != nil || setupRole == "espacigo_runtime" {
 		t.Fatal("fixture setup requires the authorized non-runtime setup role")
+	}
+	const v82Name = "V000082__document_verification_retention_precedence.sql"
+	const v82Checksum = "6957e1a11097dc90a4dd54ed9dc08872acdd0bb97aa05636e0894016e0b05ad2"
+	var appliedName, appliedChecksum string
+	if err := pool.QueryRow(ctx, `SELECT name,checksum FROM public.schema_migrations WHERE version=82`).Scan(&appliedName, &appliedChecksum); err != nil {
+		t.Fatalf("V82 migration is not recorded as applied; refusing to test a prior trigger body: %v", err)
+	}
+	if appliedName != v82Name || appliedChecksum != v82Checksum {
+		t.Fatalf("V82 migration identity mismatch: name=%q checksum=%q", appliedName, appliedChecksum)
+	}
+	var v82Body bool
+	if err := pool.QueryRow(ctx, `SELECT pg_catalog.pg_get_functiondef('public.document_verification_space_owner_changed()'::regprocedure) LIKE '%e.action=''retention_deleted''%'`).Scan(&v82Body); err != nil || !v82Body {
+		t.Fatal("installed ownership trigger function does not contain the V82 retention-deletion guard")
 	}
 	var bound bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (
@@ -75,7 +88,9 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 		{name: "no-deadline", fileState: "pendiente", scan: "pendiente", retention: "absent", deadline: "none", want: "replacement", wantReason: "rejected_or_replaced"},
 		{name: "earlier-null-reason", fileState: "pendiente", scan: "procesando", retention: "pendiente", deadline: "earlier", want: "existing", wantReason: ""},
 		{name: "inspection-error-seven-day-retention", fileState: "error", lastError: "scanner_unavailable", reason: "inspection_error", wantReason: "inspection_error", scan: "reintentar", retention: "procesando", deadline: "inspection-error", want: "existing"},
-		{name: "earlier-malware-deadline-preserves-deadline-and-malware-reason", fileState: "bloqueado", lastError: "malware_detected", reason: "abandoned_draft", wantReason: "malicious_file", inspected: "recent", scan: "completado", retention: "reintentar", deadline: "malware-earlier", want: "existing"},
+		{name: "earlier-malware-deadline-preserves-prior-reason", fileState: "bloqueado", lastError: "malware_detected", reason: "abandoned_draft", wantReason: "abandoned_draft", inspected: "recent", scan: "completado", retention: "reintentar", deadline: "malware-earlier", want: "existing"},
+		{name: "earlier-malware-deadline-preserves-null-prior-reason", fileState: "bloqueado", lastError: "malware_detected", wantReason: "", inspected: "recent", scan: "completado", retention: "reintentar", deadline: "malware-earlier", want: "existing"},
+		{name: "equal-malware-deadline-prefers-malware-reason", fileState: "bloqueado", lastError: "malware_detected", reason: "abandoned_draft", wantReason: "malicious_file", inspected: "recent", scan: "completado", retention: "pendiente", deadline: "malware-equal", want: "existing"},
 		{name: "malware-error-caps-later-deadline", fileState: "bloqueado", lastError: "malware_detected", inspected: "recent", wantReason: "malicious_file", scan: "completado", retention: "pendiente", deadline: "malware-later", want: "malware-cap"},
 		{name: "malware-reason-caps-later-deadline", fileState: "bloqueado", reason: "malicious_file", wantReason: "malicious_file", inspected: "recent", scan: "completado", retention: "pendiente", deadline: "later", want: "malware-cap"},
 		{name: "malware-without-inspected-at-is-immediate", fileState: "bloqueado", lastError: "malware_detected", wantReason: "malicious_file", scan: "completado", retention: "absent", deadline: "none", want: "malware-now"},
@@ -83,12 +98,13 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 		{name: "later-replacement-deadline", fileState: "pendiente", reason: "abandoned_draft", wantReason: "rejected_or_replaced", scan: "completado", retention: "absent", deadline: "later", want: "replacement"},
 		{name: "completed-retention-history", fileState: "pendiente", wantReason: "rejected_or_replaced", retention: "completado", deadline: "none", want: "replacement", completed: true},
 		{name: "active-and-completed-retention-history", fileState: "pendiente", wantReason: "rejected_or_replaced", scan: "procesando", retention: "pendiente", deadline: "none", want: "replacement", completed: true, alsoCompleted: true},
+		{name: "cancelled-completed-retention-is-rescheduled", fileState: "pendiente", wantReason: "rejected_or_replaced", retention: "completado", deadline: "none", want: "replacement"},
 	}
 	outer, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal(err)
 	}
-	owner, newOwner := uuid.NewString(), uuid.NewString()
+	owner, newOwner, laterOwner := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	spaceIDs, caseIDs, fileIDs := make([]string, len(cases)), make([]string, len(cases)), make([]string, len(cases))
 	initialDeadlines := make([]time.Time, len(cases))
 	inspectionTimes := make([]time.Time, len(cases))
@@ -108,6 +124,8 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 			initialDeadlines[i] = now.Add(7 * 24 * time.Hour)
 		case "malware-earlier":
 			initialDeadlines[i] = inspectionTimes[i].Add(6 * time.Hour)
+		case "malware-equal":
+			initialDeadlines[i] = inspectionTimes[i].Add(24 * time.Hour)
 		case "malware-later":
 			initialDeadlines[i] = inspectionTimes[i].Add(48 * time.Hour)
 		case "later":
@@ -123,21 +141,21 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 		}
 		var remaining int
 		if err := pool.QueryRow(context.Background(), `SELECT
-			(SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+
-			(SELECT count(*) FROM public.espacio WHERE id=ANY($3::uuid[]))+
-			(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=ANY($3::uuid[]))+
-			(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=ANY($3::uuid[]))+
-			(SELECT count(*) FROM public.document_verification_case WHERE id=ANY($4::uuid[]))+
-			(SELECT count(*) FROM public.document_verification_file WHERE id=ANY($5::uuid[]))+
-			(SELECT count(*) FROM public.document_verification_job WHERE file_id=ANY($5::uuid[]))+
-			(SELECT count(*) FROM public.document_verification_event WHERE case_id=ANY($4::uuid[]))`, owner, newOwner, spaceIDs, caseIDs, fileIDs).Scan(&remaining); err != nil {
+			(SELECT count(*) FROM public.usuario WHERE id IN($1,$2,$3))+
+			(SELECT count(*) FROM public.espacio WHERE id=ANY($4::uuid[]))+
+			(SELECT count(*) FROM public.tarifa_espacio WHERE espacio_id=ANY($4::uuid[]))+
+			(SELECT count(*) FROM public.espacio_caracteristicas WHERE espacio_id=ANY($4::uuid[]))+
+			(SELECT count(*) FROM public.document_verification_case WHERE id=ANY($5::uuid[]))+
+			(SELECT count(*) FROM public.document_verification_file WHERE id=ANY($6::uuid[]))+
+			(SELECT count(*) FROM public.document_verification_job WHERE file_id=ANY($6::uuid[]))+
+			(SELECT count(*) FROM public.document_verification_event WHERE case_id=ANY($5::uuid[]))`, owner, newOwner, laterOwner, spaceIDs, caseIDs, fileIDs).Scan(&remaining); err != nil {
 			t.Errorf("verify rollback cleanup: %v", err)
 		} else if remaining != 0 {
 			t.Errorf("rollback left %d fixture rows", remaining)
 		}
 	})
 
-	if _, err := outer.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic','activo'),($3,$4,$4,'synthetic','activo')`, owner, owner+"@example.invalid", newOwner, newOwner+"@example.invalid"); err != nil {
+	if _, err := outer.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic','activo'),($3,$4,$4,'synthetic','activo'),($5,$6,$6,'synthetic','activo')`, owner, owner+"@example.invalid", newOwner, newOwner+"@example.invalid", laterOwner, laterOwner+"@example.invalid"); err != nil {
 		t.Fatal(err)
 	}
 	for i, s := range cases {
@@ -162,7 +180,7 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 		}
 		var deadline any
 		switch s.deadline {
-		case "earlier", "inspection-error", "malware-earlier", "malware-later":
+		case "earlier", "inspection-error", "malware-earlier", "malware-equal", "malware-later":
 			deadline = initialDeadlines[i]
 		case "later":
 			deadline = initialDeadlines[i]
@@ -197,6 +215,20 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 				t.Fatalf("insert completed retention history %s: %v", s.name, err)
 			}
 		}
+		if s.completed || s.alsoCompleted {
+			if _, err := outer.Exec(ctx, `INSERT INTO public.document_verification_event(case_id,purpose,subject_id,file_id,actor_kind,action,from_state,to_state,result_code,reason_code,revision)
+				SELECT c.id,c.purpose,c.subject_id,$2,'system','retention_deleted',c.state,c.state,'eliminado','retencion_vencida',c.revision
+				FROM public.document_verification_case c WHERE c.id=$1`, caseIDs[i], fileIDs[i]); err != nil {
+				t.Fatalf("insert successful retention deletion event %s: %v", s.name, err)
+			}
+		}
+		if s.lastError == "malware_detected" {
+			if _, err := outer.Exec(ctx, `INSERT INTO public.document_verification_event(case_id,purpose,subject_id,file_id,actor_kind,action,from_state,to_state,result_code,reason_code,revision)
+				SELECT c.id,c.purpose,c.subject_id,$2,'system','scan_result',c.state,c.state,'bloqueado','malware_detectado',c.revision
+				FROM public.document_verification_case c WHERE c.id=$1`, caseIDs[i], fileIDs[i]); err != nil {
+				t.Fatalf("insert malware scan audit %s: %v", s.name, err)
+			}
+		}
 	}
 	if _, err := outer.Exec(ctx, `SET LOCAL ROLE espacigo_runtime`); err != nil {
 		t.Fatalf("set runtime role: %v", err)
@@ -214,6 +246,13 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 			t.Fatalf("ownership transfer: %v", err)
 		}
 	}
+	// Repeating a transfer must not supersede the historical cases again or
+	// reset their retention deadlines/jobs after the first atomic transition.
+	for _, spaceID := range spaceIDs {
+		if _, err := outer.Exec(ctx, `UPDATE public.espacio SET propietario_id=$2,actualizado_en=clock_timestamp() WHERE id=$1`, spaceID, laterOwner); err != nil {
+			t.Fatalf("repeated ownership transfer: %v", err)
+		}
+	}
 	for i, s := range cases {
 		var actualDeadline *time.Time
 		var actualReason *string
@@ -223,6 +262,13 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 		var superseded time.Time
 		if err := outer.QueryRow(ctx, `SELECT superseded_at FROM public.document_verification_case WHERE id=$1`, caseIDs[i]).Scan(&superseded); err != nil {
 			t.Fatal(err)
+		}
+		var supersessionEvents int
+		if err := outer.QueryRow(ctx, `SELECT count(*) FROM public.document_verification_event WHERE case_id=$1 AND action='case_superseded'`, caseIDs[i]).Scan(&supersessionEvents); err != nil {
+			t.Fatal(err)
+		}
+		if supersessionEvents != 1 {
+			t.Errorf("%s supersession events=%d after repeated transfer, want exactly one", s.name, supersessionEvents)
 		}
 		var wantDeadline time.Time
 		switch s.want {
@@ -251,6 +297,21 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 		} else if actualReason == nil || *actualReason != s.wantReason {
 			t.Errorf("%s retention reason=%q want=%q", s.name, gotReason, s.wantReason)
 		}
+		if s.lastError == "malware_detected" {
+			var persistedError, scanReason string
+			var malwareScanEvents int
+			if err := outer.QueryRow(ctx, `SELECT f.last_error_code,
+				count(*) FILTER (WHERE e.action='scan_result' AND e.reason_code='malware_detectado'),
+				COALESCE(max(e.reason_code) FILTER (WHERE e.action='scan_result'), '')
+				FROM public.document_verification_file f
+				LEFT JOIN public.document_verification_event e ON e.file_id=f.id
+				WHERE f.id=$1 GROUP BY f.last_error_code`, fileIDs[i]).Scan(&persistedError, &malwareScanEvents, &scanReason); err != nil {
+				t.Fatal(err)
+			}
+			if persistedError != "malware_detected" || malwareScanEvents != 1 || scanReason != "malware_detectado" {
+				t.Errorf("%s malware classification error=%q scan_events=%d scan_reason=%q; want classification retained", s.name, persistedError, malwareScanEvents, scanReason)
+			}
+		}
 		var scanJobs, completedScans, activeScans, activeRetention, pendingRetention, completedRetention, retentionJobs, retentionAttempts int
 		var retentionLeasesClear bool
 		var scheduled *time.Time
@@ -272,8 +333,14 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 			if activeRetention != 0 || completedRetention != wantJobs || retentionJobs != wantJobs {
 				t.Errorf("completed retention history was rescheduled: active=%d completed=%d jobs=%d want=%d", activeRetention, completedRetention, retentionJobs, wantJobs)
 			}
-		} else if activeRetention != 1 || pendingRetention != 1 || retentionJobs != 1 || retentionAttempts != 0 || !retentionLeasesClear || scheduled == nil || actualDeadline == nil || !scheduled.Equal(*actualDeadline) {
-			t.Errorf("%s retention scheduling active=%d pending=%d jobs=%d attempts=%d leases_clear=%t scheduled=%v deadline=%v", s.name, activeRetention, pendingRetention, retentionJobs, retentionAttempts, retentionLeasesClear, scheduled, actualDeadline)
+		} else {
+			wantRetentionJobs := 1
+			if s.retention == "completado" {
+				wantRetentionJobs = 2
+			}
+			if activeRetention != 1 || pendingRetention != 1 || retentionJobs != wantRetentionJobs || retentionAttempts != 0 || !retentionLeasesClear || scheduled == nil || actualDeadline == nil || !scheduled.Equal(*actualDeadline) {
+				t.Errorf("%s retention scheduling active=%d pending=%d jobs=%d want_jobs=%d attempts=%d leases_clear=%t scheduled=%v deadline=%v", s.name, activeRetention, pendingRetention, retentionJobs, wantRetentionJobs, retentionAttempts, retentionLeasesClear, scheduled, actualDeadline)
+			}
 		}
 	}
 	if err := outer.Rollback(ctx); err != nil {

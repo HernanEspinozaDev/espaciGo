@@ -69,7 +69,7 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 		}
 		profile := runtimeProfileName(p)
 		if profile == runtimeProfileDocumentScanOnly {
-			if getenv("DATABASE_HOST") != "127.0.0.1" || getenv("DATABASE_PORT") != "15433" || getenv("DATABASE_NAME") != "espacigo_f5_synth_20261029" || getenv("DATABASE_USER") != "espacigo_api_login" || getenv("DATABASE_SET_ROLE") != "espacigo_runtime" || httpAddr != "127.0.0.1:18084" {
+			if getenv("DATABASE_HOST") != "127.0.0.1" || getenv("DATABASE_PORT") != "15434" || getenv("DATABASE_NAME") != "espacigo_f5_gate_20261101" || getenv("DATABASE_USER") != "espacigo_api_login" || getenv("DATABASE_SET_ROLE") != "espacigo_runtime" || httpAddr != "127.0.0.1:18084" {
 				return "", errors.New("document scan profile requires the authorized F5 loopback API and least-privilege database target")
 			}
 			_, enabled, scanErr := documentScanConfigFromEnv(getenv)
@@ -119,6 +119,9 @@ func restrictDocumentVerificationRoutes(next http.Handler) http.Handler {
 			allowed = true
 		}
 		if isDocumentVerificationCasesRoute(r.Method, r.URL.Path) {
+			allowed = true
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/spaces" {
 			allowed = true
 		}
 		if r.Method == http.MethodGet && isOwnerDocumentDownloadPath(r.URL.Path) {

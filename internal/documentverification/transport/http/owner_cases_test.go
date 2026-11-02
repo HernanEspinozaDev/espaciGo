@@ -221,6 +221,23 @@ func TestOwnerCasesRejectsMissingOrStaleETag(t *testing.T) {
 		})
 	}
 }
+
+func TestOwnerCasesSubmitRejectsUncleanFilesAsBadRequest(t *testing.T) {
+	loaded := casesSnapshot()
+	f := &casesServiceFake{loaded: loaded, submitErr: documentverification.ErrFilesNotClean}
+	req := httptest.NewRequest("POST", "/api/v1/document-verification/cases/"+ownerCasesID+"/submit", nil)
+	req.Header.Set("Authorization", "Bearer synthetic-session")
+	req.Header.Set("If-Match", `"3"`)
+	w := httptest.NewRecorder()
+	casesHandler(f).ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unclean-file submit status=%d body=%s, want 400", w.Code, w.Body.String())
+	}
+	if len(f.calls) != 2 || f.calls[0] != "load" || f.calls[1] != "submit" {
+		t.Fatalf("unclean-file submit calls=%v, want load then submit", f.calls)
+	}
+}
+
 func TestOwnerCasesAuthMalformedJSONAndHiddenNotFound(t *testing.T) {
 	for _, tc := range []struct {
 		name, auth, body string

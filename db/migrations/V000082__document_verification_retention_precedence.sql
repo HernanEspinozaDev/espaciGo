@@ -2,6 +2,8 @@
 -- V80's replacement deadline applies only when no earlier mandatory deadline exists.
 -- Malware retention is capped at 24 hours after inspection; absent or future
 -- inspection timestamps are treated as immediately due, never as an extension.
+-- A completed retention job proves deletion only when its append-only deletion
+-- event exists; scan cancellation can also leave a completed job without deletion.
 -- Ownership transfer and retention deletion both fence on the space row before
 -- case/file/job rows; the worker holds those locks through storage deletion.
 CREATE OR REPLACE FUNCTION public.document_verification_space_owner_changed() RETURNS trigger
@@ -49,7 +51,12 @@ BEGIN
             retention_reason_code = CASE
                 WHEN f.last_error_code='malware_detected'
                   OR f.retention_reason_code='malicious_file'
-                    THEN 'malicious_file'
+                    THEN CASE
+                        WHEN f.retention_at IS NOT NULL
+                          AND f.retention_at < policy.malware_deadline
+                            THEN f.retention_reason_code
+                        ELSE 'malicious_file'
+                    END
                 WHEN f.retention_at IS NOT NULL AND f.retention_at <= replacement_deadline
                     THEN f.retention_reason_code
                 ELSE 'rejected_or_replaced'
@@ -78,8 +85,8 @@ BEGIN
     FROM superseded s
     LEFT JOIN updated_files uf ON uf.case_id=s.id;
 
-    -- A completed retention job is durable evidence that this object's deletion
-    -- already succeeded; never create another deletion job for that file.
+    -- Require the atomic deletion audit event: scan cancellation also marks a
+    -- retention job completed, but does not mean the object was deleted.
     INSERT INTO public.document_verification_job(file_id,kind)
     SELECT f.file_id,'retention_delete'
     FROM unnest(file_ids) AS f(file_id)
@@ -89,6 +96,12 @@ BEGIN
         WHERE done.file_id=f.file_id
           AND done.kind='retention_delete'
           AND done.state='completado'
+          AND EXISTS (
+              SELECT 1
+              FROM public.document_verification_event e
+              WHERE e.file_id=done.file_id
+                AND e.action='retention_deleted'
+          )
     )
     ON CONFLICT DO NOTHING;
 
@@ -100,8 +113,8 @@ BEGIN
       AND j.kind='retention_delete'
       AND j.state IN ('pendiente','procesando','reintentar');
 
-    -- If an older trigger left both a completed history row and an active
-    -- duplicate, preserve the terminal deletion and retire that duplicate.
+    -- If a successful deletion and an active duplicate coexist, preserve the
+    -- deletion result and retire that duplicate.
     UPDATE public.document_verification_job j
     SET state='completado',lease_until=NULL,last_error_code=NULL,updated_at=changed_at
     WHERE j.file_id = ANY(file_ids)
@@ -113,6 +126,12 @@ BEGIN
           WHERE done.file_id=j.file_id
             AND done.kind='retention_delete'
             AND done.state='completado'
+            AND EXISTS (
+                SELECT 1
+                FROM public.document_verification_event e
+                WHERE e.file_id=done.file_id
+                  AND e.action='retention_deleted'
+            )
       );
 
     RETURN NEW;

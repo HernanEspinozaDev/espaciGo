@@ -26,7 +26,7 @@ func TestPostgresScanOutcomeAuditsCaseStateAndFileResult(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid integration DSN")
 	}
-	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15433 || cfg.ConnConfig.Database != "espacigo_f5_synth_20261029" {
+	if cfg.ConnConfig.Host != "127.0.0.1" || cfg.ConnConfig.Port != 15434 || cfg.ConnConfig.Database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing integration target outside the authorized F5 synthetic endpoint")
 	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
@@ -35,7 +35,7 @@ func TestPostgresScanOutcomeAuditsCaseStateAndFileResult(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Close() })
 	var database string
-	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&database); err != nil || database != "espacigo_f5_synth_20261029" {
+	if err := pool.QueryRow(ctx, `SELECT current_database()`).Scan(&database); err != nil || database != "espacigo_f5_gate_20261101" {
 		t.Fatal("refusing unexpected integration database")
 	}
 
@@ -43,13 +43,13 @@ func TestPostgresScanOutcomeAuditsCaseStateAndFileResult(t *testing.T) {
 	if err != nil {
 		t.Fatal("unable to begin rollback-scoped fixture")
 	}
-	actor, caseID, fileID, infectedFileID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	actor, caseID, fileID, infectedFileID, errorFileID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
 	t.Cleanup(func() {
 		if err := outer.Rollback(context.Background()); err != nil && err != pgx.ErrTxClosed {
 			t.Errorf("rollback scan fixture failed: %v", err)
 		}
 		var remaining int
-		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id=$1)+(SELECT count(*) FROM public.document_verification_case WHERE id=$2)+(SELECT count(*) FROM public.document_verification_file WHERE id IN($3,$4))+(SELECT count(*) FROM public.document_verification_job WHERE file_id IN($3,$4))+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$2)`, actor, caseID, fileID, infectedFileID).Scan(&remaining); err != nil {
+		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id=$1)+(SELECT count(*) FROM public.document_verification_case WHERE id=$2)+(SELECT count(*) FROM public.document_verification_file WHERE id IN($3,$4,$5))+(SELECT count(*) FROM public.document_verification_job WHERE file_id IN($3,$4,$5))+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$2)`, actor, caseID, fileID, infectedFileID, errorFileID).Scan(&remaining); err != nil {
 			t.Errorf("verify scan fixture rollback failed: %v", err)
 		} else if remaining != 0 {
 			t.Errorf("scan fixture rollback left %d rows", remaining)
@@ -83,12 +83,22 @@ func TestPostgresScanOutcomeAuditsCaseStateAndFileResult(t *testing.T) {
 	if err := outer.QueryRow(ctx, `INSERT INTO public.document_verification_job(file_id,kind,state,attempts,available_at,lease_until,last_error_code) VALUES($1,'retention_delete','procesando',3,clock_timestamp()-interval '1 second',clock_timestamp()+interval '2 minutes','retention_store_error') RETURNING available_at,lease_until`, infectedFileID).Scan(&infectedRetentionAvailable, &infectedRetentionLease); err != nil {
 		t.Fatal("unable to seed active synthetic retention lease")
 	}
+	errorInspectedAt := time.Now().UTC().Truncate(time.Microsecond).Add(-20 * time.Hour)
+	errorPriorDeadline := errorInspectedAt.Add(26 * time.Hour)
+	if _, err := outer.Exec(ctx, `INSERT INTO public.document_verification_file(id,case_id,state,size_bytes,mime_type,pages,content_sha256,inspected_at,retention_at,retention_reason_code) VALUES($1,$2,'pendiente',$3,'image/png',0,$4,$5,$6,'malicious_file')`, errorFileID, caseID, len(content), hash[:], errorInspectedAt, errorPriorDeadline); err != nil {
+		t.Fatal("unable to seed synthetic retry outcome file")
+	}
+	var errorJobID string
+	var errorLeaseUntil time.Time
+	if err := outer.QueryRow(ctx, `INSERT INTO public.document_verification_job(file_id,kind,state,attempts,available_at,lease_until) VALUES($1,'scan','procesando',1,clock_timestamp(),clock_timestamp()+interval '2 minutes') RETURNING id::text,lease_until`, errorFileID).Scan(&errorJobID, &errorLeaseUntil); err != nil {
+		t.Fatal("unable to seed synthetic retry outcome lease")
+	}
 	if _, err := outer.Exec(ctx, `SET LOCAL ROLE espacigo_runtime`); err != nil {
 		t.Fatal("unable to assume restricted runtime role")
 	}
 
 	repo := newWithTransactionBeginner(savepointBeginner{tx: outer})
-	claim := ScanClaim{JobID: jobID, FileID: fileID, CaseID: caseID, LeaseUntil: leaseUntil, Attempt: 1}
+	claim := ScanClaim{JobID: jobID, FileID: fileID, CaseID: caseID, SubjectID: actor, Purpose: dv.PurposeIdentity, LeaseUntil: leaseUntil, Attempt: 1, CaseRevision: 1}
 	cleanSignaturesAt := time.Now().UTC().Truncate(time.Microsecond)
 	outcome := ScanOutcome{State: dv.FileClean, ScannerVersion: "ClamAV synthetic", SignaturesAt: cleanSignaturesAt}
 	if err := repo.RecordScanOutcome(ctx, claim, outcome); err != nil {
@@ -120,7 +130,7 @@ func TestPostgresScanOutcomeAuditsCaseStateAndFileResult(t *testing.T) {
 	}
 
 	infectedOutcome := ScanOutcome{State: dv.FileBlocked, ErrorCode: "malware_detected", ReasonCode: dv.ReasonMalwareDetected, ScannerVersion: "ClamAV synthetic", SignaturesAt: time.Now().UTC().Truncate(time.Microsecond)}
-	infectedClaim := ScanClaim{JobID: infectedJobID, FileID: infectedFileID, CaseID: caseID, LeaseUntil: infectedLeaseUntil, Attempt: 1}
+	infectedClaim := ScanClaim{JobID: infectedJobID, FileID: infectedFileID, CaseID: caseID, SubjectID: actor, Purpose: dv.PurposeIdentity, LeaseUntil: infectedLeaseUntil, Attempt: 1, CaseRevision: 2}
 	if err := repo.RecordScanOutcome(ctx, infectedClaim, infectedOutcome); err != nil {
 		t.Fatalf("persist infected scan outcome under runtime role: %v", err)
 	}
@@ -155,5 +165,39 @@ func TestPostgresScanOutcomeAuditsCaseStateAndFileResult(t *testing.T) {
 	}
 	if infectedAction != "scan_result" || infectedFromState != string(dv.CaseDraft) || infectedToState != string(dv.CaseDraft) || infectedResult != string(dv.FileBlocked) || infectedReason != string(dv.ReasonMalwareDetected) {
 		t.Fatalf("unexpected infected scan audit event: action=%q from=%q to=%q result=%q reason=%q", infectedAction, infectedFromState, infectedToState, infectedResult, infectedReason)
+	}
+
+	errorClaim := ScanClaim{JobID: errorJobID, FileID: errorFileID, CaseID: caseID, SubjectID: actor, Purpose: dv.PurposeIdentity, LeaseUntil: errorLeaseUntil, Attempt: 1, CaseRevision: 3, PriorRetentionAt: &errorPriorDeadline}
+	errorOutcome := ScanOutcome{State: dv.FileError, ErrorCode: "inspection_rejected"}
+	staleDeadline := errorPriorDeadline.Add(-time.Hour)
+	staleClaim := errorClaim
+	staleClaim.PriorRetentionAt = &staleDeadline
+	if err := repo.RecordScanOutcome(ctx, staleClaim, errorOutcome); err != dv.ErrConflict {
+		t.Fatalf("stale retention snapshot result=%v, want conflict", err)
+	}
+	var staleFileState, staleReason, staleJobState string
+	var stalePersistedDeadline time.Time
+	var staleLeaseActive bool
+	var staleScanEvents int
+	if err := outer.QueryRow(ctx, `SELECT f.state,f.retention_at,COALESCE(f.retention_reason_code,''),j.state,j.lease_until IS NOT NULL,(SELECT count(*) FROM public.document_verification_event e WHERE e.file_id=f.id AND e.action='scan_result') FROM public.document_verification_file f JOIN public.document_verification_job j ON j.file_id=f.id AND j.kind='scan' WHERE f.id=$1`, errorFileID).Scan(&staleFileState, &stalePersistedDeadline, &staleReason, &staleJobState, &staleLeaseActive, &staleScanEvents); err != nil {
+		t.Fatal("stale retention snapshot state was not readable")
+	}
+	if staleFileState != string(dv.FilePending) || !stalePersistedDeadline.Equal(errorPriorDeadline) || staleReason != "malicious_file" || staleJobState != "procesando" || !staleLeaseActive || staleScanEvents != 0 {
+		t.Fatalf("stale retention snapshot changed persisted state: file=%q deadline=%s reason=%q job=%q lease_active=%t events=%d", staleFileState, stalePersistedDeadline, staleReason, staleJobState, staleLeaseActive, staleScanEvents)
+	}
+	if err := repo.RecordScanOutcome(ctx, errorClaim, errorOutcome); err != nil {
+		t.Fatalf("persist retry scan error outcome under runtime role: %v", err)
+	}
+	wantErrorRetention := errorInspectedAt.Add(24 * time.Hour)
+	var errorState, errorCode, errorReason string
+	var gotErrorRetention, scheduledErrorRetention time.Time
+	if err := outer.QueryRow(ctx, `SELECT state,last_error_code,retention_at,retention_reason_code FROM public.document_verification_file WHERE id=$1`, errorFileID).Scan(&errorState, &errorCode, &gotErrorRetention, &errorReason); err != nil {
+		t.Fatal("retry scan error retention was not persisted")
+	}
+	if err := outer.QueryRow(ctx, `SELECT state,available_at FROM public.document_verification_job WHERE file_id=$1 AND kind='retention_delete'`, errorFileID).Scan(&retentionState, &scheduledErrorRetention); err != nil {
+		t.Fatal("retry scan error retention job was not scheduled")
+	}
+	if errorState != string(dv.FileError) || errorCode != "inspection_rejected" || !gotErrorRetention.Equal(wantErrorRetention) || errorReason != "malicious_file" || retentionState != "pendiente" || !scheduledErrorRetention.Equal(wantErrorRetention) {
+		t.Fatalf("FileError overwrote malware retention: state=%q code=%q deadline=%s reason=%q retention_job=%q scheduled=%s; want deadline=%s reason=malicious_file", errorState, errorCode, gotErrorRetention, errorReason, retentionState, scheduledErrorRetention, wantErrorRetention)
 	}
 }

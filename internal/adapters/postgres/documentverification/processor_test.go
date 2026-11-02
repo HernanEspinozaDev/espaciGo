@@ -15,6 +15,7 @@ import (
 type processorJobs struct {
 	claim        *ScanClaim
 	claimed      int
+	claimChecks  <-chan bool
 	retryCode    string
 	retryDelay   time.Duration
 	retryCalls   int
@@ -27,6 +28,17 @@ type processorJobs struct {
 func (j *processorJobs) ClaimReadyScanJob(context.Context, time.Duration) (*ScanClaim, error) {
 	j.claimed++
 	return j.claim, nil
+}
+func (j *processorJobs) VerifyScanClaim(context.Context, ScanClaim) (bool, error) {
+	if j.claimChecks == nil {
+		return true, nil
+	}
+	select {
+	case current := <-j.claimChecks:
+		return current, nil
+	default:
+		return true, nil
+	}
 }
 func (j *processorJobs) RecordScanRetry(_ context.Context, _ ScanClaim, code string, d time.Duration) error {
 	j.retryCalls++
@@ -232,18 +244,26 @@ func TestProcessorRejectsNilContext(t *testing.T) {
 	}
 }
 
-type cancelAwareProcessorDocs struct{ started chan struct{} }
+type cancelAwareProcessorDocs struct {
+	started     chan struct{}
+	cancelCause chan error
+}
 
-func (d *cancelAwareProcessorDocs) ReadIdentityDocument(ctx context.Context, _, _, _ string) ([]byte, error) {
+func (d *cancelAwareProcessorDocs) waitForCancellation(ctx context.Context) error {
 	close(d.started)
 	<-ctx.Done()
-	return nil, ctx.Err()
+	if d.cancelCause != nil {
+		d.cancelCause <- context.Cause(ctx)
+	}
+	return ctx.Err()
+}
+
+func (d *cancelAwareProcessorDocs) ReadIdentityDocument(ctx context.Context, _, _, _ string) ([]byte, error) {
+	return nil, d.waitForCancellation(ctx)
 }
 
 func (d *cancelAwareProcessorDocs) ReadSpaceDocument(ctx context.Context, _, _, _, _ string) ([]byte, error) {
-	close(d.started)
-	<-ctx.Done()
-	return nil, ctx.Err()
+	return nil, d.waitForCancellation(ctx)
 }
 
 func TestProcessorCancellationDuringDocumentReadDoesNotRetry(t *testing.T) {
@@ -317,6 +337,88 @@ func TestProcessorCancellationAfterClaimLeavesBoundedLeaseForExpiry(t *testing.T
 	}
 }
 
+func TestProcessorStopsScannerWhenClaimIsFenced(t *testing.T) {
+	content := []byte("synthetic document")
+	claim := claimFor(content)
+	claim.Attempt = 1
+	claim.CaseRevision = 1
+	claim.LeaseUntil = time.Now().Add(time.Minute)
+	statuses := make(chan bool, 2)
+	statuses <- true
+	jobs := &processorJobs{claim: claim, claimChecks: statuses}
+	scanner := &cancelAwareProcessorScanner{started: make(chan struct{})}
+	processor := NewScanProcessor(jobs, &processorDocs{content: content}, scanner, time.Minute, time.Second, time.Hour)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- processor.ProcessOne(ctx) }()
+	select {
+	case <-scanner.started:
+	case <-time.After(time.Second):
+		t.Fatal("processor did not reach scanner")
+	}
+	statuses <- false
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ProcessOne() error=%v, want lost claim to stop cleanly", err)
+		}
+	case <-time.After(time.Second):
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("processor did not stop after test cleanup cancellation")
+		}
+		t.Fatal("scanner continued after the persisted claim was fenced")
+	}
+	if jobs.retryCalls != 0 || jobs.outcomeCalls != 0 {
+		t.Fatalf("fenced scanner result was persisted: retries=%d outcomes=%d", jobs.retryCalls, jobs.outcomeCalls)
+	}
+}
+
+func TestProcessorCancelsDocumentReadWhenClaimIsFenced(t *testing.T) {
+	content := []byte("synthetic document")
+	claim := claimFor(content)
+	claim.Attempt = 1
+	claim.CaseRevision = 1
+	claim.LeaseUntil = time.Now().Add(time.Minute)
+	statuses := make(chan bool, 2)
+	statuses <- true
+	jobs := &processorJobs{claim: claim, claimChecks: statuses}
+	docs := &cancelAwareProcessorDocs{started: make(chan struct{}), cancelCause: make(chan error, 1)}
+	scanner := &processorScanner{}
+	processor := NewScanProcessor(jobs, docs, scanner, time.Minute, time.Second, time.Hour)
+	processor.claimPollInterval = time.Millisecond
+	done := make(chan error, 1)
+	go func() { done <- processor.ProcessOne(context.Background()) }()
+	select {
+	case <-docs.started:
+	case <-time.After(time.Second):
+		t.Fatal("processor did not enter document storage")
+	}
+	statuses <- false
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("ProcessOne() error=%v, want a fenced scan to stop cleanly", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("document read did not stop after the scan claim was fenced")
+	}
+	if scanner.calls != 0 || jobs.retryCalls != 0 || jobs.outcomeCalls != 0 {
+		t.Fatalf("fenced read caused scanner or persistence: scans=%d retries=%d outcomes=%d", scanner.calls, jobs.retryCalls, jobs.outcomeCalls)
+	}
+	select {
+	case cause := <-docs.cancelCause:
+		if !errors.Is(cause, errScanClaimFenced) {
+			t.Fatalf("document read cancellation cause=%v, want fenced-claim cause", cause)
+		}
+	default:
+		t.Fatal("document read did not record cancellation after claim fencing")
+	}
+}
+
 func TestProcessorNoClaimDoesNothing(t *testing.T) {
 	jobs := &processorJobs{}
 	p := NewScanProcessor(jobs, &processorDocs{}, &processorScanner{}, time.Minute, time.Second, time.Minute)
@@ -325,6 +427,41 @@ func TestProcessorNoClaimDoesNothing(t *testing.T) {
 	}
 	if jobs.claimed != 1 || jobs.outcome != nil || jobs.retryCode != "" {
 		t.Fatalf("jobs=%+v", jobs)
+	}
+}
+
+func TestProcessorDoesNotReadDocumentForFencedClaim(t *testing.T) {
+	content := []byte("synthetic document")
+	statuses := make(chan bool, 1)
+	statuses <- false
+	jobs := &processorJobs{claim: claimFor(content), claimChecks: statuses}
+	docs := &processorDocs{content: content}
+	scanner := &processorScanner{result: processorValidResult(dv.FileClean)}
+	processor := NewScanProcessor(jobs, docs, scanner, time.Minute, time.Second, 48*time.Hour)
+	if err := processor.ProcessOne(context.Background()); err != nil {
+		t.Fatalf("ProcessOne() error=%v, want fenced claim to be ignored", err)
+	}
+	if docs.identityReads+docs.spaceReads != 0 || scanner.calls != 0 || jobs.retryCalls != 0 || jobs.outcomeCalls != 0 {
+		t.Fatalf("fenced claim caused document reads/scans/writes: reads=%d scanner=%d retries=%d outcomes=%d", docs.identityReads+docs.spaceReads, scanner.calls, jobs.retryCalls, jobs.outcomeCalls)
+	}
+}
+
+func TestProcessorReverifiesClaimAfterDocumentReadBeforeScanning(t *testing.T) {
+	content := []byte("synthetic document")
+	statuses := make(chan bool, 2)
+	statuses <- true
+	statuses <- false
+	jobs := &processorJobs{claim: claimFor(content), claimChecks: statuses}
+	docs := &processorDocs{content: content}
+	scanner := &processorScanner{result: processorValidResult(dv.FileClean)}
+	processor := NewScanProcessor(jobs, docs, scanner, time.Minute, time.Second, 48*time.Hour)
+	processor.claimPollInterval = time.Hour
+
+	if err := processor.ProcessOne(context.Background()); err != nil {
+		t.Fatalf("ProcessOne() error=%v, want stale claim to stop cleanly", err)
+	}
+	if docs.spaceReads != 1 || scanner.calls != 0 || jobs.retryCalls != 0 || jobs.outcomeCalls != 0 {
+		t.Fatalf("document reads=%d scanner calls=%d retry calls=%d outcome calls=%d", docs.spaceReads, scanner.calls, jobs.retryCalls, jobs.outcomeCalls)
 	}
 }
 
