@@ -7,11 +7,7 @@ cd "$root"
 
 case "$role" in
   development|review|direct)
-    if [[ "$role" == development ]]; then
-      account=HernanMEC
-    else
-      account=HernanEspinozaDev
-    fi
+    account=HernanEspinozaDev
     gh auth switch --hostname github.com --user "$account"
     login="$(gh api user --jq .login)"
     account_id="$(gh api user --jq .id)"
@@ -27,8 +23,7 @@ case "$role" in
 esac
 
 expected=''
-[[ "$role" == development || "$role" == check-development ]] && expected=HernanMEC
-[[ "$role" == review || "$role" == direct || "$role" == check-direct ]] && expected=HernanEspinozaDev
+[[ "$role" == development || "$role" == check-development || "$role" == review || "$role" == direct || "$role" == check-direct ]] && expected=HernanEspinozaDev
 python3 - "$expected" <<'PY'
 import json, subprocess, sys, urllib.request
 
@@ -52,6 +47,6 @@ try:
     if expected and (cli != expected or git_login != expected or author != expected or not email.endswith('+' + expected + '@users.noreply.github.com')):
         raise RuntimeError('identity mismatch')
 except Exception:
-    print('No se pudo verificar la identidad requerida. Ejecuta scripts/git-role.sh development o review; no publiques con otra cuenta.', file=sys.stderr)
+    print('No se pudo verificar la identidad requerida. Ejecuta scripts/git-role.sh direct; no publiques con otra cuenta.', file=sys.stderr)
     sys.exit(1)
 PY
