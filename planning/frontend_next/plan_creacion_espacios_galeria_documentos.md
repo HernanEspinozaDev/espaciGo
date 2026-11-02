@@ -4,7 +4,7 @@
 
 **Base histórica del plan:** `main` / `3956d2f3459b0bf4b15511f4e1a74ffd06a29975`; ese SHA no es el checkout actual.
 
-**Worktree de continuación:** `/home/nandev/Documentos/projects/espaciGo`, rama `codex/backend/feature/local-close-02-espacios-galeria-documentos`; HEAD base de esta entrega `3e7f7da73cce42cd542e982a74a63f41a491edeb`. Los cambios locales deben preservarse hasta registrar su SHA publicado.
+**Worktree de continuación:** `/home/nandev/Documentos/projects/espaciGo`, rama `codex/backend/feature/local-close-02-espacios-galeria-documentos`; HEAD base de esta entrega `3e7f7da73cce42cd542e982a74a63f41a491edeb`. Avance publicado directamente en esa rama el 2026-11-02; commits y límites en la evidencia F5/F6 vinculada abajo.
 
 **Fuente de verdad del avance:** la tabla `Reconciliación vigente — 2026-10-29` en §8 y los addenda del plan son snapshots históricos; prevalece la evidencia F5/F6 fechada más recientemente en `evidence/espacios-f3-f6-reconciliacion-local-20261030.md` (última actualización 2026-11-02). El resumen y snapshots anteriores se conservan como historial.
 
