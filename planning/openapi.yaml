@@ -375,6 +375,211 @@ paths:
           application/json:
             schema: {type: object, additionalProperties: false, required: [owner_id, expected_updated_at, reason], properties: {owner_id: {type: string, format: uuid}, expected_updated_at: {type: string, format: date-time}, reason: {type: string}}}
       responses: {'200': {description: Foto retirada con limpieza durable}, '409': {$ref: '#/components/responses/Conflict'}, '428': {description: Se requiere sesión reciente}}
+  /document-verification/cases:
+    post:
+      operationId: createOwnDocumentVerificationCase
+      tags: [Document verification]
+      summary: Crear un expediente documental propio
+      description: 'El actor se deriva de la sesión. El expediente pertenece al titular autenticado; Go valida el propósito y la titularidad del espacio cuando corresponde.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DocumentVerificationCaseCreate' }
+      responses:
+        '201':
+          description: Expediente creado.
+          headers:
+            ETag:
+              required: true
+              schema: { type: string, pattern: '^"(0|[1-9][0-9]*)"$' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVerificationOwnerCase' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '413': { description: El cuerpo JSON supera el límite de 16 KiB. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    get:
+      operationId: listOwnDocumentVerificationCases
+      tags: [Document verification]
+      summary: Listar los expedientes documentales propios
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 'Expedientes del titular autenticado, sin datos internos de revisión ni almacenamiento.'
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DocumentVerificationOwnerCase' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /document-verification/cases/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: getOwnDocumentVerificationCase
+      tags: [Document verification]
+      summary: Leer un expediente documental propio
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: 'Expediente propio; incluye únicamente campos allowlistados.'
+          headers:
+            ETag:
+              required: true
+              schema: { type: string, pattern: '^"(0|[1-9][0-9]*)"$' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVerificationOwnerCase' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /document-verification/cases/{id}/submit:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: If-Match
+        in: header
+        required: true
+        description: 'Una sola etiqueta fuerte canónica emitida por el servidor para la revisión actual del expediente.'
+        schema: { type: string, pattern: '^"(0|[1-9][0-9]*)"$' }
+    post:
+      operationId: submitOwnDocumentVerificationCase
+      tags: [Document verification]
+      summary: Enviar un expediente documental propio a revisión
+      description: 'Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto y no aplica la transición.'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Expediente enviado; devuelve el estado y ETag vigentes.
+          headers:
+            ETag:
+              required: true
+              schema: { type: string, pattern: '^"(0|[1-9][0-9]*)"$' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentVerificationOwnerCase' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /document-verification/cases/{id}/files:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: If-Match
+        in: header
+        required: true
+        description: 'Revisión fuerte actual del expediente; formato de etiqueta decimal entre comillas.'
+        schema: { type: string, pattern: '^"(0|[1-9][0-9]*)"$' }
+    post:
+      operationId: uploadOwnDocumentVerificationFile
+      tags: [Document verification]
+      summary: Cargar un documento al expediente propio
+      description: 'La sesión determina al titular y el espacio autorizado. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              additionalProperties: false
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  maxLength: 10485760
+      responses:
+        '201':
+          description: Archivo guardado en estado pendiente y revisión avanzada.
+          headers:
+            ETag:
+              required: true
+              schema: { type: string, pattern: '^"(0|[1-9][0-9]*)"$' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [file, revision]
+                additionalProperties: false
+                properties:
+                  revision: { type: integer, format: int64, minimum: 1 }
+                  file:
+                    type: object
+                    required: [id, state, size, mime, pages]
+                    additionalProperties: false
+                    properties:
+                      id: { type: string, format: uuid }
+                      state: { type: string, enum: [pendiente] }
+                      size: { type: integer, format: int64, minimum: 1, maximum: 10485760 }
+                      mime: { type: string, enum: [image/jpeg, image/png, application/pdf] }
+                      pages: { type: integer, minimum: 1, maximum: 20 }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413': { description: El archivo o el cuerpo multipart supera el límite autorizado. }
+        '415': { description: Se requiere multipart/form-data. }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /document-verification/space-cases/{caseID}/files/{fileID}/content:
+    parameters:
+      - name: caseID
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: fileID
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      operationId: downloadOwnSpaceDocumentVerificationFile
+      tags: [Document verification]
+      summary: Descargar un archivo propio aprobado
+      description: 'Solo el titular actual puede descargar archivos limpios dentro de la vigencia autorizada. La respuesta no revela claves de almacenamiento ni permite acceso a revisores o titulares históricos.'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Contenido documental limpio, entregado como adjunto privado.
+          headers:
+            Cache-Control:
+              required: true
+              schema: { type: string, const: 'private, no-store' }
+            Content-Disposition:
+              required: true
+              schema: { type: string }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /public/spaces:
     get:
       operationId: listPublicSpaces
@@ -3184,6 +3389,47 @@ components:
     AdminCapability:
       type: string
       enum: [legacy.administration, accounts.list, accounts.read, accounts.update, accounts.block, accounts.roles, publications.list, publications.read, publications.update, publications.moderate, publications.retire, admin_access.manage, kpi.read, audit.read, audit.export]
+    DocumentVerificationCaseCreate:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [purpose, document_expires_at]
+          properties:
+            purpose: { type: string, const: identity }
+            document_expires_at: { type: string, format: date-time, description: 'Fecha RFC 3339 estrictamente posterior al instante de recepción; obligatoria para expedientes de identidad.' }
+        - type: object
+          additionalProperties: false
+          required: [purpose, space_id]
+          properties:
+            purpose: { type: string, const: space }
+            space_id: { type: string, format: uuid }
+            document_expires_at: { type: string, format: date-time, description: 'Si se informa, la fecha RFC 3339 debe ser estrictamente posterior al instante de recepción.' }
+    DocumentVerificationOwnerFile:
+      type: object
+      additionalProperties: false
+      required: [id, state, size, mime, pages]
+      properties:
+        id: { type: string, format: uuid }
+        state: { type: string, enum: [pendiente, limpio, bloqueado, error] }
+        size: { type: integer, format: int64, minimum: 1, maximum: 10485760 }
+        mime: { type: string, enum: [image/jpeg, image/png, application/pdf] }
+        pages: { type: integer, minimum: 1, maximum: 20 }
+    DocumentVerificationOwnerCase:
+      type: object
+      additionalProperties: false
+      required: [id, purpose, state, revision, files]
+      properties:
+        id: { type: string, format: uuid }
+        purpose: { type: string, enum: [identity, space] }
+        space_id: { type: string, format: uuid }
+        state: { type: string, enum: [borrador, enviada, en_revision, requiere_antecedentes, aprobada, rechazada, vencida, revocada] }
+        revision: { type: integer, format: int64, minimum: 1 }
+        document_expires_at: { type: string, format: date-time }
+        verified_at: { type: string, format: date-time }
+        verified_until: { type: string, format: date-time }
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/DocumentVerificationOwnerFile' }
     GlobalAdminMeEnvelope:
       type: object
       required: [data]
@@ -3988,7 +4234,7 @@ components:
       required: [open, close]
       properties:
         open: { type: string, pattern: '^(?:[01][0-9]|2[0-3]):[0-5][0-9]$' }
-        close: { type: string, pattern: '^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$', description: 24:00 representa el límite final exclusivo del día y solo puede usarse al cerrar un tramo. }
+        close: { type: string, pattern: '^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$', description: '24:00 representa el límite final exclusivo del día y solo puede usarse al cerrar un tramo.' }
     LocalAvailableInterval:
       type: object
       required: [start_at, end_at]
@@ -5256,6 +5502,15 @@ components:
                   code: conflict
                   message: La operación no es compatible con el estado actual.
                   request_id: 550e8400-e29b-41d4-a716-446655440000
+    PreconditionRequired:
+      description: Se requiere el encabezado If-Match.
+      headers:
+        X-Request-ID:
+          $ref: '#/components/headers/X-Request-ID'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     InternalServerError:
       description: Error inesperado; no se exponen detalles internos ni secretos.
       headers:

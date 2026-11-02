@@ -39,6 +39,7 @@ const fixedPaths = new Set([
   "/mi-cuenta/privacidad",
   "/mi-cuenta/seguridad",
   "/mi-cuenta/verificaciones",
+  "/mi-cuenta/documentos",
   "/anfitrion",
   "/anfitrion/espacios",
   "/anfitrion/espacios/nuevo",

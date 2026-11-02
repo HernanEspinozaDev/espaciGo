@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileCheck, Lock, Shield, User } from "lucide-react";
+import { FileCheck, FileText, Lock, Shield, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -28,6 +28,12 @@ const NAV_ITEMS = [
     label: "Verificaciones",
     href: "/mi-cuenta/verificaciones",
     icon: FileCheck,
+    exact: false,
+  },
+  {
+    label: "Documentos",
+    href: "/mi-cuenta/documentos",
+    icon: FileText,
     exact: false,
   },
 ];

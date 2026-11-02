@@ -74,7 +74,7 @@ function errorResponse(
     {
       status,
       headers: {
-        "cache-control": "no-store",
+        "cache-control": "private, no-store",
         "content-type": "application/json; charset=utf-8",
         "x-request-id": requestId,
       },
@@ -363,6 +363,7 @@ async function proxy(
       method: operation.method,
       headers: collected.headers,
       body: body ?? undefined,
+      credentials: "omit",
       cache: "no-store",
       redirect: "manual",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]),
@@ -384,6 +385,9 @@ async function proxy(
     (upstreamMediaType && !allowedResponseMediaTypes.has(upstreamMediaType))
   ) {
     await upstream.body?.cancel().catch(() => undefined);
+    if (upstream.status >= 400 && upstream.status < 600) {
+      return errorResponse(upstream.status, "upstream_error", requestId);
+    }
     return errorResponse(502, "upstream_content_type_not_allowed", requestId);
   }
 
@@ -399,7 +403,7 @@ async function proxy(
       ? upstreamRequestId
       : requestId,
   );
-  outgoingHeaders.set("cache-control", "no-store");
+  outgoingHeaders.set("cache-control", "private, no-store");
 
   const responseBody =
     request.method.toUpperCase() === "HEAD" ||

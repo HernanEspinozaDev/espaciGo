@@ -242,6 +242,18 @@ export class AuthFacade {
       signal: AbortSignal,
     ) => Promise<{ response: Response; value: T }>,
   ): Promise<T> {
+    return this.runAuthenticatedOperation(async (accessToken, signal) => {
+      const result = await request(accessToken, signal);
+      if (result.response.status === 401 || result.response.status === 403) {
+        throw normalizeApiError(result.response, null);
+      }
+      return result.value;
+    });
+  }
+
+  async runAuthenticatedOperation<T>(
+    operation: (accessToken: AccessToken, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     this.#expireIfNeeded();
     const accessToken = this.#accessToken;
     const generation = this.#generation;
@@ -249,7 +261,7 @@ export class AuthFacade {
     const signal = this.#sessionController.signal;
 
     try {
-      const result = await request(accessToken, signal);
+      const value = await operation(accessToken, signal);
       if (
         generation !== this.#generation ||
         signal.aborted ||
@@ -260,11 +272,7 @@ export class AuthFacade {
           "AbortError",
         );
       }
-      if (result.response.status === 401 || result.response.status === 403) {
-        this.#clearIfCurrent(generation);
-        throw normalizeApiError(result.response, null);
-      }
-      return result.value;
+      return value;
     } catch (error) {
       if (
         generation === this.#generation &&

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clpAmount, addClp, formatClp } from "../src/lib/api/clp.ts";
-import { authErrorMessage, normalizeApiError } from "../src/lib/api/errors.ts";
+import {
+  authErrorMessage,
+  isAbortError,
+  normalizeApiError,
+} from "../src/lib/api/errors.ts";
 import { serializeExactJson } from "../src/lib/api/exact-json.ts";
 import { createMutationIntentCore } from "../src/lib/api/mutation-intent-core.mjs";
 import { OpaqueCursorPager } from "../src/lib/api/opaque-cursor.ts";
@@ -103,6 +107,16 @@ test("API errors expose safe codes, not server messages or credentials", () => {
     authErrorMessage(unauthenticated),
     "El correo o la contraseña no son válidos.",
   );
+});
+
+test("abort detection accepts cross-realm named errors without misclassifying others", () => {
+  const abort = new Error("request cancelled");
+  abort.name = "AbortError";
+
+  assert.equal(isAbortError(abort), true);
+  assert.equal(isAbortError({ name: "AbortError" }), true);
+  assert.equal(isAbortError(new Error("ordinary failure")), false);
+  assert.equal(isAbortError(null), false);
 });
 
 test("a mutation retry retains one idempotency key and immutable exact payload", () => {

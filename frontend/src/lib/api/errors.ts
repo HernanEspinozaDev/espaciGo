@@ -38,6 +38,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+export function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    error.name === "AbortError"
+  );
+}
+
 function safeCode(value: unknown, fallback: string): string {
   return typeof value === "string" && /^[a-z0-9_.-]{1,96}$/i.test(value)
     ? value
