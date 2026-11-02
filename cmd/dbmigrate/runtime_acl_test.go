@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 )
 
@@ -47,9 +48,40 @@ func TestValidateRuntimeACLPlanRequiresCompletedV82Ledger(t *testing.T) {
 	}
 }
 
-func TestApplyRuntimeACLPhaseFailsClosedUntilCompleteReadbackExists(t *testing.T) {
+func TestApplyRuntimeACLPhaseKeepsReadbackImplementedButClosesDDLGate(t *testing.T) {
+	if !runtimeACLCompleteReadbackImplemented {
+		t.Fatal("source-derived catalog readback has been exercised against the F5 PostgreSQL rollback preview")
+	}
+	if runtimeACLPhaseReviewed {
+		t.Fatal("runtime ACL DDL gate must remain closed until the source/catalog contract is independently reviewed")
+	}
 	err := applyRuntimeACLPhase(context.Background(), "", "")
-	if err == nil || !strings.Contains(err.Error(), "complete runtime ACL readback") {
-		t.Fatalf("runtime ACL phase should fail before parsing or using a connection until complete readback exists; got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not independently reviewed") {
+		t.Fatalf("runtime ACL phase must stop at the review gate before connection setup, got %v", err)
+	}
+}
+
+func TestRuntimeACLSourceSetUsesOnlyChecksumMatchedAppliedMigrations(t *testing.T) {
+	migrations, err := migrator.DiscoverMigrations("../../db/migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied := []migrator.HistoryEntry{
+		{Version: migrations[0].Version, Name: migrations[0].Name, Checksum: migrations[0].Checksum},
+		{Version: migrations[1].Version, Name: migrations[1].Name, Checksum: migrations[1].Checksum},
+	}
+	sources, err := runtimeACLSourceSet(migrations, applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != len(applied) || sources[0].Version != int(applied[0].Version) || sources[1].Version != int(applied[1].Version) {
+		t.Fatalf("source set does not match applied ledger: %#v", sources)
+	}
+	if _, err := dbbootstrap.BuildRuntimeACLContract(sources); err != nil {
+		t.Fatalf("build ACL contract from applied migrations: %v", err)
+	}
+	applied[1].Checksum = "drift"
+	if _, err := runtimeACLSourceSet(migrations, applied); err == nil {
+		t.Fatal("checksum drift was accepted in the ACL migration source set")
 	}
 }

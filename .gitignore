@@ -1,5 +1,6 @@
 # Local synthetic credentials and runtime data
 .local/
+/ES2/
 
 # Frontend build dependencies
 mock/node_modules/

@@ -224,6 +224,32 @@ func extractMigrationACL(version int, source []byte, grantee string, includeGran
 			}
 		}
 	}
+	condition, err := migrationACLRoleCondition(string(source), grantee)
+	if err != nil {
+		return nil, fmt.Errorf("migration V%d has unsupported ACL condition for %s: %w", version, grantee, err)
+	}
+	dynamicEffects, err := migrationACLDynamicEffectSet(proceduralBodies, grantee, includeGrantee)
+	if err != nil {
+		return nil, fmt.Errorf("migration V%d has unsupported dynamic ACL effect for %s: %w", version, grantee, err)
+	}
+	for i := range out {
+		out[i].Condition = condition
+		if _, ok := dynamicEffects[migrationACLEffectSignature(out[i])]; ok {
+			out[i].DynamicSQL = true
+		}
+	}
+	for signature := range dynamicEffects {
+		found := false
+		for _, effect := range out {
+			if migrationACLEffectSignature(effect) == signature {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("dynamic ACL effect for %s was not included in the extracted source", grantee)
+		}
+	}
 	// Dynamic format SQL cannot be interpreted safely when it targets this
 	// grantee or interpolates a grantee after TO/FROM.
 	if grantee == "espacigo_runtime" && migrationACLFormat.MatchString(dynamicSource) && strings.Contains(strings.ToLower(dynamicSource), grantee) ||
@@ -231,6 +257,98 @@ func extractMigrationACL(version int, source []byte, grantee string, includeGran
 		return nil, fmt.Errorf("migration V%d has unsupported dynamic ACL syntax for %s", version, grantee)
 	}
 	return out, nil
+}
+
+func migrationACLRoleCondition(source, grantee string) (string, error) {
+	statements, err := splitACLStatements(source)
+	if err != nil {
+		return "", err
+	}
+	condition := "role-exists:" + grantee
+	targetRef := migrationACLRefForGrantee(grantee)
+	pattern := regexp.MustCompile(`(?is)\bIF\s+EXISTS\s*\(\s*SELECT\b[^)]*\brolname\s*=\s*['"]` + regexp.QuoteMeta(grantee) + `['"][^)]*\)\s*THEN`)
+	endIfPattern := regexp.MustCompile(`(?is)\bEND\s+IF\b\s*;?`)
+	branchControlPattern := regexp.MustCompile(`(?is)\b(?:IF|ELSIF|ELSE|CASE|LOOP|WHILE|FOR)\b`)
+	anyConditionedEffect := false
+	topLevelEffect := false
+	unconditionalProceduralEffect := false
+	for _, statement := range statements {
+		body, isDO, found, err := migrationACLDOBody(statement)
+		if err != nil {
+			return "", err
+		}
+		if !isDO {
+			topLevelEffect = topLevelEffect || targetRef.MatchString(statement)
+			continue
+		}
+		if !found || !targetRef.MatchString(body) {
+			continue
+		}
+		masked := maskACLQuotedTokens(body)
+		if !regexp.MustCompile(`(?is)\bIF\b`).MatchString(masked) {
+			unconditionalProceduralEffect = true
+			continue
+		}
+		match := pattern.FindStringIndex(body)
+		if match == nil {
+			return "", fmt.Errorf("unknown procedural branch condition")
+		}
+		endIf := endIfPattern.FindStringIndex(body[match[1]:])
+		if endIf == nil {
+			return "", fmt.Errorf("unterminated procedural ACL condition")
+		}
+		branchEnd := match[1] + endIf[0]
+		blockEnd := match[1] + endIf[1]
+		branch := maskACLQuotedTokens(body[match[1]:branchEnd])
+		if branchControlPattern.MatchString(branch) {
+			return "", fmt.Errorf("nested or alternate procedural ACL branch is unsupported")
+		}
+		outside := body[:match[0]] + body[blockEnd:]
+		if targetRef.MatchString(outside) {
+			return "", fmt.Errorf("ACL effect outside recognized role condition")
+		}
+		anyConditionedEffect = true
+	}
+	if anyConditionedEffect && (topLevelEffect || unconditionalProceduralEffect) {
+		return "", fmt.Errorf("ACL effect outside recognized role condition")
+	}
+	if anyConditionedEffect {
+		return condition, nil
+	}
+	return "", nil
+}
+
+func migrationACLDynamicEffectSet(bodies []string, grantee string, includeGrantee bool) (map[string]struct{}, error) {
+	effectsBySignature := make(map[string]struct{})
+	for _, body := range bodies {
+		for _, match := range migrationACLString.FindAllStringSubmatch(body, -1) {
+			decoded := strings.ReplaceAll(match[1], "''", "'")
+			if !migrationACLRefForGrantee(grantee).MatchString(decoded) {
+				continue
+			}
+			var effects []RuntimeACLEffect
+			var err error
+			if includeGrantee {
+				effects, err = ParseACLStatementsForGrantee(decoded, grantee)
+			} else {
+				effects, err = ParseRuntimeACLStatements(decoded)
+			}
+			if err != nil {
+				return nil, err
+			}
+			for _, effect := range effects {
+				effectsBySignature[migrationACLEffectSignature(effect)] = struct{}{}
+			}
+		}
+	}
+	return effectsBySignature, nil
+}
+
+func migrationACLEffectSignature(effect RuntimeACLEffect) string {
+	return strings.Join([]string{
+		effect.Action, effect.ObjectKind, effect.Object, effect.Privilege,
+		effect.Column, effect.Grantee, fmt.Sprint(effect.GrantOption), effect.RevokeBehavior,
+	}, "\x00")
 }
 
 func rejectUnsupportedMigrationACL(version int, text, grantee string) error {

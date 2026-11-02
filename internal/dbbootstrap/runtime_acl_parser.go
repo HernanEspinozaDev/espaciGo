@@ -11,6 +11,10 @@ type RuntimeACLEffect struct {
 	Action, ObjectKind, Object, Privilege, Column string
 	Grantee                                       string
 	GrantOption                                   bool
+	RevokeBehavior                                string
+	Grantor                                       string
+	Condition                                     string
+	DynamicSQL                                    bool
 }
 
 var aclColumn = regexp.MustCompile(`(?is)^([a-z ]+)\s*\(([^()]*)\)$`)
@@ -214,6 +218,7 @@ func parseACLStatementsForGrantee(source, grantee string) ([]RuntimeACLEffect, e
 			return nil, fmt.Errorf("unsupported ACL statement for %s: %q", grantee, stmt)
 		}
 		act, rawPrivileges, kind, objects, direction, option := strings.ToUpper(m[1]), strings.TrimSpace(m[2]), strings.ToUpper(m[4]), strings.TrimSpace(m[5]), strings.ToUpper(m[6]), strings.EqualFold(m[7], "WITH GRANT OPTION")
+		revokeBehavior := strings.ToUpper(m[8])
 		if act == "GRANT" && direction != "TO" || act == "REVOKE" && direction != "FROM" {
 			return nil, fmt.Errorf("invalid ACL direction")
 		}
@@ -273,7 +278,7 @@ func parseACLStatementsForGrantee(source, grantee string) ([]RuntimeACLEffect, e
 					return nil, fmt.Errorf("unsupported privilege %q", priv)
 				}
 				if len(scope.columns) == 0 {
-					out = append(out, RuntimeACLEffect{Action: act, ObjectKind: kind, Object: o, Privilege: priv, GrantOption: option})
+					out = append(out, RuntimeACLEffect{Action: act, ObjectKind: kind, Object: o, Privilege: priv, GrantOption: option, RevokeBehavior: revokeBehavior})
 				} else {
 					if kind != "TABLE" || priv == "ALL PRIVILEGES" || (priv != "SELECT" && priv != "INSERT" && priv != "UPDATE" && priv != "REFERENCES") {
 						return nil, fmt.Errorf("column scope is invalid for %s %s", kind, priv)
@@ -282,7 +287,7 @@ func parseACLStatementsForGrantee(source, grantee string) ([]RuntimeACLEffect, e
 						if !regexp.MustCompile(`^[a-z_][a-z0-9_]*$`).MatchString(c) {
 							return nil, fmt.Errorf("invalid column %q", c)
 						}
-						out = append(out, RuntimeACLEffect{Action: act, ObjectKind: kind, Object: o, Privilege: priv, Column: c, GrantOption: option})
+						out = append(out, RuntimeACLEffect{Action: act, ObjectKind: kind, Object: o, Privilege: priv, Column: c, GrantOption: option, RevokeBehavior: revokeBehavior})
 					}
 				}
 			}

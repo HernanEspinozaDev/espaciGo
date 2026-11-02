@@ -71,7 +71,7 @@ func TestV80RuntimeACLIsExtracted(t *testing.T) {
 	}
 	want := RuntimeACLEffect{
 		Action: "GRANT", ObjectKind: "TABLE", Object: "public.document_verification_case",
-		Privilege: "UPDATE", Column: "superseded_at",
+		Privilege: "UPDATE", Column: "superseded_at", Condition: "role-exists:espacigo_runtime",
 	}
 	for _, effect := range effects {
 		if effect == want {
@@ -79,6 +79,29 @@ func TestV80RuntimeACLIsExtracted(t *testing.T) {
 		}
 	}
 	t.Fatalf("V80 runtime grant not extracted; got %d effects", len(effects))
+}
+
+func TestExtractMigrationRuntimeACLRejectsEffectsOutsideRoleCondition(t *testing.T) {
+	source := []byte(`DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime') THEN
+        EXECUTE 'GRANT SELECT ON TABLE public.conditional_items TO espacigo_runtime';
+    END IF;
+END $$;
+GRANT UPDATE ON TABLE public.unconditional_items TO espacigo_runtime;`)
+	if _, err := ExtractMigrationRuntimeACL(83, source); err == nil || !strings.Contains(err.Error(), "condition") {
+		t.Fatalf("mixed conditional and unconditional ACL effects must fail closed, got %v", err)
+	}
+}
+
+func TestExtractMigrationRuntimeACLRejectsUnknownACLBranchCondition(t *testing.T) {
+	source := []byte(`DO $$ BEGIN
+    IF current_setting('application_name') = 'test' THEN
+        EXECUTE 'GRANT SELECT ON TABLE public.conditional_items TO espacigo_runtime';
+    END IF;
+END $$;`)
+	if _, err := ExtractMigrationRuntimeACL(83, source); err == nil || !strings.Contains(err.Error(), "condition") {
+		t.Fatalf("unknown procedural ACL condition must fail closed, got %v", err)
+	}
 }
 
 func TestExtractMigrationACLForGranteeMatchesTargetClause(t *testing.T) {

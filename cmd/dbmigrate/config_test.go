@@ -140,7 +140,7 @@ func TestValidateRuntimeACLAdminIdentityRequiresExactLocalTargetAndPrivatePassfi
 		{name: "wrong port", databaseURL: "postgres://postgres@127.0.0.1:15433/espacigo_f5_gate_20261101", mode: "direct", passfile: passfile},
 		{name: "wrong database", databaseURL: "postgres://postgres@127.0.0.1:15434/espacigo_f5_synth_20261101", mode: "direct", passfile: passfile},
 		{name: "wrong user", databaseURL: "postgres://espacigo_runtime@127.0.0.1:15434/espacigo_f5_gate_20261101", mode: "direct", passfile: passfile},
-		{name: "embedded password", databaseURL: "postgres://postgres:synthetic-test-password@127.0.0.1:15434/espacigo_f5_gate_20261101", mode: "direct", passfile: passfile},
+		{name: "embedded password", databaseURL: "postgres://postgres:***@127.0.0.1:15434/espacigo_f5_gate_20261101", mode: "direct", passfile: passfile},
 		{name: "query password", databaseURL: "postgres://postgres@127.0.0.1:15434/espacigo_f5_gate_20261101?password=synthetic-test-password", mode: "direct", passfile: passfile},
 		{name: "cloud mode", databaseURL: validURL, mode: "cloudsql", passfile: passfile},
 		{name: "set role", databaseURL: validURL, mode: "direct", setRole: "espacigo_schema_owner", passfile: passfile},
