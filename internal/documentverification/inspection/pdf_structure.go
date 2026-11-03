@@ -63,15 +63,26 @@ func validatePDFStructure(data []byte, maxPixels int64, expectedPages int) error
 }
 
 func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages int, decodedBudget int64) error {
-	if len(data) == 0 || len(data) > maxBytes || maxPixels <= 0 || expectedPages < 1 || decodedBudget <= 0 {
+	if expectedPages < 1 || expectedPages > maxPDFPages {
 		return ErrRejected
 	}
-	if expectedPages > maxPDFPages {
+	pages, err := parsePDFStructureWithBudget(data, maxPixels, decodedBudget)
+	if err != nil {
+		return err
+	}
+	if pages != expectedPages {
 		return ErrRejected
+	}
+	return nil
+}
+
+func parsePDFStructureWithBudget(data []byte, maxPixels, decodedBudget int64) (int, error) {
+	if len(data) == 0 || len(data) > maxBytes || maxPixels <= 0 || decodedBudget <= 0 {
+		return 0, ErrRejected
 	}
 	parserDecodeLimit, err := pdfDecodeLimits(decodedBudget)
 	if err != nil {
-		return ErrRejected
+		return 0, ErrRejected
 	}
 
 	conf := model.NewStatelessConfiguration()
@@ -107,8 +118,8 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 	ctx, cancel := context.WithTimeout(context.Background(), pdfParseTimeout)
 	defer cancel()
 	parsed, err := readAndValidatePDFWithinBudget(ctx, data, conf, parserDecodeLimit, decodedBudget)
-	if err != nil || parsed == nil || parsed.XRefTable == nil || parsed.Encrypt != nil || parsed.PageCount != expectedPages {
-		return ErrRejected
+	if err != nil || parsed == nil || parsed.XRefTable == nil || parsed.Encrypt != nil || parsed.PageCount < 1 || parsed.PageCount > maxPDFPages {
+		return 0, ErrRejected
 	}
 
 	scanner := pdfStructureScanner{
@@ -131,10 +142,10 @@ func validatePDFStructureWithBudget(data []byte, maxPixels int64, expectedPages 
 			GenerationNumber: types.Integer(generation),
 		}
 		if err := scanner.walk(ref, 0); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return parsed.PageCount, nil
 }
 
 func readAndValidatePDFWithinBudget(ctx context.Context, data []byte, conf *model.Configuration, parserLimit, parserBudget int64) (parsed *model.Context, err error) {

@@ -55,7 +55,7 @@ func TestV82OwnershipRetentionPrecedence(t *testing.T) {
 		t.Fatal("fixture setup requires the authorized non-runtime setup role")
 	}
 	const v82Name = "V000082__document_verification_retention_precedence.sql"
-	const v82Checksum = "6957e1a11097dc90a4dd54ed9dc08872acdd0bb97aa05636e0894016e0b05ad2"
+	const v82Checksum = "b53fe7f6f03af4d9081e4a378053ad0780d8b532962326488108201eb098ed96"
 	var appliedName, appliedChecksum string
 	if err := pool.QueryRow(ctx, `SELECT name,checksum FROM public.schema_migrations WHERE version=82`).Scan(&appliedName, &appliedChecksum); err != nil {
 		t.Fatalf("V82 migration is not recorded as applied; refusing to test a prior trigger body: %v", err)

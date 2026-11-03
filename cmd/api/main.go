@@ -167,9 +167,13 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API runtime profile")
 	}
-	cfg, err := loadConfig(os.Getenv)
+	cfg, err := loadRuntimeConfig(os.Getenv, runtimeProfileValue)
 	if err != nil {
 		return errors.New("invalid API configuration")
+	}
+	defer cfg.close()
+	if usesDedicatedStartup(runtimeProfileValue) {
+		return runDocumentScanOnly(cfg)
 	}
 	businessNow, err := businessclock.FromEnv(os.Getenv)
 	if err != nil {
@@ -692,6 +696,131 @@ func run() error {
 		serverErrors <- server.ListenAndServe()
 	}()
 	if err := launchWorkers(runtimeProfileValue, workers); err != nil {
+		return errors.New("background worker registry is invalid")
+	}
+	select {
+	case err := <-serverErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return errors.New("HTTP server failed")
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return errors.New("HTTP server shutdown failed")
+		}
+		return nil
+	}
+}
+
+func usesDedicatedStartup(profile runtimeProfileName) bool {
+	return profile == runtimeProfileDocumentScanOnly
+}
+
+func runDocumentScanOnly(cfg config) error {
+	pool, closeConnector, err := newDatabasePool(context.Background(), cfg)
+	if err != nil {
+		return errors.New("could not initialize PostgreSQL connection pool")
+	}
+	defer closeConnector()
+	defer pool.Close()
+
+	limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
+	if err != nil || limit < 1 || limit > 1000 {
+		return errors.New("invalid local quota")
+	}
+	repo := identitypg.NewIdentityRepository(pool)
+	service, err := identity.NewAuthenticationService(repo, password.Hasher{}, devauth.Mailer{Address: os.Getenv("LOCAL_SMTP_ADDR")}, devauth.NewIPLimiter(limit), credentials.Generator{}, time.Now)
+	if err != nil {
+		return errors.New("local authentication initialization failed")
+	}
+
+	documentRepository := documentverificationpg.New(pool)
+	documentService, err := documentverification.NewService(documentRepository)
+	if err != nil {
+		return errors.New("local document verification initialization failed")
+	}
+	documentStore, err := newRuntimeDocumentStore(os.Getenv, os.Getenv("M03_EVIDENCE_DIR"))
+	if err != nil || documentStore == nil {
+		return errors.New("private document storage is unavailable")
+	}
+	if closer, ok := any(documentStore).(interface{ Close() error }); ok {
+		defer closer.Close()
+	}
+	scanConfig, enabled, err := documentScanConfigFromEnv(os.Getenv)
+	if err != nil || !enabled {
+		return errors.New("document scanner configuration is invalid")
+	}
+	scanner, err := clamavadapter.New(clamavadapter.Config{
+		Address: scanConfig.address, Timeout: 10 * time.Second,
+		MaxBytes: documentverification.MaxUploadBytes, MaxSignatureAge: scanConfig.maxSignatureAge,
+	})
+	if err != nil {
+		return errors.New("document scanner initialization failed")
+	}
+	scanProcessor := documentverificationpg.NewScanProcessor(documentRepository, documentStore, scanner, 2*time.Minute, 30*time.Second, scanConfig.maxSignatureAge)
+	retentionProcessor := documentverificationpg.NewRetentionProcessor(documentRepository, documentStore, 2*time.Minute, 30*time.Second)
+	if scanProcessor == nil || retentionProcessor == nil {
+		return errors.New("document verification worker initialization failed")
+	}
+	inspector := inspection.New(inspection.Config{PDFInfoPath: "/usr/bin/pdfinfo", PDFDetachPath: "/usr/bin/pdfdetach"})
+	if inspector == nil {
+		return errors.New("trusted document inspection tools are unavailable")
+	}
+	uploadService, err := documentverification.NewUploadService(documentService, inspector, documentStore)
+	if err != nil {
+		return errors.New("document upload service initialization failed")
+	}
+	downloadService, err := documentverification.NewSpaceDownloadService(documentRepository, documentStore)
+	if err != nil {
+		return errors.New("document download service initialization failed")
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/health/", health.NewHandler(pool, cfg.allowedOrigins))
+	mux.Handle("/api/v1/", identityhttp.NewHandler(service, repo, cfg.allowedOrigins))
+	registerDocumentVerificationRoutes(mux, documentverificationhttp.NewOwnerCasesHandlerWithUpload(service, documentService, uploadService), documentverificationhttp.NewOwnerDownloadHandler(service, downloadService))
+	spacesService, err := spacesdomain.NewService(spacespg.New(pool, credentials.Generator{}))
+	if err != nil {
+		return errors.New("spaces initialization failed")
+	}
+	spacesHandler := spaceshttp.NewHandler(service, spacesService, cfg.allowedOrigins)
+	mux.Handle("/api/v1/spaces", spacesHandler)
+	mux.Handle("/api/v1/spaces/", spacesHandler)
+	mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/yaml")
+		http.ServeFile(w, r, "/openapi.yaml")
+	})
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	workersGroup := newTrackedWorkerGroup(ctx)
+	defer workersGroup.StopAndWait()
+	workers := []namedWorker{
+		{name: "document-verification-scan", launch: func() {
+			workersGroup.Go(func(workerCtx context.Context) {
+				if err := scanProcessor.Run(workerCtx, time.Second, func(error) { log.Print("document verification scan pass failed") }); err != nil {
+					log.Print("document verification scan worker stopped")
+				}
+			})
+		}},
+		{name: "document-verification-retention", launch: func() {
+			workersGroup.Go(func(workerCtx context.Context) {
+				if err := retentionProcessor.Run(workerCtx, time.Second, func(error) { log.Print("document verification retention pass failed") }); err != nil {
+					log.Print("document verification retention worker stopped")
+				}
+			})
+		}},
+	}
+	if err := validateWorkerRegistry(runtimeProfileDocumentScanOnly, workers); err != nil {
+		return errors.New("background worker registry is invalid")
+	}
+	apiHandler := restrictDocumentVerificationRoutes(http.Handler(mux))
+	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(service, apiHandler, cfg.allowedOrigins...))
+	serverErrors := make(chan error, 1)
+	go func() { serverErrors <- server.ListenAndServe() }()
+	if err := launchWorkers(runtimeProfileDocumentScanOnly, workers); err != nil {
 		return errors.New("background worker registry is invalid")
 	}
 	select {

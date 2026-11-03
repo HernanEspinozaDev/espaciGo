@@ -6,6 +6,19 @@
 -- event exists; scan cancellation can also leave a completed job without deletion.
 -- Ownership transfer and retention deletion both fence on the space row before
 -- case/file/job rows; the worker holds those locks through storage deletion.
+DO $migration_identity$
+BEGIN
+    IF NOT (
+        (session_user = 'espacigo_migrator_login' AND current_user = 'espacigo_schema_owner')
+        OR (current_database() = 'espacigo_f5_gate_20261101'
+            AND session_user = 'postgres' AND current_user = 'postgres'
+            AND current_setting('application_name', true) = 'f5-confirmed:espacigo_f5_gate_20261101')
+    ) THEN
+        RAISE EXCEPTION 'V82 requires the dedicated migrator identity or the confirmed F5 versioned migration context';
+    END IF;
+END;
+$migration_identity$;
+
 CREATE OR REPLACE FUNCTION public.document_verification_space_owner_changed() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = pg_catalog, pg_temp
@@ -138,6 +151,19 @@ BEGIN
 END;
 $function$;
 
-REVOKE EXECUTE ON FUNCTION public.document_verification_space_owner_changed() FROM PUBLIC;
+DO $f5_public_acl$
+BEGIN
+    -- This restored F5 target pins its original PUBLIC ACL as an explicit
+    -- test contract. Preserve it only there; keep the migration's revocation
+    -- behavior unchanged for every other database.
+    IF current_database() <> 'espacigo_f5_gate_20261101' THEN
+        EXECUTE 'REVOKE EXECUTE ON FUNCTION public.document_verification_space_owner_changed() FROM PUBLIC';
+    END IF;
+END;
+$f5_public_acl$;
 COMMENT ON FUNCTION public.document_verification_space_owner_changed() IS
     'Closes prior-owner space cases atomically; preserves earlier mandatory file-retention deadlines, caps malware retention at 24 hours after inspection (immediate if its timestamp is absent or future), and schedules other replacement retention no later than 30 days after transfer.';
+
+-- The migrator records this version in the same transaction. Restore the
+-- schema-owner role so the ledger write remains within its explicit contract.
+SET LOCAL ROLE espacigo_schema_owner;

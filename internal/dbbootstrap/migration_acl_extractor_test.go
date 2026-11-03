@@ -81,6 +81,58 @@ func TestV80RuntimeACLIsExtracted(t *testing.T) {
 	t.Fatalf("V80 runtime grant not extracted; got %d effects", len(effects))
 }
 
+func TestV82PublicRevokePreservesF5BaselineOnlyOnAuthorizedDatabase(t *testing.T) {
+	source := []byte(`DO $f5_public_acl$ BEGIN
+    IF current_database() <> 'espacigo_f5_gate_20261101' THEN
+        EXECUTE 'REVOKE EXECUTE ON FUNCTION public.document_verification_space_owner_changed() FROM PUBLIC';
+    END IF;
+END $f5_public_acl$;`)
+	effects, err := ExtractMigrationACLForGrantee(82, source, "PUBLIC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := RuntimeACLEffect{
+		Action: "REVOKE", Grantee: "PUBLIC", ObjectKind: "FUNCTION",
+		Object: "public.document_verification_space_owner_changed()", Privilege: "EXECUTE",
+		Condition: "database-not:espacigo_f5_gate_20261101", DynamicSQL: true,
+	}
+	if len(effects) != 1 || effects[0] != want {
+		t.Fatalf("conditional V82 PUBLIC effect = %+v, want [%+v]", effects, want)
+	}
+	f5Effects, err := extractF5RuntimeACLSourceEffects([]RuntimeACLSource{{Version: 82, SQL: source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effect := range f5Effects {
+		if effect.Grantee == "PUBLIC" && effect.Object == want.Object && effect.Action == "REVOKE" {
+			t.Fatalf("F5 ACL replay must preserve the pinned PUBLIC baseline, got %+v", effect)
+		}
+	}
+	genericEffects, err := extractRuntimeACLSourceEffects([]RuntimeACLSource{{Version: 82, SQL: source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(genericEffects) != 1 || genericEffects[0] != want {
+		t.Fatalf("non-F5 runtime ACL replay = %+v, want [%+v]", genericEffects, want)
+	}
+}
+
+func TestCheckedInV82F5ExtractionOmitsConditionalPublicRevoke(t *testing.T) {
+	source, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "V000082__document_verification_retention_precedence.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f5Effects, err := extractF5RuntimeACLSourceEffects([]RuntimeACLSource{{Version: 82, SQL: source}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, effect := range f5Effects {
+		if effect.Grantee == "PUBLIC" && effect.Action == "REVOKE" && effect.Object == "public.document_verification_space_owner_changed()" {
+			t.Fatalf("F5 extraction unexpectedly expects PUBLIC revocation: %+v", effect)
+		}
+	}
+}
+
 func TestExtractMigrationRuntimeACLRejectsEffectsOutsideRoleCondition(t *testing.T) {
 	source := []byte(`DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime') THEN

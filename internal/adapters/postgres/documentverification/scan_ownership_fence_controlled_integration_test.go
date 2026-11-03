@@ -149,8 +149,7 @@ func TestPostgresScanResultIsFencedByOwnershipTransfer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("capture persisted transfer state: %v", err)
 	}
-	outcomePID := make(chan int32, 1)
-	outcomeRepo := newWithTransactionBeginner(scanFenceRuntimeBeginner{pool: pool, backendPID: outcomePID})
+	outcomeRepo := newWithTransactionBeginner(scanFenceRuntimeBeginner{pool: pool})
 	outcomeDone := make(chan error, 1)
 	if err := outcomeRepo.RecordScanOutcome(ctx, first.claim, ScanOutcome{State: dv.FileClean, ScannerVersion: "synthetic-fence-test", SignaturesAt: time.Now().UTC().Truncate(time.Microsecond)}); !errors.Is(err, dv.ErrConflict) {
 		t.Fatalf("transfer-first scan outcome error=%v, want ErrConflict", err)
@@ -187,7 +186,7 @@ func TestPostgresScanResultIsFencedByOwnershipTransfer(t *testing.T) {
 	if err != nil || !verified {
 		t.Fatalf("second VerifyScanClaim=(%t,%v), want true before outcome", verified, err)
 	}
-	outcomePID = make(chan int32, 1)
+	outcomePID := make(chan int32, 1)
 	barrier := &scanFenceCommitBarrier{transactions: scanFenceRuntimeBeginner{pool: pool, backendPID: outcomePID}, reached: make(chan struct{}), release: make(chan struct{})}
 	defer barrier.unblock()
 	outcomeRepo = newWithTransactionBeginner(barrier)
@@ -259,8 +258,10 @@ func seedScanFenceActorsAndSpaces(t *testing.T, ctx context.Context, pool *pgxpo
 			t.Fatalf("insert fixture actor: %v", err)
 		}
 	}
+	// V000005 requires descriptions of at least 100 characters; five repeats
+	// produce a valid synthetic space fixture.
 	for _, space := range []string{firstSpace, secondSpace} {
-		if _, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria,estado) VALUES($1,$2,'sala_multiproposito','Synthetic scan fence',repeat('Synthetic description. ',4),30,4,'Synthetic','hora',8000,'Synthetic address','America/Santiago','activa')`, space, oldOwner); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria,estado) VALUES($1,$2,'sala_multiproposito','Synthetic scan fence',repeat('Synthetic description. ',5),30,4,'Synthetic','hora',8000,'Synthetic address','America/Santiago','activa')`, space, oldOwner); err != nil {
 			t.Fatalf("insert fixture space: %v", err)
 		}
 	}

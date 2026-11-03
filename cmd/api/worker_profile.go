@@ -18,6 +18,7 @@ const (
 	runtimeProfileStandard         runtimeProfileName = "standard"
 	runtimeProfileWorkerFree       runtimeProfileName = "local-http-worker-free"
 	runtimeProfileDocumentScanOnly runtimeProfileName = "local-document-scan-only"
+	documentScanAPIAddr                               = "127.0.0.1:18082"
 )
 
 func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
@@ -68,10 +69,10 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 			return "", errors.New("local-http-worker-free requires an existing private evidence directory")
 		}
 		profile := runtimeProfileName(p)
+		if !isAuthorizedF5Runtime(getenv, httpAddr) {
+			return "", errors.New("local worker profile requires the authorized F5 loopback API and least-privilege database target")
+		}
 		if profile == runtimeProfileDocumentScanOnly {
-			if getenv("DATABASE_HOST") != "127.0.0.1" || getenv("DATABASE_PORT") != "15434" || getenv("DATABASE_NAME") != "espacigo_f5_gate_20261101" || getenv("DATABASE_USER") != "espacigo_api_login" || getenv("DATABASE_SET_ROLE") != "espacigo_runtime" || httpAddr != "127.0.0.1:18084" {
-				return "", errors.New("document scan profile requires the authorized F5 loopback API and least-privilege database target")
-			}
 			_, enabled, scanErr := documentScanConfigFromEnv(getenv)
 			if scanErr != nil || !enabled {
 				return "", errors.New("document scan profile requires explicit private ClamAV address and signature freshness")
@@ -90,6 +91,10 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 	default:
 		return "", errors.New("API_RUNTIME_PROFILE must be standard, local-http-worker-free, or local-document-scan-only")
 	}
+}
+
+func isAuthorizedF5Runtime(getenv func(string) string, httpAddr string) bool {
+	return getenv("DATABASE_HOST") == "127.0.0.1" && getenv("DATABASE_PORT") == "15434" && getenv("DATABASE_NAME") == "espacigo_f5_gate_20261101" && getenv("DATABASE_USER") == "espacigo_api_login" && getenv("DATABASE_SET_ROLE") == "espacigo_runtime" && httpAddr == documentScanAPIAddr
 }
 
 type documentProfileRoute struct {

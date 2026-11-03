@@ -123,6 +123,42 @@ func TestInspectRejectsBadPurposeAndID(t *testing.T) {
 		t.Fatal("accepted id")
 	}
 }
+
+func TestInspectRejectsPDFBeforeInvokingPoppler(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "pdfinfo-called")
+	t.Setenv("PDFINFO_CALL_MARKER", marker)
+	pdfinfoPath := filepath.Join(dir, "pdfinfo")
+	pdfdetachPath := filepath.Join(dir, "pdfdetach")
+	if err := os.WriteFile(pdfinfoPath, []byte("#!/bin/sh\nprintf x >> \"$PDFINFO_CALL_MARKER\"\nprintf 'Pages: 1\\nEncrypted: no\\nJavaScript: no\\nForm: none\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pdfdetachPath, []byte("#!/bin/sh\nprintf '0 embedded files\\n'\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	pdfinfo, err := os.Open(pdfinfoPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pdfinfo.Close() })
+	pdfdetach, err := os.Open(pdfdetachPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pdfdetach.Close() })
+	i := &Inspector{
+		cfg:       Config{MaxPixels: 100, PDFInfoPath: pdfinfoPath, PDFDetachPath: pdfdetachPath},
+		pdfInfo:   pdfinfo,
+		pdfDetach: pdfdetach,
+	}
+	if _, _, err := i.Inspect(dv.PurposeIdentity, "id", []byte("%PDF-1.7\nnot a valid PDF")); err == nil {
+		t.Fatal("accepted malformed PDF")
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Poppler ran before the bounded parser rejected input: stat=%v", err)
+	}
+}
+
 func TestPDFInspectorRejectsEscapedJavaScriptActionUsingPoppler(t *testing.T) {
 	pdfinfo, pdfdetach := popplerBinaries(t)
 	data := syntheticPDF(t, " /Open#41ction << /S /Java#53cript /J#53 (app.alert\\(1\\)) >>")

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	clamavadapter "github.com/HernanEspinozaDev/espaciGo/internal/adapters/clamav"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/documentfs"
 	dv "github.com/HernanEspinozaDev/espaciGo/internal/documentverification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/documentverification/inspection"
@@ -57,13 +58,13 @@ func TestPostgresUploadPersistsEncryptedObjectAndPendingScanJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	actor := uuid.NewString()
+	actor, reviewer := uuid.NewString(), uuid.NewString()
 	t.Cleanup(func() {
 		if err := outer.Rollback(context.Background()); err != nil {
 			t.Errorf("rollback upload fixture failed: %v", err)
 		}
 		var remaining int
-		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id=$1)+(SELECT count(*) FROM public.document_verification_case WHERE subject_id=$1)+(SELECT count(*) FROM public.document_verification_file f JOIN public.document_verification_case c ON c.id=f.case_id WHERE c.subject_id=$1)+(SELECT count(*) FROM public.document_verification_job j JOIN public.document_verification_file f ON f.id=j.file_id JOIN public.document_verification_case c ON c.id=f.case_id WHERE c.subject_id=$1)+(SELECT count(*) FROM public.document_verification_event WHERE subject_id=$1)`, actor).Scan(&remaining); err != nil {
+		if err := pool.QueryRow(context.Background(), `SELECT (SELECT count(*) FROM public.usuario WHERE id IN($1,$2))+(SELECT count(*) FROM public.document_verification_case WHERE subject_id=$1)+(SELECT count(*) FROM public.document_verification_file f JOIN public.document_verification_case c ON c.id=f.case_id WHERE c.subject_id=$1)+(SELECT count(*) FROM public.document_verification_job j JOIN public.document_verification_file f ON f.id=j.file_id JOIN public.document_verification_case c ON c.id=f.case_id WHERE c.subject_id=$1)+(SELECT count(*) FROM public.document_verification_event WHERE subject_id=$1)+(SELECT count(*) FROM public.document_verification_reviewer_grant WHERE reviewer_id=$2 OR scope_id=$1 OR granted_by=$1)+(SELECT count(*) FROM public.document_verification_reviewer_grant_event WHERE reviewer_id=$2 AND scope_id=$1)`, actor, reviewer).Scan(&remaining); err != nil {
 			t.Errorf("verify upload fixture rollback failed: %v", err)
 		} else if remaining != 0 {
 			t.Errorf("upload fixture rollback left %d rows", remaining)
@@ -71,6 +72,12 @@ func TestPostgresUploadPersistsEncryptedObjectAndPendingScanJob(t *testing.T) {
 	})
 	if _, err := outer.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic','activo')`, actor, actor+"@example.invalid"); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := outer.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic','activo')`, reviewer, reviewer+"@example.invalid"); err != nil {
+		t.Fatal("unable to seed synthetic reviewer")
+	}
+	if _, err := outer.Exec(ctx, `INSERT INTO public.document_verification_reviewer_grant(reviewer_id,capability,scope_kind,scope_id,granted_by,granted_reason_code) VALUES($1,'review_identity','identity_subject',$2,$2,'role_assignment')`, reviewer, actor); err != nil {
+		t.Fatal("unable to seed rollback-scoped reviewer capability")
 	}
 	if _, err := outer.Exec(ctx, `SET LOCAL ROLE espacigo_runtime`); err != nil {
 		t.Fatalf("cannot enter the non-superuser runtime role: %v", err)
@@ -142,4 +149,139 @@ func TestPostgresUploadPersistsEncryptedObjectAndPendingScanJob(t *testing.T) {
 	if pendingScans != 1 || fileAddedEvents != 1 {
 		t.Fatalf("upload side effects: pending scan jobs=%d file-added events=%d", pendingScans, fileAddedEvents)
 	}
+
+	t.Run("real ClamAV worker persists clean and EICAR outcomes", func(t *testing.T) {
+		address := os.Getenv("ESPACIGO_CLAMAV_TEST_ADDRESS")
+		if address == "" {
+			t.Skip("set ESPACIGO_CLAMAV_TEST_ADDRESS for the authorized local F5 scanner")
+		}
+		if address != "172.25.0.2:3310" {
+			t.Fatal("refusing scanner outside the authorized local F5 endpoint")
+		}
+
+		// Hold the shared scan queue exclusively for this rollback-scoped fixture.
+		lockF5JobQueueForTest(t, ctx, outer, "scan", receipt.File.ID)
+		if _, err := outer.Exec(ctx, `SET LOCAL ROLE espacigo_runtime`); err != nil {
+			t.Fatal("unable to restore restricted runtime role after queue isolation")
+		}
+		scanner, err := clamavadapter.New(clamavadapter.Config{
+			Address: address, Timeout: 5 * time.Second,
+			MaxBytes: dv.MaxUploadBytes, MaxSignatureAge: 48 * time.Hour,
+		})
+		if err != nil {
+			t.Fatal("unable to configure the authorized synthetic ClamAV scanner")
+		}
+		jobs := &scanWorkerClaimRecorder{scanProcessorJobs: repo}
+		processor := NewScanProcessor(jobs, store, scanner, 2*time.Minute, 30*time.Second, 48*time.Hour)
+		if processor == nil {
+			t.Fatal("unable to create scan processor")
+		}
+		// The rollback fixture uses one pgx transaction; avoid the monitor's
+		// background query racing that connection while this fast local scan runs.
+		processor.claimPollInterval = 10 * time.Second
+		if err := processor.ProcessOne(ctx); err != nil {
+			t.Fatalf("process uploaded clean document with real ClamAV: %v", err)
+		}
+		if len(jobs.claims) != 1 || jobs.claims[0].FileID != receipt.File.ID {
+			t.Fatalf("scan worker claimed unexpected fixture: %+v", jobs.claims)
+		}
+		var state, errorCode, scannerVersion, jobState, jobError string
+		var signaturesAt time.Time
+		var inspected, retentionSet, leaseCleared bool
+		if err := outer.QueryRow(ctx, `SELECT f.state,COALESCE(f.last_error_code,''),COALESCE(f.scanner_version,''),f.signatures_at,f.inspected_at IS NOT NULL,f.retention_at IS NOT NULL,j.state,j.lease_until IS NULL,COALESCE(j.last_error_code,'') FROM public.document_verification_file f JOIN public.document_verification_job j ON j.file_id=f.id AND j.kind='scan' WHERE f.id=$1`, receipt.File.ID).Scan(&state, &errorCode, &scannerVersion, &signaturesAt, &inspected, &retentionSet, &jobState, &leaseCleared, &jobError); err != nil {
+			t.Fatal("real clean scan outcome was not readable")
+		}
+		if state != string(dv.FileClean) || errorCode != "" || scannerVersion == "" || signaturesAt.IsZero() || !inspected || retentionSet || jobState != "completado" || !leaseCleared || jobError != "" {
+			t.Fatalf("unexpected persisted clean scan: state=%q error=%q scanner=%q inspected=%t retention=%t job=%q lease_cleared=%t job_error=%q", state, errorCode, scannerVersion, inspected, retentionSet, jobState, leaseCleared, jobError)
+		}
+		ownerCase, err := repo.LoadOwnCase(ctx, actor, created.ID)
+		if err != nil {
+			t.Fatal("unable to load clean case for submission")
+		}
+		if err := cases.Submit(ctx, actor, created.ID, dv.PurposeIdentity, ownerCase.Revision); err != nil {
+			t.Fatalf("submit clean identity case: %v", err)
+		}
+		submittedCase, err := repo.LoadOwnCase(ctx, actor, created.ID)
+		if err != nil || submittedCase.State != dv.CaseSubmitted {
+			t.Fatalf("submitted case state=%q err=%v", submittedCase.State, err)
+		}
+		if err := cases.Review(ctx, reviewer, created.ID, dv.CapabilityIdentity, dv.DecisionApprove, time.Time{}, submittedCase.Revision); err != nil {
+			t.Fatalf("approve persisted identity case with scoped reviewer grant: %v", err)
+		}
+		approvedCase, err := repo.LoadOwnCase(ctx, actor, created.ID)
+		if err != nil || approvedCase.State != dv.CaseApproved || approvedCase.VerifiedAt.IsZero() || approvedCase.VerifiedUntil.IsZero() {
+			t.Fatalf("approved case state/verification=%q/%t/%t err=%v", approvedCase.State, !approvedCase.VerifiedAt.IsZero(), !approvedCase.VerifiedUntil.IsZero(), err)
+		}
+		if err := cases.Revoke(ctx, reviewer, created.ID, dv.PurposeIdentity, dv.ReasonOwnerRequest, approvedCase.Revision); err != nil {
+			t.Fatalf("revoke persisted identity case: %v", err)
+		}
+		revokedCase, err := repo.LoadOwnCase(ctx, actor, created.ID)
+		if err != nil || revokedCase.State != dv.CaseRevoked || revokedCase.RevokedAt == nil {
+			t.Fatalf("revoked case state/timestamp=%q/%t err=%v", revokedCase.State, revokedCase.RevokedAt != nil, err)
+		}
+		var submittedEvents, approvedEvents, revokedEvents int
+		if err := outer.QueryRow(ctx, `SELECT count(*) FILTER(WHERE action='case_transitioned' AND result_code='enviada'),count(*) FILTER(WHERE action='review_decision' AND result_code='aprobada'),count(*) FILTER(WHERE action='revoked' AND result_code='revocada' AND reason_code='solicitud_titular') FROM public.document_verification_event WHERE case_id=$1`, created.ID).Scan(&submittedEvents, &approvedEvents, &revokedEvents); err != nil {
+			t.Fatal("unable to verify persisted submit/review/revoke audit events")
+		}
+		if submittedEvents != 1 || approvedEvents != 1 || revokedEvents != 1 {
+			t.Fatalf("submit/review/revoke audit counts=%d/%d/%d", submittedEvents, approvedEvents, revokedEvents)
+		}
+
+		// Seed EICAR at the persisted-worker boundary, not through upload inspection:
+		// this specifically proves real scanner→DB behavior for a blocked result.
+		const eicarTestSignature = `X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*`
+		infectedContent := []byte(eicarTestSignature)
+		malwareCase, err := cases.Start(ctx, actor, dv.CreateInput{Purpose: dv.PurposeIdentity, DocumentExpiresAt: time.Now().UTC().AddDate(1, 0, 0)})
+		if err != nil {
+			t.Fatal("unable to create separate synthetic malware case")
+		}
+		infectedFileID := uuid.NewString()
+		if err := store.PutIdentityDocument(ctx, actor, malwareCase.ID, infectedFileID, infectedContent); err != nil {
+			t.Fatal("unable to store encrypted synthetic EICAR fixture")
+		}
+		malwareSnapshot, err := repo.LoadOwnCase(ctx, actor, malwareCase.ID)
+		if err != nil {
+			t.Fatal("unable to reload malware case before adding EICAR worker fixture")
+		}
+		infectedFile := dv.File{ID: infectedFileID, State: dv.FilePending, Size: int64(len(infectedContent)), MIME: "image/png", ContentSHA256: sha256.Sum256(infectedContent)}
+		if err := cases.AddFile(ctx, actor, malwareCase.ID, dv.PurposeIdentity, malwareSnapshot.Revision, infectedFile); err != nil {
+			t.Fatal("unable to persist synthetic EICAR scan fixture")
+		}
+		if err := processor.ProcessOne(ctx); err != nil {
+			t.Fatalf("process EICAR fixture with real ClamAV: %v", err)
+		}
+		if len(jobs.claims) != 2 || jobs.claims[1].FileID != infectedFileID {
+			t.Fatalf("scan worker did not claim the EICAR fixture: %+v", jobs.claims)
+		}
+		var blocked, malwareRetentionScheduled bool
+		var infectedState, infectedError, infectedReason, infectedJobState string
+		var infectedScanner string
+		var infectedLeaseCleared bool
+		if err := outer.QueryRow(ctx, `SELECT f.state,f.last_error_code,COALESCE(f.retention_reason_code,''),COALESCE(f.scanner_version,''),f.inspected_at IS NOT NULL,f.retention_at>=clock_timestamp()+interval '23 hours' AND f.retention_at<=clock_timestamp()+interval '25 hours',j.state,j.lease_until IS NULL FROM public.document_verification_file f JOIN public.document_verification_job j ON j.file_id=f.id AND j.kind='scan' WHERE f.id=$1`, infectedFileID).Scan(&infectedState, &infectedError, &infectedReason, &infectedScanner, &blocked, &malwareRetentionScheduled, &infectedJobState, &infectedLeaseCleared); err != nil {
+			t.Fatal("real EICAR scan outcome was not readable")
+		}
+		if infectedState != string(dv.FileBlocked) || infectedError != "malware_detected" || infectedReason != "malicious_file" || infectedScanner == "" || !blocked || !malwareRetentionScheduled || infectedJobState != "completado" || !infectedLeaseCleared {
+			t.Fatalf("unexpected persisted EICAR scan: state=%q error=%q reason=%q scanner=%q inspected=%t retention_24h=%t job=%q lease_cleared=%t", infectedState, infectedError, infectedReason, infectedScanner, blocked, malwareRetentionScheduled, infectedJobState, infectedLeaseCleared)
+		}
+		var retentionState, retentionError string
+		if err := outer.QueryRow(ctx, `SELECT state,COALESCE(last_error_code,'') FROM public.document_verification_job WHERE file_id=$1 AND kind='retention_delete'`, infectedFileID).Scan(&retentionState, &retentionError); err != nil {
+			t.Fatal("EICAR retention job was not persisted")
+		}
+		if retentionState != "pendiente" || retentionError != "" {
+			t.Fatalf("unexpected EICAR retention job: state=%q error=%q", retentionState, retentionError)
+		}
+	})
+}
+
+type scanWorkerClaimRecorder struct {
+	scanProcessorJobs
+	claims []ScanClaim
+}
+
+func (r *scanWorkerClaimRecorder) ClaimReadyScanJob(ctx context.Context, lease time.Duration) (*ScanClaim, error) {
+	claim, err := r.scanProcessorJobs.ClaimReadyScanJob(ctx, lease)
+	if claim != nil {
+		r.claims = append(r.claims, *claim)
+	}
+	return claim, err
 }

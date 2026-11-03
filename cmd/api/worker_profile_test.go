@@ -83,7 +83,7 @@ func TestRuntimeProfileDefaultsAndValidatesLocalWorkerFreeRequirements(t *testin
 	if err := os.Chmod(publicRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	base := map[string]string{"API_RUNTIME_PROFILE": "local-http-worker-free", "LOCAL_AUTH_PROTOTYPE": "1", "DATABASE_CONNECTION_MODE": "direct", "DATABASE_HOST": "127.0.0.1", "HTTP_ADDR": "127.0.0.1:18082", "M03_EVIDENCE_DIR": root}
+	base := map[string]string{"API_RUNTIME_PROFILE": "local-http-worker-free", "LOCAL_AUTH_PROTOTYPE": "1", "DATABASE_CONNECTION_MODE": "direct", "DATABASE_HOST": "127.0.0.1", "DATABASE_PORT": "15434", "DATABASE_NAME": "espacigo_f5_gate_20261101", "DATABASE_USER": "espacigo_api_login", "DATABASE_SET_ROLE": "espacigo_runtime", "HTTP_ADDR": "127.0.0.1:18082", "M03_EVIDENCE_DIR": root}
 	for name, change := range map[string]func(map[string]string){
 		"valid":                    func(map[string]string) {},
 		"auth required":            func(v map[string]string) { delete(v, "LOCAL_AUTH_PROTOTYPE") },
@@ -92,6 +92,17 @@ func TestRuntimeProfileDefaultsAndValidatesLocalWorkerFreeRequirements(t *testin
 		"HTTP address required":    func(v map[string]string) { delete(v, "HTTP_ADDR") },
 		"direct database required": func(v map[string]string) { v["DATABASE_CONNECTION_MODE"] = "cloudsql" },
 		"loopback database only":   func(v map[string]string) { v["DATABASE_HOST"] = "192.0.2.8" },
+		"wrong database name":      func(v map[string]string) { v["DATABASE_NAME"] = "espacigo_dms_stage_20261020" },
+		"wrong target port":        func(v map[string]string) { v["DATABASE_PORT"] = "5432" },
+		"missing target name":      func(v map[string]string) { delete(v, "DATABASE_NAME") },
+		"wrong target host":        func(v map[string]string) { v["DATABASE_HOST"] = "localhost" },
+		"missing target port":      func(v map[string]string) { delete(v, "DATABASE_PORT") },
+		"wrong role":               func(v map[string]string) { v["DATABASE_SET_ROLE"] = "postgres" },
+		"missing role":             func(v map[string]string) { delete(v, "DATABASE_SET_ROLE") },
+		"wrong user":               func(v map[string]string) { v["DATABASE_USER"] = "postgres" },
+		"missing user":             func(v map[string]string) { delete(v, "DATABASE_USER") },
+		"unauthorized listener":    func(v map[string]string) { v["HTTP_ADDR"] = "127.0.0.1:18084" },
+		"missing listener":         func(v map[string]string) { delete(v, "HTTP_ADDR") },
 		"filesystem only":          func(v map[string]string) { v["BLOB_STORE_BACKEND"] = "gcs" },
 		"filesystem replay only":   func(v map[string]string) { v["LOCAL_PRIVACY_REPLAY_BACKEND"] = "gcs" },
 		"absolute evidence root":   func(v map[string]string) { v["M03_EVIDENCE_DIR"] = "relative/path" },
@@ -137,7 +148,7 @@ func TestRuntimeProfilePinsDocumentScanOnlyToAuthorizedF5Runtime(t *testing.T) {
 		"DATABASE_NAME":                                  "espacigo_f5_gate_20261101",
 		"DATABASE_USER":                                  "espacigo_api_login",
 		"DATABASE_SET_ROLE":                              "espacigo_runtime",
-		"HTTP_ADDR":                                      "127.0.0.1:18084",
+		"HTTP_ADDR":                                      "127.0.0.1:18082",
 		"M03_EVIDENCE_DIR":                               root,
 		"DOCUMENT_VERIFICATION_STORAGE_ROOT":             "/var/lib/espacigo-private-documents",
 		"DOCUMENT_VERIFICATION_ENCRYPTION_KEY_FILE":      keyPath,
@@ -149,9 +160,14 @@ func TestRuntimeProfilePinsDocumentScanOnlyToAuthorizedF5Runtime(t *testing.T) {
 		t.Fatalf("document scan profile=%q err=%v", profile, err)
 	}
 	for name, change := range map[string]func(map[string]string){
-		"wrong database port": func(v map[string]string) { v["DATABASE_PORT"] = "5432" },
-		"wrong database":      func(v map[string]string) { v["DATABASE_NAME"] = "espacigo_dms_stage_20261020" },
-		"wrong runtime role":  func(v map[string]string) { v["DATABASE_SET_ROLE"] = "postgres" },
+		"wrong database port":      func(v map[string]string) { v["DATABASE_PORT"] = "5432" },
+		"wrong database":           func(v map[string]string) { v["DATABASE_NAME"] = "espacigo_dms_stage_20261020" },
+		"wrong runtime role":       func(v map[string]string) { v["DATABASE_SET_ROLE"] = "postgres" },
+		"unapproved API port":      func(v map[string]string) { v["HTTP_ADDR"] = "127.0.0.1:18085" },
+		"excluded legacy API port": func(v map[string]string) { v["HTTP_ADDR"] = "127.0.0.1:18084" },
+		"non-loopback API address": func(v map[string]string) {
+			v["HTTP_ADDR"] = "0.0.0.0:18082"
+		},
 		"missing scanner":     func(v map[string]string) { delete(v, "DOCUMENT_VERIFICATION_CLAMAV_ADDRESS") },
 		"missing storage key": func(v map[string]string) { delete(v, "DOCUMENT_VERIFICATION_ENCRYPTION_KEY_FILE") },
 		"overlapping roots":   func(v map[string]string) { v["DOCUMENT_VERIFICATION_STORAGE_ROOT"] = root + "/private-documents" },

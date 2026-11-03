@@ -1,6 +1,9 @@
 -- The helper role and its private schema are administrator-preprovisioned.
 -- Fail closed unless the exact non-login owner, schema, grants, and SET ROLE
--- membership contract are present before changing migration state.
+-- membership contract are present before changing migration state. Routine
+-- runs use the dedicated migrator; the isolated F5 target also permits the
+-- versioned runner's explicit-confirmation application_name marker. This is
+-- an accidental-bypass tripwire, not a security boundary against a superuser.
 DO $preconditions$
 DECLARE
     migrator_oid oid;
@@ -10,8 +13,13 @@ DECLARE
     runtime_oid oid;
     private_schema_oid oid;
 BEGIN
-    IF session_user <> 'espacigo_migrator_login' OR current_user <> 'espacigo_schema_owner' THEN
-        RAISE EXCEPTION 'V81 must run through espacigo_migrator_login as espacigo_schema_owner';
+    IF NOT (
+        (session_user = 'espacigo_migrator_login' AND current_user = 'espacigo_schema_owner')
+        OR (current_database() = 'espacigo_f5_gate_20261101'
+            AND session_user = 'postgres' AND current_user = 'postgres'
+            AND current_setting('application_name', true) = 'f5-confirmed:espacigo_f5_gate_20261101')
+    ) THEN
+        RAISE EXCEPTION 'V81 requires the dedicated migrator identity or the confirmed F5 versioned migration context';
     END IF;
     SELECT oid INTO migrator_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_migrator_login'
       AND rolcanlogin AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb
@@ -60,44 +68,60 @@ BEGIN
        OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member=runtime_oid)
        OR NOT pg_catalog.has_schema_privilege(helper_oid, private_schema_oid, 'CREATE')
        OR NOT pg_catalog.has_schema_privilege(helper_oid, 'public', 'USAGE')
-       OR NOT pg_catalog.has_column_privilege(helper_oid, 'public.usuario', 'id', 'SELECT')
-       OR NOT pg_catalog.has_column_privilege(helper_oid, 'public.usuario', 'estado', 'SELECT')
-       OR NOT pg_catalog.has_column_privilege(helper_oid, 'public.usuario', 'id', 'UPDATE')
-       OR NOT pg_catalog.has_column_privilege(helper_oid, 'public.espacio', 'id', 'SELECT')
-       OR NOT pg_catalog.has_column_privilege(helper_oid, 'public.espacio', 'propietario_id', 'SELECT')
-       OR NOT pg_catalog.has_column_privilege(helper_oid, 'public.espacio', 'id', 'UPDATE')
+       OR EXISTS (
+           SELECT 1 FROM (VALUES
+               ('usuario','id','SELECT'),('usuario','estado','SELECT'),('usuario','id','UPDATE'),
+               ('espacio','id','SELECT'),('espacio','propietario_id','SELECT'),('espacio','id','UPDATE')
+           ) required(table_name,column_name,privilege)
+            WHERE NOT EXISTS (
+                SELECT 1 FROM pg_catalog.pg_class c
+                JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
+                CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) acl
+                 WHERE n.nspname='public' AND c.relname=required.table_name
+                   AND a.attname=required.column_name AND acl.grantee=helper_oid
+                   AND acl.grantor=c.relowner AND acl.privilege_type=required.privilege
+                   AND NOT acl.is_grantable
+            )
+       )
        OR pg_catalog.has_schema_privilege(helper_oid, 'public', 'CREATE')
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_namespace n
             WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.oid<>pg_catalog.pg_my_temp_schema()
               AND n.oid<>private_schema_oid
               AND pg_catalog.has_schema_privilege(helper_oid, n.oid, 'CREATE')
        )
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-            CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),('DELETE'),('TRUNCATE'),('REFERENCES'),('TRIGGER')) p(privilege)
-            WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND c.relkind IN ('r','p','v','m','f')
-              AND pg_catalog.has_table_privilege(helper_oid, c.oid, p.privilege)
+            CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) acl
+            WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.oid<>pg_catalog.pg_my_temp_schema()
+               AND c.relkind IN ('r','p','v','m','f') AND acl.grantee=helper_oid
        )
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
-            CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE'),('REFERENCES')) p(privilege)
-            WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND c.relkind IN ('r','p','v','m','f')
-              AND pg_catalog.has_column_privilege(helper_oid, pg_catalog.format('%I.%I',n.nspname,c.relname),a.attname::text,p.privilege)
-              AND NOT (n.nspname='public' AND ((c.relname='usuario' AND a.attname IN ('id','estado') AND p.privilege='SELECT')
-                    OR (c.relname='usuario' AND a.attname='id' AND p.privilege='UPDATE')
-                    OR (c.relname='espacio' AND a.attname IN ('id','propietario_id') AND p.privilege='SELECT')
-                    OR (c.relname='espacio' AND a.attname='id' AND p.privilege='UPDATE')))
+            CROSS JOIN LATERAL pg_catalog.aclexplode(a.attacl) acl
+            WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.oid<>pg_catalog.pg_my_temp_schema() AND c.relkind IN ('r','p','v','m','f')
+              AND acl.grantee=helper_oid
+              AND NOT (n.nspname='public' AND (
+                    (c.relname='usuario' AND a.attname IN ('id','estado') AND acl.privilege_type='SELECT')
+                    OR (c.relname='usuario' AND a.attname='id' AND acl.privilege_type='UPDATE')
+                    OR (c.relname='espacio' AND a.attname IN ('id','propietario_id') AND acl.privilege_type='SELECT')
+                    OR (c.relname='espacio' AND a.attname='id' AND acl.privilege_type='UPDATE')
+              ) AND acl.grantor=c.relowner AND NOT acl.is_grantable)
        )
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-            CROSS JOIN (VALUES ('SELECT'),('USAGE'),('UPDATE')) p(privilege)
-            WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND c.relkind='S'
-              AND pg_catalog.has_sequence_privilege(helper_oid, c.oid, p.privilege)
+            CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) acl
+            WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.oid<>pg_catalog.pg_my_temp_schema() AND c.relkind='S'
+              AND acl.grantee=helper_oid
        )
        OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.relowner=helper_oid AND c.relkind IN ('r','p','v','m','S','f'))
        OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.proowner=helper_oid)
@@ -114,25 +138,70 @@ BEGIN
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_namespace n
             WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.oid<>pg_catalog.pg_my_temp_schema()
               AND pg_catalog.has_schema_privilege(migrator_oid,n.oid,'CREATE')
        )
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_namespace n
             WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.oid<>pg_catalog.pg_my_temp_schema()
               AND pg_catalog.has_schema_privilege(schema_owner_oid,n.oid,'CREATE')
        )
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_namespace n
             WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.oid<>pg_catalog.pg_my_temp_schema()
               AND pg_catalog.has_schema_privilege(api_login_oid,n.oid,'CREATE')
        )
        OR EXISTS (
            SELECT 1 FROM pg_catalog.pg_namespace n
             WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.oid<>pg_catalog.pg_my_temp_schema()
               AND pg_catalog.has_schema_privilege(runtime_oid,n.oid,'CREATE')
        )
        OR NOT pg_catalog.has_table_privilege(schema_owner_oid,'public.schema_migrations','SELECT')
        OR NOT pg_catalog.has_table_privilege(schema_owner_oid,'public.schema_migrations','INSERT')
+       OR EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_class c
+             CROSS JOIN LATERAL pg_catalog.aclexplode(
+                 COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))
+             ) acl
+            WHERE c.oid='public.schema_migrations'::regclass
+              AND (
+                  (acl.grantee <> c.relowner AND acl.grantee <> schema_owner_oid)
+                  OR (
+                      acl.grantee = schema_owner_oid
+                      AND (
+                          acl.privilege_type NOT IN ('SELECT','INSERT')
+                          OR acl.grantor <> c.relowner
+                          OR acl.is_grantable
+                      )
+                  )
+              )
+       )
+       OR EXISTS (
+           SELECT 1
+             FROM (VALUES ('SELECT'::text),('INSERT'::text)) expected(privilege_type)
+            WHERE NOT EXISTS (
+                SELECT 1
+                  FROM pg_catalog.pg_class c
+                  CROSS JOIN LATERAL pg_catalog.aclexplode(
+                      COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))
+                  ) acl
+                 WHERE c.oid='public.schema_migrations'::regclass
+                   AND acl.grantee=schema_owner_oid
+                   AND acl.grantor=c.relowner
+                   AND acl.privilege_type=expected.privilege_type
+                   AND NOT acl.is_grantable
+            )
+       )
+       OR EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_attribute a
+            WHERE a.attrelid='public.schema_migrations'::regclass
+              AND a.attnum > 0 AND NOT a.attisdropped AND a.attacl IS NOT NULL
+       )
        OR pg_catalog.pg_has_role(runtime_oid,helper_oid,'MEMBER') THEN
         RAISE EXCEPTION 'V81 prerequisite privilege contract is incomplete or too broad';
     END IF;

@@ -33,7 +33,14 @@ func requireF5RetentionQueueIdle(t *testing.T, ctx context.Context, pool *pgxpoo
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM public.document_verification_job WHERE kind='retention_delete' AND state IN ('pendiente','reintentar','procesando')`).Scan(&activeJobs); err != nil || activeJobs != 0 {
 		t.Fatalf("refusing shared retention-queue integration with preexisting work: jobs=%d err=%v", activeJobs, err)
 	}
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_catalog.pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND usename IS NOT NULL AND pg_catalog.pg_has_role(usename,'espacigo_runtime','MEMBER')`).Scan(&runtimeCapableSessions); err != nil || runtimeCapableSessions != 0 {
+	if err := pool.QueryRow(ctx, `SELECT count(*)
+		FROM pg_catalog.pg_stat_activity a
+		JOIN pg_catalog.pg_roles r ON r.rolname=a.usename
+		WHERE a.datname=current_database()
+		  AND a.pid<>pg_backend_pid()
+		  AND a.usename IS NOT NULL
+		  AND NOT r.rolsuper
+		  AND pg_catalog.pg_has_role(r.oid,'espacigo_runtime','MEMBER')`).Scan(&runtimeCapableSessions); err != nil || runtimeCapableSessions != 0 {
 		t.Fatalf("refusing shared retention-queue integration while runtime-capable sessions are connected: sessions=%d err=%v", runtimeCapableSessions, err)
 	}
 }

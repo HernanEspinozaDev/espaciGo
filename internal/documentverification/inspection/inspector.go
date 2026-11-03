@@ -181,6 +181,10 @@ func (i *Inspector) Inspect(p dv.Purpose, id string, data []byte) (dv.File, []by
 	return dv.File{ID: id, State: dv.FilePending, Size: int64(len(normalized)), MIME: mime, Pages: pages, ContentSHA256: sha256.Sum256(normalized)}, normalized, nil
 }
 func (i *Inspector) inspectPDF(p dv.Purpose, data []byte) (int, []byte, error) {
+	parsedPages, err := parsePDFStructureWithBudget(data, i.cfg.MaxPixels, maxPDFDecodedTotal)
+	if err != nil {
+		return 0, nil, ErrRejected
+	}
 	runPDFInfo := func(args ...string) (string, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), pdfCommandTimeout)
 		defer cancel()
@@ -211,11 +215,8 @@ func (i *Inspector) inspectPDF(p dv.Purpose, data []byte) (int, []byte, error) {
 	if p == dv.PurposeSpace {
 		limit = 20
 	}
-	if err != nil || n < 1 || n > limit || !strings.EqualFold(fields["Encrypted"], "no") ||
+	if err != nil || n < 1 || n > limit || n != parsedPages || !strings.EqualFold(fields["Encrypted"], "no") ||
 		!strings.EqualFold(fields["JavaScript"], "no") || !strings.EqualFold(fields["Form"], "none") {
-		return 0, nil, ErrRejected
-	}
-	if err := validatePDFStructure(data, i.cfg.MaxPixels, n); err != nil {
 		return 0, nil, ErrRejected
 	}
 	js, err := runPDFInfo("-js", "-")

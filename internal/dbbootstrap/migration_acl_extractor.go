@@ -13,6 +13,7 @@ var migrationACLFormat = regexp.MustCompile(`(?is)EXECUTE\s+format\s*\([^;]*\b(?
 var migrationACLFormatCall = regexp.MustCompile(`(?is)\bEXECUTE\s+format\s*\([^;]*\)`)
 var migrationACLFormatRole = regexp.MustCompile(`(?is)EXECUTE\s+format\s*\([^;]*\b(?:GRANT|REVOKE)\b[^;]*\b(?:TO|FROM)\s*%`)
 var migrationACLExplicitTarget = regexp.MustCompile(`(?is)\b(?:TO|FROM)\s+(?:PUBLIC|[a-z_][a-z0-9_]*)\b`)
+var migrationACLDatabaseCondition = regexp.MustCompile(`(?is)\bIF\s+current_database\s*\(\s*\)\s*<>\s*'([a-z_][a-z0-9_]*)'\s*THEN`)
 var migrationACLFormatTarget = regexp.MustCompile(`(?is)EXECUTE\s+format\s*\([^;]*\b(?:GRANT|REVOKE)\b[^;]*\b(?:TO|FROM)\s+PUBLIC\b`)
 var migrationACLExecWord = regexp.MustCompile(`(?i)\bEXECUTE\b`)
 var migrationACLTriggerExec = regexp.MustCompile(`(?is)\bEXECUTE\s+FUNCTION\b`)
@@ -90,7 +91,48 @@ func migrationACLDOBody(statement string) (body string, isDO, found bool, err er
 
 func maskACLQuotedTokens(source string) string {
 	masked := []byte(source)
+	lineComment := false
+	blockDepth := 0
 	for i := 0; i < len(source); {
+		if lineComment {
+			if source[i] == '\n' {
+				lineComment = false
+			} else {
+				masked[i] = ' '
+			}
+			i++
+			continue
+		}
+		if blockDepth > 0 {
+			switch {
+			case strings.HasPrefix(source[i:], "/*"):
+				masked[i], masked[i+1] = ' ', ' '
+				blockDepth++
+				i += 2
+			case strings.HasPrefix(source[i:], "*/"):
+				masked[i], masked[i+1] = ' ', ' '
+				blockDepth--
+				i += 2
+			default:
+				if source[i] != '\n' {
+					masked[i] = ' '
+				}
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(source[i:], "--") {
+			masked[i], masked[i+1] = ' ', ' '
+			lineComment = true
+			i += 2
+			continue
+		}
+		if strings.HasPrefix(source[i:], "/*") {
+			masked[i], masked[i+1] = ' ', ' '
+			blockDepth = 1
+			i += 2
+			continue
+		}
 		switch source[i] {
 		case '\'':
 			start := i
@@ -264,7 +306,7 @@ func migrationACLRoleCondition(source, grantee string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	condition := "role-exists:" + grantee
+	condition := ""
 	targetRef := migrationACLRefForGrantee(grantee)
 	pattern := regexp.MustCompile(`(?is)\bIF\s+EXISTS\s*\(\s*SELECT\b[^)]*\brolname\s*=\s*['"]` + regexp.QuoteMeta(grantee) + `['"][^)]*\)\s*THEN`)
 	endIfPattern := regexp.MustCompile(`(?is)\bEND\s+IF\b\s*;?`)
@@ -290,6 +332,18 @@ func migrationACLRoleCondition(source, grantee string) (string, error) {
 			continue
 		}
 		match := pattern.FindStringIndex(body)
+		branchCondition := "role-exists:" + grantee
+		if match == nil && grantee == "PUBLIC" {
+			databaseMatch := migrationACLDatabaseCondition.FindStringSubmatchIndex(body)
+			if databaseMatch != nil {
+				database := body[databaseMatch[2]:databaseMatch[3]]
+				if database != runtimeACLF5DatabaseName {
+					return "", fmt.Errorf("unsupported database-specific ACL condition")
+				}
+				match = databaseMatch[:2]
+				branchCondition = "database-not:" + database
+			}
+		}
 		if match == nil {
 			return "", fmt.Errorf("unknown procedural branch condition")
 		}
@@ -303,6 +357,10 @@ func migrationACLRoleCondition(source, grantee string) (string, error) {
 		if branchControlPattern.MatchString(branch) {
 			return "", fmt.Errorf("nested or alternate procedural ACL branch is unsupported")
 		}
+		if condition != "" && condition != branchCondition {
+			return "", fmt.Errorf("multiple procedural ACL conditions are unsupported")
+		}
+		condition = branchCondition
 		outside := body[:match[0]] + body[blockEnd:]
 		if targetRef.MatchString(outside) {
 			return "", fmt.Errorf("ACL effect outside recognized role condition")

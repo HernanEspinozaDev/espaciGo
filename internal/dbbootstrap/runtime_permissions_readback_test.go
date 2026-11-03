@@ -687,6 +687,127 @@ func TestF5ReadbackUsesBaselinePlusDirectRuntimeAndRejectsExtraRuntimeACLs(t *te
 	}
 }
 
+func TestRuntimeACLDirectDriftOnlyExplainsMatchingMissingGrantEffectiveMismatch(t *testing.T) {
+	key := runtimeACLResolvedKey{Grantee: "espacigo_runtime", ObjectKind: "TABLE", ObjectID: "42", Privilege: "INSERT", Column: "case_id"}
+	drifts := map[runtimeACLResolvedKey]struct{}{key: {}}
+	if !runtimeACLDirectDriftExplainsEffectiveMismatch(key, true, false, drifts) {
+		t.Fatal("a missing source-required direct grant must explain its matching absent effective privilege")
+	}
+	if runtimeACLDirectDriftExplainsEffectiveMismatch(key, true, true, drifts) {
+		t.Fatal("a missing grant must not explain an effective privilege that is present")
+	}
+	unrelated := key
+	unrelated.Privilege = "SELECT"
+	if runtimeACLDirectDriftExplainsEffectiveMismatch(unrelated, true, false, drifts) {
+		t.Fatal("a direct INSERT drift must not mask an unrelated effective SELECT mismatch")
+	}
+}
+
+func TestRuntimeACLDirectDifferenceRepairableOnlyForMissingRequiredGrant(t *testing.T) {
+	tests := []struct {
+		name           string
+		expectedGrant  bool
+		observedGrant  bool
+		wantRepairable bool
+	}{
+		{name: "required grant missing", expectedGrant: true, wantRepairable: true},
+		{name: "required grant present", expectedGrant: true, observedGrant: true},
+		{name: "revoked grant remains", observedGrant: true},
+		{name: "revoked grant absent"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := runtimeACLDirectDifferenceRepairable(test.expectedGrant, test.observedGrant); got != test.wantRepairable {
+				t.Fatalf("repairable=%v, want %v", got, test.wantRepairable)
+			}
+		})
+	}
+}
+
+func TestRuntimeACLRepairableDriftSummaryBoundsDiagnostics(t *testing.T) {
+	details := []string{"one", "two", "three", "four", "five", "six", "seven", "eight"}
+	count, summary := summarizeRuntimeACLRepairableDrifts(details)
+	if count != len(details) {
+		t.Fatalf("drift count=%d, want %d", count, len(details))
+	}
+	if !strings.Contains(summary, "one") || !strings.Contains(summary, "five") || strings.Contains(summary, "six") || !strings.Contains(summary, "and 3 more") {
+		t.Fatalf("drift summary should retain five examples and bound the rest: %q", summary)
+	}
+}
+
+type runtimeACLEffectivePrivilegeTestRow struct {
+	value bool
+	err   error
+}
+
+func (r runtimeACLEffectivePrivilegeTestRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	value, ok := dest[0].(*bool)
+	if !ok {
+		return errors.New("unexpected effective privilege scan destination")
+	}
+	*value = r.value
+	return nil
+}
+
+type runtimeACLEffectivePrivilegeTestDB struct {
+	values map[runtimeACLResolvedKey]bool
+}
+
+func (runtimeACLEffectivePrivilegeTestDB) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return nil, errors.New("unexpected rows query")
+}
+
+func (db runtimeACLEffectivePrivilegeTestDB) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
+	if len(args) == 0 && strings.Contains(query, "pg_proc p") {
+		return runtimeACLEffectivePrivilegeTestRow{value: true}
+	}
+	if len(args) < 2 {
+		return runtimeACLEffectivePrivilegeTestRow{err: errors.New("unexpected effective privilege query")}
+	}
+	key := runtimeACLResolvedKey{Grantee: "espacigo_runtime", ObjectKind: "TABLE", ObjectID: args[0].(string), Privilege: args[len(args)-1].(string)}
+	if len(args) == 3 {
+		key.Column = args[1].(string)
+	}
+	value, ok := db.values[key]
+	if !ok {
+		return runtimeACLEffectivePrivilegeTestRow{err: errors.New("missing fake effective privilege result")}
+	}
+	return runtimeACLEffectivePrivilegeTestRow{value: value}
+}
+
+func (runtimeACLEffectivePrivilegeTestDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	return pgconn.NewCommandTag("SELECT 1"), nil
+}
+
+func TestVerifyRuntimeACLEffectivePrivilegesDoesNotMaskUnrelatedMismatch(t *testing.T) {
+	missing := runtimeACLResolvedKey{Grantee: "espacigo_runtime", ObjectKind: "TABLE", ObjectID: "42", Privilege: "INSERT", Column: "case_id"}
+	unrelated := runtimeACLResolvedKey{Grantee: "espacigo_runtime", ObjectKind: "TABLE", ObjectID: "42", Privilege: "SELECT", Column: "id"}
+	expected := map[runtimeACLResolvedKey]runtimeACLExpectedGrant{
+		missing:   {Granted: true},
+		unrelated: {Granted: true},
+	}
+	drifts := map[runtimeACLResolvedKey]struct{}{missing: {}}
+	db := runtimeACLEffectivePrivilegeTestDB{values: map[runtimeACLResolvedKey]bool{missing: false, unrelated: false}}
+	err := verifyRuntimeACLEffectivePrivileges(context.Background(), db, expected, nil, drifts)
+	var repairable *RuntimeACLRepairableDriftError
+	if err == nil || errors.As(err, &repairable) {
+		t.Fatalf("unrelated effective SELECT mismatch must remain non-repairable, got %v", err)
+	}
+}
+
+func TestVerifyRuntimeACLEffectivePrivilegesAllowsMatchingMissingGrantMismatch(t *testing.T) {
+	missing := runtimeACLResolvedKey{Grantee: "espacigo_runtime", ObjectKind: "TABLE", ObjectID: "42", Privilege: "INSERT", Column: "case_id"}
+	expected := map[runtimeACLResolvedKey]runtimeACLExpectedGrant{missing: {Granted: true}}
+	drifts := map[runtimeACLResolvedKey]struct{}{missing: {}}
+	db := runtimeACLEffectivePrivilegeTestDB{values: map[runtimeACLResolvedKey]bool{missing: false}}
+	if err := verifyRuntimeACLEffectivePrivileges(context.Background(), db, expected, nil, drifts); err != nil {
+		t.Fatalf("matching missing direct grant should be deferred until all other checks pass: %v", err)
+	}
+}
+
 func TestGenericRuntimeACLContractStillReplaysHistoricalPublicRevokes(t *testing.T) {
 	source := RuntimeACLSource{Version: 64, SQL: []byte(`REVOKE ALL ON FUNCTION public.legacy_cleanup() FROM PUBLIC;
 GRANT SELECT ON TABLE public.items TO espacigo_runtime;`)}

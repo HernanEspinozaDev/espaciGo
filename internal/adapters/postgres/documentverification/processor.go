@@ -117,14 +117,24 @@ func (p *ScanProcessor) ProcessOne(ctx context.Context) error {
 	if claim == nil {
 		return nil
 	}
-	current, err := p.jobs.VerifyScanClaim(ctx, *claim)
+	return p.processClaim(ctx, *claim)
+}
+
+func (p *ScanProcessor) processClaim(ctx context.Context, claim ScanClaim) error {
+	if ctx == nil || p == nil || p.jobs == nil || p.documents == nil || p.scanner == nil {
+		return dv.ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	current, err := p.jobs.VerifyScanClaim(ctx, claim)
 	if err != nil {
 		return err
 	}
 	if !current {
 		return nil
 	}
-	operationCtx, stopMonitor := p.monitorClaim(ctx, *claim)
+	operationCtx, stopMonitor := p.monitorClaim(ctx, claim)
 	defer stopMonitor()
 	retry := func(code string) error {
 		if e := ctx.Err(); e != nil {
@@ -133,7 +143,7 @@ func (p *ScanProcessor) ProcessOne(ctx context.Context) error {
 		if operationCtx.Err() != nil {
 			return scanCancellationResult(ctx, operationCtx)
 		}
-		return p.jobs.RecordScanRetry(ctx, *claim, code, p.retry)
+		return p.jobs.RecordScanRetry(ctx, claim, code, p.retry)
 	}
 	var content []byte
 	switch claim.Purpose {
@@ -156,7 +166,7 @@ func (p *ScanProcessor) ProcessOne(ctx context.Context) error {
 	if len(content) == 0 || sha256.Sum256(content) != claim.ContentSHA256 {
 		return retry(processorErrMalformed)
 	}
-	current, err = p.jobs.VerifyScanClaim(operationCtx, *claim)
+	current, err = p.jobs.VerifyScanClaim(operationCtx, claim)
 	if err != nil {
 		if operationCtx.Err() != nil {
 			return scanCancellationResult(ctx, operationCtx)
@@ -195,7 +205,7 @@ func (p *ScanProcessor) ProcessOne(ctx context.Context) error {
 	if operationCtx.Err() != nil {
 		return scanCancellationResult(ctx, operationCtx)
 	}
-	return p.jobs.RecordScanOutcome(ctx, *claim, outcome)
+	return p.jobs.RecordScanOutcome(ctx, claim, outcome)
 }
 
 func (p *ScanProcessor) Run(ctx context.Context, pollInterval time.Duration, onError func(error)) error {

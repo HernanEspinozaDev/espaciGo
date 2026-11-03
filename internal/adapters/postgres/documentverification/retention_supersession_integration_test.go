@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// This opt-in test exercises V80's ownership trigger against the authorized
-// synthetic F5 database. The fixture is entirely rollback-scoped.
+// This opt-in test exercises the applied ownership trigger against the
+// authorized synthetic F5 database. The fixture is entirely rollback-scoped.
 func TestPostgresOwnershipSupersessionPreservesEarlierRetention(t *testing.T) {
 	dsn := os.Getenv("ESPACIGO_DOCUMENT_VERIFICATION_TEST_DATABASE_URL")
 	if dsn == "" {
@@ -56,7 +56,8 @@ func TestPostgresOwnershipSupersessionPreservesEarlierRetention(t *testing.T) {
 
 	oldOwner, newOwner, spaceID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	caseID, fileID := uuid.NewString(), uuid.NewString()
-	protectedDeadline := time.Now().UTC().Truncate(time.Microsecond).Add(12 * time.Hour)
+	inspectedAt := time.Now().UTC().Truncate(time.Microsecond)
+	protectedDeadline := inspectedAt.Add(12 * time.Hour)
 	hash := [32]byte{9}
 	if _, err := outer.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic','activo'),($3,$4,$4,'synthetic','activo')`, oldOwner, oldOwner+"@example.invalid", newOwner, newOwner+"@example.invalid"); err != nil {
 		t.Fatal(err)
@@ -73,7 +74,7 @@ func TestPostgresOwnershipSupersessionPreservesEarlierRetention(t *testing.T) {
 	if _, err := outer.Exec(ctx, `INSERT INTO public.document_verification_case(id,purpose,subject_id,space_id) VALUES($1,'space',$2,$3)`, caseID, oldOwner, spaceID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := outer.Exec(ctx, `INSERT INTO public.document_verification_file(id,case_id,state,size_bytes,mime_type,pages,content_sha256,last_error_code,retention_at,retention_reason_code) VALUES($1,$2,'bloqueado',128,'image/png',1,$3,'malware_detected',$4,'malicious_file')`, fileID, caseID, hash[:], protectedDeadline); err != nil {
+	if _, err := outer.Exec(ctx, `INSERT INTO public.document_verification_file(id,case_id,state,size_bytes,mime_type,pages,content_sha256,last_error_code,inspected_at,scanner_version,signatures_at,retention_at,retention_reason_code) VALUES($1,$2,'bloqueado',128,'image/png',1,$3,'malware_detected',$4,'ClamAV synthetic',$4,$5,'malicious_file')`, fileID, caseID, hash[:], inspectedAt, protectedDeadline); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := outer.Exec(ctx, `INSERT INTO public.document_verification_job(file_id,kind,state,available_at) VALUES($1,'scan','completado',now()),($1,'retention_delete','pendiente',$2)`, fileID, protectedDeadline); err != nil {

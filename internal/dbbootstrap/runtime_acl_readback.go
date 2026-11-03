@@ -15,6 +15,34 @@ type RuntimeACLSource struct {
 	SQL     []byte
 }
 
+// RuntimeACLRepairableDriftError reports confirmed direct-ACL differences that
+// the source-derived replay can reconcile after every other readback check passes.
+type RuntimeACLRepairableDriftError struct {
+	Count  int
+	Detail string
+}
+
+func (e *RuntimeACLRepairableDriftError) Error() string {
+	if e == nil || strings.TrimSpace(e.Detail) == "" {
+		return "runtime ACL has confirmed replayable direct-ACL differences"
+	}
+	if e.Count > 0 {
+		return fmt.Sprintf("runtime ACL has %d confirmed replayable direct-ACL differences: %s", e.Count, e.Detail)
+	}
+	return "runtime ACL has confirmed replayable direct-ACL differences: " + e.Detail
+}
+
+func summarizeRuntimeACLRepairableDrifts(details []string) (int, string) {
+	const maxExamples = 5
+	count := len(details)
+	if count <= maxExamples {
+		return count, strings.Join(details, "; ")
+	}
+	examples := append([]string(nil), details[:maxExamples]...)
+	examples = append(examples, fmt.Sprintf("and %d more", count-maxExamples))
+	return count, strings.Join(examples, "; ")
+}
+
 type runtimeACLGrantKey struct {
 	Grantee    string
 	ObjectKind string
@@ -201,7 +229,15 @@ func extractF5RuntimeACLSourceEffects(sources []RuntimeACLSource) ([]RuntimeACLE
 		}
 		effects = append(effects, runtimeEffects...)
 		if source.Version >= 81 {
-			effects = append(effects, publicEffects...)
+			for _, effect := range publicEffects {
+				if effect.Condition == "database-not:"+runtimeACLF5DatabaseName &&
+					effect.Action == "REVOKE" && effect.ObjectKind == "FUNCTION" &&
+					effect.Object == "public.document_verification_space_owner_changed()" &&
+					effect.Privilege == "EXECUTE" {
+					continue
+				}
+				effects = append(effects, effect)
+			}
 		}
 	}
 	return effects, nil
@@ -432,6 +468,14 @@ func verifyRuntimeACLReadbackContract(ctx context.Context, conn ScratchPermissio
 	}
 	resolved := make(map[runtimeACLResolvedKey]runtimeACLExpectedGrant, len(expected))
 	checkedOwners := make(map[string]struct{})
+	repairableDirectACLDrifts := make(map[runtimeACLResolvedKey]struct{})
+	var repairableDriftDetails []string
+	markRepairableDrift := func(key runtimeACLResolvedKey, detail string) {
+		effectiveKey := key
+		effectiveKey.Grantee = "espacigo_runtime"
+		repairableDirectACLDrifts[effectiveKey] = struct{}{}
+		repairableDriftDetails = append(repairableDriftDetails, detail)
+	}
 	for key, grant := range expected {
 		objectID, err := resolveRuntimeACLObject(ctx, conn, key)
 		if err != nil {
@@ -483,7 +527,7 @@ func verifyRuntimeACLReadbackContract(ctx context.Context, conn ScratchPermissio
 			return fmt.Errorf("unexpected direct ACL grant: grantee=%s kind=%s object_oid=%s privilege=%s column=%s", key.Grantee, key.ObjectKind, key.ObjectID, key.Privilege, key.Column)
 		}
 		if !want.Granted {
-			return fmt.Errorf("direct ACL differs from source contract: grantee=%s kind=%s object_oid=%s privilege=%s column=%s", key.Grantee, key.ObjectKind, key.ObjectID, key.Privilege, key.Column)
+			return fmt.Errorf("direct ACL grant remains although the source contract revokes it: grantee=%s kind=%s object_oid=%s privilege=%s column=%s", key.Grantee, key.ObjectKind, key.ObjectID, key.Privilege, key.Column)
 		}
 		if len(want.Grantors) != len(actuals) {
 			return fmt.Errorf("direct ACL grantor count differs from source contract: grantee=%s kind=%s object_oid=%s privilege=%s", key.Grantee, key.ObjectKind, key.ObjectID, key.Privilege)
@@ -512,23 +556,39 @@ func verifyRuntimeACLReadbackContract(ctx context.Context, conn ScratchPermissio
 	}
 	for key, want := range resolved {
 		_, exists := observed[key]
-		if want.Granted && !exists {
-			return fmt.Errorf("required direct ACL grant is missing: grantee=%s kind=%s object_oid=%s privilege=%s column=%s", key.Grantee, key.ObjectKind, key.ObjectID, key.Privilege, key.Column)
-		}
-		if !want.Granted && exists {
-			return fmt.Errorf("explicitly revoked direct ACL grant remains: grantee=%s kind=%s object_oid=%s privilege=%s column=%s", key.Grantee, key.ObjectKind, key.ObjectID, key.Privilege, key.Column)
+		if runtimeACLDirectDifferenceRepairable(want.Granted, exists) {
+			markRepairableDrift(key, fmt.Sprintf("required grant is missing: grantee=%s kind=%s object_oid=%s privilege=%s column=%s", key.Grantee, key.ObjectKind, key.ObjectID, key.Privilege, key.Column))
 		}
 	}
-	if err := verifyRuntimeACLEffectivePrivileges(ctx, conn, resolved, observed); err != nil {
+	if err := verifyRuntimeACLEffectivePrivileges(ctx, conn, resolved, observed, repairableDirectACLDrifts); err != nil {
 		return err
+	}
+	if len(repairableDriftDetails) > 0 {
+		count, detail := summarizeRuntimeACLRepairableDrifts(repairableDriftDetails)
+		return &RuntimeACLRepairableDriftError{Count: count, Detail: detail}
 	}
 	return nil
 }
 
 func verifyRuntimeACLConditions(ctx context.Context, conn ScratchPermissionDB, expected map[runtimeACLGrantKey]runtimeACLExpectedGrant) error {
 	checkedRoles := make(map[string]struct{})
+	checkedDatabases := make(map[string]struct{})
 	for _, grant := range expected {
 		for condition := range grant.Conditions {
+			if database, ok := strings.CutPrefix(condition, "database-not:"); ok {
+				if database != runtimeACLF5DatabaseName {
+					return errors.New("runtime ACL source contains an unsupported database condition")
+				}
+				if _, checked := checkedDatabases[database]; checked {
+					continue
+				}
+				var applies bool
+				if err := conn.QueryRow(ctx, `SELECT pg_catalog.current_database()<>$1`, database).Scan(&applies); err != nil || !applies {
+					return fmt.Errorf("runtime ACL source database condition is false or unreadable: database-not:%s", database)
+				}
+				checkedDatabases[database] = struct{}{}
+				continue
+			}
 			role, ok := strings.CutPrefix(condition, "role-exists:")
 			if !ok || !aclRoleIdent.MatchString(role) {
 				return errors.New("runtime ACL source contains an unsupported unresolved condition")
@@ -577,6 +637,23 @@ func rejectUnmodeledRuntimeACLClasses(ctx context.Context, conn ScratchPermissio
 		          CROSS JOIN LATERAL pg_catalog.aclexplode(t.typacl) a
 		          WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND a.grantee IN (0, 'espacigo_runtime'::regrole)
 		            AND (NOT $1 OR a.grantee<>0))
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+		          CROSS JOIN LATERAL pg_catalog.aclexplode(c.relacl) a
+		          WHERE n.nspname IN ('pg_catalog','information_schema') AND a.grantee='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute att
+		          JOIN pg_catalog.pg_class c ON c.oid=att.attrelid
+		          JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+		          CROSS JOIN LATERAL pg_catalog.aclexplode(att.attacl) a
+		          WHERE n.nspname IN ('pg_catalog','information_schema')
+		            AND att.attnum>0 AND NOT att.attisdropped AND a.grantee='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+		          CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) a
+		          WHERE n.nspname IN ('pg_catalog','information_schema') AND a.grantee='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n CROSS JOIN LATERAL pg_catalog.aclexplode(n.nspacl) a
+		          WHERE n.nspname IN ('pg_catalog','information_schema') AND a.grantee='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace
+		          CROSS JOIN LATERAL pg_catalog.aclexplode(t.typacl) a
+		          WHERE n.nspname IN ('pg_catalog','information_schema') AND a.grantee='espacigo_runtime'::regrole)
 		OR EXISTS (SELECT 1 FROM pg_catalog.pg_language l CROSS JOIN LATERAL pg_catalog.aclexplode(l.lanacl) a
 		          WHERE a.grantee IN (0, 'espacigo_runtime'::regrole) AND (NOT $1 OR a.grantee<>0))
 		OR EXISTS (SELECT 1 FROM pg_catalog.pg_foreign_data_wrapper f CROSS JOIN LATERAL pg_catalog.aclexplode(f.fdwacl) a
@@ -591,6 +668,8 @@ func rejectUnmodeledRuntimeACLClasses(ctx context.Context, conn ScratchPermissio
 		          WHERE a.grantee IN (0, 'espacigo_runtime'::regrole) AND (NOT $1 OR a.grantee<>0))
 		OR EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl d CROSS JOIN LATERAL pg_catalog.aclexplode(d.defaclacl) a
 		          WHERE a.grantee IN (0, 'espacigo_runtime'::regrole))
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl d
+		          WHERE d.defaclrole='espacigo_runtime'::regrole)
 		OR EXISTS (SELECT 1 FROM pg_catalog.pg_default_acl d
 		          LEFT JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace
 		          WHERE d.defaclobjtype='f' AND (d.defaclnamespace=0 OR n.nspname NOT IN ('pg_catalog','information_schema')))
@@ -693,17 +772,14 @@ func verifyRuntimeACLDatabaseCatalogF5(ctx context.Context, conn ScratchPermissi
 		WHERE d.datname=pg_catalog.current_database()
 	)
 	SELECT d.datdba='postgres'::regrole
-	   AND (SELECT count(*) FROM current_acl a WHERE a.grantee='espacigo_runtime'::regrole)=1
-	   AND EXISTS (SELECT 1 FROM current_acl a
-	               WHERE a.grantee='espacigo_runtime'::regrole AND a.grantor='postgres'::regrole
-	                 AND a.privilege_type='CONNECT' AND NOT a.is_grantable)
+	   AND NOT EXISTS (SELECT 1 FROM current_acl a WHERE a.grantee='espacigo_runtime'::regrole)
 	   AND pg_catalog.has_database_privilege('espacigo_runtime',d.datname,'CONNECT')
 	   AND NOT pg_catalog.has_database_privilege('espacigo_runtime',d.datname,'CREATE')
 	   AND pg_catalog.has_database_privilege('espacigo_runtime',d.datname,'TEMPORARY') =
 	       EXISTS (SELECT 1 FROM current_acl a WHERE a.grantee=0 AND a.privilege_type='TEMPORARY')
 	FROM pg_catalog.pg_database d WHERE d.datname=pg_catalog.current_database()`).Scan(&valid)
 	if err != nil || !valid {
-		return errors.New("F5 runtime database privileges differ from exact direct CONNECT plus the pinned PUBLIC baseline")
+		return errors.New("F5 runtime database privileges differ from the pinned PUBLIC baseline or include direct grants")
 	}
 	return nil
 }
@@ -749,12 +825,29 @@ func verifyRuntimeACLRoleStructure(ctx context.Context, conn ScratchPermissionDB
 	var runtimeOwnsObjects bool
 	err = conn.QueryRow(ctx, `SELECT
 		EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n WHERE n.nspowner = 'espacigo_runtime'::regrole)
-		OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND c.relowner='espacigo_runtime'::regrole)
-		OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND p.proowner='espacigo_runtime'::regrole)
-		OR EXISTS (SELECT 1 FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND t.typowner='espacigo_runtime'::regrole)
-		OR EXISTS (SELECT 1 FROM pg_catalog.pg_database d WHERE d.datname=current_database() AND d.datdba='espacigo_runtime'::regrole)`).Scan(&runtimeOwnsObjects)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c WHERE c.relowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc p WHERE p.proowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_type t WHERE t.typowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_database d WHERE d.datdba='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_collation c WHERE c.collowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_conversion c WHERE c.conowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_event_trigger e WHERE e.evtowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_extension e WHERE e.extowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_foreign_data_wrapper f WHERE f.fdwowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_foreign_server s WHERE s.srvowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_language l WHERE l.lanowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_largeobject_metadata l WHERE l.lomowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_opclass o WHERE o.opcowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_operator o WHERE o.oprowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_opfamily o WHERE o.opfowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_publication p WHERE p.pubowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_statistic_ext s WHERE s.stxowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_subscription s WHERE s.subowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_tablespace t WHERE t.spcowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_ts_config c WHERE c.cfgowner='espacigo_runtime'::regrole)
+		OR EXISTS (SELECT 1 FROM pg_catalog.pg_ts_dict d WHERE d.dictowner='espacigo_runtime'::regrole)`).Scan(&runtimeOwnsObjects)
 	if err != nil || runtimeOwnsObjects {
-		return errors.New("runtime role owns a database or schema object")
+		return errors.New("runtime role owns a database, schema, or catalog object")
 	}
 	var databaseACLValid bool
 	err = conn.QueryRow(ctx, `SELECT pg_catalog.has_database_privilege('espacigo_runtime', current_database(), 'CONNECT')
@@ -874,7 +967,16 @@ func readRuntimeACLDirectGrants(ctx context.Context, conn ScratchPermissionDB) (
 	return observed, nil
 }
 
-func verifyRuntimeACLEffectivePrivileges(ctx context.Context, conn ScratchPermissionDB, expected map[runtimeACLResolvedKey]runtimeACLExpectedGrant, observed map[runtimeACLResolvedKey][]runtimeACLObservedGrant) error {
+func runtimeACLDirectDifferenceRepairable(expectedGrant, observedGrant bool) bool {
+	return expectedGrant && !observedGrant
+}
+
+func runtimeACLDirectDriftExplainsEffectiveMismatch(key runtimeACLResolvedKey, expectedEffective, actualEffective bool, repairable map[runtimeACLResolvedKey]struct{}) bool {
+	_, exists := repairable[key]
+	return exists && expectedEffective && !actualEffective
+}
+
+func verifyRuntimeACLEffectivePrivileges(ctx context.Context, conn ScratchPermissionDB, expected map[runtimeACLResolvedKey]runtimeACLExpectedGrant, observed map[runtimeACLResolvedKey][]runtimeACLObservedGrant, repairableDirectACLDrifts map[runtimeACLResolvedKey]struct{}) error {
 	effectiveKeys := make(map[runtimeACLResolvedKey]struct{}, len(expected)+len(observed))
 	for key := range expected {
 		key.Grantee = "espacigo_runtime"
@@ -906,7 +1008,10 @@ func verifyRuntimeACLEffectivePrivileges(ctx context.Context, conn ScratchPermis
 			if key.Column != "" {
 				query = `SELECT pg_catalog.has_column_privilege('espacigo_runtime', $1::oid, $2, $3)`
 				err := conn.QueryRow(ctx, query, key.ObjectID, key.Column, key.Privilege).Scan(&effective)
-				if err != nil || effective != wantEffective {
+				if err != nil {
+					return errors.New("could not read effective column privilege from PostgreSQL catalogs")
+				}
+				if effective != wantEffective && !runtimeACLDirectDriftExplainsEffectiveMismatch(key, wantEffective, effective, repairableDirectACLDrifts) {
 					return fmt.Errorf("effective column privilege differs from source contract: object_oid=%s column=%s privilege=%s", key.ObjectID, key.Column, key.Privilege)
 				}
 				continue
@@ -921,7 +1026,10 @@ func verifyRuntimeACLEffectivePrivileges(ctx context.Context, conn ScratchPermis
 		default:
 			return fmt.Errorf("effective ACL check does not support object kind %s", key.ObjectKind)
 		}
-		if err := conn.QueryRow(ctx, query, key.ObjectID, key.Privilege).Scan(&effective); err != nil || effective != wantEffective {
+		if err := conn.QueryRow(ctx, query, key.ObjectID, key.Privilege).Scan(&effective); err != nil {
+			return errors.New("could not read effective privilege from PostgreSQL catalogs")
+		}
+		if effective != wantEffective && !runtimeACLDirectDriftExplainsEffectiveMismatch(key, wantEffective, effective, repairableDirectACLDrifts) {
 			return fmt.Errorf("effective privilege differs from source contract: kind=%s object_oid=%s privilege=%s", key.ObjectKind, key.ObjectID, key.Privilege)
 		}
 	}

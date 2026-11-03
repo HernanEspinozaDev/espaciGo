@@ -1370,6 +1370,51 @@ func TestRunnerRollsBackMigrationAndHistoryTogether(t *testing.T) {
 	})
 }
 
+func TestRunnerRecoversAfterFailureBetweenMigrationCommits(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		dir := t.TempDir()
+		writeMigration(t, dir, "V000001__recovery_first.sql", "CREATE TABLE recovery_first_probe (id integer PRIMARY KEY); INSERT INTO recovery_first_probe VALUES (1);\n")
+		secondPath := filepath.Join(dir, "V000002__recovery_second.sql")
+		writeMigration(t, dir, filepath.Base(secondPath), "CREATE TABLE recovery_second_probe (id integer PRIMARY KEY); INSERT INTO recovery_second_probe VALUES (1); SELECT 1 / 0;\n")
+
+		firstRun, err := Run(ctx, databaseURL, dir)
+		if err == nil || !strings.Contains(err.Error(), "execute migration V000002") || len(firstRun.Applied) != 1 || firstRun.Applied[0] != 1 {
+			t.Fatalf("expected V000001 to commit before V000002 fails; applied=%v err=%v", firstRun.Applied, err)
+		}
+		conn := connectTestDB(t, ctx, databaseURL)
+		defer conn.Close(context.Background())
+		var firstExists, secondExists bool
+		var historyCount int
+		var latestVersion int64
+		if err := conn.QueryRow(ctx, `SELECT to_regclass('public.recovery_first_probe') IS NOT NULL, to_regclass('public.recovery_second_probe') IS NOT NULL`).Scan(&firstExists, &secondExists); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRow(ctx, `SELECT count(*),max(version) FROM public.schema_migrations`).Scan(&historyCount, &latestVersion); err != nil {
+			t.Fatal(err)
+		}
+		if !firstExists || secondExists || historyCount != 1 || latestVersion != 1 {
+			t.Fatalf("failure boundary not preserved: first=%t second=%t history=%d latest=%d", firstExists, secondExists, historyCount, latestVersion)
+		}
+		if err := os.WriteFile(secondPath, []byte("CREATE TABLE recovery_second_probe (id integer PRIMARY KEY); INSERT INTO recovery_second_probe VALUES (2);\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		recovered, err := Run(ctx, databaseURL, dir)
+		if err != nil || len(recovered.Applied) != 1 || recovered.Applied[0] != 2 {
+			t.Fatalf("recovery applied=%v err=%v", recovered.Applied, err)
+		}
+		var firstRows, secondRows int
+		if err := conn.QueryRow(ctx, `SELECT (SELECT count(*) FROM recovery_first_probe), (SELECT count(*) FROM recovery_second_probe)`).Scan(&firstRows, &secondRows); err != nil {
+			t.Fatal(err)
+		}
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.schema_migrations`).Scan(&historyCount); err != nil {
+			t.Fatal(err)
+		}
+		if firstRows != 1 || secondRows != 1 || historyCount != 2 {
+			t.Fatalf("recovery state mismatch: first_rows=%d second_rows=%d history=%d", firstRows, secondRows, historyCount)
+		}
+	})
+}
+
 func TestRunnerSerializesConcurrentExecutions(t *testing.T) {
 	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
 		dir := t.TempDir()

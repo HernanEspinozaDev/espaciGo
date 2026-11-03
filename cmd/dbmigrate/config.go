@@ -11,6 +11,7 @@ import (
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func validDatabaseRoleName(value string) bool {
@@ -41,6 +42,27 @@ func validateMigrationExecutionIdentity(databaseURL, setRole string) error {
 	return nil
 }
 
+func validateF5AdminMigrationIdentity(databaseURL, mode, setRole, confirmation string) error {
+	if confirmation != runtimeACLConfirmation {
+		return errors.New("F5 administrative migration requires exact target confirmation")
+	}
+	return validateRuntimeACLAdminIdentity(databaseURL, mode, setRole)
+}
+
+func withF5AdminMigrationMarker(databaseURL, confirmation string) (string, error) {
+	if confirmation != runtimeACLConfirmation {
+		return "", errors.New("F5 administrative migration requires exact target confirmation")
+	}
+	parsedURL, err := url.Parse(databaseURL)
+	if err != nil || (parsedURL.Scheme != "postgres" && parsedURL.Scheme != "postgresql") {
+		return "", errors.New("F5 administrative migration requires a PostgreSQL URL")
+	}
+	query := parsedURL.Query()
+	query.Set("application_name", f5AdminMigrationApplicationName)
+	parsedURL.RawQuery = query.Encode()
+	return parsedURL.String(), nil
+}
+
 func validateRuntimeACLAdminIdentity(databaseURL, mode, setRole string) error {
 	if mode != "direct" || setRole != "" {
 		return errors.New("runtime ACL phase requires direct mode without DATABASE_SET_ROLE")
@@ -48,6 +70,10 @@ func validateRuntimeACLAdminIdentity(databaseURL, mode, setRole string) error {
 	passfile := os.Getenv("PGPASSFILE")
 	if !filepath.IsAbs(passfile) || filepath.Clean(passfile) == "/dev/null" {
 		return errors.New("runtime ACL phase requires an absolute private PGPASSFILE")
+	}
+	passfileDirectory, err := os.Lstat(filepath.Dir(passfile))
+	if err != nil || !passfileDirectory.IsDir() || passfileDirectory.Mode().Perm() != 0o700 {
+		return errors.New("runtime ACL phase requires a private PGPASSFILE directory with mode 0700")
 	}
 	info, err := os.Lstat(passfile)
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
@@ -62,15 +88,15 @@ func validateRuntimeACLAdminIdentity(databaseURL, mode, setRole string) error {
 			return errors.New("runtime ACL phase requires credentials from the protected PGPASSFILE")
 		}
 	}
-	for _, key := range []string{"password", "passfile", "service", "servicefile"} {
-		if parsedURL.Query().Has(key) {
-			return errors.New("runtime ACL phase rejects credential or service-file URL overrides")
-		}
+	if os.Getenv("PGPASSWORD") != "" || os.Getenv("PGSERVICE") != "" ||
+		os.Getenv("PGSERVICEFILE") != "" || os.Getenv("PGOPTIONS") != "" {
+		return errors.New("runtime ACL phase requires the protected PGPASSFILE without credential, service, or session-option overrides")
 	}
-	if os.Getenv("PGPASSWORD") != "" || os.Getenv("PGSERVICE") != "" || os.Getenv("PGSERVICEFILE") != "" {
-		return errors.New("runtime ACL phase requires the protected PGPASSFILE as its only credential source")
-	}
-	config, err := pgx.ParseConfig(databaseURL)
+	config, err := pgx.ParseConfigWithOptions(databaseURL, pgx.ParseConfigOptions{
+		ParseConfigOptions: pgconn.ParseConfigOptions{
+			ConnStringAllowedKeys: []string{"host", "port", "user", "database", "sslmode", "application_name"},
+		},
+	})
 	if err != nil || config.Host != "127.0.0.1" || config.Port != 15434 ||
 		config.Database != "espacigo_f5_gate_20261101" || config.User != "postgres" {
 		return errors.New("runtime ACL phase requires the exact local F5 gate target and administrator identity")

@@ -6,10 +6,12 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
+	"golang.org/x/sys/unix"
 )
 
 type config struct {
@@ -31,9 +33,113 @@ type config struct {
 	dbPoolMinConns       int32
 	allowedOrigins       []string
 	frontendPublicOrigin string
+	dbPassfile           *os.File
 }
 
 func loadConfig(getenv func(string) string) (config, error) { return loadConfigMode(getenv, false) }
+
+func loadRuntimeConfig(getenv func(string) string, profile runtimeProfileName) (config, error) {
+	local := profile == runtimeProfileWorkerFree || profile == runtimeProfileDocumentScanOnly
+	passfileValue := getenv("PGPASSFILE")
+	passfilePath := strings.TrimSpace(passfileValue)
+	if passfileValue != "" && passfilePath == "" {
+		return config{}, errors.New("invalid local PostgreSQL passfile configuration")
+	}
+	var passfile *os.File
+	if passfilePath != "" {
+		if !local || !filepath.IsAbs(passfilePath) || filepath.Clean(passfilePath) != passfilePath {
+			return config{}, errors.New("invalid local PostgreSQL passfile configuration")
+		}
+		if strings.TrimSpace(getenv("DATABASE_CONNECTION_MODE")) == "cloudsql" {
+			return config{}, errors.New("local PostgreSQL passfile cannot be used with Cloud SQL")
+		}
+		if strings.TrimSpace(getenv("DATABASE_PASSWORD_FILE")) != "" {
+			return config{}, errors.New("configure only one local PostgreSQL credential source")
+		}
+		opened, err := openPrivatePGPassfile(passfilePath)
+		if err != nil {
+			return config{}, errors.New("invalid local PostgreSQL passfile configuration")
+		}
+		passfile = opened
+	}
+	cfg, err := loadConfigMode(getenv, local && passfilePath != "")
+	if err != nil {
+		if passfile != nil {
+			_ = passfile.Close()
+		}
+		return config{}, err
+	}
+	cfg.dbPassfile = passfile
+	return cfg, nil
+}
+
+func validatePrivatePGPassfile(path string) error {
+	file, err := openPrivatePGPassfile(path)
+	if err != nil {
+		return err
+	}
+	_ = file.Close()
+	return nil
+}
+
+func openPrivatePGPassfile(path string) (*os.File, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, errors.New("invalid local PostgreSQL passfile path")
+	}
+	components := strings.Split(strings.TrimPrefix(path, string(filepath.Separator)), string(filepath.Separator))
+	if len(components) < 2 {
+		return nil, errors.New("local PostgreSQL passfile must be inside a private directory")
+	}
+	dirFD, err := unix.Open(string(filepath.Separator), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, errors.New("could not open local PostgreSQL passfile root")
+	}
+	closeDir := func() { _ = unix.Close(dirFD) }
+	for i, component := range components[:len(components)-1] {
+		if component == "" || component == "." || component == ".." {
+			closeDir()
+			return nil, errors.New("invalid local PostgreSQL passfile path")
+		}
+		nextFD, openErr := unix.Openat(dirFD, component, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+		if openErr != nil {
+			closeDir()
+			return nil, errors.New("local PostgreSQL passfile ancestors must be real directories")
+		}
+		_ = unix.Close(dirFD)
+		dirFD = nextFD
+		var stat unix.Stat_t
+		if statErr := unix.Fstat(dirFD, &stat); statErr != nil {
+			closeDir()
+			return nil, errors.New("could not inspect local PostgreSQL passfile directory")
+		}
+		mode := stat.Mode & 0o777
+		if mode&0o022 != 0 && stat.Mode&unix.S_ISVTX == 0 {
+			closeDir()
+			return nil, errors.New("local PostgreSQL passfile ancestors must not be group/world writable")
+		}
+		if i == len(components)-2 && (mode != 0o700 || stat.Uid != uint32(os.Geteuid())) {
+			closeDir()
+			return nil, errors.New("local PostgreSQL passfile directory must be private and owned by the API user")
+		}
+	}
+	fileFD, err := unix.Openat(dirFD, components[len(components)-1], unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	closeDir()
+	if err != nil {
+		return nil, errors.New("local PostgreSQL passfile must be a regular file")
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(fileFD, &stat); err != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Mode&0o777 != 0o600 || stat.Size == 0 || stat.Uid != uint32(os.Geteuid()) {
+		_ = unix.Close(fileFD)
+		return nil, errors.New("local PostgreSQL passfile must be a private owned regular file")
+	}
+	return os.NewFile(uintptr(fileFD), path), nil
+}
+
+func (cfg config) close() {
+	if cfg.dbPassfile != nil {
+		_ = cfg.dbPassfile.Close()
+	}
+}
 
 func loadConfigMode(getenv func(string) string, allowPassfile bool) (config, error) {
 	cfg := config{httpAddr: getenv("HTTP_ADDR")}
@@ -203,14 +309,21 @@ func validOrigin(value string) bool {
 }
 
 func (cfg config) databaseURL() string {
+	user := url.User(cfg.dbUser)
+	if cfg.dbPassword != "" {
+		user = url.UserPassword(cfg.dbUser, cfg.dbPassword)
+	}
 	endpoint := &url.URL{
 		Scheme: "postgres",
-		User:   url.UserPassword(cfg.dbUser, cfg.dbPassword),
+		User:   user,
 		Host:   net.JoinHostPort(cfg.dbHost, strconv.Itoa(int(cfg.dbPort))),
 		Path:   "/" + cfg.dbName,
 	}
 	query := url.Values{}
 	query.Set("sslmode", cfg.dbSSLMode)
+	if cfg.dbPassfile != nil {
+		query.Set("passfile", "/proc/self/fd/"+strconv.FormatUint(uint64(cfg.dbPassfile.Fd()), 10))
+	}
 	if cfg.dbSSLRootCert != "" {
 		query.Set("sslrootcert", cfg.dbSSLRootCert)
 	}
