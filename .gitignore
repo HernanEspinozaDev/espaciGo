@@ -14,3 +14,6 @@ __pycache__/
 *.py[cod]
 *.swp
 *.tmp
+
+# Documentación local de base de datos solicitada; no se versiona
+/base de datos/
