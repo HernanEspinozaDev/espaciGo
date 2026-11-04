@@ -10,6 +10,8 @@
 
 **Objetivo:** completar «Mis espacios» desde Mi cuenta, creación y edición con formularios dinámicos, hasta **30 imágenes por espacio**, almacenamiento organizado por propietario/espacio y base privada para documentos. Mantener Next.js, pnpm, Tailwind y el diseño aprobado; Go y PostgreSQL siguen siendo la autoridad.
 
+**Objetivo transversal ratificado el 2026-11-04.** El [ADR de espacios, contratación y cobros](../decisiones/adr_objetivo_espacios_contratacion_cobros.md) rige los próximos cortes. En Mis espacios, aplicar titularidad vigente, publicación independiente de la verificación contractual y republicación tras confirmar la desocupación. Identidad para emitir, firma opcional y cobros se coordinan con los módulos de reserva, contrato y pagos. Los registros de avance F5/F6 conservan su alcance histórico.
+
 ## 1. Qué se comprobó y qué falta confirmar
 
 ### 1.1. Evidencia y alcance
