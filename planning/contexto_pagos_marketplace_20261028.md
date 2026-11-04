@@ -6,6 +6,10 @@ Fuente: conversación ChatGPT «Guía pagos marketplace», ID `6ae23fd1-9560-83e
 
 Estado: documento de trabajo. Conserva decisiones del usuario, recomendaciones anteriores y asuntos abiertos sin convertir propuestas en capacidades implementadas. No modifica código, OpenAPI, esquema, migraciones ni datos. La investigación posterior del 28-10-2026 consultó documentación oficial de Mercado Pago para Chile, SII y SERNAC. Las fuentes, definiciones y límites están en `especificacion_pagos_checkout_pro_20261028.md`; la investigación no equivale a habilitación comercial, ensayo de integración ni validación tributaria individual.
 
+## Objetivo transversal ratificado el 2026-11-04
+
+El [ADR de espacios, contratación y cobros](decisiones/adr_objetivo_espacios_contratacion_cobros.md) fija la secuencia objetivo de aceptación, firma opcional, renta y garantía. Los alcances de entrega del 28 de octubre quedan como antecedentes.
+
 ## Definición complementaria vigente
 
 Leer junto con [la especificación de Checkout Pro](especificacion_pagos_checkout_pro_20261028.md). Por encargo posterior del usuario, queda elegido **Checkout Pro / API de Preferences**, el cobro de arriendo se habilita **después de la aceptación mutua de la misma versión contractual**, la garantía usa un enlace separado y el eventual cobro de firma SimpleFirmas a ambas partes queda para después del desarrollo de pagos, fuera de esta entrega. Los reembolsos por Mercado Pago se gestionan mientras el proveedor los permita; en arriendos largos la liquidación/devolución es contractual y a cargo de las partes, no un servicio financiero de espaciGo.
