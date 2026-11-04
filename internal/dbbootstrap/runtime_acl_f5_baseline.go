@@ -10,8 +10,14 @@ const (
 	runtimeACLF5BaselineServer       = 180006
 	runtimeACLF5PublicACLRows  int64 = 5762
 	runtimeACLF5PublicACLHash        = "527e02ed8bf413337ae39caf6e4edaa7"
-	runtimeACLF5DefaultACLRows int64 = 0
-	runtimeACLF5DefaultACLHash       = "d41d8cd98f00b204e9800998ecf8427e"
+	// Recreated cluster, 2026-11-04: identical PUBLIC/default schema ACLs,
+	// different object OIDs. scripts/verify_f5_restore_schema.py proves the
+	// archived V82 schema differs only by the two source-pinned V83 changes.
+	// Keep the original fingerprint for its historical rollback previews.
+	// Evidence: planning/frontend_next/evidence/f5-restored-acl-baseline-20261104.md.
+	runtimeACLF5RestoredPublicACLHash       = "37f89420b0338cdd11a978e57a04204c"
+	runtimeACLF5DefaultACLRows        int64 = 0
+	runtimeACLF5DefaultACLHash              = "d41d8cd98f00b204e9800998ecf8427e"
 )
 
 // runtimeACLF5PublicBaselineQuery reproduces the complete effective PUBLIC
@@ -114,7 +120,8 @@ SELECT pg_catalog.current_database(), current_setting('server_version_num')::int
 
 func runtimeACLF5BaselineMatches(database string, serverVersion int, publicRows int64, publicHash string, defaultRows int64, defaultHash string) bool {
 	return database == runtimeACLF5DatabaseName && serverVersion == runtimeACLF5BaselineServer &&
-		publicRows == runtimeACLF5PublicACLRows && publicHash == runtimeACLF5PublicACLHash &&
+		publicRows == runtimeACLF5PublicACLRows &&
+		(publicHash == runtimeACLF5PublicACLHash || publicHash == runtimeACLF5RestoredPublicACLHash) &&
 		defaultRows == runtimeACLF5DefaultACLRows && defaultHash == runtimeACLF5DefaultACLHash
 }
 

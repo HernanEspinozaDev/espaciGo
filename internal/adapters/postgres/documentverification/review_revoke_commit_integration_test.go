@@ -2,6 +2,7 @@ package documentverificationpg
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
@@ -807,6 +808,16 @@ func TestPostgresCommittedReviewAndRevoke(t *testing.T) {
 		}
 	}
 	assertIndependentCaseLifecycle("submitted baseline before rollback-only review", string(submitted.State), submitted.Revision, 3)
+	if err := service.Review(ctx, ownerID, created.ID, dv.CapabilityIdentity, dv.DecisionApprove, time.Time{}, submitted.Revision); !errors.Is(err, dv.ErrCapability) {
+		t.Fatalf("owner review without grant err=%v, want %v", err, dv.ErrCapability)
+	}
+	assertIndependentCaseLifecycle("owner review denied without grant", string(submitted.State), submitted.Revision, 3)
+	// The capability selects purpose=space. An identity case is deliberately
+	// not visible through that repository lookup, before grant evaluation.
+	if err := service.Review(ctx, reviewerID, created.ID, dv.CapabilitySpace, dv.DecisionApprove, time.Time{}, submitted.Revision); !errors.Is(err, dv.ErrNotFound) {
+		t.Fatalf("space-capability review of identity case err=%v, want %v", err, dv.ErrNotFound)
+	}
+	assertIndependentCaseLifecycle("space-capability identity review denied", string(submitted.State), submitted.Revision, 3)
 	reviewRollbackTx, err := runtimePool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal("begin rollback-only review transaction")
@@ -832,6 +843,10 @@ func TestPostgresCommittedReviewAndRevoke(t *testing.T) {
 		t.Fatalf("independent committed approved-state readback mismatch: state=%q err=%v", approved.State, err)
 	}
 	assertIndependentCaseLifecycle("approved baseline before rollback-only revoke", string(approved.State), approved.Revision, 4)
+	if err := service.Revoke(ctx, ownerID, created.ID, dv.PurposeIdentity, dv.ReasonOwnerRequest, approved.Revision); !errors.Is(err, dv.ErrCapability) {
+		t.Fatalf("owner revoke without grant err=%v, want %v", err, dv.ErrCapability)
+	}
+	assertIndependentCaseLifecycle("owner revoke denied without grant", string(approved.State), approved.Revision, 4)
 	revokeRollbackTx, err := runtimePool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		t.Fatal("begin rollback-only revoke transaction")

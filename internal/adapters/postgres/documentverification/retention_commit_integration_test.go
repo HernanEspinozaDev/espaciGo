@@ -63,25 +63,23 @@ func TestRetentionCaseSnapshotRequiresSeededDraftRevision(t *testing.T) {
 }
 
 func TestRetentionCleanupRequiresEachMutableFixtureRowAbsent(t *testing.T) {
-	if !retentionMutableRowsAbsent(0, 0, 0, 0) {
+	if !retentionMutableRowsAbsent(0, 0, 0) {
 		t.Fatal("empty fixture residue was rejected")
 	}
 	for _, tc := range []struct {
-		name   string
-		actors int
-		cases  int
-		files  int
-		jobs   int
+		name  string
+		cases int
+		files int
+		jobs  int
 	}{
-		{name: "actor", actors: 1},
 		{name: "case", cases: 1},
 		{name: "file", files: 1},
 		{name: "job", jobs: 1},
-		{name: "negative count", actors: -1},
+		{name: "negative count", cases: -1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if retentionMutableRowsAbsent(tc.actors, tc.cases, tc.files, tc.jobs) {
-				t.Fatalf("fixture residue was accepted: actor/case/file/job=%d/%d/%d/%d", tc.actors, tc.cases, tc.files, tc.jobs)
+			if retentionMutableRowsAbsent(tc.cases, tc.files, tc.jobs) {
+				t.Fatalf("fixture residue was accepted: case/file/job=%d/%d/%d", tc.cases, tc.files, tc.jobs)
 			}
 		})
 	}
@@ -91,8 +89,8 @@ func retentionAuditReadbackValid(total, valid int, setupAttempted, outcomeVerifi
 	return total >= 0 && total <= 1 && valid == total && (setupAttempted || total == 0) && (!outcomeVerified || total == 1)
 }
 
-func retentionMutableRowsAbsent(actors, cases, files, jobs int) bool {
-	return actors == 0 && cases == 0 && files == 0 && jobs == 0
+func retentionMutableRowsAbsent(cases, files, jobs int) bool {
+	return cases == 0 && files == 0 && jobs == 0
 }
 
 func retentionCaseSnapshotValid(state string, revision int64) bool {
@@ -129,8 +127,13 @@ func retentionFixtureCleanupAllowed(preflighted, setupCommitAcknowledged bool) b
 func TestPostgresCommittedRetentionDeletionIsVisibleAfterCommit(t *testing.T) {
 	dsn := os.Getenv("ESPACIGO_DOCUMENT_VERIFICATION_TEST_DATABASE_URL")
 	runtimePassfile := os.Getenv("ESPACIGO_DOCUMENT_VERIFICATION_TEST_RUNTIME_PGPASSFILE")
-	if dsn == "" || runtimePassfile == "" || os.Getenv("PGPASSFILE") == "" {
+	ownerIDRaw := os.Getenv("ESPACIGO_DOCUMENT_VERIFICATION_TEST_OWNER_ID")
+	if dsn == "" || runtimePassfile == "" || os.Getenv("PGPASSFILE") == "" || ownerIDRaw == "" {
 		t.Skip("F5 database URL and separate setup/runtime passfile opt-ins are required")
+	}
+	actor, err := strictReviewUUID(ownerIDRaw)
+	if err != nil {
+		t.Fatal("refusing invalid owner ID opt-in")
 	}
 	for _, name := range []string{"PGPASSWORD", "PGSERVICE", "PGSERVICEFILE", "PGOPTIONS"} {
 		if os.Getenv(name) != "" {
@@ -236,7 +239,7 @@ func TestPostgresCommittedRetentionDeletionIsVisibleAfterCommit(t *testing.T) {
 	}
 	t.Cleanup(readPool.Close)
 
-	actor, caseID, fileID, jobID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	caseID, fileID, jobID := uuid.NewString(), uuid.NewString(), uuid.NewString()
 	var fixtureIDsPreflighted, fixtureSetupCommitAttempted, fixtureSetupCommitAcknowledged, outcomeVerified bool
 	t.Cleanup(func() {
 		if !fixtureIDsPreflighted {
@@ -252,21 +255,24 @@ func TestPostgresCommittedRetentionDeletionIsVisibleAfterCommit(t *testing.T) {
 				{"job", `DELETE FROM public.document_verification_job WHERE id=$1 AND file_id=$2 AND kind='retention_delete'`, []any{jobID, fileID}},
 				{"file", `DELETE FROM public.document_verification_file WHERE id=$1 AND case_id=$2`, []any{fileID, caseID}},
 				{"case", `DELETE FROM public.document_verification_case WHERE id=$1 AND purpose='identity' AND subject_id=$2`, []any{caseID, actor}},
-				{"actor", `DELETE FROM public.usuario WHERE id=$1 AND correo_original=$2 AND correo_normalizado=$2 AND hash_clave='synthetic' AND estado='activo'`, []any{actor, actor + "@example.invalid"}},
 			} {
 				if _, err := setup.Exec(c, item.sql, item.args...); err != nil {
 					t.Errorf("delete acknowledged exact retention %s fixture: %v", item.name, err)
 				}
 			}
 		}
-		var actors, cases, files, jobs int
+		var cases, files, jobs int
 		cleanupReadErr := setup.QueryRow(c, `SELECT
-			(SELECT count(*) FROM public.usuario WHERE id=$1),
-			(SELECT count(*) FROM public.document_verification_case WHERE id=$2),
-			(SELECT count(*) FROM public.document_verification_file WHERE id=$3),
-			(SELECT count(*) FROM public.document_verification_job WHERE id=$4)`, actor, caseID, fileID, jobID).Scan(&actors, &cases, &files, &jobs)
-		if cleanupReadErr != nil || !retentionMutableRowsAbsent(actors, cases, files, jobs) {
-			t.Errorf("mutable retention fixture rows actor/case/file/job=%d/%d/%d/%d err=%v", actors, cases, files, jobs, cleanupReadErr)
+			(SELECT count(*) FROM public.document_verification_case WHERE id=$1),
+			(SELECT count(*) FROM public.document_verification_file WHERE id=$2),
+			(SELECT count(*) FROM public.document_verification_job WHERE id=$3)`, caseID, fileID, jobID).Scan(&cases, &files, &jobs)
+		if cleanupReadErr != nil || !retentionMutableRowsAbsent(cases, files, jobs) {
+			t.Errorf("mutable retention fixture rows case/file/job=%d/%d/%d err=%v", cases, files, jobs, cleanupReadErr)
+		}
+		var ownerExists, ownerActive bool
+		ownerReadErr := setup.QueryRow(c, `SELECT EXISTS(SELECT 1 FROM public.usuario WHERE id=$1),COALESCE((SELECT estado='activo' FROM public.usuario WHERE id=$1),false)`, actor).Scan(&ownerExists, &ownerActive)
+		if ownerReadErr != nil || !ownerExists || !ownerActive {
+			t.Errorf("existing owner account did not remain present and active (exists=%t active=%t err=%v)", ownerExists, ownerActive, ownerReadErr)
 		}
 		auditReadVerified := false
 		var audits, valid int
@@ -304,14 +310,15 @@ func TestPostgresCommittedRetentionDeletionIsVisibleAfterCommit(t *testing.T) {
 		t.Fatal("begin retention fixture setup")
 	}
 	var collisions int
-	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.usuario WHERE id=$1)+(SELECT count(*) FROM public.document_verification_case WHERE id=$2)+(SELECT count(*) FROM public.document_verification_file WHERE id=$3)+(SELECT count(*) FROM public.document_verification_job WHERE id=$4 OR file_id=$3)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$2 OR file_id=$3)`, actor, caseID, fileID, jobID).Scan(&collisions); err != nil || collisions != 0 {
+	if err := tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.document_verification_case WHERE id=$1)+(SELECT count(*) FROM public.document_verification_file WHERE id=$2)+(SELECT count(*) FROM public.document_verification_job WHERE id=$3 OR file_id=$2)+(SELECT count(*) FROM public.document_verification_event WHERE case_id=$1 OR file_id=$2)`, caseID, fileID, jobID).Scan(&collisions); err != nil || collisions != 0 {
 		_ = tx.Rollback(ctx)
 		t.Fatalf("refusing colliding retention fixture IDs: rows=%d err=%v", collisions, err)
 	}
 	fixtureIDsPreflighted = true
-	if _, err := tx.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic','activo')`, actor, actor+"@example.invalid"); err != nil {
+	var ownerExists, ownerActive bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario WHERE id=$1),COALESCE((SELECT estado='activo' FROM public.usuario WHERE id=$1),false)`, actor).Scan(&ownerExists, &ownerActive); err != nil || !ownerExists || !ownerActive {
 		_ = tx.Rollback(ctx)
-		t.Fatal("seed synthetic actor")
+		t.Fatal("configured owner account must already exist and be active")
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO public.document_verification_case(id,purpose,subject_id,state,revision) VALUES($1,'identity',$2,'borrador',1)`, caseID, actor); err != nil {
 		_ = tx.Rollback(ctx)
@@ -339,7 +346,7 @@ func TestPostgresCommittedRetentionDeletionIsVisibleAfterCommit(t *testing.T) {
 	// production claim/lease path, without inspecting or consuming other jobs.
 	claim, err := repo.claimReadyRetentionJob(ctx, 2*time.Minute, jobID, claimReadyBefore)
 	if err != nil || claim == nil || claim.JobID != jobID || claim.FileID != fileID || claim.CaseID != caseID || claim.SubjectID != actor || claim.Purpose != "identity" || claim.Attempt != 1 {
-		t.Fatalf("claim exact retention fixture: claim=%+v err=%v", claim, err)
+		t.Fatalf("claim exact retention fixture did not match expected resources (claim_present=%t err=%v)", claim != nil, err)
 	}
 	if !claim.LeaseUntil.After(time.Now().Add(time.Minute)) || claim.LeaseUntil.After(time.Now().Add(3*time.Minute)) {
 		t.Fatal("fixture lease must remain live beyond the bounded test context")
@@ -360,7 +367,7 @@ func TestPostgresCommittedRetentionDeletionIsVisibleAfterCommit(t *testing.T) {
 		t.Fatal("independent post-commit runtime readback failed")
 	}
 	if state != "completado" || attempts != 1 || !leaseCleared || !errorCleared || !retentionCaseSnapshotValid(caseState, caseRevision) || casePurpose != "identity" || fileState != "limpio" || retentionReason != "abandoned_draft" || !retentionExpired || action != "retention_deleted" || purpose != "identity" || subject != actor || actorKind != "system" || !actorIDNull || fromState != "borrador" || toState != "borrador" || result != "eliminado" || reason != "retencion_vencida" || revision != 1 || events != 1 {
-		t.Fatalf("post-commit retention result=%q/%d lease_cleared=%t error_cleared=%t case=%q/%d/%q file=%q/%q retention_expired=%t action=%q purpose=%q subject=%q actor=%q/%t transition=%q/%q result_code=%q reason=%q revision=%d events=%d", state, attempts, leaseCleared, errorCleared, caseState, caseRevision, casePurpose, fileState, retentionReason, retentionExpired, action, purpose, subject, actorKind, actorIDNull, fromState, toState, result, reason, revision, events)
+		t.Fatalf("post-commit retention result=%q/%d lease_cleared=%t error_cleared=%t case=%q/%d/%q file=%q/%q retention_expired=%t action=%q purpose=%q actor=%q/%t transition=%q/%q result_code=%q reason=%q revision=%d events=%d", state, attempts, leaseCleared, errorCleared, caseState, caseRevision, casePurpose, fileState, retentionReason, retentionExpired, action, purpose, actorKind, actorIDNull, fromState, toState, result, reason, revision, events)
 	}
 	outcomeVerified = true
 }

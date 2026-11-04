@@ -558,6 +558,20 @@ func TestRuntimeACLF5BaselineMatchesExactTargetAndFingerprints(t *testing.T) {
 	}
 }
 
+func TestRuntimeACLF5RestoredBaselineRetainsAllOtherGuards(t *testing.T) {
+	const restored = "37f89420b0338cdd11a978e57a04204c"
+	if !runtimeACLF5BaselineMatches("espacigo_f5_gate_20261101", 180006, 5762, restored, 0, "d41d8cd98f00b204e9800998ecf8427e") {
+		t.Fatal("schema-equivalent restored F5 baseline rejected")
+	}
+	if runtimeACLF5BaselineMatches("other", 180006, 5762, restored, 0, "d41d8cd98f00b204e9800998ecf8427e") ||
+		runtimeACLF5BaselineMatches("espacigo_f5_gate_20261101", 180006, 5763, restored, 0, "d41d8cd98f00b204e9800998ecf8427e") ||
+		runtimeACLF5BaselineMatches("espacigo_f5_gate_20261101", 180007, 5762, restored, 0, "d41d8cd98f00b204e9800998ecf8427e") ||
+		runtimeACLF5BaselineMatches("espacigo_f5_gate_20261101", 180006, 5762, restored, 1, "d41d8cd98f00b204e9800998ecf8427e") ||
+		runtimeACLF5BaselineMatches("espacigo_f5_gate_20261101", 180006, 5762, restored, 0, "different") {
+		t.Fatal("restored baseline bypassed database/engine/count/default guards")
+	}
+}
+
 type runtimeACLF5BaselineRow struct {
 	database string
 	version  int
