@@ -137,6 +137,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
           if (detail.category_code) {
             loadCategorySchema(
+              accessToken,
               detail.category_code,
               detail.attribute_schema_version,
             ).catch(() => {});

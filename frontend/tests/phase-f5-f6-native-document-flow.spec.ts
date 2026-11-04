@@ -8,6 +8,65 @@ test.use({ trace: "off", screenshot: "off", video: "off" });
 const workerFree = process.env.PHASE6_WORKER_FREE_E2E === "1";
 const scanOnly = process.env.PHASE6_DOCUMENT_SCAN_E2E === "1";
 const privateTestingDir = process.env.PHASE6_PRIVATE_TESTING_DIR;
+const accountInventoryFile = process.env.PHASE6_ACCOUNT_INVENTORY_FILE;
+const fixtureSuffix = process.env.PHASE6_SPACE_FIXTURE_SUFFIX;
+if (fixtureSuffix && !/^\d{8}-[a-z0-9]{1,8}$/.test(fixtureSuffix)) {
+  throw new Error("Synthetic space fixture selector is invalid");
+}
+const fixtureTitle = `F6 local synthetic document fixture${fixtureSuffix ? ` ${fixtureSuffix}` : ""}`;
+
+function selectAccountInventoryFile(
+  privateDir: string | undefined,
+  selectedFile: string | undefined,
+): string {
+  if (!privateDir || !path.isAbsolute(privateDir)) {
+    throw new Error("Authorized private test-data directory is unavailable");
+  }
+  const canonicalPrivateDir = path.resolve(privateDir);
+  const candidate = selectedFile
+    ? path.resolve(selectedFile)
+    : path.resolve(
+        canonicalPrivateDir,
+        "f5-gate-20261101-f5a3/f5-a3-accounts-20261103T102133Z.json",
+      );
+  if (!path.isAbsolute(candidate)) {
+    throw new Error("Authorized private account inventory path is invalid");
+  }
+  const relative = path.relative(canonicalPrivateDir, candidate);
+  if (
+    (selectedFile !== undefined &&
+      (!path.isAbsolute(selectedFile) ||
+        path.resolve(selectedFile) !== selectedFile)) ||
+    relative === "" ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error("Authorized private account inventory path is invalid");
+  }
+  return candidate;
+}
+
+test("@f6 @native @fixture selects only canonical inventory paths in private dir", () => {
+  const privateDir = "/fixture/private-testing";
+  expect(
+    selectAccountInventoryFile(privateDir, "/fixture/private-testing/new.json"),
+  ).toBe("/fixture/private-testing/new.json");
+  expect(selectAccountInventoryFile(privateDir, undefined)).toBe(
+    "/fixture/private-testing/f5-gate-20261101-f5a3/f5-a3-accounts-20261103T102133Z.json",
+  );
+  for (const invalid of [
+    "relative.json",
+    "/fixture/private-testing/../outside.json",
+    "/fixture/outside.json",
+    "/fixture/private-testing/./new.json",
+  ]) {
+    expect(() => selectAccountInventoryFile(privateDir, invalid)).toThrow(
+      "Authorized private account inventory path is invalid",
+    );
+  }
+});
+
 const privateFile = (name: string) => {
   if (!privateTestingDir || !path.isAbsolute(privateTestingDir)) {
     throw new Error("Authorized private test-data directory is unavailable");
@@ -38,9 +97,7 @@ async function privateAccounts() {
         (s) => JSON.parse(s) as Policy,
       ),
       readFile(
-        privateFile(
-          "f5-gate-20261101-f5a3/f5-a3-accounts-20261103T102133Z.json",
-        ),
+        selectAccountInventoryFile(privateTestingDir, accountInventoryFile),
         "utf8",
       ).then((s) => JSON.parse(s) as Inventory),
     ]);
@@ -250,7 +307,7 @@ test("@f5 @native @local-http-worker-free owner can create a draft through the r
   );
   test.setTimeout(120_000);
   const { owner } = await privateAccounts();
-  const title = "F6 local synthetic document fixture";
+  const title = fixtureTitle;
   const secrets = [owner.email, owner.password];
   let mayHaveSession = false;
   let nonLoopback = false;
@@ -261,7 +318,7 @@ test("@f5 @native @local-http-worker-free owner can create a draft through the r
   let createdNow = false;
   let createAuthorizationValid = false;
   let createSentCookie = false;
-  let idempotencyKeyValid = false;
+  let createSentUnsupportedIdempotencyKey = false;
   page.on("request", (request) => {
     if (!request.url().startsWith("http://127.0.0.1:")) nonLoopback = true;
     const pathname = new URL(request.url()).pathname;
@@ -271,10 +328,7 @@ test("@f5 @native @local-http-worker-free owner can create a draft through the r
     createAuthorizationValid =
       headers.authorization?.startsWith("Bearer ") ?? false;
     createSentCookie = "cookie" in headers;
-    idempotencyKeyValid =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-        headers["idempotency-key"] ?? "",
-      );
+    createSentUnsupportedIdempotencyKey = "idempotency-key" in headers;
   });
   page.on("response", (response) => {
     const pathname = new URL(response.url()).pathname;
@@ -327,12 +381,15 @@ test("@f5 @native @local-http-worker-free owner can create a draft through the r
       await expect(page).toHaveURL(/\/anfitrion\/espacios\/nuevo$/);
       await expect(page.locator("h1")).toHaveText("Publicar un nuevo espacio");
       await expect(page.locator("#wizard-category")).toBeVisible();
+      await expect(
+        page.locator('#wizard-category option[value="oficina"]'),
+      ).toHaveCount(1, { timeout: 15_000 });
       await page.locator("#wizard-category").selectOption("oficina");
       await page.locator("#wizard-title").fill(title);
       await page
         .locator("#wizard-description")
         .fill(
-          "Borrador sintético local para verificar documentos; no publicar.",
+          "Borrador sintético local para verificar documentos con datos recreables y sin información personal. Espacio ficticio de ensayo: no publicar ni ofrecer a personas reales.",
         );
       await page.getByRole("button", { name: "Siguiente" }).click();
       await expect(
@@ -341,11 +398,11 @@ test("@f5 @native @local-http-worker-free owner can create a draft through the r
       await page
         .locator("#wizard-address")
         .fill("Dirección ficticia de ensayo F6");
-      await page.locator("#wizard-comuna").fill("Santiago");
+      await page.locator("#wizard-comuna").fill("13101");
       await page.locator("#wizard-region").selectOption("13");
       await page.locator("#wizard-area").fill("35");
       await page.locator("#wizard-capacity").fill("2");
-      await page.locator("#attr-has_wifi").check();
+      await page.getByRole("checkbox", { name: "Wi-Fi", exact: true }).check();
       await page.getByRole("button", { name: "Siguiente" }).click();
       await expect(
         page.getByText("Paso 3: Tarifas iniciales y condiciones"),
@@ -372,6 +429,26 @@ test("@f5 @native @local-http-worker-free owner can create a draft through the r
         .click();
       const createResponse = await createResponsePromise;
       createdStatus = createResponse.status();
+      if (createdStatus !== 201) {
+        const rejected = (await createResponse.json()) as {
+          error?: {
+            code?: string;
+            details?: Array<{ field?: string; code?: string }>;
+          };
+        };
+        const code = rejected.error?.code;
+        const fields = (rejected.error?.details ?? [])
+          .filter(
+            (item) =>
+              /^[a-z_.]+$/.test(item.field ?? "") &&
+              /^[a-z_]+$/.test(item.code ?? ""),
+          )
+          .map((item) => `${item.field}:${item.code}`)
+          .join(",");
+        throw new Error(
+          `Native draft rejected: HTTP ${createdStatus}; code ${code && /^[a-z_]+$/.test(code) ? code : "unavailable"}; fields ${fields || "unavailable"}`,
+        );
+      }
       expect(createdStatus).toBe(201);
       await page.waitForURL((url) =>
         /\/anfitrion\/espacios\/[0-9a-f-]{36}\/editar$/.test(url.pathname),
@@ -392,7 +469,9 @@ test("@f5 @native @local-http-worker-free owner can create a draft through the r
       expect(createdStatus).toBe(201);
       expect(createAuthorizationValid).toBe(true);
       expect(createSentCookie).toBe(false);
-      expect(idempotencyKeyValid).toBe(true);
+      // POST /spaces has no idempotency header in Go/OpenAPI; do not widen
+      // the gateway allowlist or claim replay safety that is not implemented.
+      expect(createSentUnsupportedIdempotencyKey).toBe(false);
     }
     expect(nonLoopback).toBe(false);
     expect(secretInConsole).toBe(false);
@@ -546,9 +625,7 @@ test("@f6 @native @local-document-scan-only completes the visible document flow"
     expect(casesResponse.status()).toBe(200);
     const spaces = (await spacesResponse.json()) as { items: NativeSpace[] };
     const initialCases = (await casesResponse.json()) as NativeCase[];
-    const space = spaces.items.find(
-      (item) => item.title === "F6 local synthetic document fixture",
-    );
+    const space = spaces.items.find((item) => item.title === fixtureTitle);
     expect(
       Boolean(space),
       "the authorized owner must have the F5 synthetic space",
@@ -701,6 +778,7 @@ test("@f6 @native @local-document-scan-only completes the visible document flow"
       "the selected case must have only scanner-approved files",
     ).toBe(true);
 
+    let expectedFinalState = currentCase.state;
     if (["borrador", "requiere_antecedentes"].includes(currentCase.state)) {
       expectedETag = caseETag;
       const submitResponsePromise = page.waitForResponse(
@@ -712,6 +790,9 @@ test("@f6 @native @local-document-scan-only completes the visible document flow"
       await page.getByRole("button", { name: "Enviar a revisión" }).click();
       const submitResponse = await submitResponsePromise;
       expect(submitResponse.status()).toBe(200);
+      const submittedCase = (await submitResponse.json()) as NativeCase;
+      expect(submittedCase.state).toBe("enviada");
+      expectedFinalState = "enviada";
       await expect(
         page.getByText("Expediente enviado a revisión."),
       ).toBeVisible();
@@ -722,8 +803,8 @@ test("@f6 @native @local-document-scan-only completes the visible document flow"
       ).toBe(true);
     } else {
       expect(
-        currentCase.state === "en_revision",
-        "a previously completed case must be in review",
+        ["enviada", "en_revision"].includes(currentCase.state),
+        "a previously submitted case must remain submitted or in review",
       ).toBe(true);
     }
 
@@ -749,10 +830,12 @@ test("@f6 @native @local-document-scan-only completes the visible document flow"
     currentCase = (await finalCaseResponse.json()) as NativeCase;
     caseETag = finalCaseResponse.headers()["etag"] ?? "";
     expect(
-      currentCase.state === "en_revision",
-      "an independent read must confirm the committed review state",
+      currentCase.state === expectedFinalState,
+      "an independent read must confirm the committed submitted state",
     ).toBe(true);
-    await expect(page.getByText(/En revisión · Vence/)).toBeVisible();
+    await expect(
+      page.getByText(/(?:Enviada|En revisión) · Vence/),
+    ).toBeVisible();
     const cleanFile = currentCase.files.find((file) => file.state === "limpio");
     expect(
       Boolean(cleanFile),
@@ -767,28 +850,33 @@ test("@f6 @native @local-document-scan-only completes the visible document flow"
         response.request().method() === "GET",
       { timeout: 20_000 },
     );
-    const cancelDownloadPromise = page
-      .waitForEvent("download", { timeout: 20_000 })
-      .then(async (download) => {
-        await download.cancel();
-        return true;
-      });
+    const downloadPromise = page.waitForEvent("download", { timeout: 20_000 });
     const downloadButtonClick = page
       .getByRole("button", { name: "Descargar" })
       .click();
-    const [downloadResponse] = await Promise.all([
+    const [downloadResponse, download] = await Promise.all([
       downloadResponsePromise,
-      cancelDownloadPromise,
+      downloadPromise,
       downloadButtonClick,
     ]);
     expect(downloadResponse.status()).toBe(200);
     expect(downloadResponse.headers()["content-type"]).toContain(
       "application/pdf",
     );
-    const downloadedBytes = await downloadResponse.body();
+    // Read the actual user-visible download instead of canceling it and
+    // asking Chromium for a response body it may no longer retain.
+    expect(await download.failure()).toBeNull();
+    const stream = await download.createReadStream();
+    expect(
+      Boolean(stream),
+      "the visible download must have a readable stream",
+    ).toBe(true);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+    const downloadedBytes = Buffer.concat(chunks);
     expect(
       downloadedBytes.subarray(0, 5).toString("ascii") === "%PDF-",
-      "the authorized UI download must be a PDF",
+      `the authorized UI download must be a PDF (bytes=${downloadedBytes.length}, magic=${downloadedBytes.subarray(0, 5).toString("hex")})`,
     ).toBe(true);
     const pdfInfo = execFileSync("/usr/bin/pdfinfo", ["-"], {
       input: downloadedBytes,
@@ -845,10 +933,8 @@ test("@f6 @native @local-document-scan-only completes the visible document flow"
       sawSpacesList && sawCasesList && sawOwnCaseRead && sawDownload,
       "all required document operations must traverse the same-origin BFF",
     ).toBe(true);
-    expect(
-      nonLoopback && !crossOriginBff,
-      "browser traffic must remain on the explicit loopback UI and same-origin BFF",
-    ).toBe(false);
+    expect(nonLoopback, "browser traffic must remain on loopback").toBe(false);
+    expect(crossOriginBff, "BFF requests must remain same-origin").toBe(false);
     expect(
       missingBearer,
       "protected BFF requests must carry the session bearer",

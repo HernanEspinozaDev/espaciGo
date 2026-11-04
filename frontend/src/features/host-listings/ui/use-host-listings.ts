@@ -23,8 +23,12 @@ import type {
 
 export interface HostListingsView {
   snapshot: HostListingsSnapshot;
-  loadCategories(signal?: AbortSignal): Promise<readonly Category[]>;
+  loadCategories(
+    token: AccessToken,
+    signal?: AbortSignal,
+  ): Promise<readonly Category[]>;
   loadCategorySchema(
+    token: AccessToken,
     categoryCode: string,
     version?: number,
     signal?: AbortSignal,
@@ -135,13 +139,24 @@ export function useHostListings(): HostListingsView {
   );
 
   const loadCategories = useCallback(
-    (signal?: AbortSignal) => hostListingsFacade.loadCategories(signal),
+    (token: AccessToken, signal?: AbortSignal) =>
+      hostListingsFacade.loadCategories(token, signal),
     [],
   );
 
   const loadCategorySchema = useCallback(
-    (categoryCode: string, version?: number, signal?: AbortSignal) =>
-      hostListingsFacade.loadCategorySchema(categoryCode, version, signal),
+    (
+      token: AccessToken,
+      categoryCode: string,
+      version?: number,
+      signal?: AbortSignal,
+    ) =>
+      hostListingsFacade.loadCategorySchema(
+        token,
+        categoryCode,
+        version,
+        signal,
+      ),
     [],
   );
 

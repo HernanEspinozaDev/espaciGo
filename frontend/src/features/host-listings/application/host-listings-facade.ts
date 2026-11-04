@@ -105,9 +105,12 @@ export class HostListingsFacade {
     });
   }
 
-  async loadCategories(signal?: AbortSignal): Promise<readonly Category[]> {
+  async loadCategories(
+    token: AccessToken,
+    signal?: AbortSignal,
+  ): Promise<readonly Category[]> {
     try {
-      const categories = await this.#port.listCategories(signal);
+      const categories = await this.#port.listCategories(token, signal);
       this.#setSnapshot({
         categories: Object.freeze(categories),
       });
@@ -122,6 +125,7 @@ export class HostListingsFacade {
   }
 
   async loadCategorySchema(
+    token: AccessToken,
     categoryCode: string,
     version?: number,
     signal?: AbortSignal,
@@ -134,6 +138,7 @@ export class HostListingsFacade {
 
     try {
       const schema = await this.#port.getCategoryProfile(
+        token,
         categoryCode,
         version,
         signal,

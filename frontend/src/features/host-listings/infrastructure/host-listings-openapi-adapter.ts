@@ -160,8 +160,12 @@ function mapPhotoToGalleryPhoto(raw: unknown): GalleryPhoto {
 }
 
 export class OpenApiHostListingsAdapter implements HostListingsPort {
-  async listCategories(signal?: AbortSignal): Promise<Category[]> {
+  async listCategories(
+    token: AccessToken,
+    signal?: AbortSignal,
+  ): Promise<Category[]> {
     const result = await apiClient.GET("/spaces/categories", {
+      headers: authHeader(token),
       signal,
     });
     if (!result.response.ok) {
@@ -172,6 +176,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   }
 
   async getCategoryProfile(
+    token: AccessToken,
     categoryCode: string,
     version?: number,
     signal?: AbortSignal,
@@ -180,6 +185,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       const result = await apiClient.GET(
         "/spaces/categories/{categoryCode}/attributes/{version}",
         {
+          headers: authHeader(token),
           params: {
             path: { categoryCode, version },
           },
@@ -197,6 +203,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     const result = await apiClient.GET(
       "/spaces/categories/{categoryCode}/attributes",
       {
+        headers: authHeader(token),
         params: {
           path: { categoryCode },
         },
@@ -257,12 +264,9 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     idempotencyKey?: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
-    const key = idempotencyKey ?? generateIdempotencyKey();
+    void idempotencyKey;
     const result = await apiClient.POST("/spaces", {
-      headers: {
-        ...authHeader(token),
-        "Idempotency-Key": key,
-      },
+      headers: authHeader(token),
       body: {
         category_code: input.category_code,
         title: input.title,

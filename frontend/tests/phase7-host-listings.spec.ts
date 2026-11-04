@@ -325,12 +325,12 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
   expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
 });
 
-test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 1: selección dinámica de categorías desde /spaces/categories, título; Paso 2: dirección y atributos dinámicos con attribute_schema_version; Paso 3: tarifas CLP; Paso 4: disponibilidad semanal; Paso 5: confirmación y creación con Idempotency-Key en POST /spaces redirigiendo a /anfitrion/espacios/{id}/editar)", async ({
+test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos con perfil versionado y POST /spaces sin header de idempotencia no soportado, redirigiendo a edición", async ({
   page,
 }) => {
   let capturedIdempotencyKey: string | null = null;
   let capturedCreateBody: Record<string, unknown> | null = null;
-  const newSpaceId = "space-created-uuid-101";
+  const newSpaceId = "00000000-0000-4000-8000-000000000101";
 
   const categories = [
     { code: "oficina", name: "Oficinas y Cowork" },
@@ -464,7 +464,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
           region_code: "13",
           comuna_code: "Las Condes",
           attribute_schema_version: 2,
-          attributes: { has_wifi: true, cancellation_policy: "flexible" },
+          attributes: { has_wifi: true },
         },
       };
     }
@@ -541,6 +541,14 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   ).toBeVisible();
   await page.locator("#wizard-rate-unit").selectOption("hora");
   await page.locator("#wizard-price").fill("35000");
+  const depositControl = page.locator("#wizard-deposit");
+  await expect(depositControl).toBeDisabled();
+  await expect(depositControl).toHaveAccessibleDescription(
+    "El depósito de garantía no está disponible todavía; no se guardará en este borrador.",
+  );
+  await depositControl.locator("..").screenshot({
+    path: test.info().outputPath("f6-deposit-unavailable.png"),
+  });
   await page.getByRole("button", { name: "Siguiente" }).click();
 
   // PASO 4: Disponibilidad semanal
@@ -561,7 +569,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   ).toBeVisible();
   await expect(page.getByText("$35.000 CLP")).toBeVisible();
 
-  // Enviar y verificar llamada con Idempotency-Key UUID
+  // POST /spaces no declara idempotencia; no enviar un header no soportado.
   await page
     .getByRole("button", { name: "Crear espacio y continuar a edición" })
     .click();
@@ -572,11 +580,8 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   );
   await expect(page.locator("h1")).toHaveText("Oficina Ejecutiva El Golf");
 
-  // Verificaciones del contrato POST /spaces y clave de idempotencia
-  expect(capturedIdempotencyKey).toBeTruthy();
-  expect(capturedIdempotencyKey).toMatch(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-  );
+  // Verificaciones del contrato real POST /spaces.
+  expect(capturedIdempotencyKey).toBeNull();
   expect(capturedCreateBody).not.toBeNull();
   const createBody = capturedCreateBody!;
   expect(createBody.category_code).toBe("oficina");
@@ -584,9 +589,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   expect(createBody.base_price_clp).toBe(35000);
   expect(createBody.rate_unit).toBe("hora");
   expect(createBody.attribute_schema_version).toBe(2);
-  expect((createBody.attributes as Record<string, unknown>)?.has_wifi).toBe(
-    true,
-  );
+  expect(createBody.attributes).toEqual({ has_wifi: true });
 });
 
 test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pestañas (Información con PUT /spaces/{id}/publication-content, Tarifas e historial con PUT /spaces/{id}/tariff y GET /spaces/{id}/tariffs, Horarios con PUT /spaces/{id}/availability, Fotos con aviso visible permanente de entorno sintético y reordenamiento, y Publicación con PUT /spaces/{id}/publication)", async ({

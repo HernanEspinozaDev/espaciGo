@@ -105,7 +105,7 @@ export function ListingWizard() {
   // Paso 3: Tarifas
   const [rateUnit, setRateUnit] = useState<RateUnit>("hora");
   const [basePriceCLP, setBasePriceCLP] = useState<number>(15000);
-  const [depositCLP, setDepositCLP] = useState<string>("");
+  const [depositCLP] = useState<string>("");
   const [cancellationPolicy, setCancellationPolicy] =
     useState<string>("flexible");
   const [usageRules, setUsageRules] = useState<string>(
@@ -125,14 +125,15 @@ export function ListingWizard() {
 
   // Cargar categorías dinámicamente de Go
   useEffect(() => {
-    loadCategories().catch(() => {});
-  }, [loadCategories]);
+    if (!accessToken) return;
+    loadCategories(accessToken).catch(() => {});
+  }, [accessToken, loadCategories]);
 
   // Si se selecciona o cambia categoría, cargar esquema de Go
   useEffect(() => {
-    if (!categoryCode) return;
-    loadCategorySchema(categoryCode).catch(() => {});
-  }, [categoryCode, loadCategorySchema]);
+    if (!accessToken || !categoryCode) return;
+    loadCategorySchema(accessToken, categoryCode).catch(() => {});
+  }, [accessToken, categoryCode, loadCategorySchema]);
 
   const handleAttributeChange = (code: string, value: unknown) => {
     setDynamicAttributes((prev) => ({
@@ -268,6 +269,13 @@ export function ListingWizard() {
       return;
     }
 
+    if (!currentSchema) {
+      setStepError(
+        "No se pudo cargar el esquema vigente de esta categoría. Vuelve al paso anterior e inténtalo nuevamente.",
+      );
+      return;
+    }
+
     // Validación final completa
     const draftPayload: ListingDraftInput = {
       category_code: categoryCode,
@@ -281,12 +289,8 @@ export function ListingWizard() {
       address: address.trim(),
       region_code: regionCode || undefined,
       comuna_code: comunaCode.trim() || undefined,
-      attribute_schema_version: currentSchema?.schema_version ?? 1,
-      attributes: {
-        ...dynamicAttributes,
-        cancellation_policy: cancellationPolicy,
-        ...(depositCLP ? { security_deposit_clp: Number(depositCLP) } : {}),
-      },
+      attribute_schema_version: currentSchema.schema_version,
+      attributes: dynamicAttributes,
     };
 
     const overallVal = validateListingDraftInput(draftPayload);
@@ -788,9 +792,17 @@ export function ListingWizard() {
                     min={0}
                     step={1000}
                     value={depositCLP}
-                    onChange={(e) => setDepositCLP(e.target.value)}
                     placeholder="Ej: 50000"
+                    disabled
+                    aria-describedby="wizard-deposit-unavailable"
                   />
+                  <p
+                    id="wizard-deposit-unavailable"
+                    className="text-xs text-muted-foreground"
+                  >
+                    El depósito de garantía no está disponible todavía; no se
+                    guardará en este borrador.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -1047,7 +1059,7 @@ export function ListingWizard() {
                       Cancelación y Normas:
                     </span>
                     <p className="text-foreground mt-0.5">
-                      Política {cancellationPolicy}. {usageRules}
+                      {`Política de cancelación: ${cancellationPolicy}. ${usageRules.trim()}`}
                     </p>
                   </div>
                   <div>

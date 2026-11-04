@@ -17,8 +17,9 @@ import type {
 } from "../domain/types";
 
 export interface HostListingsPort {
-  listCategories(signal?: AbortSignal): Promise<Category[]>;
+  listCategories(token: AccessToken, signal?: AbortSignal): Promise<Category[]>;
   getCategoryProfile(
+    token: AccessToken,
     categoryCode: string,
     version?: number,
     signal?: AbortSignal,
