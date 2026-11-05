@@ -455,6 +455,99 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/document-verification/reviewer/cases": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Solo asignaciones vigentes por persona, capacidad y ámbito; excluye conflictos de interés y capacidades incompatibles. No revela identidad ni claves de storage. */
+    get: operations["listAssignedDocumentCases"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/reviewer/cases/{caseID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    get: operations["getAssignedDocumentCase"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/reviewer/cases/{caseID}/files/{fileID}/content": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        fileID: string;
+      };
+      cookie?: never;
+    };
+    /** @description Binario limpio no vencido; asignación vigente bloqueada durante lectura privada, sin caché ni URLs firmadas. Revocar asignación impide nuevas lecturas. */
+    get: operations["downloadAssignedCleanDocument"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/reviewer/cases/{caseID}/review": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Reutiliza decisión documental existente, CAS y auditoría. No asigna permisos ni permite autorrevisión. */
+    post: operations["reviewAssignedDocumentCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/reviewer/cases/{caseID}/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Revoca verificación mediante transición existente con motivo y revisión esperada. La asignación sigue siendo una autoridad independiente. */
+    post: operations["revokeAssignedDocumentCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/document-verification/cases": {
     parameters: {
       query?: never;
@@ -6122,6 +6215,156 @@ export interface operations {
         };
         content?: never;
       };
+    };
+  };
+  listAssignedDocumentCases: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expedientes asignados al revisor autenticado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["DocumentVerificationOwnerCase"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  getAssignedDocumentCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expediente minimizado; se revalida asignación y titularidad. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  downloadAssignedCleanDocument: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        fileID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Archivo privado con nombre fijo, sin metadatos de storage. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+          "image/jpeg": string;
+          "image/png": string;
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  reviewAssignedDocumentCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @enum {string} */
+          capability: "review_identity" | "review_space";
+          /** @enum {string} */
+          decision: "approve" | "reject" | "needs_evidence";
+          reason_code?: string;
+          expected_revision: number;
+          /** Format: date-time */
+          verified_until?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Decisión comprometida y expediente actualizado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  revokeAssignedDocumentCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @enum {string} */
+          purpose: "identity" | "space";
+          reason_code: string;
+          expected_revision: number;
+        };
+      };
+    };
+    responses: {
+      /** @description Revocación comprometida y expediente actualizado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
     };
   };
   listOwnDocumentVerificationCases: {

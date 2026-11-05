@@ -52,6 +52,89 @@ function callbacks(overrides = {}) {
   };
 }
 
+test("a server-confirmed failed upload can be explicitly discarded without replay", async () => {
+  await withQueue(async (Queue) => {
+    let posts = 0;
+    const queue = new Queue(
+      callbacks({
+        upload: async (item) => {
+          posts++;
+          if (item.id === "bad") throw Error("rejected");
+          return { id: "good-photo" };
+        },
+        lookup: async () => ({ state: "failed" }),
+      }),
+    );
+    queue.enqueue([task("bad")]);
+    await tick();
+    await tick();
+    assert.equal(queue.getSnapshot()[0].discardAllowed, true);
+    queue.discard("bad");
+    assert.equal(queue.getSnapshot().length, 0);
+    assert.equal(posts, 1);
+    queue.enqueue([task("good")]);
+    await tick();
+    await tick();
+    assert.equal(queue.getSnapshot()[0].state, "ready");
+    assert.equal(posts, 2);
+    queue.dispose();
+  });
+});
+
+test("pending or not_found results cannot be discarded as confirmed failures", async () => {
+  for (const state of ["pending", "not_found", "deleting"]) {
+    await withQueue(async (Queue) => {
+      let posts = 0;
+      const queue = new Queue(
+        callbacks({
+          upload: async () => {
+            posts++;
+            throw Error("uncertain");
+          },
+          lookup: async () => ({ state }),
+        }),
+      );
+      queue.enqueue([task("unknown")]);
+      await tick();
+      await tick();
+      assert.equal(queue.getSnapshot()[0].discardAllowed, false);
+      queue.discard("unknown");
+      assert.equal(queue.getSnapshot().length, 1);
+      assert.equal(posts, 1);
+      queue.dispose();
+    });
+  }
+});
+
+test("rechecking a failed upload invalidates its former discard authority", async () => {
+  await withQueue(async (Queue) => {
+    const query = deferred();
+    let reads = 0;
+    const queue = new Queue(
+      callbacks({
+        upload: async () => {
+          throw Error("uncertain");
+        },
+        lookup: () =>
+          ++reads === 1 ? Promise.resolve({ state: "failed" }) : query.promise,
+      }),
+    );
+    queue.enqueue([task("recheck")]);
+    await tick();
+    await tick();
+    assert.equal(queue.getSnapshot()[0].discardAllowed, true);
+    const checking = queue.check("recheck");
+    queue.discard("recheck");
+    assert.equal(queue.getSnapshot().length, 1);
+    assert.equal(queue.getSnapshot()[0].discardAllowed, false);
+    query.resolve({ state: "pending" });
+    await checking;
+    queue.discard("recheck");
+    assert.equal(queue.getSnapshot().length, 1);
+    queue.dispose();
+  });
+});
+
 test("limits uploads to two and starts the third only after a slot is released", async () => {
   await withQueue(async (Queue) => {
     const calls = [];

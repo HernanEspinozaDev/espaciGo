@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
+import { createHash } from "node:crypto";
 
 function syntheticPng(seed: number, transparent = false): Buffer {
   const crc = (data: Buffer) => {
@@ -398,13 +399,37 @@ test("@space-gallery @native owner creates, edits and independently rehydrates r
       )
         activeUploads--;
     });
+    const qualityDir = process.env.PHASE_SPACE_GALLERY_QUALITY_INPUT_DIR;
+    const qualityInputs: Array<{
+      name: string;
+      mimeType: string;
+      buffer: Buffer;
+    }> = [];
+    if (qualityDir) {
+      expect(path.isAbsolute(qualityDir)).toBe(true);
+      for (const format of ["jpeg", "webp"]) {
+        const name = `codec-${format}.${format}`;
+        const buffer = await readFile(path.join(qualityDir, name));
+        const metadata = JSON.parse(
+          await readFile(path.join(qualityDir, name + ".json"), "utf8"),
+        );
+        expect(createHash("sha256").update(buffer).digest("hex")).toBe(
+          metadata.input_sha256,
+        );
+        expect(metadata.rejected_at_approved_floor).toBe(false);
+        qualityInputs.push({ name, mimeType: `image/${format}`, buffer });
+      }
+    }
     await expect(page.locator("#gallery-photo-upload")).toBeEnabled();
     await page.locator("#gallery-photo-upload").setInputFiles(
-      [1, 2, 3].map((seed) => ({
-        name: `synthetic-${seed}.png`,
-        mimeType: "image/png",
-        buffer: syntheticPng(seed, seed === 1),
-      })),
+      [1, 2, 3].map(
+        (seed) =>
+          qualityInputs[seed - 2] ?? {
+            name: `synthetic-${seed}.png`,
+            mimeType: "image/png",
+            buffer: syntheticPng(seed, seed === 1),
+          },
+      ),
     );
     await expect(
       page.locator(
@@ -420,6 +445,91 @@ test("@space-gallery @native owner creates, edits and independently rehydrates r
     expect(uploadRequests.every((request) => request.status === 201)).toBe(
       true,
     );
+    if (qualityDir) {
+      const uploaded = (await galleryRead()).items;
+      for (let index = 0; index < qualityInputs.length; index++) {
+        const expected = JSON.parse(
+          await readFile(
+            path.join(qualityDir, qualityInputs[index].name + ".json"),
+            "utf8",
+          ),
+        );
+        // Concurrent uploads may commit in either order. Bind the binary
+        // assertion to the independently encoded content, not its list index.
+        const photo = uploaded.find((p) =>
+          p.variants?.some(
+            (v) => v.name === "display" && v.sha256 === expected.display.sha256,
+          ),
+        );
+        expect(photo).toBeDefined();
+        for (const name of ["display", "thumbnail"]) {
+          const actual = await page.evaluate(async (uri) => {
+            const response = await fetch(uri, { credentials: "include" });
+            const bytes = await response.arrayBuffer();
+            const bitmap = await createImageBitmap(
+              new Blob([bytes], {
+                type: response.headers.get("content-type") ?? "",
+              }),
+            );
+            const digest = await crypto.subtle.digest("SHA-256", bytes);
+            const result = {
+              status: response.status,
+              mime: response.headers.get("content-type"),
+              bytes: bytes.byteLength,
+              width: bitmap.width,
+              height: bitmap.height,
+              sha256: Array.from(new Uint8Array(digest), (b) =>
+                b.toString(16).padStart(2, "0"),
+              ).join(""),
+            };
+            bitmap.close();
+            return result;
+          }, `${galleryPath}/${photo!.id}/variants/${name}`);
+          expect(actual).toEqual({
+            status: 200,
+            mime: "image/webp",
+            ...expected[name],
+          });
+          expect(actual.bytes).toBeLessThanOrEqual(
+            name === "display" ? 614400 : 102400,
+          );
+          if (name === "display")
+            expect([actual.width, actual.height]).toEqual([1280, 960]);
+        }
+      }
+      const name = "overfloor.png";
+      const buffer = await readFile(path.join(qualityDir, name));
+      const metadata = JSON.parse(
+        await readFile(path.join(qualityDir, name + ".json"), "utf8"),
+      );
+      expect(createHash("sha256").update(buffer).digest("hex")).toBe(
+        metadata.input_sha256,
+      );
+      expect(metadata.rejected_at_approved_floor).toBe(true);
+      const rejectedResponse = page.waitForResponse(
+        (r) =>
+          new URL(r.url()).pathname === galleryPath &&
+          r.request().method() === "POST",
+      );
+      await expect(page.locator("#gallery-photo-upload")).toBeEnabled();
+      await page
+        .locator("#gallery-photo-upload")
+        .setInputFiles({ name, mimeType: "image/png", buffer });
+      expect([400, 422].includes((await rejectedResponse).status())).toBe(true);
+      expect(JSON.stringify((await galleryRead()).items)).toBe(
+        JSON.stringify(uploaded),
+      );
+      const discard = page.getByRole("button", {
+        name: "Descartar carga fallida",
+        exact: true,
+      });
+      await expect(discard).toBeVisible();
+      await discard.click();
+      await expect(page.locator("#gallery-photo-upload")).toBeEnabled();
+      console.info(
+        "NATIVE_GALLERY_TWO_APPROVED_FALLBACKS_BYTES_SHA_DIMENSIONS_AND_OVERFLOOR_REJECTION_PASS",
+      );
+    }
     const createdPhotoID = (await galleryRead()).items[1]!.id;
     await expect
       .poll(async () =>
@@ -460,6 +570,35 @@ test("@space-gallery @native owner creates, edits and independently rehydrates r
     ).toBe(true);
     const card = (id: string) =>
       page.locator(`[data-testid="gallery-photo"][data-photo-id="${id}"]`);
+    if (qualityDir)
+      console.info(
+        "GALLERY_AFTER_QUALITY_CONTROLS",
+        JSON.stringify({
+          photos: gallery.items.map((p) => ({
+            position: p.position,
+            cover: p.cover,
+          })),
+          targetCover: gallery.items.find((p) => p.id === createdPhotoID)
+            ?.cover,
+          targetButtons: await card(createdPhotoID)
+            .getByRole("button", { name: "Marcar portada" })
+            .count(),
+          disabled: await card(createdPhotoID)
+            .getByRole("button", { name: "Marcar portada" })
+            .evaluateAll((nodes) =>
+              nodes.map((node) => (node as HTMLButtonElement).disabled),
+            ),
+          alerts: (await page.getByRole("alert").allTextContents()).map(
+            (text) => ({
+              uncertainty: /pendiente|confirmar|actualiza/i.test(text),
+              invalidImage: /inválid|formato|imagen/i.test(text),
+            }),
+          ),
+        }),
+      );
+    await expect(
+      card(createdPhotoID).getByRole("button", { name: "Marcar portada" }),
+    ).toBeEnabled({ timeout: 10_000 });
     const coverResponse = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname ===

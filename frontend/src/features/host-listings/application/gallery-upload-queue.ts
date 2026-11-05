@@ -8,6 +8,7 @@ export interface QueueItem extends QueueTask {
   state: "queued" | "uploading" | "pending" | "ready" | "failed" | "cancelled";
   retryAllowed: boolean;
   photoId?: string;
+  discardAllowed: boolean;
 }
 
 interface GalleryUploadQueueCallbacks {
@@ -46,6 +47,7 @@ export class GalleryUploadQueue {
         ...task,
         state: "queued",
         retryAllowed: false,
+        discardAllowed: false,
       });
     }
     this.#emit();
@@ -63,6 +65,23 @@ export class GalleryUploadQueue {
     this.#set(id, { state: "pending", retryAllowed: false });
     this.#cancelledInFlight.add(id);
     this.#controllers.get(id)?.abort();
+  }
+
+  discard(id: string): void {
+    const item = this.#items.get(id);
+    if (
+      this.#disposed ||
+      !item ||
+      item.state !== "failed" ||
+      !item.discardAllowed ||
+      this.#controllers.has(id) ||
+      this.#checking.has(id)
+    )
+      return;
+    // Local removal only after an authoritative terminal failure. Neither
+    // pending nor not_found proves cancellation of an already-sent request.
+    this.#items.delete(id);
+    this.#emit();
   }
 
   retry(id: string): void {
@@ -108,7 +127,11 @@ export class GalleryUploadQueue {
   #set(id: string, update: Partial<QueueItem>): void {
     const item = this.#items.get(id);
     if (!item) return;
-    this.#items.set(id, { ...item, ...update });
+    this.#items.set(id, {
+      ...item,
+      ...update,
+      discardAllowed: update.discardAllowed ?? false,
+    });
     this.#emit();
   }
 
@@ -180,7 +203,11 @@ export class GalleryUploadQueue {
       const result = await callbacks.lookup(item);
       if (!isCurrent()) return;
       if (result.state === "failed" || result.state === "not_found") {
-        this.#set(item.id, { state: "failed", retryAllowed: true });
+        this.#set(item.id, {
+          state: "failed",
+          retryAllowed: true,
+          discardAllowed: result.state === "failed",
+        });
       } else if (
         result.state === "ready" &&
         result.photo_id &&

@@ -201,6 +201,16 @@ export function GalleryUploadBatch({
                     Reintentar carga con el mismo archivo
                   </Button>
                 )}
+                {item.discardAllowed && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => queue.current?.discard(item.id)}
+                  >
+                    Descartar carga fallida
+                  </Button>
+                )}
               </li>
             ))}
           </ol>

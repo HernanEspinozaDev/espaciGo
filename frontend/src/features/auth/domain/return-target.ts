@@ -40,6 +40,7 @@ const fixedPaths = new Set([
   "/mi-cuenta/seguridad",
   "/mi-cuenta/verificaciones",
   "/mi-cuenta/documentos",
+  "/mi-cuenta/revision-documental",
   "/anfitrion",
   "/anfitrion/espacios",
   "/anfitrion/espacios/nuevo",
@@ -57,11 +58,9 @@ const fixedPaths = new Set([
 
 export type ReturnTarget = string & { readonly __returnTarget: unique symbol };
 const home = "/" as ReturnTarget;
-
 function hasUnsafeCharacters(value: string): boolean {
   return /[\\#\u0000-\u001f\u007f]/.test(value);
 }
-
 function parseExploreQuery(search: string): string | null {
   const params = new URLSearchParams(search);
   const raw: RawCatalogParams = {};
@@ -81,13 +80,10 @@ function parseExploreQuery(search: string): string | null {
     if (canonical === null) return null;
     if (key === "q") {
       if (canonical !== value.trim()) return null;
-    } else if (canonical !== value) {
-      return null;
-    }
+    } else if (canonical !== value) return null;
   }
   return normalized.size ? `/explorar?${normalized.toString()}` : "/explorar";
 }
-
 export function resolveReturnTarget(
   value: string | null | undefined,
 ): ReturnTarget {
@@ -101,25 +97,21 @@ export function resolveReturnTarget(
     /^[a-z][a-z\d+.-]*:/i.test(raw) ||
     raw.includes("%2f") ||
     raw.includes("%5c")
-  ) {
+  )
     return home;
-  }
-
   const question = raw.indexOf("?");
   const pathname = question < 0 ? raw : raw.slice(0, question);
   const search = question < 0 ? "" : raw.slice(question + 1);
-  if (!pathname.startsWith("/") || pathname.startsWith("//")) return home;
   if (
+    !pathname.startsWith("/") ||
+    pathname.startsWith("//") ||
     pathname.split("/").some((segment) => segment === "." || segment === "..")
   )
     return home;
-  if (pathname === "/explorar") {
-    const result = parseExploreQuery(search);
-    return (result ?? "/") as ReturnTarget;
-  }
+  if (pathname === "/explorar")
+    return (parseExploreQuery(search) ?? "/") as ReturnTarget;
   if (search) return home;
   if (fixedPaths.has(pathname)) return pathname as ReturnTarget;
-
   const category = /^\/categorias\/([^/]+)$/.exec(pathname);
   if (category && categoryCode.test(category[1] ?? ""))
     return pathname as ReturnTarget;
@@ -144,7 +136,6 @@ export function resolveReturnTarget(
   if (hostEdit) return pathname as ReturnTarget;
   return home;
 }
-
 export function resolveReturnParam(values: readonly string[]): ReturnTarget {
   return values.length === 1 ? resolveReturnTarget(values[0]) : home;
 }

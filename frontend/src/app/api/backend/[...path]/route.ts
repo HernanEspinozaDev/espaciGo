@@ -113,9 +113,20 @@ function operationFor(
   method: string,
   segments: string[],
 ): { operation?: GatewayOperation; allowedMethods: string[] } {
-  const pathMatches = gatewayOperations.filter((entry) =>
+  const specificity = (entry: GatewayOperation) =>
+    entry.path
+      .split("/")
+      .filter(Boolean)
+      .map((part) => (part.startsWith("{") ? "0" : "1"))
+      .join("");
+  const candidates = gatewayOperations.filter((entry) =>
     matchesPath(entry.path, segments),
   );
+  // A literal segment wins over a parameter at the first differing position.
+  // Select that path shape before methods/headers; never union a literal
+  // endpoint's policy with the broader parameter route that also matches it.
+  const best = candidates.map(specificity).sort().at(-1);
+  const pathMatches = candidates.filter((entry) => specificity(entry) === best);
   const operation = pathMatches.find((entry) => entry.method === method);
   return {
     operation,

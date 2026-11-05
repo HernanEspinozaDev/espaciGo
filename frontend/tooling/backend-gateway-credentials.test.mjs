@@ -87,6 +87,46 @@ test.after(async () => {
   await rm(scratch, { recursive: true, force: true });
 });
 
+test("static upload-status keeps its own header and method policy instead of the photo-id route", async () => {
+  const segments = [
+    "spaces",
+    "11111111-1111-4111-8111-111111111111",
+    "gallery",
+    "upload-status",
+  ];
+  let calls = 0;
+  globalThis.fetch = async (_url, options) => {
+    calls++;
+    assert.equal(
+      options.headers.get("idempotency-key"),
+      "synthetic-lookup-key",
+    );
+    return new Response(
+      JSON.stringify({
+        photo_id: "22222222-2222-4222-8222-222222222222",
+        state: "failed",
+      }),
+      { headers: { "content-type": "application/json" } },
+    );
+  };
+  const url = "https://127.0.0.1:3000/api/backend/" + segments.join("/");
+  const response = await GET(
+    requestWithSession(url, {
+      headers: { "Idempotency-Key": "synthetic-lookup-key" },
+    }),
+    { params: Promise.resolve({ path: segments }) },
+  );
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).state, "failed");
+  assert.equal(calls, 1);
+  const denied = await POST(requestWithSession(url, { method: "POST" }), {
+    params: Promise.resolve({ path: segments }),
+  });
+  assert.equal(denied.status, 405);
+  assert.equal(denied.headers.get("allow"), "GET");
+  assert.equal(calls, 1);
+});
+
 test("all six document operations forward Bearer without browser credentials", async () => {
   const caseID = "11111111-1111-4111-8111-111111111111";
   const fileID = "22222222-2222-4222-8222-222222222222";
