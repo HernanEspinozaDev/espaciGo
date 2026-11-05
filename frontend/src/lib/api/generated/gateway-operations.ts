@@ -1606,6 +1606,16 @@ export const gatewayOperations = [
   },
   {
     method: "GET",
+    path: "/local/booking-trial/spaces/{spaceID}/returns",
+    operationId: "listCurrentOwnerSpaceReturns",
+    query: [],
+    headers: [],
+    bearer: true,
+    requestMediaTypes: [],
+    responseMediaTypes: ["application/json"],
+  },
+  {
+    method: "GET",
     path: "/local/reputation/me",
     operationId: "getOwnRenterReputation",
     query: [],

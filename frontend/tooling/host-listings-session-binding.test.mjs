@@ -18,6 +18,7 @@ test("host runtime clears private state when the confirmed session identity or p
     };
     let notify;
     let clears = 0;
+    let returnClears = 0;
     globalThis.__hostSessionTest = {
       authFacade: {
         getSnapshot: () => snapshot,
@@ -32,6 +33,12 @@ test("host runtime clears private state when the confirmed session identity or p
         }
       },
       OpenApiHostListingsAdapter: class {},
+      ListingReturnsFacade: class {
+        clear() {
+          returnClears++;
+        }
+      },
+      ListingReturnsOpenApiAdapter: class {},
     };
     const source = await readFile(
       new URL(
@@ -54,7 +61,7 @@ test("host runtime clears private state when the confirmed session identity or p
     await writeFile(
       file,
       ts.transpileModule(
-        "const { authFacade, HostListingsFacade, OpenApiHostListingsAdapter }=globalThis.__hostSessionTest;\n" +
+        "const { authFacade, HostListingsFacade, OpenApiHostListingsAdapter, ListingReturnsFacade, ListingReturnsOpenApiAdapter }=globalThis.__hostSessionTest;\n" +
           body,
         {
           compilerOptions: {
@@ -81,6 +88,7 @@ test("host runtime clears private state when the confirmed session identity or p
     snapshot = { ...snapshot, status: "anonymous", accountId: null };
     notify();
     assert.equal(clears, 3);
+    assert.equal(returnClears, 3);
   } finally {
     delete globalThis.__hostSessionTest;
     await rm(dir, { recursive: true, force: true });

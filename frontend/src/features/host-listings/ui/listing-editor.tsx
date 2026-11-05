@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import {
+  useEffect,
+  useState,
+  useTransition,
+  useSyncExternalStore,
+} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -33,7 +38,10 @@ import { Label } from "@/components/workspace/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { useHostListings } from "./use-host-listings";
-import { hostListingsFacade } from "../host-listings-runtime";
+import {
+  hostListingsFacade,
+  listingReturnsFacade,
+} from "../host-listings-runtime";
 import {
   canPublishListing,
   isValidIanaTimeZone,
@@ -46,6 +54,7 @@ import type {
   ScheduleSlot,
 } from "../domain/types";
 import { ListingGallery } from "./listing-gallery";
+import { ListingReturnsPanel } from "./listing-returns-panel";
 
 interface ListingEditorProps {
   readonly listingId: string;
@@ -95,6 +104,21 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [initialLoaded, setInitialLoaded] = useState(false);
+  const [returnsUncertainBusy, setReturnsUncertainBusy] = useState(false);
+  const returnsSnapshot = useSyncExternalStore(
+    listingReturnsFacade.subscribe,
+    listingReturnsFacade.getSnapshot,
+    listingReturnsFacade.getServerSnapshot,
+  );
+  const sessionScope = JSON.stringify([
+    authSnapshot.status,
+    authSnapshot.accountId,
+    authSnapshot.roles,
+    authSnapshot.capabilities,
+    authSnapshot.restrictedMode,
+  ]);
+  const returnsBusy =
+    returnsSnapshot.uncertain || returnsSnapshot.pendingReservationId !== null;
 
   // Pestaña 1: Información
   const [title, setTitle] = useState("");
@@ -183,6 +207,16 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   ]);
 
   const currentListing = snapshot.selectedListing;
+  useEffect(() => {
+    if (
+      !accessToken ||
+      !listingId ||
+      !["activa", "oculta"].includes(currentListing?.state ?? "")
+    )
+      return;
+    void listingReturnsFacade.load(accessToken, listingId, sessionScope);
+    return () => listingReturnsFacade.clear();
+  }, [accessToken, listingId, sessionScope, currentListing?.state]);
   const currentSchema = currentListing
     ? snapshot.categorySchemas[
         `${currentListing.category_code}@${currentListing.attribute_schema_version}`
@@ -192,7 +226,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   // Guardar Pestaña 1: Contenido y atributos
   const handleSaveContent = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken || !currentListing) return;
+    if (!accessToken || !currentListing || returnsBusy) return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
@@ -251,13 +285,13 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   // Guardar Pestaña 2: Tarifas
   const handleSavePricing = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken) return;
+    if (!accessToken || returnsBusy) return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
-    if (basePrice <= 0 || !Number.isSafeInteger(basePrice)) {
+    if (basePrice <= 5000 || !Number.isSafeInteger(basePrice)) {
       setFeedbackError(
-        "El precio base debe ser un monto entero positivo en CLP.",
+        "El precio base debe ser un monto entero mayor a 5.000 CLP.",
       );
       return;
     }
@@ -281,7 +315,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   // Guardar Pestaña 3: Horarios
   const handleSaveSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!accessToken) return;
+    if (!accessToken || returnsBusy) return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
@@ -323,7 +357,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
 
   // Acciones Globales: Publicar / Archivar / Eliminar
   const handleGlobalPublish = async () => {
-    if (!accessToken || !currentListing) return;
+    if (!accessToken || !currentListing || returnsBusy) return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
 
@@ -350,7 +384,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   };
 
   const handleGlobalArchive = async () => {
-    if (!accessToken) return;
+    if (!accessToken || returnsBusy) return;
     startTransition(async () => {
       try {
         await archiveListing(accessToken, listingId);
@@ -366,7 +400,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   };
 
   const handleGlobalDelete = async () => {
-    if (!accessToken || !currentListing) return;
+    if (!accessToken || !currentListing || returnsBusy) return;
     const confirmed = window.confirm(
       `¿Eliminar definitivamente el borrador "${currentListing.title}"?`,
     );
@@ -476,7 +510,12 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
               <Button
                 variant="default"
                 size="sm"
-                disabled={galleryBusy || isPending || !publishCheck.eligible}
+                disabled={
+                  galleryBusy ||
+                  returnsUncertainBusy ||
+                  isPending ||
+                  !publishCheck.eligible
+                }
                 onClick={handleGlobalPublish}
                 className="gap-1.5 font-semibold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
                 title={
@@ -491,7 +530,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={galleryBusy || isPending}
+                disabled={galleryBusy || returnsUncertainBusy || isPending}
                 onClick={handleGlobalDelete}
                 className="text-destructive hover:bg-destructive/10"
               >
@@ -505,7 +544,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             <Button
               variant="outline"
               size="sm"
-              disabled={galleryBusy || isPending}
+              disabled={galleryBusy || returnsUncertainBusy || isPending}
               onClick={handleGlobalArchive}
               className="gap-1.5 text-amber-700 hover:bg-amber-50"
             >
@@ -518,12 +557,18 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             <Button
               variant="default"
               size="sm"
-              disabled={galleryBusy || isPending || !publishCheck.eligible}
+              disabled={
+                galleryBusy ||
+                returnsUncertainBusy ||
+                isPending ||
+                returnsBusy ||
+                !publishCheck.eligible
+              }
               onClick={handleGlobalPublish}
               className="gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white"
             >
               <Send className="size-4" aria-hidden="true" />
-              Reactivar
+              Republicar
             </Button>
           )}
         </div>
@@ -585,6 +630,19 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         </div>
       )}
 
+      {(currentListing.state === "activa" ||
+        currentListing.state === "oculta") &&
+        accessToken && (
+          <ListingReturnsPanel
+            key={`${sessionScope}:${listingId}`}
+            spaceId={listingId}
+            token={accessToken}
+            sessionScope={sessionScope}
+            snapshot={returnsSnapshot}
+            onBusy={setReturnsUncertainBusy}
+          />
+        )}
+
       {/* Navegación por Pestañas (Tablist accesible) */}
       <div
         role="tablist"
@@ -597,7 +655,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           id="tab-info"
           aria-controls="panel-info"
           aria-selected={activeTab === "info"}
-          disabled={galleryBusy}
+          disabled={galleryBusy || returnsUncertainBusy}
           onClick={() => setActiveTab("info")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "info"
@@ -615,7 +673,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           id="tab-pricing"
           aria-controls="panel-pricing"
           aria-selected={activeTab === "pricing"}
-          disabled={galleryBusy}
+          disabled={galleryBusy || returnsUncertainBusy}
           onClick={() => setActiveTab("pricing")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "pricing"
@@ -633,7 +691,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           id="tab-schedule"
           aria-controls="panel-schedule"
           aria-selected={activeTab === "schedule"}
-          disabled={galleryBusy}
+          disabled={galleryBusy || returnsUncertainBusy}
           onClick={() => setActiveTab("schedule")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "schedule"
@@ -651,6 +709,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           id="tab-photos"
           aria-controls="panel-photos"
           aria-selected={activeTab === "photos"}
+          disabled={returnsUncertainBusy}
           onClick={() => setActiveTab("photos")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "photos"
@@ -960,8 +1019,8 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                       <Input
                         id="editor-price"
                         type="number"
-                        min={100}
-                        step={100}
+                        min={5001}
+                        step={1}
                         value={basePrice}
                         onChange={(e) => setBasePrice(Number(e.target.value))}
                         required
@@ -1274,7 +1333,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             token={accessToken!}
             photos={snapshot.photos}
             selectedListing={currentListing}
-            onBusyChange={setGalleryBusy}
+            onBusyChange={(busy) =>
+              setGalleryBusy(busy || returnsUncertainBusy)
+            }
             uploadPhoto={uploadPhoto}
             replacePhoto={replacePhoto}
             setCoverPhoto={setCoverPhoto}

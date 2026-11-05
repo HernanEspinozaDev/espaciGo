@@ -3446,12 +3446,52 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /local/booking-trial/spaces/{spaceID}/returns:
+    get:
+      operationId: listCurrentOwnerSpaceReturns
+      tags: [M08 local]
+      description: Proyección mínima de arriendos finalizados para el titular vigente y activo. No entrega identidades de las partes, contratos, pagos ni garantías. Confirmar desocupación reutiliza reception y no publica automáticamente.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: spaceID
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Entregas del espacio propio; sin caché.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [space_id, items]
+                    properties:
+                      space_id: { type: string, format: uuid }
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          required: [reservation_id, state, start_at, end_at, check_out_recorded, vacancy_confirmed]
+                          properties:
+                            reservation_id: { type: string, format: uuid }
+                            state: { type: string, enum: [finalizada] }
+                            start_at: { type: string, format: date-time }
+                            end_at: { type: string, format: date-time }
+                            check_out_recorded: { type: boolean }
+                            vacancy_confirmed: { type: boolean }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /local/booking-trial/reservations/{reservationID}/reception:
     parameters: [{ name: reservationID, in: path, required: true, schema: { type: string, format: uuid } }]
     post:
       operationId: recordSyntheticHostReception
       tags: [M08 local]
-      description: El anfitrión registra recepción y, opcionalmente, observaciones sobre una reserva finalizada. No crea por sí misma un reclamo formal ni liquida fondos ni modifica el plazo que parte del check-out.
+      description: Solo el titular vigente y activo confirma la desocupación de un arriendo finalizado con check-out registrado. Registra la recepción y desactiva atómicamente solo la ocupación del mismo arriendo e intervalo; conserva contrato, historial y otros bloqueos. No publica automáticamente, crea reclamos, liquida fondos ni modifica el plazo que parte del check-out.
       security: [{ bearerAuth: [] }]
       parameters:
         - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 200 } }
