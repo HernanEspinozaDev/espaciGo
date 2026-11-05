@@ -103,7 +103,11 @@ func validDimensions(width, height int) bool {
 func encodeVariant(name VariantName, src image.Image, longestSide int) (Variant, error) {
 	img := resize(src, longestSide)
 	var out bytes.Buffer
-	if err := webp.Encode(&out, img, &webp.EncoderOptions{Quality: 80, Method: 4}); err != nil {
+	// These options have meaningful zero values in deepteams/webp: an omitted
+	// AlphaQuality quantizes transparency to quality 0, while omitted
+	// AlphaCompression writes a raw plane. Keep RGB quality unchanged and
+	// preserve the alpha plane losslessly with compression enabled.
+	if err := webp.Encode(&out, img, &webp.EncoderOptions{Quality: 80, Method: 4, AlphaCompression: 1, AlphaFiltering: 1, AlphaQuality: 100}); err != nil {
 		return Variant{}, ErrInvalid
 	}
 	b := out.Bytes()
