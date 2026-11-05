@@ -3706,8 +3706,13 @@ paths:
     put:
       operationId: selectOwnSyntheticSpaceCover
       tags: [M04 local]
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string }
       description: >-
-        Selecciona como portada una imagen PNG sintética activa de la galería propia. La selección queda ligada al mismo espacio y titular; retirar la imagen elimina la selección en la misma transacción. El archivo continúa privado y no se expone automáticamente al catálogo.
+        Selecciona una imagen activa propia como portada, con la revisión fuerte del espacio. Retirar la imagen elimina su selección en la misma transacción; los bytes privados no se exponen por seleccionar portada.
       requestBody:
         required: true
         content:

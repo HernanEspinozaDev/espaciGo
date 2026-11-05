@@ -6,11 +6,32 @@
 
 **Worktrees del cierre local F5-A3/F6:** backend `/home/nandev/Documentos/projects/espaciGo`, rama `codex/backend/feature/local-close-02-espacios-galeria-documentos`, código probado/publicado `8d33dcfce3992719d11f5067c0b55ebf6e032e32`; frontend `/home/nandev/Documentos/projects/espaciGo-frontend-next-hermes`, rama `codex/frontend/fix/local-close-02-f6-native-e2e`, HEAD final `cc2fdc39670477b5c051ea74c853bb905604fb4d`. El cierre documental backend es posterior al SHA de código y no modifica sus fuentes. La base `3e7f7da73cce42cd542e982a74a63f41a491edeb` y publicación del 2026-11-02 se conservan solo como historia.
 
-**Fuente de verdad del avance:** la lista única de pendientes reconciliada el 2026-11-04 y `evidence/f5-f6-recovered-live-20261104.md` prevalecen para este corte. La tabla de §8, los addenda anteriores y `evidence/espacios-f3-f6-reconciliacion-local-20261030.md` se conservan como historial fechado, no como bloqueos actuales.
+**Fuente de verdad del avance:** el cierre funcional de wizard/galería `evidence/espacios-wizard-galeria-local-20261104.md` y la matriz vigente inmediatamente debajo prevalecen para la nueva entrega. La lista única histórica y `evidence/f5-f6-recovered-live-20261104.md` conservan el cierre documental anterior. Las tablas/addenda anteriores son historial fechado, no bloqueos actuales por sí solos.
+
+### Matriz vigente — wizard/galería local, 2026-11-04 noche (-03)
+
+| Alcance | Estado vigente |
+|---|---|
+| Creación/edición persistida y galería visible | **Verificado localmente** con fixture nuevo: crear→recargar→editar→subir/rehidratar→portada/orden/reemplazo/retirada→publicar; cupo30/31 y otra cuenta403. Playwright nativo1PASS, readback independiente,100 unitPASS, global69PASS/49SKIP; AXE panel real desktop/mobile sin violaciones. |
+| Peso/calidad y cola de galería completa | **Parcial.** Medición WebP y límites técnicos PASS, metas universales de peso incumplidas en escenarios concretos. Falta piso visual/corpus representativo; no bajar calidad sin decisión. UI de esta entrega serializa un archivo; no atribuir cola2 por historial. |
+| Borrador/F5/F6 documental previo | **Conservado en su alcance.** No repetir cuentas/migraciones ni presentar mocks como nueva suite documental live. Fingerprint ACL OID-dependent de la última restauración continúa separado y no aprobado; equivalencia estructural exacta sí verificada. |
+| Demo y publicación | Demo HTTPS local retenida y respaldada fuera de tmpfs. Ramas de tarea únicamente, sin main/despliegue. SHA/ref finales en recibo de entrega. |
+| Republicación/desocupación, lectura documental de revisores, contratación/cobros | **Pendientes separados**, según ADR y contrato autorizado, no implementados por publicar un borrador elegible. |
+| F7/cloud y aceptación humana | Fuera de autorización de ejecución; aceptación de producto corresponde al usuario. |
 
 **Objetivo:** completar «Mis espacios» desde Mi cuenta, creación y edición con formularios dinámicos, hasta **30 imágenes por espacio**, almacenamiento organizado por propietario/espacio y base privada para documentos. Mantener Next.js, pnpm, Tailwind y el diseño aprobado; Go y PostgreSQL siguen siendo la autoridad.
 
 **Objetivo transversal ratificado el 2026-11-04.** El [ADR de espacios, contratación y cobros](../decisiones/adr_objetivo_espacios_contratacion_cobros.md) rige los próximos cortes. En Mis espacios, aplicar titularidad vigente, publicación independiente de la verificación contractual y republicación tras confirmar la desocupación. Identidad para emitir, firma opcional y cobros se coordinan con los módulos de reserva, contrato y pagos. Los registros de avance F5/F6 conservan su alcance histórico.
+
+
+### Criterios ratificados para Mis espacios
+
+- El catálogo objetivo conserva **nueve categorías**. Las ocho originales son la línea base histórica y V000067 incorpora `inmuebles`. Casa, departamento, habitación y cabaña se configuran dentro de su perfil. Los formularios toman del backend la categoría y su perfil vigente.
+- El titular puede publicar y administrar el anuncio sin verificación de identidad contractual. Ambas partes verifican identidad antes de emitir el contrato. La evidencia privada se gobierna por su finalidad y alcance.
+- Tras la entrega, solo el titular confirma la desocupación y puede republicar. Se libera el intervalo de ese arriendo, se conserva el contrato en el historial y se respetan los otros bloqueos vigentes.
+- Mantener CLP, hora, día y mes. Un bloque o sesión puntual se expresa con inicio, fin y precio aceptado. La firma electrónica es opcional. El flujo habitual para reservas cortas usa contrato sin firma y, para inmuebles mensuales, se recomienda SimpleFirma. La aceptación, los aportes de firma, la renta y la garantía se resuelven según el ADR en los módulos correspondientes.
+
+Estos criterios son objetivos de los próximos cortes. El inventario local y las evidencias de cada fase determinan su estado de implementación.
 
 ## 1. Qué se comprobó y qué falta confirmar
 
