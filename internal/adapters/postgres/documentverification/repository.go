@@ -116,16 +116,17 @@ func (r *Repository) Transition(ctx context.Context, actor string, purpose dv.Pu
 		return err
 	}
 	var scopeSpace *string
-	err = tx.QueryRow(ctx, `SELECT space_id::text FROM public.document_verification_case WHERE id=$1 AND purpose=$2`, id, purpose).Scan(&scopeSpace)
+	var scopeSubject string
+	err = tx.QueryRow(ctx, `SELECT space_id::text,subject_id::text FROM public.document_verification_case WHERE id=$1 AND purpose=$2`, id, purpose).Scan(&scopeSpace, &scopeSubject)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return dv.ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	var currentActorOwnsSpace bool
+	var currentSubjectOwnsSpace bool
 	if scopeSpace != nil {
-		currentActorOwnsSpace, err = lockSpace(ctx, tx, *scopeSpace, actor)
+		currentSubjectOwnsSpace, err = lockSpace(ctx, tx, *scopeSpace, scopeSubject)
 		if err != nil {
 			return err
 		}
@@ -145,10 +146,10 @@ func (r *Repository) Transition(ctx context.Context, actor string, purpose dv.Pu
 
 	auth := dv.Authorization{ActorID: actor, SubjectID: x.SubjectID}
 	if purpose == dv.PurposeSpace {
-		if !currentActorOwnsSpace {
+		if !currentSubjectOwnsSpace || x.SubjectID != scopeSubject {
 			return dv.ErrConflict
 		}
-		auth.SpaceOwnerID = actor
+		auth.SpaceOwnerID = scopeSubject
 		if x.SupersededAt != nil || auth.SpaceOwnerID != x.SubjectID {
 			return dv.ErrConflict
 		}

@@ -270,8 +270,8 @@ func (tx commitSerializationFailureTx) QueryRow(_ context.Context, sql string, _
 	switch {
 	case strings.Contains(sql, "document_verification_lock_active_actor"):
 		return commitSerializationFailureRow{values: []any{true}}
-	case strings.Contains(sql, "SELECT space_id::text FROM public.document_verification_case"):
-		return commitSerializationFailureRow{values: []any{nil}}
+	case strings.Contains(sql, "SELECT space_id::text,subject_id::text FROM public.document_verification_case"):
+		return commitSerializationFailureRow{values: []any{nil, tx.actor}}
 	case strings.Contains(sql, "WHERE c.id=$1 AND c.subject_id=$2"):
 		return commitSerializationFailureRow{values: []any{tx.caseID, "identity", tx.actor, nil, "borrador", int64(1), "", nil, nil, nil, nil, nil}}
 	case strings.Contains(sql, "WHERE c.id=$1 AND c.purpose='space'"):

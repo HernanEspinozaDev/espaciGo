@@ -100,6 +100,8 @@ func validDimensions(width, height int) bool {
 	return width > 0 && height > 0 && width <= MaxSide && height <= MaxSide && int64(width)*int64(height) <= MaxPixels
 }
 
+const approvedDisplayByteBudget = 614400
+
 func encodeVariant(name VariantName, src image.Image, longestSide int) (Variant, error) {
 	img := resize(src, longestSide)
 	var out bytes.Buffer
@@ -109,6 +111,19 @@ func encodeVariant(name VariantName, src image.Image, longestSide int) (Variant,
 	// preserve the alpha plane losslessly with compression enabled.
 	if err := webp.Encode(&out, img, &webp.EncoderOptions{Quality: 80, Method: 4, AlphaCompression: 1, AlphaFiltering: 1, AlphaQuality: 100}); err != nil {
 		return Variant{}, ErrInvalid
+	}
+	if name == VariantDisplay && out.Len() > approvedDisplayByteBudget {
+		// Human-selected minimum (2026-11-05): preserve normal1600/Q80
+		// output, then try1280/Q75 from the original decoded pixels once.
+		// Never progressively degrade below that floor or exceed the budget.
+		img = resize(src, 1280)
+		out.Reset()
+		if err := webp.Encode(&out, img, &webp.EncoderOptions{Quality: 75, Method: 4, AlphaCompression: 1, AlphaFiltering: 1, AlphaQuality: 100}); err != nil {
+			return Variant{}, ErrInvalid
+		}
+		if out.Len() > approvedDisplayByteBudget {
+			return Variant{}, ErrInvalid
+		}
 	}
 	b := out.Bytes()
 	if len(b) == 0 || len(b) > MaxInputBytes {

@@ -1,8 +1,12 @@
 package dbbootstrap
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -613,10 +617,51 @@ func (db *runtimeACLF5BaselineDB) Query(context.Context, string, ...any) (pgx.Ro
 
 func (db *runtimeACLF5BaselineDB) QueryRow(_ context.Context, query string, _ ...any) pgx.Row {
 	db.query = query
+	if query == runtimeACLSemanticQuery {
+		return runtimeACLSemanticTestRow{baseline: db.row}
+	}
 	if query == runtimeACLF5PublicBaselineQuery {
 		return db.row
 	}
 	return runtimeACLObjectSourceRow{}
+}
+
+type runtimeACLSemanticTestRow struct{ baseline pgx.Row }
+
+func (r runtimeACLSemanticTestRow) Scan(destinations ...any) error {
+	if len(destinations) != 1 {
+		return errors.New("unexpected semantic ACL scan count")
+	}
+	data, err := runtimeACLReferenceFS.ReadFile("testdata/runtime_acl_reference.json.gz")
+	if err != nil {
+		return err
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	defer reader.Close()
+	payload, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+	if baseline, ok := r.baseline.(runtimeACLF5BaselineRow); ok {
+		var snapshot runtimeACLSemanticSnapshot
+		if err := json.Unmarshal(payload, &snapshot); err != nil {
+			return err
+		}
+		snapshot.Database, snapshot.ServerVersion = baseline.database, baseline.version
+		payload, err = json.Marshal(snapshot)
+		if err != nil {
+			return err
+		}
+	}
+	out, ok := destinations[0].(*[]byte)
+	if !ok {
+		return errors.New("unexpected semantic ACL scan destination")
+	}
+	*out = payload
+	return nil
 }
 
 func (db *runtimeACLF5BaselineDB) Exec(_ context.Context, query string, _ ...any) (pgconn.CommandTag, error) {
@@ -633,8 +678,8 @@ func TestVerifyRuntimeACLF5PublicBaselineReadsPinnedTargetSnapshot(t *testing.T)
 	if err := verifyRuntimeACLF5PublicBaseline(context.Background(), db); err != nil {
 		t.Fatalf("approved F5 baseline rejected: %v", err)
 	}
-	if db.query != runtimeACLF5PublicBaselineQuery {
-		t.Fatal("F5 baseline verifier did not use the complete catalog fingerprint query")
+	if db.query != runtimeACLSemanticQuery {
+		t.Fatal("F5 baseline verifier did not use the complete semantic catalog query")
 	}
 	if strings.Contains(strings.ToUpper(db.query), "CREATE TEMP") {
 		t.Fatal("F5 baseline readback must not create temporary objects")

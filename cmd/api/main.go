@@ -171,6 +171,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	documentReviewEnabled, err := localDocumentReviewEnabled(os.Getenv, runtimeProfileValue)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadRuntimeConfig(os.Getenv, runtimeProfileValue)
 	if err != nil {
 		return errors.New("invalid API configuration")
@@ -293,6 +297,16 @@ func run() error {
 			documentDownloadHandler = documentverificationhttp.NewOwnerDownloadHandler(service, downloadService)
 		}
 		registerDocumentVerificationRoutes(mux, documentverificationhttp.NewOwnerCasesHandlerWithUpload(service, documentVerificationService, documentUploadService), documentDownloadHandler)
+		if documentReviewEnabled {
+			if documentStore == nil {
+				return errors.New("document review trial requires private document storage")
+			}
+			reviewerService, reviewerErr := documentverification.NewReviewerAccessService(documentVerificationRepository, documentVerificationService, documentStore)
+			if reviewerErr != nil {
+				return errors.New("document reviewer initialization failed")
+			}
+			documentverificationhttp.RegisterReviewerCasesRoutes(mux, documentverificationhttp.NewReviewerCasesHandler(service, reviewerService))
+		}
 		verificationRepository := verificationpg.New(pool)
 		evidenceStore, err := newRuntimeFileStore(context.Background(), os.Getenv, evidenceRoot)
 		if err != nil {

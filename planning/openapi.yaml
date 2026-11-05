@@ -2728,6 +2728,117 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /document-verification/reviewer/cases:
+    get:
+      operationId: listAssignedDocumentCases
+      tags: [Document verification]
+      description: Solo asignaciones vigentes por persona, capacidad y ámbito; excluye conflictos de interés y capacidades incompatibles. No revela identidad ni claves de storage.
+      responses:
+        "200":
+          description: Expedientes asignados al revisor autenticado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/DocumentVerificationOwnerCase" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /document-verification/reviewer/cases/{caseID}:
+    parameters:
+      - { in: path, name: caseID, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: getAssignedDocumentCase
+      tags: [Document verification]
+      responses:
+        "200":
+          description: Expediente minimizado; se revalida asignación y titularidad.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentVerificationOwnerCase" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /document-verification/reviewer/cases/{caseID}/files/{fileID}/content:
+    parameters:
+      - { in: path, name: caseID, required: true, schema: { type: string, format: uuid } }
+      - { in: path, name: fileID, required: true, schema: { type: string, format: uuid } }
+    get:
+      operationId: downloadAssignedCleanDocument
+      tags: [Document verification]
+      description: Binario limpio no vencido; asignación vigente bloqueada durante lectura privada, sin caché ni URLs firmadas. Revocar asignación impide nuevas lecturas.
+      responses:
+        "200":
+          description: Archivo privado con nombre fijo, sin metadatos de storage.
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /document-verification/reviewer/cases/{caseID}/review:
+    parameters:
+      - { in: path, name: caseID, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: reviewAssignedDocumentCase
+      tags: [Document verification]
+      description: Reutiliza decisión documental existente, CAS y auditoría. No asigna permisos ni permite autorrevisión.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [capability, decision, expected_revision]
+              properties:
+                capability: { type: string, enum: [review_identity, review_space] }
+                decision: { type: string, enum: [approve, reject, needs_evidence] }
+                reason_code: { type: string }
+                expected_revision: { type: integer, minimum: 1 }
+                verified_until: { type: string, format: date-time }
+      responses:
+        "200":
+          description: Decisión comprometida y expediente actualizado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentVerificationOwnerCase" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /document-verification/reviewer/cases/{caseID}/revoke:
+    parameters:
+      - { in: path, name: caseID, required: true, schema: { type: string, format: uuid } }
+    post:
+      operationId: revokeAssignedDocumentCase
+      tags: [Document verification]
+      description: Revoca verificación mediante transición existente con motivo y revisión esperada. La asignación sigue siendo una autoridad independiente.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [purpose, reason_code, expected_revision]
+              properties:
+                purpose: { type: string, enum: [identity, space] }
+                reason_code: { type: string }
+                expected_revision: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Revocación comprometida y expediente actualizado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DocumentVerificationOwnerCase" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /document-verification/cases:
     post:
       operationId: createOwnDocumentVerificationCase

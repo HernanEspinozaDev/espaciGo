@@ -20,6 +20,8 @@ const (
 	runtimeACLF5DefaultACLHash              = "d41d8cd98f00b204e9800998ecf8427e"
 )
 
+// Historical diagnostics only: never use this OID-sensitive fingerprint as
+// the operational gate. The semantic reference below replaces that guard.
 // runtimeACLF5PublicBaselineQuery reproduces the complete effective PUBLIC
 // ACL fingerprint approved for the F5 target. It does not create temp objects;
 // pg_my_temp_schema() is excluded so it also remains safe in caller sessions
@@ -129,16 +131,5 @@ func verifyRuntimeACLF5PublicBaseline(ctx context.Context, conn ScratchPermissio
 	if conn == nil {
 		return errors.New("F5 PUBLIC/default ACL baseline connection is required")
 	}
-	var database, publicHash, defaultHash string
-	var serverVersion int
-	var publicRows, defaultRows int64
-	if err := conn.QueryRow(ctx, runtimeACLF5PublicBaselineQuery).Scan(
-		&database, &serverVersion, &publicRows, &publicHash, &defaultRows, &defaultHash,
-	); err != nil {
-		return errors.New("could not read exact F5 PUBLIC/default ACL baseline")
-	}
-	if !runtimeACLF5BaselineMatches(database, serverVersion, publicRows, publicHash, defaultRows, defaultHash) {
-		return errors.New("F5 PUBLIC/default ACL baseline differs from the approved target fingerprint")
-	}
-	return nil
+	return verifyRuntimeACLSemanticBaseline(ctx, conn)
 }
