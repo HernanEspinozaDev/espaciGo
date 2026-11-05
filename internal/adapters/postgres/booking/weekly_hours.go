@@ -3,6 +3,7 @@ package bookingpg
 import (
 	"context"
 	"database/sql"
+	"sort"
 	"strings"
 	"time"
 	_ "time/tzdata"
@@ -55,9 +56,10 @@ func (r *Repository) weeklyHours(ctx context.Context, db rowQuerier, spaceID, ho
 	var out booking.WeeklyHours
 	var rateUnit string
 	var zone sql.NullString
+	var updated time.Time
 	var err error
 	if hostID == "" {
-		err = db.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad
+		err = db.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad,e.actualizado_en
 FROM public.espacio e
 LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id
 JOIN LATERAL(SELECT modalidad FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
@@ -66,14 +68,14 @@ WHERE e.id=$1 AND ((f.habilitada AND e.estado='borrador') OR (NOT COALESCE(f.hab
     SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
     JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada'
     JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo'
-    WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))`, spaceID).Scan(&out.SpaceID, &zone, &out.Enabled, &rateUnit)
+    WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')))`, spaceID).Scan(&out.SpaceID, &zone, &out.Enabled, &rateUnit, &updated)
 	} else {
-		err = db.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad
+		err = db.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad,e.actualizado_en
 FROM public.reserva_ensayo_local_fixture f
 JOIN public.espacio e ON e.id=f.espacio_id AND e.propietario_id=f.anfitrion_id AND e.estado='borrador'
 JOIN LATERAL(SELECT modalidad FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
 LEFT JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id
-		WHERE f.espacio_id=$1 AND f.habilitada AND f.anfitrion_id=$2`, spaceID, hostID).Scan(&out.SpaceID, &zone, &out.Enabled, &rateUnit)
+		WHERE f.espacio_id=$1 AND f.habilitada AND f.anfitrion_id=$2`, spaceID, hostID).Scan(&out.SpaceID, &zone, &out.Enabled, &rateUnit, &updated)
 	}
 	if err != nil {
 		return booking.WeeklyHours{}, mapErr(err)
@@ -84,6 +86,7 @@ LEFT JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id
 	if zone.Valid {
 		out.TimeZone = zone.String
 	}
+	out.UpdatedAt = updated
 	return readWeeklyDays(ctx, db, out)
 }
 
@@ -111,6 +114,44 @@ func readWeeklyDays(ctx context.Context, db rowQuerier, value booking.WeeklyHour
 }
 
 func (r *Repository) SaveWeeklyHours(ctx context.Context, hostID, spaceID string, value booking.WeeklyHours) (booking.WeeklyHours, error) {
+	return r.saveWeeklyHours(ctx, hostID, spaceID, value, time.Time{})
+}
+func (r *Repository) SaveWeeklyHoursCAS(ctx context.Context, hostID, spaceID string, value booking.WeeklyHours, expected time.Time) (booking.WeeklyHours, error) {
+	return r.saveWeeklyHours(ctx, hostID, spaceID, value, expected)
+}
+func weeklyScheduleEquivalent(current, requested booking.WeeklyHours) bool {
+	if current.Enabled != requested.Enabled || len(current.Days) != len(requested.Days) {
+		return false
+	}
+	canonical := func(days []booking.WeeklyDay) []booking.WeeklyDay {
+		out := make([]booking.WeeklyDay, len(days))
+		for i, day := range days {
+			out[i] = booking.WeeklyDay{Weekday: day.Weekday, Periods: append([]booking.WeeklyPeriod(nil), day.Periods...)}
+		}
+		return out
+	}
+	currentDays := canonical(current.Days)
+	requestedDays := canonical(requested.Days)
+	sort.Slice(currentDays, func(i, j int) bool { return currentDays[i].Weekday < currentDays[j].Weekday })
+	sort.Slice(requestedDays, func(i, j int) bool { return requestedDays[i].Weekday < requestedDays[j].Weekday })
+	for i := range currentDays {
+		sort.Slice(currentDays[i].Periods, func(a, b int) bool { return currentDays[i].Periods[a].Open < currentDays[i].Periods[b].Open })
+		sort.Slice(requestedDays[i].Periods, func(a, b int) bool { return requestedDays[i].Periods[a].Open < requestedDays[i].Periods[b].Open })
+	}
+	for i := range currentDays {
+		if currentDays[i].Weekday != requestedDays[i].Weekday || len(currentDays[i].Periods) != len(requestedDays[i].Periods) {
+			return false
+		}
+		for j := range currentDays[i].Periods {
+			if currentDays[i].Periods[j] != requestedDays[i].Periods[j] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (r *Repository) saveWeeklyHours(ctx context.Context, hostID, spaceID string, value booking.WeeklyHours, expected time.Time) (booking.WeeklyHours, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return booking.WeeklyHours{}, err
@@ -125,10 +166,14 @@ func (r *Repository) SaveWeeklyHours(ctx context.Context, hostID, spaceID string
 	}
 	var rateUnit string
 	var zone sql.NullString
-	err = tx.QueryRow(ctx, `SELECT t.modalidad,e.zona_horaria FROM public.espacio e
+	var actual time.Time
+	err = tx.QueryRow(ctx, `SELECT t.modalidad,e.zona_horaria,e.actualizado_en FROM public.espacio e
 JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.habilitada
 JOIN LATERAL(SELECT modalidad FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
-WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' FOR UPDATE OF e`, spaceID, hostID).Scan(&rateUnit, &zone)
+WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' FOR UPDATE OF e`, spaceID, hostID).Scan(&rateUnit, &zone, &actual)
+	if err == nil && !expected.IsZero() && !actual.Equal(expected) {
+		return booking.WeeklyHours{}, booking.ErrConflict
+	}
 	if err != nil {
 		return booking.WeeklyHours{}, mapErr(err)
 	}
@@ -142,6 +187,16 @@ WHERE e.id=$1 AND e.propietario_id=$2 AND e.estado='borrador' FOR UPDATE OF e`, 
 		if _, err = time.LoadLocation(zone.String); err != nil {
 			return booking.WeeklyHours{}, booking.ErrInvalid
 		}
+	}
+	current, err := r.weeklyHoursTx(ctx, tx, spaceID)
+	if err != nil {
+		return booking.WeeklyHours{}, err
+	}
+	if weeklyScheduleEquivalent(current, value) {
+		if err = tx.Commit(ctx); err != nil {
+			return booking.WeeklyHours{}, mapErr(err)
+		}
+		return current, nil
 	}
 	_, err = tx.Exec(ctx, `INSERT INTO public.espacio_horario_semanal(espacio_id,activo,actualizado_en) VALUES($1,$2,now())
 ON CONFLICT (espacio_id) DO UPDATE SET activo=EXCLUDED.activo,actualizado_en=now()`, spaceID, value.Enabled)
@@ -160,13 +215,17 @@ ON CONFLICT (espacio_id) DO UPDATE SET activo=EXCLUDED.activo,actualizado_en=now
 			}
 		}
 	}
-	if _, err = spaceversion.Bump(ctx, tx, spaceID); err != nil {
+	updated, err := spaceversion.Bump(ctx, tx, spaceID)
+	if err != nil {
 		return booking.WeeklyHours{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return booking.WeeklyHours{}, mapErr(err)
 	}
-	return r.WeeklyHoursForHost(ctx, hostID, spaceID)
+	value.SpaceID = spaceID
+	value.TimeZone = zone.String
+	value.UpdatedAt = updated
+	return value, nil
 }
 
 func (r *Repository) WeeklyHoursAsAdministrator(ctx context.Context, actor, owner, spaceID, correlation string) (booking.WeeklyHours, error) {
@@ -350,9 +409,10 @@ func (r *Repository) weeklyHoursTx(ctx context.Context, tx pgx.Tx, spaceID strin
 	var value booking.WeeklyHours
 	var rateUnit string
 	var zone sql.NullString
-	err := tx.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad
+	var updated time.Time
+	err := tx.QueryRow(ctx, `SELECT e.id::text,e.zona_horaria,COALESCE(h.activo,false),t.modalidad,e.actualizado_en
 FROM public.espacio e JOIN LATERAL(SELECT modalidad FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true
-LEFT JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id WHERE e.id=$1`, spaceID).Scan(&value.SpaceID, &zone, &value.Enabled, &rateUnit)
+LEFT JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id WHERE e.id=$1`, spaceID).Scan(&value.SpaceID, &zone, &value.Enabled, &rateUnit, &updated)
 	if err != nil {
 		return booking.WeeklyHours{}, mapErr(err)
 	}
@@ -363,6 +423,7 @@ LEFT JOIN public.espacio_horario_semanal h ON h.espacio_id=e.id WHERE e.id=$1`, 
 	if zone.Valid {
 		value.TimeZone = zone.String
 	}
+	value.UpdatedAt = updated
 	return readWeeklyDays(ctx, tx, value)
 }
 

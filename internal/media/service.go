@@ -42,14 +42,54 @@ func NewService(repo Repository, store ObjectStore, ids IDGenerator, now func() 
 }
 
 func (s *Service) UploadSpace(ctx context.Context, owner, spaceID, key string, raw []byte) (UploadResult, error) {
-	return s.upload(ctx, owner, spaceID, PurposeSpace, key, raw)
+	return s.upload(ctx, owner, spaceID, PurposeSpace, key, raw, ReservationOptions{})
+}
+
+// UploadSpaceReplacement reserves the existing gallery slot until replacement is ready.
+func (s *Service) UploadSpaceReplacement(ctx context.Context, owner, spaceID, key, replacePhotoID, expectedRevision string, raw []byte) (UploadResult, error) {
+	options, err := normalizeReservationOptions(ReservationOptions{ReplacementTargetID: replacePhotoID, ExpectedRevision: expectedRevision})
+	if err != nil {
+		return UploadResult{}, err
+	}
+	return s.upload(ctx, owner, spaceID, PurposeSpace, key, raw, options)
+}
+
+func (s *Service) LookupSpaceUpload(ctx context.Context, owner, spaceID, key string) (string, string, error) {
+	key = strings.TrimSpace(key)
+	if !validUUID(owner) || !validUUID(spaceID) || len(key) < 8 || len(key) > 128 {
+		return "", "", ErrInvalid
+	}
+	reader, ok := s.repo.(interface {
+		LookupSpaceUpload(context.Context, string, string, string) (string, string, error)
+	})
+	if !ok {
+		return "", "", ErrUnavailable
+	}
+	photoID, state, err := reader.LookupSpaceUpload(ctx, owner, spaceID, key)
+	if err != nil {
+		return "", "", mapRepositoryError(err)
+	}
+	if !validUUID(photoID) {
+		return "", "", ErrUnavailable
+	}
+	switch state {
+	case "pending", "ready", "failed", "deleting":
+		return photoID, state, nil
+	default:
+		return "", "", ErrConflict
+	}
 }
 
 func (s *Service) UploadProfile(ctx context.Context, owner, key string, raw []byte) (UploadResult, error) {
-	return s.upload(ctx, owner, "", PurposeProfile, key, raw)
+	return s.upload(ctx, owner, "", PurposeProfile, key, raw, ReservationOptions{})
 }
 
-func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Purpose, key string, raw []byte) (UploadResult, error) {
+func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Purpose, key string, raw []byte, options ReservationOptions) (UploadResult, error) {
+	var err error
+	options, err = normalizeReservationOptions(options)
+	if err != nil {
+		return UploadResult{}, err
+	}
 	key = strings.TrimSpace(key)
 	if !validUUID(owner) || (purpose == PurposeSpace && !validUUID(spaceID)) || len(key) < 8 || len(key) > 128 {
 		return UploadResult{}, ErrInvalid
@@ -64,12 +104,12 @@ func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Pur
 		return UploadResult{}, ErrUnavailable
 	}
 	at := s.now().UTC()
-	reservation, reused, err := s.repo.Reserve(ctx, assetID, owner, spaceID, purpose, key, inputHash, at, at.Add(15*time.Minute))
+	reservation, reused, err := s.repo.Reserve(ctx, assetID, owner, spaceID, purpose, key, inputHash, at, at.Add(15*time.Minute), options)
 	if err != nil {
 		return UploadResult{}, mapRepositoryError(err)
 	}
 	if reused {
-		if reservation.InputHash != inputHash {
+		if reservation.InputHash != inputHash || reservation.ReplacementTargetID != options.ReplacementTargetID || reservation.ExpectedRevision != options.ExpectedRevision {
 			return UploadResult{}, ErrConflict
 		}
 		if reservation.State == "ready" {
@@ -97,7 +137,7 @@ func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Pur
 		return UploadResult{}, err
 	}
 	for i := range variants {
-		key := objectKey(purpose, owner, spaceID, reservation.ID, reservation.Token, variants[i].Name)
+		key := objectKey(purpose, owner, spaceID, reservation.ID, reservation.Token, variants[i].Name, at)
 		if err = s.repo.PlanVariant(ctx, reservation.ID, reservation.Token, variants[i].Name, key); err != nil {
 			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
 			return UploadResult{}, mapRepositoryError(err)
@@ -128,7 +168,7 @@ func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Pur
 		}
 	}
 	if purpose == PurposeSpace {
-		photo, err := s.repo.FinalizeSpace(ctx, reservation.ID, reservation.Token, owner, spaceID, s.now().UTC())
+		photo, err := s.repo.FinalizeSpace(ctx, reservation.ID, reservation.Token, owner, spaceID, options.ExpectedRevision, s.now().UTC())
 		if err != nil {
 			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
 			return UploadResult{}, mapRepositoryError(err)
@@ -182,6 +222,25 @@ func (s *Service) UpdateSpace(ctx context.Context, owner, spaceID, photoID strin
 	return s.spaceURLs(photo), err
 }
 
+func (s *Service) UpdateSpaceCAS(ctx context.Context, owner, spaceID, photoID string, alt *string, visible *bool, position *int, expected string) (Photo, time.Time, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) || (alt != nil && len([]rune(*alt)) > MaxAltText) || (position != nil && (*position < 1 || *position > MaxSpaceMedia)) {
+		return Photo{}, time.Time{}, ErrInvalid
+	}
+	expectedAt, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || expectedAt.Location() != time.UTC || expectedAt.UTC().Format(time.RFC3339Nano) != expected {
+		return Photo{}, time.Time{}, ErrInvalid
+	}
+	repository, ok := s.repo.(SpacePhotoUpdateCASRepository)
+	if !ok {
+		return Photo{}, time.Time{}, ErrUnavailable
+	}
+	photo, revision, err := repository.UpdateSpacePhotoCAS(ctx, owner, spaceID, photoID, alt, visible, position, expectedAt.UTC(), s.now().UTC())
+	if err != nil {
+		return Photo{}, time.Time{}, mapRepositoryError(err)
+	}
+	return s.spaceURLs(photo), revision, nil
+}
+
 func (s *Service) RemoveSpace(ctx context.Context, owner, spaceID, photoID string) error {
 	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
 		return ErrNotFound
@@ -189,11 +248,39 @@ func (s *Service) RemoveSpace(ctx context.Context, owner, spaceID, photoID strin
 	return mapRepositoryError(s.repo.RemoveSpacePhoto(ctx, owner, spaceID, photoID, s.now().UTC()))
 }
 
+func (s *Service) RemoveSpaceCAS(ctx context.Context, owner, spaceID, photoID, expected string) (time.Time, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
+		return time.Time{}, ErrNotFound
+	}
+	at, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || at.Location() != time.UTC || at.UTC().Format(time.RFC3339Nano) != expected {
+		return time.Time{}, ErrInvalid
+	}
+	repository, ok := s.repo.(SpacePhotoRemoveCASRepository)
+	if !ok {
+		return time.Time{}, ErrNotFound
+	}
+	updated, err := repository.RemoveSpacePhotoCAS(ctx, owner, spaceID, photoID, at.UTC(), s.now().UTC())
+	return updated, mapRepositoryError(err)
+}
+
 func (s *Service) SelectCover(ctx context.Context, owner, spaceID, photoID string) error {
 	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(photoID) {
 		return ErrNotFound
 	}
 	return mapRepositoryError(s.repo.SelectSpaceCover(ctx, owner, spaceID, photoID, s.now().UTC()))
+}
+
+func (s *Service) SelectCoverCAS(ctx context.Context, owner, spaceID, id string, expected string) (time.Time, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validUUID(id) {
+		return time.Time{}, ErrNotFound
+	}
+	at, err := time.Parse(time.RFC3339Nano, expected)
+	if err != nil || at.Location() != time.UTC || at.UTC().Format(time.RFC3339Nano) != expected {
+		return time.Time{}, ErrInvalid
+	}
+	updated, err := s.repo.SelectSpaceCoverCAS(ctx, owner, spaceID, id, at.UTC())
+	return updated, mapRepositoryError(err)
 }
 
 func (s *Service) ContentSpace(ctx context.Context, owner, spaceID, photoID string, name VariantName) (Photo, Variant, []byte, error) {
@@ -309,11 +396,11 @@ func (s *Service) CleanOnce(ctx context.Context, limit int) error {
 	return nil
 }
 
-func objectKey(p Purpose, owner, spaceID, assetID string, token int64, name VariantName) string {
+func objectKey(p Purpose, owner, spaceID, assetID string, token int64, name VariantName, at time.Time) string {
 	if p == PurposeProfile {
 		return "media/v1/profiles/" + owner + "/" + assetID + "/" + strconv.FormatInt(token, 10) + "/" + string(name) + ".webp"
 	}
-	return "media/v1/spaces/" + spaceID + "/" + assetID + "/" + strconv.FormatInt(token, 10) + "/" + string(name) + ".webp"
+	return "users/" + owner + "/spaces/" + spaceID + "/images/v2/" + assetID + "/" + at.UTC().Format("20060102T150405.000000000Z") + "_" + strconv.FormatInt(token, 10) + "_" + string(name) + ".webp"
 }
 
 func digestHex(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }

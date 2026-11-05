@@ -68,7 +68,8 @@ test("host-listings domain enforces CLP pricing, area and capacity rules", async
 
   // Price CLP must be positive safe integer
   assert.equal(isValidPriceCLP(15000), true);
-  assert.equal(isValidPriceCLP(1), true);
+  assert.equal(isValidPriceCLP(1), false);
+  assert.equal(isValidPriceCLP(5001), true);
   assert.equal(isValidPriceCLP(0), false);
   assert.equal(isValidPriceCLP(-100), false);
   assert.equal(isValidPriceCLP(15000.5), false);
@@ -99,7 +100,8 @@ test("host-listings domain validates draft input fields", async () => {
   const validDraft = {
     category_code: "oficina",
     title: "Oficina Privada Providencia",
-    description: "Excelente iluminación y conectividad cerca de metro.",
+    description:
+      "Excelente iluminación natural y conectividad de alta velocidad, a pasos del metro y con acceso controlado durante todo el día.",
     area_m2: 35,
     capacity: 6,
     usage_rules: "No fumar, silencio en pasillos.",
@@ -132,6 +134,79 @@ test("host-listings domain validates draft input fields", async () => {
   assert.ok(resInvalid.errors.base_price_clp);
   assert.ok(resInvalid.errors.rate_unit);
   assert.ok(resInvalid.errors.address);
+});
+
+test("host-listings common fields match Go rune, trim, and numeric constraints", async () => {
+  const {
+    isValidPriceCLP,
+    isValidAreaM2,
+    isValidCapacity,
+    validateListingDraftInput,
+  } = await import(pathToFileURL(validationPath).href);
+
+  assert.equal(isValidPriceCLP(5000), false);
+  assert.equal(isValidPriceCLP(5001), true);
+  assert.equal(isValidAreaM2(0.01), true);
+  assert.equal(isValidAreaM2(0.001), false);
+  assert.equal(isValidAreaM2(1.234), false);
+  assert.equal(isValidAreaM2(99999999.99), true);
+  assert.equal(isValidAreaM2(100000000), false);
+  assert.equal(isValidCapacity(100001), true);
+  assert.equal(isValidCapacity(2147483647), true);
+  assert.equal(isValidCapacity(2147483648), false);
+
+  const base = {
+    category_code: "x",
+    title: "t".repeat(71),
+    description: "d".repeat(100),
+    area_m2: 1,
+    capacity: 1,
+    usage_rules: "ok",
+    rate_unit: "hora",
+    base_price_clp: 5001,
+    address: "a",
+  };
+  assert.ok(
+    validateListingDraftInput({ ...base, title: "😀".repeat(70) }).errors
+      .title === undefined,
+  );
+  assert.ok(
+    validateListingDraftInput({ ...base, title: "😀".repeat(71) }).errors.title,
+  );
+  assert.ok(
+    validateListingDraftInput({ ...base, title: "  " + "x".repeat(70) }).errors
+      .title,
+  );
+  assert.ok(
+    validateListingDraftInput({ ...base, title: "  " + "x".repeat(71) }).errors
+      .title,
+  );
+  assert.equal(
+    validateListingDraftInput({ ...base, description: "  " + "d".repeat(100) })
+      .errors.description,
+    undefined,
+  );
+  assert.ok(
+    validateListingDraftInput({ ...base, usage_rules: "   " }).errors
+      .usage_rules,
+  );
+  assert.ok(
+    validateListingDraftInput({ ...base, usage_rules: "x".repeat(251) }).errors
+      .usage_rules,
+  );
+  assert.ok(
+    validateListingDraftInput({ ...base, usage_rules: undefined }).errors
+      .usage_rules,
+  );
+  assert.equal(
+    validateListingDraftInput({ ...base, address: "😀".repeat(500) }).errors
+      .address,
+    undefined,
+  );
+  assert.ok(
+    validateListingDraftInput({ ...base, address: "😀".repeat(501) }).errors
+      .address,
+  );
 });
 
 test("host-listings domain validates dynamic category attribute schemas and preserves version", async () => {

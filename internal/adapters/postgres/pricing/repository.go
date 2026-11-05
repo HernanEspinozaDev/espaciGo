@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaceversion"
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -45,39 +46,65 @@ func (r *Repository) RateHistory(ctx context.Context, owner, spaceID string) ([]
 	return items, rows.Err()
 }
 func (r *Repository) UpdateRate(ctx context.Context, owner, spaceID string, in pricing.RateInput) (pricing.Rate, error) {
+	item, _, err := r.updateRateCAS(ctx, owner, spaceID, time.Time{}, in)
+	return item, err
+}
+
+func (r *Repository) UpdateRateIfRevision(ctx context.Context, owner, spaceID string, expected time.Time, in pricing.RateInput) (pricing.Rate, time.Time, error) {
+	if expected.IsZero() {
+		return pricing.Rate{}, time.Time{}, pricing.ErrInvalid
+	}
+	return r.updateRateCAS(ctx, owner, spaceID, expected, in)
+}
+
+func (r *Repository) updateRateCAS(ctx context.Context, owner, spaceID string, expected time.Time, in pricing.RateInput) (pricing.Rate, time.Time, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return pricing.Rate{}, err
+		return pricing.Rate{}, time.Time{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	active, err := accountlock.LockActive(ctx, tx, owner)
 	if err != nil {
-		return pricing.Rate{}, err
+		return pricing.Rate{}, time.Time{}, err
 	}
 	if !active {
-		return pricing.Rate{}, pricing.ErrNotFound
+		return pricing.Rate{}, time.Time{}, pricing.ErrNotFound
 	}
 	var unit string
 	var amount int64
-	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta') FOR UPDATE`, spaceID, owner).Scan(&unit, &amount)
+	var revision time.Time
+	err = tx.QueryRow(ctx, `SELECT modalidad_tarifa,precio_base_clp,actualizado_en FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta') FOR UPDATE`, spaceID, owner).Scan(&unit, &amount, &revision)
 	if err != nil {
-		return pricing.Rate{}, mapError(err)
+		return pricing.Rate{}, time.Time{}, mapError(err)
+	}
+	if !expected.IsZero() && !revision.Equal(expected) {
+		return pricing.Rate{}, time.Time{}, pricing.ErrPreconditionFailed
 	}
 	if unit == in.Unit && amount == in.Amount {
-		return scanRate(tx.QueryRow(ctx, `SELECT `+rateCols+` FROM public.tarifa_espacio WHERE espacio_id=$1 ORDER BY version DESC LIMIT 1`, spaceID))
+		item, err := scanRate(tx.QueryRow(ctx, `SELECT `+rateCols+` FROM public.tarifa_espacio WHERE espacio_id=$1 ORDER BY version DESC LIMIT 1`, spaceID))
+		if err != nil {
+			return pricing.Rate{}, time.Time{}, err
+		}
+		if err = tx.Commit(ctx); err != nil {
+			return pricing.Rate{}, time.Time{}, err
+		}
+		return item, revision, nil
 	}
-	_, err = tx.Exec(ctx, `UPDATE public.espacio SET modalidad_tarifa=$3,precio_base_clp=$4,actualizado_en=clock_timestamp() WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta')`, spaceID, owner, in.Unit, in.Amount)
-	if err != nil {
-		return pricing.Rate{}, mapError(err)
+	if _, err = tx.Exec(ctx, `UPDATE public.espacio SET modalidad_tarifa=$3,precio_base_clp=$4 WHERE id=$1 AND propietario_id=$2 AND estado IN ('borrador','activa','oculta')`, spaceID, owner, in.Unit, in.Amount); err != nil {
+		return pricing.Rate{}, time.Time{}, mapError(err)
 	}
 	item, err := scanRate(tx.QueryRow(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) SELECT $1,COALESCE(max(version),0)+1,$2,$3 FROM public.tarifa_espacio WHERE espacio_id=$1 RETURNING `+rateCols, spaceID, in.Unit, in.Amount))
 	if err != nil {
-		return pricing.Rate{}, err
+		return pricing.Rate{}, time.Time{}, err
+	}
+	revision, err = spaceversion.Bump(ctx, tx, spaceID)
+	if err != nil {
+		return pricing.Rate{}, time.Time{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
-		return pricing.Rate{}, err
+		return pricing.Rate{}, time.Time{}, err
 	}
-	return item, nil
+	return item, revision, nil
 }
 func (r *Repository) CreateSimulation(ctx context.Context, owner, spaceID, id, zone string, rate pricing.Rate, start, end time.Time, units, subtotal int64) (pricing.Simulation, error) {
 	tx, err := r.pool.Begin(ctx)

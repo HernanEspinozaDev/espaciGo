@@ -22,6 +22,13 @@ func NewService(repo Repository, ids identity.CredentialGenerator) (*Service, er
 	return &Service{repo: repo, ids: ids}, nil
 }
 
+func (s *Service) SetTimeZoneCAS(ctx context.Context, owner, spaceID, zone string, expected time.Time) (time.Time, error) {
+	if !validUUID(owner) || !validUUID(spaceID) || !validTimeZone(zone) || expected.IsZero() {
+		return time.Time{}, ErrInvalid
+	}
+	return s.repo.SetTimeZoneCAS(ctx, owner, spaceID, zone, expected)
+}
+
 func (s *Service) SetTimeZone(ctx context.Context, owner, spaceID, zone string) error {
 	if !validUUID(owner) || !validUUID(spaceID) || !validTimeZone(zone) {
 		return ErrInvalid

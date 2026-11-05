@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 )
@@ -112,8 +113,61 @@ func (s *Store) Delete(ctx context.Context, key string, generation int64) error 
 	return err
 }
 
+func validateKey(key string) error {
+	parts := strings.Split(key, "/")
+	uuid := func(v string) bool {
+		if len(v) != 36 {
+			return false
+		}
+		for i, c := range v {
+			if i == 8 || i == 13 || i == 18 || i == 23 {
+				if c != '-' {
+					return false
+				}
+				continue
+			}
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+				return false
+			}
+		}
+		return true
+	}
+	token := func(v string) bool {
+		if v == "" || v[0] == '0' {
+			return false
+		}
+		for _, c := range v {
+			if c < '0' || c > '9' {
+				return false
+			}
+		}
+		return true
+	}
+	if len(parts) == 7 && parts[0] == "media" && parts[1] == "v1" {
+		if parts[2] == "spaces" && uuid(parts[3]) && uuid(parts[4]) && token(parts[5]) && (parts[6] == "display.webp" || parts[6] == "thumbnail.webp") {
+			return nil
+		}
+		if parts[2] == "profiles" && uuid(parts[3]) && uuid(parts[4]) && token(parts[5]) && parts[6] == "avatar.webp" {
+			return nil
+		}
+	}
+	if len(parts) == 8 && parts[0] == "users" && uuid(parts[1]) && parts[2] == "spaces" && uuid(parts[3]) && parts[4] == "images" && parts[5] == "v2" && uuid(parts[6]) {
+		b := strings.Split(parts[7], "_")
+		if len(b) == 3 && validMediaTimestamp(b[0]) && token(b[1]) && (b[2] == "display.webp" || b[2] == "thumbnail.webp") {
+			return nil
+		}
+	}
+	return media.ErrInvalid
+}
+
+func validMediaTimestamp(v string) bool {
+	const layout = "20060102T150405.000000000Z"
+	parsed, err := time.Parse(layout, v)
+	return err == nil && parsed.UTC().Format(layout) == v
+}
+
 func (s *Store) filePath(key string) (string, error) {
-	if strings.ContainsAny(key, "\\\x00") || filepath.IsAbs(key) || filepath.ToSlash(filepath.Clean(filepath.FromSlash(key))) != key || !strings.HasPrefix(key, "media/v1/") {
+	if strings.ContainsAny(key, "\\\x00") || filepath.IsAbs(key) || filepath.ToSlash(filepath.Clean(filepath.FromSlash(key))) != key || (validateKey(key) != nil) {
 		return "", media.ErrInvalid
 	}
 	for _, part := range strings.Split(key, "/") {

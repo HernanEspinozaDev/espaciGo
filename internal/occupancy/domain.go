@@ -7,12 +7,13 @@ import (
 )
 
 var (
-	ErrInvalid          = errors.New("occupancy: invalid request")
-	ErrNotFound         = errors.New("occupancy: resource not found")
-	ErrConflict         = errors.New("occupancy: interval overlaps an active occupancy")
-	ErrTimezoneRequired = errors.New("occupancy: space timezone is not configured")
-	ErrTimezoneInUse    = errors.New("occupancy: existing reservations prevent time zone repair")
-	ErrTimezoneLocked   = errors.New("occupancy: configured publication time zone cannot be replaced")
+	ErrInvalid            = errors.New("occupancy: invalid request")
+	ErrNotFound           = errors.New("occupancy: resource not found")
+	ErrConflict           = errors.New("occupancy: interval overlaps an active occupancy")
+	ErrTimezoneRequired   = errors.New("occupancy: space timezone is not configured")
+	ErrTimezoneInUse      = errors.New("occupancy: existing reservations prevent time zone repair")
+	ErrTimezoneLocked     = errors.New("occupancy: configured publication time zone cannot be replaced")
+	ErrPreconditionFailed = errors.New("occupancy: space revision does not match")
 )
 
 type Block struct {
@@ -47,6 +48,7 @@ type Calendar struct {
 
 type Repository interface {
 	SetTimeZone(context.Context, string, string, string) error
+	SetTimeZoneCAS(context.Context, string, string, string, time.Time) (time.Time, error)
 	TimeZone(context.Context, string, string) (string, error)
 	Availability(context.Context, string, string, time.Time, time.Time) (Availability, error)
 	ListBlocks(context.Context, string, string, time.Time, time.Time) (Calendar, error)

@@ -134,6 +134,8 @@ test("return_to accepts only allowlisted same-origin routes", () => {
     "/dashboard/general",
     "/dashboard/security",
     "/dashboard/activity",
+    `/anfitrion/espacios/${uuid}`,
+    `/anfitrion/espacios/${uuid}/editar`,
     "/categorias/inmuebles",
     `/espacios/${uuid}`,
   ])
@@ -164,6 +166,8 @@ test("return_to rejects open redirects, traversal, auth/API paths, fragments, an
     "/explorar#fragment",
     "/%2f%2foutside.invalid",
     "/espacios/not-a-uuid",
+    "/anfitrion/espacios/not-a-uuid",
+    "/anfitrion/espacios/not-a-uuid/editar",
     "/categorias/InvalidCode",
     "/explorar?cursor=a&cursor=b",
     "/explorar?page_size=99",

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { FileCheck, Lock, Shield, User } from "lucide-react";
+import { Building2, FileCheck, Lock, Shield, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -11,6 +11,12 @@ const items = [
     href: "/mi-cuenta",
     icon: User,
     description: "Información personal y contacto",
+  },
+  {
+    title: "Mis espacios",
+    href: "/anfitrion/espacios",
+    icon: Building2,
+    description: "Administra tus espacios",
   },
   {
     title: "Seguridad",

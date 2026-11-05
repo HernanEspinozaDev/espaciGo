@@ -248,6 +248,77 @@ func VerifyScratchRuntimePermissions(ctx context.Context, conn ScratchPermission
 	return verifyScratchRuntimePermissions(ctx, conn, false)
 }
 
+// VerifyRuntimePermissionCoreReadback checks the reviewed core positive and
+// negative runtime grants without imposing the GCP-03 scratch database ACL.
+// It is intended for the separate administrator grant phase on an application
+// database after the complete migration ledger has been verified.
+func VerifyRuntimePermissionCoreReadback(ctx context.Context, conn ScratchPermissionDB) error {
+	if conn == nil {
+		return errors.New("runtime permission readback connection is required")
+	}
+	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_runtime", true); err != nil {
+		return err
+	}
+	var checks [43]bool
+	query := `SELECT
+		has_schema_privilege('espacigo_runtime', 'public', 'USAGE'),
+		not has_schema_privilege('espacigo_runtime', 'public', 'CREATE'),
+		has_table_privilege('espacigo_runtime', 'public.usuario', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.usuario', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.usuario', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.usuario', 'DELETE'),
+		has_table_privilege('espacigo_runtime', 'public.administrador_global', 'SELECT'),
+		not has_table_privilege('espacigo_runtime', 'public.administrador_global', 'INSERT'),
+		not has_table_privilege('espacigo_runtime', 'public.administrador_global', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.administrador_global', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.tarifa_espacio', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.tarifa_espacio', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.schema_migrations', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.media_asset', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.media_asset', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.media_asset', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_asset', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_asset', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant', 'INSERT'),
+		not has_table_privilege('espacigo_runtime', 'public.media_variant', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_variant', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_variant', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.space_media', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.space_media', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.space_media', 'UPDATE'),
+		not has_table_privilege('espacigo_runtime', 'public.space_media', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.space_media', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.profile_media', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.profile_media', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.profile_media', 'UPDATE'),
+		has_table_privilege('espacigo_runtime', 'public.profile_media', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.profile_media', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'UPDATE'),
+		has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.gallery_item_order', 'TRUNCATE'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'SELECT'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'INSERT'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'UPDATE'),
+		has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'DELETE'),
+		not has_table_privilege('espacigo_runtime', 'public.media_variant_intent', 'TRUNCATE')`
+	destinations := make([]any, len(checks))
+	for i := range checks {
+		destinations[i] = &checks[i]
+	}
+	if err := conn.QueryRow(ctx, query).Scan(destinations...); err != nil {
+		return errors.New("could not read back core runtime grants")
+	}
+	for _, passed := range checks {
+		if !passed {
+			return errors.New("core runtime grants differ from the reviewed privilege contract")
+		}
+	}
+	return nil
+}
+
 // VerifyScratchRetiredRuntimePermissions preserves the runtime-role checks
 // while applying the post-retirement no-TEMP/no-CREATE database ACL contract.
 func VerifyScratchRetiredRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) error {
@@ -376,21 +447,9 @@ func VerifyScratchMigratorRetired(ctx context.Context, conn ScratchPermissionDB)
 	return nil
 }
 
-// GrantRuntimePermissions applies the least-privilege table grants after migrations.
-// Versioned rates and private simulations are append/read only for user flows;
-// the administrator-guarded local suppression path may delete private simulations.
-func GrantRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) error {
-	var observerRoleExists bool
-	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_db_observer')`).Scan(&observerRoleExists); err != nil {
-		return fmt.Errorf("could not inspect read-only observer role: %w", err)
-	}
-	if observerRoleExists {
-		if _, err := conn.Exec(ctx, `GRANT SELECT ON public.schema_migrations TO espacigo_db_observer;
-GRANT USAGE ON SCHEMA public TO espacigo_db_observer`); err != nil {
-			return fmt.Errorf("could not grant read-only observer metadata: %w", err)
-		}
-	}
-	_, err := conn.Exec(ctx, `GRANT USAGE ON SCHEMA public TO espacigo_runtime;
+// runtimeACLSQL is the base least-privilege runtime grant source. Keep it as the
+// SQL executed by GrantRuntimePermissions and parsed for contract derivation.
+const runtimeACLSQL = `GRANT USAGE ON SCHEMA public TO espacigo_runtime;
  GRANT SELECT, INSERT, UPDATE ON public.usuario, public.sesion, public.token_accion TO espacigo_runtime;
  GRANT DELETE ON public.sesion, public.token_accion TO espacigo_runtime;
  GRANT SELECT, INSERT, DELETE ON public.historial_clave_local TO espacigo_runtime;
@@ -514,7 +573,32 @@ GRANT USAGE ON SCHEMA public TO espacigo_db_observer`); err != nil {
  GRANT SELECT, INSERT, UPDATE ON public.aviso_local, public.aviso_local_ciclo TO espacigo_runtime;
  GRANT SELECT, INSERT ON public.aviso_local_recuperacion_auditoria TO espacigo_runtime;
  GRANT EXECUTE ON FUNCTION public.purge_expired_local_communication(timestamptz,integer) TO espacigo_runtime;
-	`)
+	`
+
+const runtimeACLObserverSQL = `GRANT SELECT ON public.schema_migrations TO espacigo_db_observer;
+GRANT USAGE ON SCHEMA public TO espacigo_db_observer`
+
+const runtimeACLReplaySQL = `GRANT SELECT, INSERT ON public.registro_replay_baja_local TO espacigo_runtime`
+
+const runtimeACLOverridesSQL = `REVOKE DELETE ON public.tarifa_espacio FROM espacigo_runtime;
+REVOKE UPDATE,DELETE ON public.espacio_publicacion_historial_local,public.espacio_eliminacion_historial_local FROM espacigo_runtime;
+GRANT EXECUTE ON FUNCTION public.purge_unreferenced_local_publication_rates(uuid) TO espacigo_runtime;
+GRANT DELETE ON public.simulacion_precio_privada TO espacigo_runtime;`
+
+// GrantRuntimePermissions applies the least-privilege table grants after migrations.
+// Versioned rates and private simulations are append/read only for user flows;
+// the administrator-guarded local suppression path may delete private simulations.
+func GrantRuntimePermissions(ctx context.Context, conn ScratchPermissionDB) error {
+	var observerRoleExists bool
+	if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_db_observer')`).Scan(&observerRoleExists); err != nil {
+		return fmt.Errorf("could not inspect read-only observer role: %w", err)
+	}
+	if observerRoleExists {
+		if _, err := conn.Exec(ctx, runtimeACLObserverSQL); err != nil {
+			return fmt.Errorf("could not grant read-only observer metadata: %w", err)
+		}
+	}
+	_, err := conn.Exec(ctx, runtimeACLSQL)
 	if err != nil {
 		return err
 	}
@@ -523,7 +607,7 @@ GRANT USAGE ON SCHEMA public TO espacigo_db_observer`); err != nil {
 		return err
 	}
 	if replayRegistryExists {
-		if _, err := conn.Exec(ctx, `GRANT SELECT, INSERT ON public.registro_replay_baja_local TO espacigo_runtime`); err != nil {
+		if _, err := conn.Exec(ctx, runtimeACLReplaySQL); err != nil {
 			return err
 		}
 	}
@@ -531,9 +615,6 @@ GRANT USAGE ON SCHEMA public TO espacigo_db_observer`); err != nil {
 	// scoped SECURITY DEFINER function used by publication retirement. It may
 	// not delete immutable rate history directly. Privacy suppression still
 	// needs table DELETE for the account's private simulations.
-	_, err = conn.Exec(ctx, `REVOKE DELETE ON public.tarifa_espacio FROM espacigo_runtime;
-REVOKE UPDATE,DELETE ON public.espacio_publicacion_historial_local,public.espacio_eliminacion_historial_local FROM espacigo_runtime;
-GRANT EXECUTE ON FUNCTION public.purge_unreferenced_local_publication_rates(uuid) TO espacigo_runtime;
-GRANT DELETE ON public.simulacion_precio_privada TO espacigo_runtime;`)
+	_, err = conn.Exec(ctx, runtimeACLOverridesSQL)
 	return err
 }

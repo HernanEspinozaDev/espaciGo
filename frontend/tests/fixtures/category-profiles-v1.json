@@ -1,0 +1,1061 @@
+{
+  "source_migrations": [
+    "V000006__m04_extensible_category_attributes.sql",
+    "V000007__m04_profile_attribute_order.sql",
+    "V000067__inmuebles_residential_rentals.sql"
+  ],
+  "profiles": {
+    "oficina": {
+      "category_code": "oficina",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "puestos_trabajo",
+          "label": "Puestos de trabajo",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 1,
+          "maximum": 2147483647,
+          "order": 1
+        },
+        {
+          "code": "mobiliario_incluido",
+          "label": "Mobiliario incluido",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 2
+        },
+        {
+          "code": "tipo_uso_oficina",
+          "label": "Tipo de uso",
+          "type": "enum",
+          "filter_candidate": false,
+          "options": ["privada", "compartida"],
+          "order": 3
+        },
+        {
+          "code": "escritorios",
+          "label": "Escritorios",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 4
+        },
+        {
+          "code": "sillas_trabajo",
+          "label": "Sillas de trabajo",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 5
+        },
+        {
+          "code": "salas_reunion_disponibles",
+          "label": "Salas de reunión disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 6
+        },
+        {
+          "code": "impresora_disponible",
+          "label": "Impresora disponible",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 7
+        },
+        {
+          "code": "wifi",
+          "label": "Wi-Fi",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 8
+        },
+        {
+          "code": "energia_electrica",
+          "label": "Energía eléctrica",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 9
+        },
+        {
+          "code": "banos_disponibles",
+          "label": "Baños disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 10
+        },
+        {
+          "code": "climatizacion",
+          "label": "Climatización",
+          "type": "enum_list",
+          "filter_candidate": false,
+          "options": [
+            "aire_acondicionado",
+            "calefaccion",
+            "ventilacion_mecanica"
+          ],
+          "order": 11
+        }
+      ]
+    },
+    "sala_multiproposito": {
+      "category_code": "sala_multiproposito",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "disposiciones_admitidas",
+          "label": "Disposiciones admitidas",
+          "type": "enum_list",
+          "filter_candidate": false,
+          "options": ["auditorio", "mesa_reunion", "aula", "espacio_libre"],
+          "order": 1
+        },
+        {
+          "code": "sillas_disponibles",
+          "label": "Sillas disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 2
+        },
+        {
+          "code": "proyector",
+          "label": "Proyector",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 3
+        },
+        {
+          "code": "mesas_disponibles",
+          "label": "Mesas disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 4
+        },
+        {
+          "code": "pantalla",
+          "label": "Pantalla",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 5
+        },
+        {
+          "code": "pizarra",
+          "label": "Pizarra",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 6
+        },
+        {
+          "code": "videoconferencia",
+          "label": "Videoconferencia",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 7
+        },
+        {
+          "code": "equipo_audio",
+          "label": "Equipo de audio",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 8
+        },
+        {
+          "code": "wifi",
+          "label": "Wi-Fi",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 9
+        },
+        {
+          "code": "energia_electrica",
+          "label": "Energía eléctrica",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 10
+        },
+        {
+          "code": "banos_disponibles",
+          "label": "Baños disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 11
+        },
+        {
+          "code": "climatizacion",
+          "label": "Climatización",
+          "type": "enum_list",
+          "filter_candidate": false,
+          "options": [
+            "aire_acondicionado",
+            "calefaccion",
+            "ventilacion_mecanica"
+          ],
+          "order": 12
+        }
+      ]
+    },
+    "bodega": {
+      "category_code": "bodega",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "altura_util_m",
+          "label": "Altura útil",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 1
+        },
+        {
+          "code": "volumen_util_m3",
+          "label": "Volumen útil",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m³",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 2
+        },
+        {
+          "code": "acceso_carga",
+          "label": "Acceso de carga",
+          "type": "enum",
+          "filter_candidate": false,
+          "options": ["peatonal", "vehiculo_liviano", "furgon", "camion"],
+          "order": 3
+        },
+        {
+          "code": "ancho_acceso_m",
+          "label": "Ancho de acceso",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 4
+        },
+        {
+          "code": "altura_acceso_m",
+          "label": "Altura de acceso",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 5
+        },
+        {
+          "code": "carro_carga_disponible",
+          "label": "Carro de carga disponible",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 6
+        },
+        {
+          "code": "muelle_carga",
+          "label": "Muelle de carga",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 7
+        },
+        {
+          "code": "tipo_almacenamiento",
+          "label": "Tipo de almacenamiento",
+          "type": "enum",
+          "filter_candidate": false,
+          "options": ["seco", "temperatura_controlada", "refrigerado"],
+          "order": 8
+        }
+      ]
+    },
+    "estacionamiento": {
+      "category_code": "estacionamiento",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "largo_plaza_m",
+          "label": "Largo de plaza",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 1
+        },
+        {
+          "code": "ancho_plaza_m",
+          "label": "Ancho de plaza",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 2
+        },
+        {
+          "code": "vehiculos_admitidos",
+          "label": "Vehículos admitidos",
+          "type": "enum_list",
+          "filter_candidate": false,
+          "options": ["motocicleta", "automovil", "suv", "furgon"],
+          "order": 3
+        },
+        {
+          "code": "altura_maxima_m",
+          "label": "Altura máxima",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 4
+        },
+        {
+          "code": "techado",
+          "label": "Techado",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 5
+        },
+        {
+          "code": "tipo_acceso",
+          "label": "Tipo de acceso",
+          "type": "enum",
+          "filter_candidate": false,
+          "options": ["abierto", "porton_manual", "porton_automatico"],
+          "order": 6
+        },
+        {
+          "code": "carga_electrica",
+          "label": "Carga eléctrica",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 7
+        }
+      ]
+    },
+    "local_flexible": {
+      "category_code": "local_flexible",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "acceso_nivel_calle",
+          "label": "Acceso a nivel de calle",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 1
+        },
+        {
+          "code": "vitrina",
+          "label": "Vitrina",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 2
+        },
+        {
+          "code": "frente_m",
+          "label": "Frente",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 3
+        },
+        {
+          "code": "mostradores",
+          "label": "Mostradores",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 4
+        },
+        {
+          "code": "probadores",
+          "label": "Probadores",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 5
+        },
+        {
+          "code": "bodega_apoyo_m2",
+          "label": "Bodega de apoyo",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m²",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 6
+        },
+        {
+          "code": "iluminacion_exhibicion",
+          "label": "Iluminación de exhibición",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 7
+        },
+        {
+          "code": "wifi",
+          "label": "Wi-Fi",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 8
+        },
+        {
+          "code": "energia_electrica",
+          "label": "Energía eléctrica",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 9
+        },
+        {
+          "code": "banos_disponibles",
+          "label": "Baños disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 10
+        },
+        {
+          "code": "climatizacion",
+          "label": "Climatización",
+          "type": "enum_list",
+          "filter_candidate": false,
+          "options": [
+            "aire_acondicionado",
+            "calefaccion",
+            "ventilacion_mecanica"
+          ],
+          "order": 11
+        }
+      ]
+    },
+    "stand": {
+      "category_code": "stand",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "ancho_stand_m",
+          "label": "Ancho del stand",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 1
+        },
+        {
+          "code": "fondo_stand_m",
+          "label": "Fondo del stand",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 2
+        },
+        {
+          "code": "montaje_incluido",
+          "label": "Montaje incluido",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 3
+        },
+        {
+          "code": "lados_abiertos",
+          "label": "Lados abiertos",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 1,
+          "maximum": 4,
+          "order": 4
+        },
+        {
+          "code": "altura_maxima_m",
+          "label": "Altura máxima",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 5
+        },
+        {
+          "code": "potencia_disponible_w",
+          "label": "Potencia disponible",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 6
+        },
+        {
+          "code": "paneleria",
+          "label": "Panelería",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 7
+        },
+        {
+          "code": "mesas_incluidas",
+          "label": "Mesas incluidas",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 8
+        },
+        {
+          "code": "sillas_incluidas",
+          "label": "Sillas incluidas",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 9
+        },
+        {
+          "code": "energia_electrica",
+          "label": "Energía eléctrica",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 10
+        },
+        {
+          "code": "wifi",
+          "label": "Wi-Fi",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 11
+        }
+      ]
+    },
+    "quincho": {
+      "category_code": "quincho",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "tipo_parrilla",
+          "label": "Tipo de parrilla",
+          "type": "enum",
+          "filter_candidate": false,
+          "options": ["carbon", "gas", "electrica", "lena", "sin_parrilla"],
+          "order": 1
+        },
+        {
+          "code": "techado",
+          "label": "Techado",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 2
+        },
+        {
+          "code": "asientos_disponibles",
+          "label": "Asientos disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 3
+        },
+        {
+          "code": "parrillas_disponibles",
+          "label": "Parrillas disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 4
+        },
+        {
+          "code": "mesas_disponibles",
+          "label": "Mesas disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 5
+        },
+        {
+          "code": "lavaplatos",
+          "label": "Lavaplatos",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 6
+        },
+        {
+          "code": "refrigerador",
+          "label": "Refrigerador",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 7
+        },
+        {
+          "code": "utensilios_incluidos",
+          "label": "Utensilios incluidos",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 8
+        },
+        {
+          "code": "agua_potable",
+          "label": "Agua potable",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 9
+        },
+        {
+          "code": "energia_electrica",
+          "label": "Energía eléctrica",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 10
+        },
+        {
+          "code": "banos_disponibles",
+          "label": "Baños disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 11
+        }
+      ]
+    },
+    "parcela_eventos": {
+      "category_code": "parcela_eventos",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "superficie_exterior_util_m2",
+          "label": "Superficie exterior útil",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m²",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 1
+        },
+        {
+          "code": "superficie_cubierta_util_m2",
+          "label": "Superficie cubierta útil",
+          "type": "number",
+          "filter_candidate": false,
+          "unit": "m²",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "order": 2
+        },
+        {
+          "code": "estacionamientos_disponibles",
+          "label": "Estacionamientos disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 3
+        },
+        {
+          "code": "salon_cubierto",
+          "label": "Salón cubierto",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 4
+        },
+        {
+          "code": "cocina_disponible",
+          "label": "Cocina disponible",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 5
+        },
+        {
+          "code": "quincho_disponible",
+          "label": "Quincho disponible",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 6
+        },
+        {
+          "code": "piscina_disponible",
+          "label": "Piscina disponible",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 7
+        },
+        {
+          "code": "acceso_bus",
+          "label": "Acceso para bus",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 8
+        },
+        {
+          "code": "agua_potable",
+          "label": "Agua potable",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 9
+        },
+        {
+          "code": "energia_electrica",
+          "label": "Energía eléctrica",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 10
+        },
+        {
+          "code": "banos_disponibles",
+          "label": "Baños disponibles",
+          "type": "integer",
+          "filter_candidate": false,
+          "minimum": 0,
+          "maximum": 2147483647,
+          "order": 11
+        }
+      ]
+    },
+    "inmuebles": {
+      "category_code": "inmuebles",
+      "schema_version": 1,
+      "attributes": [
+        {
+          "code": "tipo_inmueble",
+          "label": "Tipo de inmueble",
+          "type": "enum",
+          "required": true,
+          "filter_candidate": true,
+          "order": 1,
+          "options": [
+            "Casa",
+            "Departamento",
+            "Pieza o habitación",
+            "Estudio o loft",
+            "Cabaña",
+            "Casa anexa",
+            "Dúplex",
+            "Otro"
+          ]
+        },
+        {
+          "code": "tipo_de_espacio",
+          "label": "Qué se arrienda",
+          "type": "enum",
+          "required": true,
+          "filter_candidate": true,
+          "order": 2,
+          "options": [
+            "Inmueble completo",
+            "Habitación privada",
+            "Habitación compartida",
+            "Cama en habitación compartida"
+          ]
+        },
+        {
+          "code": "superficie_construida_m2",
+          "label": "Superficie construida",
+          "type": "number",
+          "unit": "m²",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "filter_candidate": true,
+          "order": 3
+        },
+        {
+          "code": "superficie_terreno_m2",
+          "label": "Superficie del terreno",
+          "type": "number",
+          "unit": "m²",
+          "minimum": 0.01,
+          "maximum": 99999999.99,
+          "step": 0.01,
+          "filter_candidate": true,
+          "order": 4
+        },
+        {
+          "code": "dormitorios",
+          "label": "Dormitorios",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "filter_candidate": true,
+          "order": 5
+        },
+        {
+          "code": "camas",
+          "label": "Camas",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "filter_candidate": false,
+          "order": 6
+        },
+        {
+          "code": "banos_completos",
+          "label": "Baños completos",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "filter_candidate": true,
+          "order": 7
+        },
+        {
+          "code": "medios_banos",
+          "label": "Medios baños",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "filter_candidate": false,
+          "order": 8
+        },
+        {
+          "code": "privacidad_bano",
+          "label": "Uso del baño",
+          "type": "enum",
+          "filter_candidate": true,
+          "order": 9,
+          "options": [
+            "Privado en suite",
+            "Privado de uso exclusivo",
+            "Compartido",
+            "No disponible"
+          ]
+        },
+        {
+          "code": "cocina",
+          "label": "Cocina",
+          "type": "enum",
+          "filter_candidate": false,
+          "order": 10,
+          "options": ["Completa", "Kitchenette", "Compartida", "No disponible"]
+        },
+        {
+          "code": "amoblado",
+          "label": "Amoblado",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 11
+        },
+        {
+          "code": "estacionamientos",
+          "label": "Estacionamientos",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "filter_candidate": true,
+          "order": 12
+        },
+        {
+          "code": "bodegas",
+          "label": "Bodegas",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "filter_candidate": false,
+          "order": 13
+        },
+        {
+          "code": "piso",
+          "label": "Piso de la unidad",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647,
+          "filter_candidate": false,
+          "order": 14
+        },
+        {
+          "code": "pisos_edificio",
+          "label": "Pisos del edificio",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "filter_candidate": false,
+          "order": 15
+        },
+        {
+          "code": "ascensor",
+          "label": "Ascensor",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 16
+        },
+        {
+          "code": "balcon",
+          "label": "Balcón",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 17
+        },
+        {
+          "code": "terraza",
+          "label": "Terraza",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 18
+        },
+        {
+          "code": "patio_o_jardin",
+          "label": "Patio o jardín",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 19
+        },
+        {
+          "code": "piscina",
+          "label": "Piscina",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 20
+        },
+        {
+          "code": "wifi",
+          "label": "Wi-Fi",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 21
+        },
+        {
+          "code": "calefaccion",
+          "label": "Calefacción",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 22
+        },
+        {
+          "code": "aire_acondicionado",
+          "label": "Aire acondicionado",
+          "type": "boolean",
+          "filter_candidate": true,
+          "order": 23
+        },
+        {
+          "code": "agua_caliente",
+          "label": "Agua caliente",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 24
+        },
+        {
+          "code": "lavadora",
+          "label": "Lavadora disponible",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 25
+        },
+        {
+          "code": "secadora",
+          "label": "Secadora disponible",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 26
+        },
+        {
+          "code": "refrigerador",
+          "label": "Refrigerador",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 27
+        },
+        {
+          "code": "servicios_incluidos",
+          "label": "Servicios incluidos",
+          "type": "enum_list",
+          "filter_candidate": false,
+          "order": 28,
+          "options": [
+            "Agua",
+            "Electricidad",
+            "Gas",
+            "Internet",
+            "Gastos comunes",
+            "Limpieza",
+            "Ropa de cama"
+          ]
+        },
+        {
+          "code": "mascotas",
+          "label": "Mascotas",
+          "type": "enum",
+          "filter_candidate": true,
+          "order": 29,
+          "options": ["Permitidas", "No permitidas", "Consultar"]
+        },
+        {
+          "code": "visitas",
+          "label": "Visitas",
+          "type": "enum",
+          "filter_candidate": false,
+          "order": 30,
+          "options": ["Permitidas", "Con restricciones", "No permitidas"]
+        },
+        {
+          "code": "fumadores",
+          "label": "Fumadores",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 31
+        },
+        {
+          "code": "fiestas_o_reuniones",
+          "label": "Fiestas o reuniones",
+          "type": "boolean",
+          "filter_candidate": false,
+          "order": 32
+        },
+        {
+          "code": "duracion_minima_unidades",
+          "label": "Estadía mínima en la modalidad seleccionada",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "filter_candidate": false,
+          "order": 33,
+          "description": "Se expresa en la unidad de la tarifa base: horas, días o meses."
+        },
+        {
+          "code": "duracion_maxima_unidades",
+          "label": "Estadía máxima en la modalidad seleccionada",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "filter_candidate": false,
+          "order": 34,
+          "description": "Se expresa en la unidad de la tarifa base: horas, días o meses."
+        }
+      ]
+    }
+  }
+}

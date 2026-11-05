@@ -1182,6 +1182,119 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/document-verification/cases": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Listar los expedientes documentales propios */
+    get: operations["listOwnDocumentVerificationCases"];
+    put?: never;
+    /**
+     * Crear un expediente documental propio
+     * @description El actor se deriva de la sesión. El expediente pertenece al titular autenticado; Go valida el propósito y la titularidad del espacio cuando corresponde.
+     */
+    post: operations["createOwnDocumentVerificationCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/cases/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    /** Leer un expediente documental propio */
+    get: operations["getOwnDocumentVerificationCase"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/cases/{id}/submit": {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Una sola etiqueta fuerte canónica emitida por el servidor para la revisión actual del expediente. */
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Enviar un expediente documental propio a revisión
+     * @description Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto y no aplica la transición.
+     */
+    post: operations["submitOwnDocumentVerificationCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/cases/{id}/files": {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Revisión fuerte actual del expediente; formato de etiqueta decimal entre comillas. */
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Cargar un documento al expediente propio
+     * @description La sesión determina al titular y el espacio autorizado. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.
+     */
+    post: operations["uploadOwnDocumentVerificationFile"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/space-cases/{caseID}/files/{fileID}/content": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        fileID: string;
+      };
+      cookie?: never;
+    };
+    /**
+     * Descargar un archivo propio aprobado
+     * @description Solo el titular actual puede descargar archivos limpios dentro de la vigencia autorizada. La respuesta no revela claves de almacenamiento ni permite acceso a revisores o titulares históricos.
+     */
+    get: operations["downloadOwnSpaceDocumentVerificationFile"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/verifications/{id}/evidence": {
     parameters: {
       query?: never;
@@ -1468,7 +1581,7 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** @description Publica u oculta un espacio propio. Requiere rol arrendador; activar exige KYC sintético efectivo de la cuenta personal y no concede ni infiere roles. Solo cambia el estado local del espacio, sin abrirlo al catálogo general ni alterar reservas existentes. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled. */
+    /** @description Publica u oculta un espacio propio. Requiere rol arrendador; activar no requiere KYC ni documentos de identidad y no concede ni infiere roles. Solo cambia el estado local del espacio, sin abrirlo al catálogo general ni alterar reservas existentes. Publicar exige una zona IANA válida; si falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled. */
     put: operations["setOwnSpacePublicationState"];
     post?: never;
     delete?: never;
@@ -1487,8 +1600,27 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** @description Modifica título, descripción, capacidad, reglas de uso, ubicación pública y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas anteriores. La ubicación usa el catálogo SUBDERE_DPA_2018 y no se deriva de dirección o coordenadas. No cambia el estado ni la visibilidad del espacio. */
+    /** @description Modifica título, descripción, capacidad, reglas de uso, ubicación pública y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas anteriores. La ubicación usa el catálogo SUBDERE_DPA_2018 y no se deriva de dirección o coordenadas. An `If-Match` strong ETag from the current listing revision is required. A stale revision returns 412; a missing required precondition returns 428 and a malformed precondition returns 400. Every successful response includes the new strong ETag for the next mutation. The operation is a compare-and-swap; clients must not silently retry stale writes. */
     put: operations["updateOwnPublishedSpaceContent"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/gallery/upload-status": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Consulta el resultado autoritativo de una carga propia por su clave de idempotencia después de una respuesta perdida o una interrupción del cliente. El estado no cancela ni revierte una operación en el servidor. */
+    get: operations["getOwnSpaceGalleryUploadStatus"];
+    put?: never;
     post?: never;
     delete?: never;
     options?: never;
@@ -1508,7 +1640,7 @@ export interface paths {
     /** @description Lista la galería propia compuesta en un orden común; fotos reales permanecen privadas hasta la declaración explícita. */
     get: operations["listOwnSyntheticSpaceGallery"];
     put?: never;
-    /** @description Sin cuerpo conserva la generación del PNG sintético. Con multipart/form-data y campo image admite JPEG, PNG y WebP estático, normaliza derivados WebP y los guarda en el namespace privado media/v1. Requiere rol arrendador, propiedad del espacio, bearer y clave de idempotencia; máximo común de 10 fotos. */
+    /** @description Sin cuerpo conserva la generación del PNG sintético. Con multipart/form-data y campo image admite JPEG, PNG y WebP estático, normaliza derivados WebP y los guarda en el namespace privado V2 de fotos de espacio. Requiere rol arrendador, propiedad del espacio, bearer y clave de idempotencia; máximo común de 30 fotos. Las claves históricas V1 permanecen legibles y limpiables. */
     post: operations["createSyntheticOwnSpaceGalleryPhoto"];
     delete?: never;
     options?: never;
@@ -1546,10 +1678,11 @@ export interface paths {
       cookie?: never;
     };
     get: operations["getOwnSyntheticSpaceGalleryPhoto"];
+    /** @description Actualiza los metadatos de una imagen propia usando control de concurrencia optimista. Requiere un If-Match fuerte; responde 428 si falta, 400 si es inválido y 412 si está obsoleto. Toda respuesta exitosa devuelve el ETag fuerte renovado del espacio. */
     put: operations["updateOwnSpaceMediaPhoto"];
     post?: never;
-    /** @description Retira la imagen propia y encola limpieza recuperable del archivo privado. */
-    delete: operations["removeOwnSyntheticSpaceGalleryPhoto"];
+    /** @description Retira la imagen propia, actualiza el orden y devuelve la revisión fuerte renovada del espacio. */
+    delete: operations["removeOwnSpaceGalleryPhoto"];
     options?: never;
     head?: never;
     patch?: never;
@@ -1566,8 +1699,8 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** @description Declara o retira explícitamente una foto sintética de la ficha pública. La portada solo se muestra mientras también sea pública. */
-    put: operations["setOwnSyntheticSpaceGalleryPhotoPublication"];
+    /** @description Actualiza o retira la visibilidad en catálogo de una foto propia de galería, sintética o multimedia. Requiere un If-Match fuerte; responde 428 si falta, 400 si es inválido y 412 si la revisión está obsoleta. La portada sólo se muestra mientras la foto también sea pública. La respuesta contiene el DTO correspondiente. */
+    put: operations["setOwnSpaceGalleryPhotoPublication"];
     post?: never;
     delete?: never;
     options?: never;
@@ -1587,7 +1720,8 @@ export interface paths {
     };
     /** @description Autoriza de nuevo al titular en cada consulta; responde PNG privado sin URL persistente. */
     get: operations["getOwnSyntheticSpaceGalleryPhotoContent"];
-    put?: never;
+    /** @description Reemplaza el contenido de una foto real activa propia sin cambiar su posición, texto alternativo, visibilidad ni portada. Requiere ETag fuerte actual del borrador en If-Match y una clave Idempotency-Key. El reemplazo se publica atómicamente solo si la revisión coincide; una revisión obsoleta responde 412 y una precondición ausente responde 428. */
+    put: operations["replaceOwnSpaceMediaPhoto"];
     post?: never;
     delete?: never;
     options?: never;
@@ -1627,7 +1761,7 @@ export interface paths {
     };
     /** @description Comprueba intervalos finitos contra ocupaciones activas. El calendario `ocupacion` sigue siendo propiedad de M06. */
     get: operations["queryOwnDraftAvailability"];
-    /** @description Configura una zona IANA explícita para el borrador propio. Para un espacio activo u oculto heredado, solo repara una zona ausente y solo si no tiene reservas; nunca reemplaza una zona existente ni asigna un valor automáticamente. La autorización se limita al titular autenticado. */
+    /** @description Configura una zona IANA explícita para el borrador propio. Para un espacio activo u oculto heredado, solo repara una zona ausente y solo si no tiene reservas; nunca reemplaza una zona existente ni asigna un valor automáticamente. La autorización se limita al titular autenticado. Requiere If-Match con el ETag fuerte vigente compartido por el espacio; responde 428 si falta, 400 si es inválido y 412 si está obsoleto. Toda respuesta exitosa devuelve el ETag fuerte renovado. No reintentar automáticamente. */
     put: operations["configureOwnDraftAvailability"];
     post?: never;
     delete?: never;
@@ -1647,7 +1781,7 @@ export interface paths {
     };
     /** @description Consulta la versión vigente de la tarifa base CLP del espacio propio en estado borrador, activo u oculto. */
     get: operations["getOwnSpaceTariff"];
-    /** @description Actualiza la tarifa del espacio propio en estado borrador, activo u oculto creando una versión inmutable. Una modalidad incompatible con un horario semanal activo responde conflicto y no cambia la tarifa. Cotizaciones, reservas y simulaciones existentes conservan sus snapshots. No cambia el estado de publicación. */
+    /** @description Actualiza la tarifa del espacio propio en estado borrador, activo u oculto creando una versión inmutable. Una modalidad incompatible con un horario semanal activo responde conflicto y no cambia la tarifa. Cotizaciones, reservas y simulaciones existentes conservan sus snapshots. No cambia el estado de publicación. Requiere If-Match con el ETag fuerte vigente del espacio; no se reintenta automáticamente ante revisión obsoleta. */
     put: operations["updateOwnSpaceTariff"];
     post?: never;
     delete?: never;
@@ -1746,6 +1880,26 @@ export interface paths {
     /** @description Lee la zona horaria IANA configurada para un espacio propio en estado borrador, activo u oculto. */
     get: operations["getOwnDraftTimeZone"];
     put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceId}/weekly-hours": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    /** @description Lee el horario de cualquier espacio propio no eliminado con tarifa por hora, en borrador, activo u oculto. Requiere titular autenticado con cuenta activa; la gestión propia no exige la elegibilidad KYC requerida para consultas públicas. */
+    get: operations["getOwnSpaceWeeklyHours"];
+    /** @description Reemplaza el horario de un espacio propio no eliminado con tarifa por hora. Hasta dos tramos por día, apertura < cierre, sin solapes ni cruce de medianoche. Cierre 24:00 es límite exclusivo final del día; apertura 00:00 es válida. Requiere If-Match fuerte de la revisión compartida; 428 ausente, 400 inválido, 412 obsoleto. Éxito devuelve ETag renovado; no reintentar automáticamente. */
+    put: operations["replaceOwnSpaceWeeklyHours"];
     post?: never;
     delete?: never;
     options?: never;
@@ -1871,7 +2025,7 @@ export interface paths {
     };
     /** @description Solo el anfitrión del fixture sintético por hora puede consultar la regla. Sin fila, activo es false y se conserva la disponibilidad previa. Con activo true, días sin tramos están cerrados. La respuesta incluye la zona IANA vigente. */
     get: operations["getOwnSyntheticHourlyWeeklyHours"];
-    /** @description Solo el anfitrión. Hasta dos tramos por día, apertura < cierre, sin solapes ni cruce de medianoche. Cierre 24:00 es límite exclusivo final del día; apertura 00:00 es válida. Horas inexistentes no producen intervalos; durante horas repetidas solo se ofrece un intervalo si todas sus porciones reales permanecen dentro de un tramo. La escritura se serializa con cotizaciones y solicitudes. No altera ocupaciones, reservas ni historial. Día/mes no son elegibles. */
+    /** @description Solo el anfitrión. Hasta dos tramos por día, apertura < cierre, sin solapes ni cruce de medianoche. Cierre 24:00 es límite exclusivo final del día; apertura 00:00 es válida. Horas inexistentes no producen intervalos; durante horas repetidas solo se ofrece un intervalo si todas sus porciones reales permanecen dentro de un tramo. La escritura se serializa con cotizaciones y solicitudes. No altera ocupaciones, reservas ni historial. Día/mes no son elegibles. Requiere If-Match fuerte de la revisión compartida del espacio; 428 ausente, 400 inválido, 412 obsoleto. Éxito devuelve ETag renovado; no reintentar automáticamente. */
     put: operations["replaceOwnSyntheticHourlyWeeklyHours"];
     post?: never;
     delete?: never;
@@ -2088,6 +2242,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
+    /** @description La aprobación anfitriona exige identidad documental manual vigente de ambas partes; rechazo no consulta este requisito. */
     post: operations["decideLocalTrialReservation"];
     delete?: never;
     options?: never;
@@ -3708,6 +3863,9 @@ export interface components {
       rate_unit: "hora" | "dia" | "mes";
       items: components["schemas"]["LocalAvailableInterval"][];
     };
+    OwnerWeeklyHoursEnvelope: {
+      data: components["schemas"]["LocalWeeklyHours"];
+    };
     LocalWeeklyHoursEnvelope: {
       /** @constant */
       safety_notice: "ENSAYO LOCAL — SIN COBRO REAL";
@@ -4365,6 +4523,24 @@ export interface components {
       photo: components["schemas"]["SpaceMediaPhoto"];
       reused: boolean;
     };
+    SpaceMediaPhotoPending: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      /** @constant */
+      state: "pending";
+    };
+    SpaceMediaPhotoPendingEnvelope: {
+      photo: components["schemas"]["SpaceMediaPhotoPending"];
+      reused: boolean;
+    };
+    SpaceGalleryUploadStatus: {
+      /** Format: uuid */
+      photo_id: string;
+      /** @enum {string} */
+      state: "pending" | "ready" | "failed" | "deleting";
+    };
     SyntheticSpaceGalleryPhotoEnvelope: {
       photo: components["schemas"]["SyntheticSpaceGalleryPhoto"];
       reused: boolean;
@@ -4641,6 +4817,59 @@ export interface components {
         | "documento_vencido"
         | "antecedentes_incompletos"
         | "inicio_actividades_no_confirmado";
+    };
+    DocumentVerificationCaseCreate:
+      | {
+          /** @constant */
+          purpose: "identity";
+          /** Format: date-time */
+          document_expires_at: string;
+        }
+      | {
+          /** @constant */
+          purpose: "space";
+          /** Format: uuid */
+          space_id: string;
+          /** Format: date-time */
+          document_expires_at?: string;
+        };
+    DocumentVerificationOwnerFile: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      state: "pendiente" | "limpio" | "bloqueado" | "error";
+      /** Format: int64 */
+      size: number | string;
+      /** @enum {string} */
+      mime: "image/jpeg" | "image/png" | "application/pdf";
+      pages: number;
+    };
+    DocumentVerificationOwnerCase: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      purpose: "identity" | "space";
+      /** Format: uuid */
+      space_id?: string;
+      /** @enum {string} */
+      state:
+        | "borrador"
+        | "enviada"
+        | "en_revision"
+        | "requiere_antecedentes"
+        | "aprobada"
+        | "rechazada"
+        | "vencida"
+        | "revocada";
+      /** Format: int64 */
+      revision: number | string;
+      /** Format: date-time */
+      document_expires_at?: string;
+      /** Format: date-time */
+      verified_at?: string;
+      /** Format: date-time */
+      verified_until?: string;
+      files: components["schemas"]["DocumentVerificationOwnerFile"][];
     };
     VerificationCase: {
       /** Format: uuid */
@@ -4959,7 +5188,27 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description Conflicto con el estado actual, versión o clave de idempotencia. */
+    /** @description El ETag proporcionado no coincide con la versión actual del recurso. */
+    PreconditionFailed: {
+      headers: {
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Se requiere el encabezado If-Match. */
+    PreconditionRequired: {
+      headers: {
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Conflicto con el estado actual, versión o clave de idempotencia; la aprobación anfitriona también puede requerir identidad documental vigente de ambas partes. */
     Conflict: {
       headers: {
         "X-Request-ID": components["headers"]["X-Request-ID"];
@@ -5000,7 +5249,7 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
-    /** @description mail_unavailable: solicitar reenvío al recuperar el correo local. */
+    /** @description mail_unavailable: solicitar reenvío al recuperar el correo local; identity_verification_unavailable: servicio local temporalmente no disponible. */
     ServiceUnavailable: {
       headers: {
         "X-Request-ID": components["headers"]["X-Request-ID"];
@@ -7527,6 +7776,220 @@ export interface operations {
       422: components["responses"]["UnprocessableEntity"];
     };
   };
+  listOwnDocumentVerificationCases: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expedientes del titular autenticado, sin datos internos de revisión ni almacenamiento. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"][];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  createOwnDocumentVerificationCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DocumentVerificationCaseCreate"];
+      };
+    };
+    responses: {
+      /** @description Expediente creado. */
+      201: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      /** @description El cuerpo JSON supera el límite de 16 KiB. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getOwnDocumentVerificationCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expediente propio; incluye únicamente campos allowlistados. */
+      200: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  submitOwnDocumentVerificationCase: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Una sola etiqueta fuerte canónica emitida por el servidor para la revisión actual del expediente. */
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expediente enviado; devuelve el estado y ETag vigentes. */
+      200: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  uploadOwnDocumentVerificationFile: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Revisión fuerte actual del expediente; formato de etiqueta decimal entre comillas. */
+        "If-Match": string;
+      };
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          /** Format: binary */
+          file: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Archivo guardado en estado pendiente y revisión avanzada. */
+      201: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            /** Format: int64 */
+            revision: number | string;
+            file: {
+              /** Format: uuid */
+              id: string;
+              /** @enum {string} */
+              state: "pendiente";
+              /** Format: int64 */
+              size: number | string;
+              /** @enum {string} */
+              mime: "image/jpeg" | "image/png" | "application/pdf";
+              pages: number;
+            };
+          };
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      /** @description El archivo o el cuerpo multipart supera el límite autorizado. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Se requiere multipart/form-data. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      428: components["responses"]["PreconditionRequired"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  downloadOwnSpaceDocumentVerificationFile: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        fileID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Contenido documental limpio, entregado como adjunto privado. */
+      200: {
+        headers: {
+          "Cache-Control": "private, no-store";
+          "Content-Disposition": string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+          "image/jpeg": string;
+          "image/png": string;
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
   listOwnSyntheticEvidence: {
     parameters: {
       query?: never;
@@ -7973,7 +8436,10 @@ export interface operations {
   createOwnSpaceDraft: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description Clave opaca que identifica una misma operación para reintentos seguros. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+      };
       path?: never;
       cookie?: never;
     };
@@ -7986,6 +8452,8 @@ export interface operations {
       /** @description Borrador creado. */
       201: {
         headers: {
+          /** @description ETag fuerte inicial del borrador para la primera mutación CAS. */
+          ETag?: string;
           [name: string]: unknown;
         };
         content: {
@@ -8010,6 +8478,8 @@ export interface operations {
       /** @description Espacio propio. */
       200: {
         headers: {
+          /** @description ETag fuerte de la versión actual del borrador. */
+          ETag?: string;
           [name: string]: unknown;
         };
         content: {
@@ -8023,7 +8493,10 @@ export interface operations {
   updateOwnSpaceDraft: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description Debe ser el ETag fuerte obtenido para este espacio. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
       };
@@ -8038,15 +8511,20 @@ export interface operations {
       /** @description Borrador actualizado. */
       200: {
         headers: {
+          /** @description ETag fuerte de la versión actualizada del borrador. */
+          ETag?: string;
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["SpaceDraft"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
       422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   deleteOwnPublication: {
@@ -8078,7 +8556,10 @@ export interface operations {
   setOwnSpacePublicationState: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description ETag fuerte de GET /spaces/{spaceId}. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
       };
@@ -8090,26 +8571,51 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Estado de publicación actualizado. */
+      /** @description Estado de publicación actualizado; devuelve ETag fuerte nuevo. */
       200: {
         headers: {
+          ETag: string;
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["SpaceDraft"];
         };
       };
+      /** @description If-Match malformado. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      /** @description La revisión actual no coincide; no se reintenta automáticamente. */
+      412: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
       422: components["responses"]["UnprocessableEntity"];
+      /** @description Falta If-Match. */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
     };
   };
   updateOwnPublishedSpaceContent: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description ETag fuerte vigente de la publicación. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
       };
@@ -8121,13 +8627,64 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Datos vigentes de la publicación propia. */
+      /** @description Datos vigentes; devuelve ETag fuerte nuevo. */
+      200: {
+        headers: {
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceDraft"];
+        };
+      };
+      /** @description If-Match malformado. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      /** @description La revisión actual no coincide; no se reintenta automáticamente. */
+      412: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      422: components["responses"]["UnprocessableEntity"];
+      /** @description Falta If-Match. */
+      428: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+    };
+  };
+  getOwnSpaceGalleryUploadStatus: {
+    parameters: {
+      query?: never;
+      header: {
+        "Idempotency-Key": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Reserva de carga propia en estado pending */
       200: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["SpaceDraft"];
+          "application/json": components["schemas"]["SpaceGalleryUploadStatus"];
         };
       };
       401: components["responses"]["Unauthorized"];
@@ -8135,6 +8692,15 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       422: components["responses"]["UnprocessableEntity"];
+      /** @description El estado de la carga no pudo consultarse. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
   };
   listOwnSyntheticSpaceGallery: {
@@ -8160,7 +8726,7 @@ export interface operations {
               | components["schemas"]["SpaceMediaPhoto"]
             )[];
             /** @constant */
-            max_photos: 10;
+            max_photos: 30;
           };
         };
       };
@@ -8209,6 +8775,16 @@ export interface operations {
           "application/json":
             | components["schemas"]["SyntheticSpaceGalleryPhotoEnvelope"]
             | components["schemas"]["SpaceMediaPhotoEnvelope"];
+        };
+      };
+      /** @description La carga con la misma clave sigue pendiente; el cliente puede reconsultar de forma idempotente después del intervalo indicado. */
+      202: {
+        headers: {
+          "Retry-After"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceMediaPhotoPendingEnvelope"];
         };
       };
       401: components["responses"]["Unauthorized"];
@@ -8291,7 +8867,10 @@ export interface operations {
   updateOwnSpaceMediaPhoto: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description ETag fuerte vigente obtenido para el espacio. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
         photoId: string;
@@ -8308,25 +8887,33 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Metadata de imagen real actualizada. */
+      /** @description Metadata de imagen real actualizada; devuelve el ETag fuerte renovado del espacio. */
       200: {
         headers: {
+          /** @description ETag fuerte de la revisión actualizada del espacio. */
+          ETag?: string;
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["SpaceMediaPhoto"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
       422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
-  removeOwnSyntheticSpaceGalleryPhoto: {
+  removeOwnSpaceGalleryPhoto: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description ETag fuerte obtenido para la revisión actual del espacio. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
         photoId: string;
@@ -8338,21 +8925,29 @@ export interface operations {
       /** @description Resultado idempotente de la retirada. */
       200: {
         headers: {
+          /** @description ETag fuerte de la revisión actualizada del espacio. */
+          ETag?: string;
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["SyntheticSpaceGalleryRemoval"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
-  setOwnSyntheticSpaceGalleryPhotoPublication: {
+  setOwnSpaceGalleryPhotoPublication: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description ETag fuerte vigente del espacio; contiene la revisión RFC 3339 del recurso. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
         photoId: string;
@@ -8367,18 +8962,26 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Estado de publicación de la imagen propia. */
+      /** @description Visibilidad en catálogo actualizada; el ETag contiene la revisión vigente del espacio. */
       200: {
         headers: {
+          /** @description ETag fuerte de la revisión vigente del espacio. */
+          ETag?: string;
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["SyntheticSpaceGalleryPhoto"];
+          "application/json":
+            | components["schemas"]["SyntheticSpaceGalleryPhoto"]
+            | components["schemas"]["SpaceMediaPhoto"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   getOwnSyntheticSpaceGalleryPhotoContent: {
@@ -8405,6 +9008,94 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
+      /** @description Storage privado temporalmente no disponible. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+    };
+  };
+  replaceOwnSpaceMediaPhoto: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description ETag fuerte de GET /spaces/{spaceId}. */
+        "If-Match": string;
+        "Idempotency-Key": string;
+      };
+      path: {
+        spaceId: string;
+        photoId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "multipart/form-data": {
+          /** Format: binary */
+          image: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Reintento idempotente del reemplazo. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceMediaPhotoEnvelope"];
+        };
+      };
+      /** @description Imagen reemplazada atómicamente en su posición existente. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceMediaPhotoEnvelope"];
+        };
+      };
+      /** @description El reemplazo con la misma clave sigue pendiente; el cliente puede reconsultar de forma idempotente después del intervalo indicado. */
+      202: {
+        headers: {
+          "Retry-After"?: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["SpaceMediaPhotoPendingEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
+      /** @description Imagen excede el tamaño permitido. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description Se requiere multipart/form-data. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
       /** @description Storage privado temporalmente no disponible. */
       503: {
         headers: {
@@ -8483,7 +9174,10 @@ export interface operations {
   configureOwnDraftAvailability: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description ETag fuerte vigente obtenido para el espacio. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
       };
@@ -8495,19 +9189,23 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Zona horaria configurada. */
+      /** @description Zona horaria configurada; devuelve el ETag fuerte renovado del espacio. */
       200: {
         headers: {
+          ETag: string;
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["AvailabilityConfigResponse"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
       422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   getOwnSpaceTariff: {
@@ -8538,7 +9236,10 @@ export interface operations {
   updateOwnSpaceTariff: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description ETag fuerte vigente obtenido de GET /spaces/{spaceId}. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
       };
@@ -8550,20 +9251,24 @@ export interface operations {
       };
     };
     responses: {
-      /** @description Nueva versión */
+      /** @description Nueva versión; ETag contiene la revisión autoritativa actualizada del espacio. */
       200: {
         headers: {
+          ETag: string;
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["Rate"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
       422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   listOwnSpaceTariffVersions: {
@@ -8729,6 +9434,76 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+    };
+  };
+  getOwnSpaceWeeklyHours: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Horario semanal y revisión compartida del espacio. */
+      200: {
+        headers: {
+          /** @description ETag fuerte de la revisión actual del espacio. */
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OwnerWeeklyHoursEnvelope"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  replaceOwnSpaceWeeklyHours: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description ETag fuerte vigente obtenido para el espacio. */
+        "If-Match": string;
+      };
+      path: {
+        spaceId: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          enabled: boolean;
+          days: components["schemas"]["LocalWeeklyDay"][];
+        };
+      };
+    };
+    responses: {
+      /** @description Horario semanal persistido. */
+      200: {
+        headers: {
+          /** @description ETag fuerte renovado de la revisión del espacio. */
+          ETag: string;
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OwnerWeeklyHoursEnvelope"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["NotFound"];
+      412: components["responses"]["PreconditionFailed"];
+      415: components["responses"]["UnsupportedMediaType"];
+      422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   deleteOwnDraftManualBlock: {
@@ -8921,6 +9696,8 @@ export interface operations {
       /** @description Configuración semanal del espacio propio. */
       200: {
         headers: {
+          /** @description ETag fuerte de la revisión compartida del espacio. */
+          ETag: string;
           [name: string]: unknown;
         };
         content: {
@@ -8934,7 +9711,10 @@ export interface operations {
   replaceOwnSyntheticHourlyWeeklyHours: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description ETag fuerte vigente obtenido para el espacio. */
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
       };
@@ -8952,16 +9732,21 @@ export interface operations {
       /** @description Configuración semanal persistida. */
       200: {
         headers: {
+          /** @description ETag fuerte renovado de la revisión compartida del espacio. */
+          ETag: string;
           [name: string]: unknown;
         };
         content: {
           "application/json": components["schemas"]["LocalWeeklyHoursEnvelope"];
         };
       };
+      400: components["responses"]["BadRequest"];
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      412: components["responses"]["PreconditionFailed"];
       422: components["responses"]["UnprocessableEntity"];
+      428: components["responses"]["PreconditionRequired"];
     };
   };
   quoteAuthorizedLocalBooking: {
@@ -9466,6 +10251,7 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       422: components["responses"]["UnprocessableEntity"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
   previewLocalTrialReservationCancellation: {

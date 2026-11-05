@@ -172,3 +172,28 @@ func TestRunWithConnectorAlwaysClosesAfterPreflightError(t *testing.T) {
 		t.Fatal("connector was not closed after migrator failure")
 	}
 }
+
+func TestShouldInitializeMigrationHistoryRequiresCreateOnlyWhenMissing(t *testing.T) {
+	tests := []struct {
+		name       string
+		exists     bool
+		canCreate  bool
+		wantCreate bool
+		wantErr    bool
+	}{
+		{name: "existing ledger without schema create", exists: true},
+		{name: "missing ledger with schema create", canCreate: true, wantCreate: true},
+		{name: "missing ledger without schema create", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := shouldInitializeMigrationHistory(tt.exists, tt.canCreate)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("shouldInitializeMigrationHistory() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.wantCreate {
+				t.Fatalf("shouldInitializeMigrationHistory() = %t, want %t", got, tt.wantCreate)
+			}
+		})
+	}
+}

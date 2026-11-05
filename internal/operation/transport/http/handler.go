@@ -61,6 +61,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(parts) == 7 && parts[0] == "api" && parts[1] == "v1" && parts[2] == "local" && parts[3] == "booking-trial" && parts[4] == "spaces" && parts[6] == "returns" && r.Method == http.MethodGet {
+		items, e := h.service.ListSpaceReturns(r.Context(), principal.AccountID, parts[5])
+		h.reply(w, http.StatusOK, map[string]any{"space_id": parts[5], "items": items}, e, requestID)
+		return
+	}
 	if len(parts) < 6 || parts[0] != "api" || parts[1] != "v1" || parts[2] != "local" || parts[3] != "booking-trial" || parts[4] != "reservations" {
 		writeError(w, http.StatusNotFound, "not_found", requestID)
 		return

@@ -1,0 +1,253 @@
+{
+  "schema": "espacigo-authorized-image-policy-after/v1",
+  "baseHead": "4289139af7289aed0e152484ebedc02acb64b170",
+  "sourceState": "uncommitted approved production fallback; final tested SHA belongs in plan/receipt",
+  "humanDecisionLiteral": "Fallback a 1280px/Q75; si aún excede el peso, rechazar sin degradar más",
+  "decisionScope": "Only display variants exceeding614400bytes at current1600/Q80; normal images, avatars and thumbnails preserve their encoder output. Reject rather than degrade below approved floor. This is not whole-product acceptance.",
+  "beforeEvidence": "gallery-authorized-measurements-20261105.json",
+  "actualAfterProductionVariants": [
+    {
+      "case": "living_room",
+      "kind": "display",
+      "max_side": 1600,
+      "quality": 80,
+      "bytes": 166482,
+      "encode_ms": 820.861,
+      "width": 1600,
+      "height": 1068,
+      "psnr_rgb_db": 35.58795397053254,
+      "ssim_global_luminance": 0.9987495106592882,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "living_room",
+      "kind": "thumbnail",
+      "max_side": 480,
+      "quality": 80,
+      "bytes": 24896,
+      "encode_ms": 820.861,
+      "width": 480,
+      "height": 320,
+      "psnr_rgb_db": 33.57123444370069,
+      "ssim_global_luminance": 0.9986405733129405,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "white_office",
+      "kind": "display",
+      "max_side": 1600,
+      "quality": 80,
+      "bytes": 55418,
+      "encode_ms": 815.636,
+      "width": 1600,
+      "height": 1067,
+      "psnr_rgb_db": 40.1146131005913,
+      "ssim_global_luminance": 0.9991152218013388,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert output for this white_office variant is unchanged from BEFORE; approved fallback was not triggered. EncodeMS is shared total Convert duration, not per-variant time. Metrics compare against same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "white_office",
+      "kind": "thumbnail",
+      "max_side": 480,
+      "quality": 80,
+      "bytes": 12466,
+      "encode_ms": 815.636,
+      "width": 480,
+      "height": 320,
+      "psnr_rgb_db": 37.64284471093716,
+      "ssim_global_luminance": 0.9985913024357681,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert output for this white_office variant is unchanged from BEFORE; approved fallback was not triggered. EncodeMS is shared total Convert duration, not per-variant time. Metrics compare against same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "wood_texture",
+      "kind": "display",
+      "max_side": 1600,
+      "quality": 80,
+      "bytes": 127872,
+      "encode_ms": 803.135,
+      "width": 1600,
+      "height": 1200,
+      "psnr_rgb_db": 35.999196361007236,
+      "ssim_global_luminance": 0.9801389751900351,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "wood_texture",
+      "kind": "thumbnail",
+      "max_side": 480,
+      "quality": 80,
+      "bytes": 19184,
+      "encode_ms": 803.135,
+      "width": 480,
+      "height": 360,
+      "psnr_rgb_db": 34.762621984946385,
+      "ssim_global_luminance": 0.9747071457471178,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "transparent_plan",
+      "kind": "display",
+      "max_side": 1600,
+      "quality": 80,
+      "bytes": 14862,
+      "encode_ms": 365.318,
+      "width": 1600,
+      "height": 1200,
+      "psnr_rgb_db": 38.02446681263173,
+      "ssim_global_luminance": 0.9997295581629134,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "transparent_plan",
+      "kind": "thumbnail",
+      "max_side": 480,
+      "quality": 80,
+      "bytes": 4142,
+      "encode_ms": 365.318,
+      "width": 480,
+      "height": 360,
+      "psnr_rgb_db": 36.33348256154191,
+      "ssim_global_luminance": 0.9992566759658441,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "exterior_texture",
+      "kind": "display",
+      "max_side": 1280,
+      "quality": 75,
+      "bytes": 611162,
+      "encode_ms": 1484.951,
+      "width": 1280,
+      "height": 960,
+      "psnr_rgb_db": 21.059952613982823,
+      "ssim_global_luminance": 0.9882229411385564,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "exterior_texture",
+      "kind": "thumbnail",
+      "max_side": 480,
+      "quality": 80,
+      "bytes": 98496,
+      "encode_ms": 1484.951,
+      "width": 480,
+      "height": 360,
+      "psnr_rgb_db": 20.345667841125934,
+      "ssim_global_luminance": 0.990373936060868,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "webp_texture",
+      "kind": "display",
+      "max_side": 1280,
+      "quality": 75,
+      "bytes": 558568,
+      "encode_ms": 1146.223,
+      "width": 1280,
+      "height": 960,
+      "psnr_rgb_db": 26.446767885563208,
+      "ssim_global_luminance": 0.9917619264969255,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    },
+    {
+      "case": "webp_texture",
+      "kind": "thumbnail",
+      "max_side": 480,
+      "quality": 80,
+      "bytes": 91266,
+      "encode_ms": 1146.223,
+      "width": 480,
+      "height": 360,
+      "psnr_rgb_db": 23.6334327375366,
+      "ssim_global_luminance": 0.9925233667470127,
+      "alpha_error_max": 0,
+      "reference_caveat": "Production Convert, including approved1280/Q75 display fallback. EncodeMS is the shared total Convert duration, not per-variant time. Metrics use same-size independently resized decoded-input reference, excluding resize loss."
+    }
+  ],
+  "all12WeightTargetsPass": true,
+  "all12AlphaExactAtDerivativeResolution": true,
+  "metadataRemoved": true,
+  "unchangedVariantCount": 10,
+  "variantHashes": [
+    {
+      "file": "exterior_texture_production_display.webp",
+      "beforeSHA256": "38d673bd073f954aaf089c65a61b9d04caaa3aeaac31143c4d2abb686eab39fe",
+      "afterSHA256": "2a7f5a84d67d063b715866a7016391a955dca4a574ff171491cf6367b0cfb319"
+    },
+    {
+      "file": "exterior_texture_production_thumbnail.webp",
+      "beforeSHA256": "e1b4161e87e7922d98a6404ae5101ae4804fc406e75dc4b5075ff4f3bb3c2e1f",
+      "afterSHA256": "e1b4161e87e7922d98a6404ae5101ae4804fc406e75dc4b5075ff4f3bb3c2e1f"
+    },
+    {
+      "file": "living_room_production_display.webp",
+      "beforeSHA256": "f380c99a798b3342a53d659c5486b77e6b2f7b058bb5f5523a3e2f276d0efe3b",
+      "afterSHA256": "f380c99a798b3342a53d659c5486b77e6b2f7b058bb5f5523a3e2f276d0efe3b"
+    },
+    {
+      "file": "living_room_production_thumbnail.webp",
+      "beforeSHA256": "a02d5c44608539d036e3e40739f8e6f98f58f41cb6176173b7468d7c24c79a30",
+      "afterSHA256": "a02d5c44608539d036e3e40739f8e6f98f58f41cb6176173b7468d7c24c79a30"
+    },
+    {
+      "file": "transparent_plan_production_display.webp",
+      "beforeSHA256": "e368d5cf925e7c303d18b28e42ab35e83d09b8a7f5fba223314df9fdf5172dfa",
+      "afterSHA256": "e368d5cf925e7c303d18b28e42ab35e83d09b8a7f5fba223314df9fdf5172dfa"
+    },
+    {
+      "file": "transparent_plan_production_thumbnail.webp",
+      "beforeSHA256": "89f33b5c7f4764df6a80105320389f5574491bba497d0646f6eeff0c9f0ba5ab",
+      "afterSHA256": "89f33b5c7f4764df6a80105320389f5574491bba497d0646f6eeff0c9f0ba5ab"
+    },
+    {
+      "file": "webp_texture_production_display.webp",
+      "beforeSHA256": "3ed9924d3642e19cb020b9c39251a54e8162e80696d0a129f68e35db2c5319d9",
+      "afterSHA256": "67a7d007aed20c4a5fd4b21d9ed6cd7c83ab36030cbf30496e1e5611fe23f823"
+    },
+    {
+      "file": "webp_texture_production_thumbnail.webp",
+      "beforeSHA256": "cb216f9da4fec2ab3f2446511f36160edc3250133e9fe53130a3f2d7d067f6b9",
+      "afterSHA256": "cb216f9da4fec2ab3f2446511f36160edc3250133e9fe53130a3f2d7d067f6b9"
+    },
+    {
+      "file": "white_office_production_display.webp",
+      "beforeSHA256": "7435ac8286e58c9007ad9c09d145a50757fbf3d853f86912a9878645903d1165",
+      "afterSHA256": "7435ac8286e58c9007ad9c09d145a50757fbf3d853f86912a9878645903d1165"
+    },
+    {
+      "file": "white_office_production_thumbnail.webp",
+      "beforeSHA256": "f42eb5afd77964133006f0e26f552f85a8ba20cd78a094bab49af18958d73336",
+      "afterSHA256": "f42eb5afd77964133006f0e26f552f85a8ba20cd78a094bab49af18958d73336"
+    },
+    {
+      "file": "wood_texture_production_display.webp",
+      "beforeSHA256": "05713b156298b4f293cae0cad9328115ebfe692e4aa02c5a7517123a407a5a58",
+      "afterSHA256": "05713b156298b4f293cae0cad9328115ebfe692e4aa02c5a7517123a407a5a58"
+    },
+    {
+      "file": "wood_texture_production_thumbnail.webp",
+      "beforeSHA256": "4d95ce4cb7e9a349ff912bd7a20042fd80bf3c0ada6323ed9c86f0c7fd498c58",
+      "afterSHA256": "4d95ce4cb7e9a349ff912bd7a20042fd80bf3c0ada6323ed9c86f0c7fd498c58"
+    }
+  ],
+  "tests": [
+    "TestDisplayBudgetFallbackUsesOriginalPixels1280Q75 jpeg/webp RED→GREEN",
+    "TestDisplayBudgetPreservesExistingUnderBudgetOutput PASS",
+    "TestDisplayBudgetRejectsRatherThanDegradingBelowApprovedFloor PASS",
+    "go test ./internal/media PASS",
+    "go vet ./internal/media PASS",
+    "actual opt-in corpus rerun after approval64.51s,72 alternatives+12 production variants PASS"
+  ],
+  "remainingGate": "Native browser/gallery regression after rebuilding API; independent source review and branch publication pending."
+}

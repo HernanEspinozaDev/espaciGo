@@ -6,11 +6,10 @@ import (
 	"context"
 	"errors"
 	"regexp"
-	"strings"
 	"time"
 )
 
-const MaxPhotosPerSpace = 10
+const MaxPhotosPerSpace = 30
 const SyntheticFixture = "synthetic-png-v1"
 
 var (
@@ -50,9 +49,22 @@ type Removal struct {
 }
 
 type Cover struct {
-	SpaceID  string `json:"space_id"`
-	PhotoID  string `json:"photo_id"`
-	Selected bool   `json:"selected"`
+	SpaceID   string    `json:"space_id"`
+	PhotoID   string    `json:"photo_id"`
+	Selected  bool      `json:"selected"`
+	UpdatedAt time.Time `json:"-"`
+}
+
+type CoverCASRepository interface {
+	SelectCoverCAS(context.Context, string, string, string, time.Time) (Cover, error)
+}
+
+type PublicInCatalogCASRepository interface {
+	SetPublicInCatalogCAS(context.Context, string, string, string, bool, time.Time) (Photo, time.Time, error)
+}
+
+type RemoveCASRepository interface {
+	RemoveCAS(context.Context, string, string, string, time.Time) (Removal, time.Time, error)
 }
 
 type Repository interface {
@@ -90,4 +102,4 @@ type IDGenerator interface{ ID() (string, error) }
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
 
-func validUUID(v string) bool { return uuidPattern.MatchString(strings.TrimSpace(v)) }
+func validUUID(v string) bool { return uuidPattern.MatchString(v) }

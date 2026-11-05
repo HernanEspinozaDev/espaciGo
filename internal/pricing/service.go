@@ -38,6 +38,20 @@ func (s *Service) RateHistory(ctx context.Context, owner, spaceID string) ([]Rat
 	}
 	return s.repo.RateHistory(ctx, owner, spaceID)
 }
+func (s *Service) UpdateRateIfRevision(ctx context.Context, owner, spaceID string, expected time.Time, in RateInput) (Rate, time.Time, error) {
+	if !uuidPattern.MatchString(owner) || !uuidPattern.MatchString(spaceID) {
+		return Rate{}, time.Time{}, ErrNotFound
+	}
+	if expected.IsZero() || validateRate(in) != nil {
+		return Rate{}, time.Time{}, ErrInvalid
+	}
+	repo, ok := s.repo.(RevisionAwareRateRepository)
+	if !ok {
+		return Rate{}, time.Time{}, ErrRevisionUnsupported
+	}
+	return repo.UpdateRateIfRevision(ctx, owner, spaceID, expected, in)
+}
+
 func (s *Service) UpdateRate(ctx context.Context, owner, spaceID string, in RateInput) (Rate, error) {
 	if !uuidPattern.MatchString(owner) || !uuidPattern.MatchString(spaceID) {
 		return Rate{}, ErrNotFound

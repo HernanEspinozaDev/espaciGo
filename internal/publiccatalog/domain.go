@@ -57,29 +57,35 @@ type AttributePredicate struct {
 // Space is an intentional public projection. It contains no owner, address,
 // profile JSON, fixture state, availability, or file/blob references.
 type Space struct {
-	SpaceID           string           `json:"space_id"`
-	CategoryCode      string           `json:"category_code"`
-	CategoryName      string           `json:"category_name"`
-	Title             string           `json:"title"`
-	Description       string           `json:"description"`
-	AreaM2            float64          `json:"area_m2"`
-	RateUnit          string           `json:"rate_unit"`
-	BasePriceCLP      int64            `json:"base_price_clp"`
-	Currency          string           `json:"currency"`
-	RegionCode        *string          `json:"region_code,omitempty"`
-	RegionName        *string          `json:"region_name,omitempty"`
-	CommuneCode       *string          `json:"comuna_code,omitempty"`
-	CommuneName       *string          `json:"comuna_name,omitempty"`
-	EstimatedTotalCLP *int64           `json:"estimated_total_clp"`
-	UsageRules        string           `json:"usage_rules,omitempty"`
-	Features          []PublicFeature  `json:"features"`
-	Images            []PublicImageRef `json:"images"`
-	CoverImageID      *string          `json:"cover_image_id,omitempty"`
-	TimeZone          string           `json:"-"`
+	SpaceID           string              `json:"space_id"`
+	Verification      VerificationSummary `json:"verification"`
+	CategoryCode      string              `json:"category_code"`
+	CategoryName      string              `json:"category_name"`
+	Title             string              `json:"title"`
+	Description       string              `json:"description"`
+	AreaM2            float64             `json:"area_m2"`
+	RateUnit          string              `json:"rate_unit"`
+	BasePriceCLP      int64               `json:"base_price_clp"`
+	Currency          string              `json:"currency"`
+	RegionCode        *string             `json:"region_code,omitempty"`
+	RegionName        *string             `json:"region_name,omitempty"`
+	CommuneCode       *string             `json:"comuna_code,omitempty"`
+	CommuneName       *string             `json:"comuna_name,omitempty"`
+	EstimatedTotalCLP *int64              `json:"estimated_total_clp"`
+	UsageRules        string              `json:"usage_rules,omitempty"`
+	Features          []PublicFeature     `json:"features"`
+	Images            []PublicImageRef    `json:"images"`
+	CoverImageID      *string             `json:"cover_image_id,omitempty"`
+	TimeZone          string              `json:"-"`
 
 	CategoryOrder int     `json:"-"`
 	TitleKey      string  `json:"-"`
 	RelevanceRank float64 `json:"-"`
+}
+
+type VerificationSummary struct {
+	IdentityVerified bool `json:"identity_verified"`
+	SpaceVerified    bool `json:"space_verified"`
 }
 
 type PublicFeature struct {

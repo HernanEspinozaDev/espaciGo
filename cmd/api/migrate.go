@@ -6,9 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
-	"github.com/jackc/pgx/v5"
 )
 
 // Separate one-shot local bootstrap uses admin credentials. The running API
@@ -26,10 +24,5 @@ func migrateLocal() error {
 	if _, err := migrator.Run(ctx, cfg.databaseURL(), "/migrations"); err != nil {
 		return err
 	}
-	conn, err := pgx.Connect(ctx, cfg.databaseURL())
-	if err != nil {
-		return err
-	}
-	defer conn.Close(context.Background())
-	return dbbootstrap.GrantRuntimePermissions(ctx, conn)
+	return nil
 }

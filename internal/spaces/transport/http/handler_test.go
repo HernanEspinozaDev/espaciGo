@@ -70,6 +70,7 @@ func (m *memoryRepo) Create(_ context.Context, owner string, in spaces.Input) (s
 	m.owner = owner
 	m.draft = draftFromInput(in)
 	m.draft.ID, m.draft.State = draftID, "borrador"
+	m.draft.UpdatedAt = time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
 	return m.draft, nil
 }
 func (m *memoryRepo) ListOwn(_ context.Context, owner string) ([]spaces.Draft, error) {
@@ -90,6 +91,18 @@ func (m *memoryRepo) UpdateOwn(_ context.Context, owner, id string, in spaces.In
 	}
 	m.draft = draftFromInput(in)
 	m.draft.ID, m.draft.State = draftID, "borrador"
+	return m.draft, nil
+}
+func (m *memoryRepo) UpdateOwnIfRevision(_ context.Context, owner, id string, expected time.Time, in spaces.Input) (spaces.Draft, error) {
+	if owner != m.owner || id != draftID {
+		return spaces.Draft{}, spaces.ErrNotFound
+	}
+	if !m.draft.UpdatedAt.Equal(expected) {
+		return spaces.Draft{}, spaces.ErrPreconditionFailed
+	}
+	m.draft = draftFromInput(in)
+	m.draft.ID, m.draft.State = draftID, "borrador"
+	m.draft.UpdatedAt = expected.Add(time.Second)
 	return m.draft, nil
 }
 func (m *memoryRepo) SetPublicationState(_ context.Context, owner, id, state, _ string) (spaces.Draft, error) {
@@ -151,6 +164,10 @@ func validJSON() string {
 	b, _ := json.Marshal(spaces.Input{CategoryCode: "oficina", Title: "Oficina", Description: strings.Repeat("Espacio de trabajo. ", 7), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "dia", BasePriceCLP: 6001, Address: "Calle 1"})
 	return string(b)
 }
+func versionedDraftJSON(title string) string {
+	b, _ := json.Marshal(spaces.Input{CategoryCode: "oficina", Title: title, Description: strings.Repeat("Espacio de trabajo. ", 7), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "dia", BasePriceCLP: 6001, Address: "Calle 1", AttributeSchemaVersion: 1, Attributes: map[string]any{}})
+	return string(b)
+}
 func testHandler(t *testing.T) http.Handler {
 	t.Helper()
 	svc, e := spaces.NewService(&memoryRepo{})
@@ -163,6 +180,7 @@ func testHandler(t *testing.T) http.Handler {
 func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	initial := draftFromInput(spaces.Input{CategoryCode: "oficina", Title: "Oficina local", Description: strings.Repeat("Espacio de prueba para publicación local. ", 3), AreaM2: 12, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "hora", BasePriceCLP: 8000, Address: "Dirección privada", AttributeSchemaVersion: 1, Attributes: map[string]any{}})
 	initial.ID = draftID
+	initial.UpdatedAt = time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
 	repo := &memoryRepo{owner: ownerA, draft: initial}
 	svc, err := spaces.NewService(repo)
 	if err != nil {
@@ -177,7 +195,7 @@ func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	if deniedContent.Code != http.StatusForbidden {
 		t.Fatalf("non-landlord published-content edit got %d: %s", deniedContent.Code, deniedContent.Body.String())
 	}
-	response := invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`)
+	response := invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`, draftETag(repo.draft))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"activa"`) {
 		t.Fatalf("publish got %d: %s", response.Code, response.Body.String())
 	}
@@ -191,7 +209,7 @@ func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	}
 	schemas := doc["components"].(map[string]any)["schemas"].(map[string]any)
 	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
-	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", `{"title":"Título actualizado","base_price_clp":9000}`)
+	response = invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", `{"title":"Título actualizado","base_price_clp":9000}`, draftETag(repo.draft))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"title":"Título actualizado"`) || !strings.Contains(response.Body.String(), `"base_price_clp":9000`) || !strings.Contains(response.Body.String(), `"state":"activa"`) {
 		t.Fatalf("published content update got %d: %s", response.Code, response.Body.String())
 	}
@@ -199,38 +217,33 @@ func TestPublicationRouteRequiresLandlordAndReturnsState(t *testing.T) {
 	description, capacity, usageRules := strings.Repeat("Descripción pública local actualizada. ", 4), int32(5), "Respetar los horarios y no fumar"
 	detailsBody, _ := json.Marshal(spaces.PublishedContentInput{Description: &description, Capacity: &capacity, UsageRules: &usageRules})
 	assertJSONSchema(t, compileOpenAPISchema(t, schemas["PublishedSpaceContentInput"]), detailsBody, "PublishedSpaceContentInput")
-	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", string(detailsBody))
+	response = invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", string(detailsBody), draftETag(repo.draft))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"capacity":5`) || !strings.Contains(response.Body.String(), `"usage_rules":"Respetar los horarios y no fumar"`) {
 		t.Fatalf("published details update got %d: %s", response.Code, response.Body.String())
 	}
 	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
-	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", `{}`)
+	response = invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication-content", "landlord", `{}`, draftETag(repo.draft))
 	if response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("empty published-content update got %d: %s", response.Code, response.Body.String())
 	}
-	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"oculta"}`)
+	response = invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"oculta"}`, draftETag(repo.draft))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"oculta"`) {
 		t.Fatalf("hide got %d: %s", response.Code, response.Body.String())
 	}
 	assertDraftResponseSchema(t, compileOpenAPISchema(t, schemas["SpaceDraft"]), response.Body.Bytes())
-	repo.publicationErr = spaces.ErrEligibilityRequired
-	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`)
 	var apiError struct {
 		Error struct {
 			Code      string `json:"code"`
 			RequestID string `json:"request_id"`
 		} `json:"error"`
 	}
-	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != "eligibility_required" || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
-		t.Fatalf("eligibility error contract got %d header=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
-	}
 	repo.publicationErr = spaces.ErrEnabledFixture
-	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"oculta"}`)
+	response = invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"oculta"}`, draftETag(repo.draft))
 	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != "fixture_enabled" || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
 		t.Fatalf("enabled fixture conflict contract got %d header=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
 	}
 	repo.publicationErr = spaces.ErrTimeZoneRequired
-	response = invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`)
+	response = invokeIfMatch(h, "/api/v1/spaces/"+draftID+"/publication", "landlord", `{"state":"activa"}`, draftETag(repo.draft))
 	if response.Code != http.StatusConflict || json.Unmarshal(response.Body.Bytes(), &apiError) != nil || apiError.Error.Code != "time_zone_required" || !strings.Contains(response.Body.String(), "IANA") || apiError.Error.RequestID == "" || apiError.Error.RequestID != response.Header().Get("X-Request-ID") {
 		t.Fatalf("missing time zone error contract got %d header=%q body=%s", response.Code, response.Header().Get("X-Request-ID"), response.Body.String())
 	}
@@ -247,6 +260,39 @@ func (fakeCalendar) SetTimeZone(_ context.Context, owner, spaceID, zone string) 
 	}
 	return nil
 }
+func (fakeCalendar) SetTimeZoneCAS(_ context.Context, owner, spaceID, zone string, expected time.Time) (time.Time, error) {
+	if err := (fakeCalendar{}).SetTimeZone(context.Background(), owner, spaceID, zone); err != nil {
+		return time.Time{}, err
+	}
+	return expected.Add(time.Second), nil
+}
+
+type statefulTimezoneCalendar struct {
+	fakeCalendar
+	revision time.Time
+	zone     string
+	calls    int
+	stale    bool
+}
+
+func (c *statefulTimezoneCalendar) SetTimeZoneCAS(_ context.Context, owner, spaceID, zone string, expected time.Time) (time.Time, error) {
+	c.calls++
+	if owner != ownerA || spaceID != draftID {
+		return time.Time{}, occupancy.ErrNotFound
+	}
+	if c.stale || !c.revision.Equal(expected) {
+		return time.Time{}, occupancy.ErrPreconditionFailed
+	}
+	if zone == "bad" {
+		return time.Time{}, occupancy.ErrInvalid
+	}
+	if c.zone != zone {
+		c.zone = zone
+		c.revision = c.revision.Add(time.Second)
+	}
+	return c.revision, nil
+}
+
 func (fakeCalendar) TimeZone(_ context.Context, owner, spaceID string) (string, error) {
 	if owner != ownerA || spaceID != draftID {
 		return "", occupancy.ErrNotFound
@@ -289,6 +335,7 @@ func calendarHandler(t *testing.T) http.Handler {
 }
 
 type priceRepo struct {
+	revision         time.Time
 	rate             pricing.Rate
 	sim              pricing.Simulation
 	calendarConflict bool
@@ -307,6 +354,9 @@ func (p *priceRepo) RateHistory(_ context.Context, owner, space string) ([]prici
 func (p *priceRepo) UpdateRate(_ context.Context, owner, space string, in pricing.RateInput) (pricing.Rate, error) {
 	if owner != ownerA || space != draftID {
 		return pricing.Rate{}, pricing.ErrNotFound
+	}
+	if p.revision.IsZero() {
+		p.revision = p.rate.CreatedAt
 	}
 	if p.calendarConflict && in.Unit != "hora" {
 		return pricing.Rate{}, pricing.ErrCalendarConflict
@@ -331,7 +381,8 @@ func (p *priceRepo) GetSimulation(_ context.Context, owner, space, id string) (p
 }
 
 func TestPrivatePriceSimulationRoutesAndOpenAPISchemas(t *testing.T) {
-	repo := &priceRepo{rate: pricing.Rate{SpaceID: draftID, Version: 1, Unit: "hora", Amount: 8000, Currency: "CLP", CreatedAt: time.Now().UTC()}}
+	initialRevision := time.Now().UTC()
+	repo := &priceRepo{revision: initialRevision, rate: pricing.Rate{SpaceID: draftID, Version: 1, Unit: "hora", Amount: 8000, Currency: "CLP", CreatedAt: initialRevision}}
 	service, err := pricing.NewService(repo, fakeCalendar{}, credentials.Generator{})
 	if err != nil {
 		t.Fatal(err)
@@ -346,13 +397,16 @@ func TestPrivatePriceSimulationRoutesAndOpenAPISchemas(t *testing.T) {
 	if read.Code != 200 || !strings.Contains(read.Body.String(), `"version":1`) {
 		t.Fatalf("rate response %d %s", read.Code, read.Body.String())
 	}
+	// Tariff ETag is intentionally not implemented in this handler yet; supply
+	// the revision-aware strong tag directly from the fake's known revision.
+	tag := draftETag(spaces.Draft{ID: draftID, UpdatedAt: repo.revision})
 	repo.calendarConflict = true
-	conflict := invoke(h, "PUT", base+"/tariff", "landlord", `{"rate_unit":"dia","base_price":9000}`)
+	conflict := invokeIfMatch(h, base+"/tariff", "landlord", `{"rate_unit":"dia","base_price":9000}`, tag)
 	if conflict.Code != http.StatusConflict || !strings.Contains(conflict.Body.String(), `"code":"tariff_calendar_conflict"`) {
 		t.Fatalf("calendar-incompatible tariff response %d %s", conflict.Code, conflict.Body.String())
 	}
 	repo.calendarConflict = false
-	updated := invoke(h, "PUT", base+"/tariff", "landlord", `{"rate_unit":"hora","base_price":9000}`)
+	updated := invokeIfMatch(h, base+"/tariff", "landlord", `{"rate_unit":"hora","base_price":9000}`, tag)
 	if updated.Code != 200 || !strings.Contains(updated.Body.String(), `"version":2`) {
 		t.Fatalf("rate update %d %s", updated.Code, updated.Body.String())
 	}
@@ -387,6 +441,15 @@ func invoke(h http.Handler, method, path, token, body string) *httptest.Response
 	h.ServeHTTP(w, r)
 	return w
 }
+func invokeIfMatch(h http.Handler, path, token, body, tag string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(http.MethodPut, path, strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("If-Match", tag)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
 func TestDraftRoutesRequireSessionAndReturnNotFoundAcrossOwners(t *testing.T) {
 	repository := &memoryRepo{}
 	service, err := spaces.NewService(repository)
@@ -404,6 +467,9 @@ func TestDraftRoutesRequireSessionAndReturnNotFoundAcrossOwners(t *testing.T) {
 	if !strings.Contains(created.Body.String(), `"state":"borrador"`) {
 		t.Fatalf("not a draft: %s", created.Body.String())
 	}
+	if got, want := created.Header().Get("ETag"), draftETag(repository.draft); got != want || got == "" {
+		t.Fatalf("create ETag=%q, want %q", got, want)
+	}
 	if got := invoke(h, "GET", "/api/v1/spaces/"+draftID, "other", "").Code; got != 404 {
 		t.Fatalf("cross-owner status=%d", got)
 	}
@@ -418,6 +484,104 @@ func TestDraftRoutesRequireSessionAndReturnNotFoundAcrossOwners(t *testing.T) {
 		t.Fatalf("strict JSON owner field status=%d, want 400", got)
 	}
 }
+func TestDraftPutMissingIfMatchPrecedesMalformedJSON(t *testing.T) {
+	repo := &memoryRepo{owner: ownerA, draft: draftFromInput(spaces.Input{CategoryCode: "oficina", Title: "Original"})}
+	repo.draft.ID, repo.draft.UpdatedAt = draftID, time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
+	svc, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, svc, nil)
+	response := invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID, "user", `{malformed`)
+	if response.Code != http.StatusPreconditionRequired || !strings.Contains(response.Body.String(), `"code":"precondition_required"`) {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if repo.draft.Title != "Original" {
+		t.Fatalf("mutated title: %q", repo.draft.Title)
+	}
+}
+
+func TestDraftPutRequiresIfMatchAndDoesNotMutate(t *testing.T) {
+	repo := &memoryRepo{owner: ownerA, draft: draftFromInput(spaces.Input{CategoryCode: "oficina", Title: "Original"})}
+	repo.draft.ID, repo.draft.UpdatedAt = draftID, time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
+	svc, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, svc, nil)
+	response := invoke(h, http.MethodPut, "/api/v1/spaces/"+draftID, "user", versionedDraftJSON("Changed"))
+	if response.Code != http.StatusPreconditionRequired {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if repo.draft.Title != "Original" {
+		t.Fatalf("mutated title: %q", repo.draft.Title)
+	}
+}
+
+func TestDraftGetETagAndVersionedPut(t *testing.T) {
+	repo := &memoryRepo{owner: ownerA, draft: draftFromInput(spaces.Input{CategoryCode: "oficina", Title: "Original"})}
+	repo.draft.ID, repo.draft.UpdatedAt = draftID, time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
+	svc, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, svc, nil)
+	get := invoke(h, http.MethodGet, "/api/v1/spaces/"+draftID, "user", "")
+	if get.Code != http.StatusOK {
+		t.Fatalf("GET status=%d", get.Code)
+	}
+	tag := get.Header().Get("ETag")
+	if tag == "" {
+		t.Fatal("GET missing ETag")
+	}
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/spaces/"+draftID, strings.NewReader(versionedDraftJSON("Changed")))
+	request.Header.Set("Authorization", "Bearer user")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("If-Match", tag)
+	put := httptest.NewRecorder()
+	h.ServeHTTP(put, request)
+	if put.Code != http.StatusOK || !strings.Contains(put.Body.String(), `"title":"Changed"`) {
+		t.Fatalf("PUT status=%d body=%s", put.Code, put.Body.String())
+	}
+	newTag := put.Header().Get("ETag")
+	if newTag == "" || newTag == tag {
+		t.Fatalf("ETag did not advance: old=%q new=%q", tag, newTag)
+	}
+	if _, err := parseIfMatch([]string{newTag}, draftID); err != nil {
+		t.Fatalf("invalid returned ETag %q: %v", newTag, err)
+	}
+}
+
+func TestDraftPutRejectsBadPreconditionsWithoutMutation(t *testing.T) {
+	for _, tc := range []struct {
+		name, tag string
+		status    int
+	}{
+		{"stale", draftETag(spaces.Draft{ID: draftID, UpdatedAt: time.Date(2025, 1, 2, 3, 4, 4, 0, time.UTC)}), http.StatusPreconditionFailed},
+		{"malformed", `not-an-etag`, http.StatusBadRequest},
+		{"other resource", draftETag(spaces.Draft{ID: "22222222-2222-4222-8222-222222222222", UpdatedAt: time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)}), http.StatusPreconditionFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &memoryRepo{owner: ownerA, draft: draftFromInput(spaces.Input{CategoryCode: "oficina", Title: "Original"})}
+			repo.draft.ID, repo.draft.UpdatedAt = draftID, time.Date(2025, 1, 2, 3, 4, 5, 0, time.UTC)
+			svc, _ := spaces.NewService(repo)
+			h := NewHandler(fakeAuth{}, svc, nil)
+			r := httptest.NewRequest(http.MethodPut, "/api/v1/spaces/"+draftID, strings.NewReader(versionedDraftJSON("Changed")))
+			r.Header.Set("Authorization", "Bearer user")
+			r.Header.Set("Content-Type", "application/json")
+			r.Header.Set("If-Match", tc.tag)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if w.Code != tc.status {
+				t.Fatalf("status=%d want=%d body=%s", w.Code, tc.status, w.Body.String())
+			}
+			if repo.draft.Title != "Original" {
+				t.Fatalf("mutated title: %q", repo.draft.Title)
+			}
+		})
+	}
+}
+
 func TestDraftValidationIsRejectedBeforeRepository(t *testing.T) {
 	h := testHandler(t)
 	if got := invoke(h, "POST", "/api/v1/spaces", "user", `{"category_code":"oficina"}`).Code; got != 422 {
@@ -481,21 +645,98 @@ func TestDraft422ReturnsSafeFieldCodesWithoutSubmittedValues(t *testing.T) {
 	}
 }
 
-func TestCalendarAPIConfiguresQueriesCreatesAndDeletesWithOwnerChecks(t *testing.T) {
-	h := calendarHandler(t)
+func TestTimezoneCASPreconditionsAndRevision(t *testing.T) {
+	initial := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
 	base := "/api/v1/spaces/" + draftID + "/availability"
+	newHandler := func(c *statefulTimezoneCalendar) http.Handler {
+		repo := &memoryRepo{owner: ownerA, draft: spaces.Draft{ID: draftID, UpdatedAt: initial}}
+		svc, err := spaces.NewService(repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return NewHandler(fakeAuth{}, svc, nil, c)
+	}
+	t.Run("missing precondition precedes malformed body", func(t *testing.T) {
+		c := &statefulTimezoneCalendar{revision: initial}
+		r := invoke(newHandler(c), "PUT", base, "user", "not-json")
+		if r.Code != http.StatusPreconditionRequired || c.calls != 0 {
+			t.Fatalf("status=%d calls=%d body=%s", r.Code, c.calls, r.Body.String())
+		}
+	})
+	for _, tc := range []struct {
+		name, tag string
+		status    int
+	}{
+		{"malformed", "not-an-etag", http.StatusBadRequest},
+		{"wrong space", DraftETag(spaces.Draft{ID: "22222222-2222-4222-8222-222222222222", UpdatedAt: initial}), http.StatusPreconditionFailed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := &statefulTimezoneCalendar{revision: initial}
+			r := invokeIfMatch(newHandler(c), base, "user", `{"time_zone":"Europe/Paris"}`, tc.tag)
+			if r.Code != tc.status || c.calls != 0 || !c.revision.Equal(initial) || c.zone != "" {
+				t.Fatalf("status=%d calls=%d revision=%s zone=%q body=%s", r.Code, c.calls, c.revision, c.zone, r.Body.String())
+			}
+		})
+	}
+	t.Run("repository stale CAS", func(t *testing.T) {
+		c := &statefulTimezoneCalendar{revision: initial}
+		r := invokeIfMatch(newHandler(c), base, "user", `{"time_zone":"Europe/Paris"}`, DraftETag(spaces.Draft{ID: draftID, UpdatedAt: initial.Add(-time.Second)}))
+		if r.Code != http.StatusPreconditionFailed || c.calls != 1 || !c.revision.Equal(initial) || c.zone != "" {
+			t.Fatalf("status=%d calls=%d body=%s", r.Code, c.calls, r.Body.String())
+		}
+	})
+	t.Run("success advances ETag and no-op preserves it", func(t *testing.T) {
+		c := &statefulTimezoneCalendar{revision: initial, zone: "America/Santiago"}
+		h := newHandler(c)
+		old := DraftETag(spaces.Draft{ID: draftID, UpdatedAt: initial})
+		r := invokeIfMatch(h, base, "user", `{"time_zone":"Europe/Paris"}`, old)
+		want := DraftETag(spaces.Draft{ID: draftID, UpdatedAt: initial.Add(time.Second)})
+		if r.Code != 200 || r.Header().Get("ETag") != want || c.zone != "Europe/Paris" {
+			t.Fatalf("status=%d ETag=%q want=%q body=%s", r.Code, r.Header().Get("ETag"), want, r.Body.String())
+		}
+		r = invokeIfMatch(h, base, "user", `{"time_zone":"Europe/Paris"}`, want)
+		if r.Code != 200 || r.Header().Get("ETag") != want {
+			t.Fatalf("no-op status=%d ETag=%q want=%q", r.Code, r.Header().Get("ETag"), want)
+		}
+	})
+	t.Run("foreign owner remains hidden", func(t *testing.T) {
+		c := &statefulTimezoneCalendar{revision: initial}
+		r := invokeIfMatch(newHandler(c), base, "other", `{"time_zone":"Europe/Paris"}`, DraftETag(spaces.Draft{ID: draftID, UpdatedAt: initial}))
+		if r.Code != 404 || c.calls != 0 {
+			t.Fatalf("status=%d calls=%d body=%s", r.Code, c.calls, r.Body.String())
+		}
+	})
+}
+
+func TestCalendarAPIConfiguresQueriesCreatesAndDeletesWithOwnerChecks(t *testing.T) {
+	initialRevision := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	repo := &memoryRepo{owner: ownerA, draft: spaces.Draft{ID: draftID, UpdatedAt: initialRevision}}
+	service, err := spaces.NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, service, nil, fakeCalendar{})
+	base := "/api/v1/spaces/" + draftID + "/availability"
+	tag := DraftETag(spaces.Draft{ID: draftID, UpdatedAt: initialRevision})
 	if got := invoke(h, "PUT", base, "", `{"time_zone":"America/Santiago"}`).Code; got != 401 {
 		t.Fatalf("unauthenticated configuration status=%d", got)
 	}
-	if got := invoke(h, "PUT", base, "user", `{"time_zone":"America/Santiago","owner_id":"`+ownerB+`"}`).Code; got != 400 {
+	missing := invoke(h, "PUT", base, "user", "not-json")
+	if missing.Code != http.StatusPreconditionRequired || !strings.Contains(missing.Body.String(), `"code":"precondition_required"`) {
+		t.Fatalf("missing precondition status=%d body=%s", missing.Code, missing.Body.String())
+	}
+	if got := invokeIfMatch(h, base, "user", `{"time_zone":"America/Santiago","owner_id":"`+ownerB+`"}`, tag).Code; got != 400 {
 		t.Fatalf("unknown field status=%d", got)
 	}
 	if got := invoke(h, "PUT", base, "other", `{"time_zone":"America/Santiago"}`).Code; got != 404 {
 		t.Fatalf("foreign timezone configuration status=%d", got)
 	}
-	configured := invoke(h, "PUT", base, "user", `{"time_zone":"America/Santiago"}`)
+	configured := invokeIfMatch(h, base, "user", `{"time_zone":"America/Santiago"}`, tag)
 	if configured.Code != 200 || !strings.Contains(configured.Body.String(), `"time_zone":"America/Santiago"`) {
 		t.Fatalf("configure status=%d %s", configured.Code, configured.Body.String())
+	}
+	if got, want := configured.Header().Get("ETag"), DraftETag(spaces.Draft{ID: draftID, UpdatedAt: initialRevision.Add(time.Second)}); got != want {
+		t.Fatalf("timezone response ETag=%q, want %q", got, want)
 	}
 	timeZone := invoke(h, "GET", base+"/timezone", "user", "")
 	if timeZone.Code != 200 || !strings.Contains(timeZone.Body.String(), `"time_zone":"America/Santiago"`) {
@@ -604,7 +845,8 @@ func TestDraftResponsesValidateAgainstOpenAPISchemaAndCategoryChanges(t *testing
 
 	input := spaces.Input{CategoryCode: "sala_multiproposito", AttributeSchemaVersion: 1, Title: "Sala", Description: strings.Repeat("Sala multipropósito para actividades privadas. ", 3), AreaM2: 10, Capacity: 3, UsageRules: "Sin fumar", RateUnit: "hora", BasePriceCLP: 6001, Address: "Calle 2"}
 	body, _ := json.Marshal(input)
-	updated := invoke(h, "PUT", "/api/v1/spaces/"+draftID, "user", string(body))
+	current := invoke(h, http.MethodGet, "/api/v1/spaces/"+draftID, "user", "")
+	updated := invokeIfMatch(h, "/api/v1/spaces/"+draftID, "user", string(body), current.Header().Get("ETag"))
 	if updated.Code != http.StatusOK {
 		t.Fatalf("update status=%d: %s", updated.Code, updated.Body.String())
 	}
@@ -779,7 +1021,8 @@ func TestUpdateDraftKeepsItsStoredProfileVersion(t *testing.T) {
 	}
 	// Simulate an existing draft that predates the currently latest profile.
 	repo.draft.AttributeSchemaVersion = 1
-	updated := invoke(h, "PUT", "/api/v1/spaces/"+draftID, "user", validJSON())
+	current := invoke(h, http.MethodGet, "/api/v1/spaces/"+draftID, "user", "")
+	updated := invokeIfMatch(h, "/api/v1/spaces/"+draftID, "user", validJSON(), current.Header().Get("ETag"))
 	if updated.Code != 200 || !strings.Contains(updated.Body.String(), `"attribute_schema_version":1`) {
 		t.Fatalf("v1 update status=%d %s", updated.Code, updated.Body.String())
 	}

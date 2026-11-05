@@ -13,11 +13,11 @@ import (
 var (
 	ErrInvalid             = errors.New("spaces: invalid draft")
 	ErrNotFound            = errors.New("spaces: draft not found")
-	ErrEligibilityRequired = errors.New("spaces: synthetic KYC eligibility required")
 	ErrPublicationConflict = errors.New("spaces: publication state conflict")
 	ErrEnabledFixture      = errors.New("spaces: enabled synthetic fixture prevents publication transition")
 	ErrTimeZoneRequired    = errors.New("spaces: valid IANA time zone required before publication")
 	ErrDeleteBlocked       = errors.New("spaces: publication has open obligations")
+	ErrPreconditionFailed  = errors.New("spaces: draft revision precondition failed")
 )
 
 // FieldError exposes only a stable field path and local validation code. It
@@ -62,6 +62,7 @@ type Draft struct {
 	CoverPhotoID           *string        `json:"cover_photo_id,omitempty"`
 	AttributeSchemaVersion int            `json:"attribute_schema_version"`
 	Attributes             map[string]any `json:"attributes"`
+	UpdatedAt              time.Time      `json:"-"`
 }
 
 type Input struct {
@@ -222,6 +223,18 @@ func validPublicLocationCodes(regionCode, communeCode string) bool {
 		}
 	}
 	return strings.HasPrefix(communeCode, regionCode)
+}
+
+type RevisionAwarePublicationRepository interface {
+	SetPublicationStateIfRevision(ctx context.Context, owner, id, state, correlationID string, expectedUpdatedAt time.Time) (Draft, error)
+}
+
+type RevisionAwarePublishedContentRepository interface {
+	UpdatePublishedOwnIfRevision(ctx context.Context, owner, id string, expectedUpdatedAt time.Time, input PublishedContentInput) (Draft, error)
+}
+
+type RevisionAwareDraftRepository interface {
+	UpdateOwnIfRevision(ctx context.Context, owner, id string, expectedUpdatedAt time.Time, input Input) (Draft, error)
 }
 
 type Repository interface {

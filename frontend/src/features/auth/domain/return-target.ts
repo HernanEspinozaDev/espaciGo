@@ -140,7 +140,11 @@ export function resolveReturnTarget(
   )
     return pathname as ReturnTarget;
   const hostEdit = /^\/anfitrion\/espacios\/([^/]+)\/editar$/.exec(pathname);
-  if (hostEdit) return pathname as ReturnTarget;
+  if (hostEdit && canonicalUuid.test(hostEdit[1] ?? ""))
+    return pathname as ReturnTarget;
+  const hostSpace = /^\/anfitrion\/espacios\/([^/]+)$/.exec(pathname);
+  if (hostSpace && canonicalUuid.test(hostSpace[1] ?? ""))
+    return pathname as ReturnTarget;
   return home;
 }
 

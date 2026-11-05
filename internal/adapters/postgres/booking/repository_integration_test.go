@@ -596,6 +596,16 @@ func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {
 	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id) VALUES($1,$2,$3)`, secondSpace, host, renter); err != nil {
 		t.Fatal(err)
 	}
+	ownerOnlySpace := "abababab-abab-4aba-8aba-abababababab"
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,zona_horaria) VALUES($1,$2,'bodega','Espacio owner-only',repeat('Horario sintético sin fixture de booking. ',3),35,2,'Acceso controlado','hora',11000,'Dirección privada sintética','America/Santiago')`, ownerOnlySpace, host); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'bodega',1,'{"altura_util_m":3.0,"carro_carga_disponible":false}'::jsonb)`, ownerOnlySpace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = setup.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',11000)`, ownerOnlySpace); err != nil {
+		t.Fatal(err)
+	}
 	centerLon, centerLat := -70.6693, -33.4560
 	if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_ubicacion_sintetica(espacio_id,latitud,longitud,es_sintetica)
 VALUES($1,ST_Y(ST_Project(ST_SetSRID(ST_MakePoint($2,$3),4326)::geography,1001,0)::geometry),$2,true),
@@ -2331,11 +2341,76 @@ exec psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 --set="reservation_id=$rese
 	if err = setup.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, space).Scan(&ownerScheduleVersionAfter); err != nil || !ownerScheduleVersionAfter.After(ownerScheduleVersionBefore) {
 		t.Fatalf("owner weekly hours did not advance shared publication version: before=%s after=%s err=%v", ownerScheduleVersionBefore, ownerScheduleVersionAfter, err)
 	}
+	var weeklyRowVersionBefore time.Time
+	if err = setup.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio_horario_semanal WHERE espacio_id=$1`, space).Scan(&weeklyRowVersionBefore); err != nil {
+		t.Fatal(err)
+	}
+	var segmentXminBefore string
+	if err = setup.QueryRow(ctx, `SELECT COALESCE(string_agg(xmin::text, ',' ORDER BY dia_iso, orden), '') FROM public.espacio_horario_semanal_tramo WHERE espacio_id=$1`, space).Scan(&segmentXminBefore); err != nil {
+		t.Fatal(err)
+	}
+	staleHours, staleErr := svc.SaveWeeklyHoursCAS(ctx, host, space, weekly, ownerScheduleVersionBefore)
+	if staleErr != booking.ErrConflict {
+		t.Fatalf("stale identical CAS schedule error=%v result=%+v, want %v", staleErr, staleHours, booking.ErrConflict)
+	}
+	var ownerScheduleVersionStale time.Time
+	if err = setup.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, space).Scan(&ownerScheduleVersionStale); err != nil || !ownerScheduleVersionStale.Equal(ownerScheduleVersionAfter) {
+		t.Fatalf("stale CAS schedule changed space revision: before=%s after=%s err=%v", ownerScheduleVersionAfter, ownerScheduleVersionStale, err)
+	}
+	var weeklyRowVersionStale time.Time
+	if err = setup.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio_horario_semanal WHERE espacio_id=$1`, space).Scan(&weeklyRowVersionStale); err != nil || !weeklyRowVersionStale.Equal(weeklyRowVersionBefore) {
+		t.Fatalf("stale CAS schedule rewrote weekly row: before=%s after=%s err=%v", weeklyRowVersionBefore, weeklyRowVersionStale, err)
+	}
+	var segmentXminStale string
+	if err = setup.QueryRow(ctx, `SELECT COALESCE(string_agg(xmin::text, ',' ORDER BY dia_iso, orden), '') FROM public.espacio_horario_semanal_tramo WHERE espacio_id=$1`, space).Scan(&segmentXminStale); err != nil || segmentXminStale != segmentXminBefore {
+		t.Fatalf("stale CAS schedule rewrote weekly segments: before=%q after=%q err=%v", segmentXminBefore, segmentXminStale, err)
+	}
+	noOpHours, err := svc.SaveWeeklyHoursCAS(ctx, host, space, weekly, ownerScheduleVersionAfter)
+	if err != nil || !noOpHours.UpdatedAt.Equal(ownerScheduleVersionAfter) {
+		t.Fatalf("identical CAS schedule should preserve revision: result=%+v err=%v", noOpHours, err)
+	}
+	var ownerScheduleVersionNoOp time.Time
+	if err = setup.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio WHERE id=$1`, space).Scan(&ownerScheduleVersionNoOp); err != nil || !ownerScheduleVersionNoOp.Equal(ownerScheduleVersionAfter) {
+		t.Fatalf("no-op schedule advanced space revision: before=%s after=%s err=%v", ownerScheduleVersionAfter, ownerScheduleVersionNoOp, err)
+	}
+	var weeklyRowVersionAfter time.Time
+	if err = setup.QueryRow(ctx, `SELECT actualizado_en FROM public.espacio_horario_semanal WHERE espacio_id=$1`, space).Scan(&weeklyRowVersionAfter); err != nil || !weeklyRowVersionAfter.Equal(weeklyRowVersionBefore) {
+		t.Fatalf("no-op schedule rewrote weekly row: before=%s after=%s err=%v", weeklyRowVersionBefore, weeklyRowVersionAfter, err)
+	}
+	var segmentXminAfter string
+	if err = setup.QueryRow(ctx, `SELECT COALESCE(string_agg(xmin::text, ',' ORDER BY dia_iso, orden), '') FROM public.espacio_horario_semanal_tramo WHERE espacio_id=$1`, space).Scan(&segmentXminAfter); err != nil || segmentXminAfter != segmentXminBefore {
+		t.Fatalf("no-op schedule rewrote weekly segments: before=%q after=%q err=%v", segmentXminBefore, segmentXminAfter, err)
+	}
 	if _, err = svc.WeeklyHours(ctx, renter, space); err != booking.ErrNotFound {
 		t.Fatalf("renter could read host-only schedule: %v", err)
 	}
 	if _, err = svc.WeeklyHours(ctx, outsider, space); err != booking.ErrNotFound {
 		t.Fatalf("outsider could read schedule: %v", err)
+	}
+	ownerHours := booking.NewOwnerWeeklyHoursService(repo)
+	var ownerOnlyFixtureRows int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1`, ownerOnlySpace).Scan(&ownerOnlyFixtureRows); err != nil || ownerOnlyFixtureRows != 0 {
+		t.Fatalf("owner-only fixture rows=%d err=%v, want 0", ownerOnlyFixtureRows, err)
+	}
+	ownerRevision, err := ownerHours.OwnerWeeklyHours(ctx, host, ownerOnlySpace)
+	if err != nil || ownerRevision.SpaceID != ownerOnlySpace {
+		t.Fatalf("owner read ordinary non-fixture hourly space=%+v err=%v", ownerRevision, err)
+	}
+	ownerWeekly := booking.WeeklyHours{Enabled: true, Days: weekly.Days}
+	savedOwner, err := ownerHours.SaveOwnerWeeklyHoursCAS(ctx, host, ownerOnlySpace, ownerWeekly, ownerRevision.UpdatedAt)
+	if err != nil || !savedOwner.UpdatedAt.After(ownerRevision.UpdatedAt) {
+		t.Fatalf("owner write ordinary non-fixture hourly space=%+v err=%v", savedOwner, err)
+	}
+	staleOwner, err := ownerHours.SaveOwnerWeeklyHoursCAS(ctx, host, ownerOnlySpace, ownerWeekly, ownerRevision.UpdatedAt)
+	if err != booking.ErrConflict {
+		t.Fatalf("owner stale CAS=%+v err=%v, want %v", staleOwner, err, booking.ErrConflict)
+	}
+	var ownerOnlyFixtureRowsAfter int
+	if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1`, ownerOnlySpace).Scan(&ownerOnlyFixtureRowsAfter); err != nil || ownerOnlyFixtureRowsAfter != 0 {
+		t.Fatalf("owner-only fixture rows after read/write=%d err=%v, want 0", ownerOnlyFixtureRowsAfter, err)
+	}
+	if _, err = ownerHours.OwnerWeeklyHours(ctx, outsider, ownerOnlySpace); err != booking.ErrNotFound {
+		t.Fatalf("foreign owner read ordinary space: %v", err)
 	}
 	thursday, err := svc.AvailableIntervals(ctx, renter, space, booking.AvailabilityOptionsInput{Date: "2026-09-03", Duration: 1})
 	if err != nil || len(thursday.Items) == 0 {

@@ -11,13 +11,15 @@ import (
 )
 
 var (
-	ErrInvalid                     = errors.New("booking: invalid request")
-	ErrNotFound                    = errors.New("booking: resource not found")
-	ErrConflict                    = errors.New("booking: state or availability conflict")
-	ErrUnauthenticatedPaymentEvent = errors.New("booking: unauthenticated payment event")
-	ErrSimulatedNoResponse         = errors.New("booking: fake payment timed out without a response")
-	ErrSimulatedRefundNoResponse   = errors.New("booking: fake refund timed out without a response")
-	ErrAdminAuditExportLimit       = errors.New("booking: audit export exceeds limit")
+	ErrInvalid                         = errors.New("booking: invalid request")
+	ErrNotFound                        = errors.New("booking: resource not found")
+	ErrConflict                        = errors.New("booking: state or availability conflict")
+	ErrUnauthenticatedPaymentEvent     = errors.New("booking: unauthenticated payment event")
+	ErrSimulatedNoResponse             = errors.New("booking: fake payment timed out without a response")
+	ErrSimulatedRefundNoResponse       = errors.New("booking: fake refund timed out without a response")
+	ErrAdminAuditExportLimit           = errors.New("booking: audit export exceeds limit")
+	ErrIdentityVerificationRequired    = errors.New("booking: current documentary identity verification required")
+	ErrIdentityVerificationUnavailable = errors.New("booking: identity verification service unavailable")
 )
 
 const SafetyBanner = "ENSAYO LOCAL — SIN COBRO REAL"
@@ -600,6 +602,11 @@ type PaymentEventApplicationRepository interface {
 	ApplyPaymentEventForOperation(context.Context, string, string, func() time.Time, time.Duration) (Reservation, error)
 }
 
+type OwnerWeeklyHoursRepository interface {
+	WeeklyHoursForOwner(context.Context, string, string) (WeeklyHours, error)
+	SaveWeeklyHoursForOwnerCAS(context.Context, string, string, WeeklyHours, time.Time) (WeeklyHours, error)
+}
+
 // WeeklyHoursRepository is optional in test doubles and required by the
 // PostgreSQL local-trial repository. Schedule writes are host-owned and
 // serialized on the space row with quote/request transactions.
@@ -607,6 +614,7 @@ type WeeklyHoursRepository interface {
 	WeeklyHoursForSpace(context.Context, string) (WeeklyHours, error)
 	WeeklyHoursForHost(context.Context, string, string) (WeeklyHours, error)
 	SaveWeeklyHours(context.Context, string, string, WeeklyHours) (WeeklyHours, error)
+	SaveWeeklyHoursCAS(context.Context, string, string, WeeklyHours, time.Time) (WeeklyHours, error)
 }
 
 type AdministrativeWeeklyHoursRepository interface {

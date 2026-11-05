@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/credentials"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
@@ -31,6 +32,7 @@ type Handler struct {
 
 type CalendarService interface {
 	SetTimeZone(context.Context, string, string, string) error
+	SetTimeZoneCAS(context.Context, string, string, string, time.Time) (time.Time, error)
 	TimeZone(context.Context, string, string) (string, error)
 	Availability(context.Context, string, string, string, string) (occupancy.Availability, error)
 	ListBlocks(context.Context, string, string, string, string) (occupancy.Calendar, error)
@@ -138,17 +140,39 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 405, "method_not_allowed", "Método no permitido.")
 			return
 		}
+		timestamp, err := parseIfMatch(r.Header.Values("If-Match"), publicationID)
+		if err != nil {
+			switch {
+			case errors.Is(err, errMissingPrecondition):
+				failure(w, 428, "precondition_required", "Se requiere If-Match.")
+			case errors.Is(err, errStalePrecondition):
+				failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+			default:
+				failure(w, 400, "invalid_precondition", "If-Match no es válido.")
+			}
+			return
+		}
+		expected, err := time.Parse(time.RFC3339Nano, timestamp)
+		if err != nil {
+			failure(w, 400, "invalid_precondition", "If-Match no es válido.")
+			return
+		}
 		var in struct {
 			State string `json:"state"`
 		}
 		if !decode(w, r, &in) {
 			return
 		}
-		item, err := h.service.SetPublicationState(r.Context(), principal.AccountID, publicationID, in.State, w.Header().Get("X-Request-ID"))
+		item, err := h.service.SetPublicationStateIfRevision(r.Context(), principal.AccountID, publicationID, in.State, w.Header().Get("X-Request-ID"), expected)
 		if err != nil {
-			serviceError(w, err)
+			if errors.Is(err, spaces.ErrPreconditionFailed) {
+				failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+			} else {
+				serviceError(w, err)
+			}
 			return
 		}
+		w.Header().Set("ETag", draftETag(item))
 		write(w, 200, item)
 		return
 	}
@@ -157,15 +181,36 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			failure(w, 405, "method_not_allowed", "Método no permitido.")
 			return
 		}
+		timestamp, err := parseIfMatch(r.Header.Values("If-Match"), publicationContentID)
+		if err != nil {
+			if errors.Is(err, ErrMissingPrecondition) {
+				failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match.")
+			} else if errors.Is(err, ErrStalePrecondition) {
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió.")
+			} else {
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+			}
+			return
+		}
 		var in spaces.PublishedContentInput
 		if !decode(w, r, &in) {
 			return
 		}
-		item, err := h.service.UpdatePublishedOwn(r.Context(), principal.AccountID, publicationContentID, in)
-		if err != nil {
-			serviceError(w, err)
+		expected, parseErr := time.Parse(time.RFC3339Nano, timestamp)
+		if parseErr != nil {
+			failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
 			return
 		}
+		item, err := h.service.UpdatePublishedOwnIfRevision(r.Context(), principal.AccountID, publicationContentID, expected, in)
+		if err != nil {
+			if errors.Is(err, spaces.ErrPreconditionFailed) {
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió.")
+			} else {
+				serviceError(w, err)
+			}
+			return
+		}
+		w.Header().Set("ETag", draftETag(item))
 		write(w, 200, item)
 		return
 	}
@@ -210,6 +255,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			serviceError(w, e)
 			return
 		}
+		w.Header().Set("ETag", draftETag(item))
 		write(w, 201, item)
 		return
 	}
@@ -226,18 +272,46 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				serviceError(w, e)
 				return
 			}
+			w.Header().Set("ETag", draftETag(item))
 			write(w, 200, item)
 			return
 		case http.MethodPut:
+			if _, err := h.service.GetOwn(r.Context(), principal.AccountID, id); err != nil {
+				serviceError(w, err)
+				return
+			}
+			timestamp, err := parseIfMatch(r.Header.Values("If-Match"), id)
+			if errors.Is(err, errMissingPrecondition) {
+				failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match.")
+				return
+			}
+			if errors.Is(err, errInvalidPrecondition) {
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+				return
+			}
+			if errors.Is(err, errStalePrecondition) {
+				failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del recurso no coincide.")
+				return
+			}
+			expected, err := time.Parse(time.RFC3339Nano, timestamp)
+			if err != nil {
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+				return
+			}
 			var in spaces.Input
 			if !decode(w, r, &in) {
 				return
 			}
-			item, e := h.service.UpdateOwn(r.Context(), principal.AccountID, id, in)
-			if e != nil {
-				serviceError(w, e)
+			item, err := h.service.UpdateOwnIfRevision(r.Context(), principal.AccountID, id, expected, in)
+			if err != nil {
+				if errors.Is(err, spaces.ErrPreconditionFailed) {
+					failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del recurso no coincide.")
+				} else {
+					serviceError(w, err)
+				}
 				return
 			}
+			w.Header().Set("ETag", draftETag(item))
 			write(w, 200, item)
 			return
 		}
@@ -271,15 +345,37 @@ func (h *Handler) servePricing(w http.ResponseWriter, r *http.Request, path, own
 			}
 			write(w, 200, item)
 		case http.MethodPut:
+			timestamp, err := parseIfMatch(r.Header.Values("If-Match"), spaceID)
+			if err != nil {
+				switch {
+				case errors.Is(err, errMissingPrecondition):
+					failure(w, http.StatusPreconditionRequired, "precondition_required", "Se requiere If-Match.")
+				case errors.Is(err, errStalePrecondition):
+					failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió.")
+				default:
+					failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+				}
+				return
+			}
+			expected, err := time.Parse(time.RFC3339Nano, timestamp)
+			if err != nil {
+				failure(w, http.StatusBadRequest, "invalid_precondition", "If-Match no es válido.")
+				return
+			}
 			var in pricing.RateInput
 			if !decode(w, r, &in) {
 				return
 			}
-			item, err := h.pricing.UpdateRate(r.Context(), owner, spaceID, in)
+			item, revision, err := h.pricing.UpdateRateIfRevision(r.Context(), owner, spaceID, expected, in)
 			if err != nil {
-				pricingError(w, err)
+				if errors.Is(err, pricing.ErrPreconditionFailed) {
+					failure(w, http.StatusPreconditionFailed, "precondition_failed", "La versión del espacio cambió.")
+				} else {
+					pricingError(w, err)
+				}
 				return
 			}
+			w.Header().Set("ETag", draftETag(spaces.Draft{ID: spaceID, UpdatedAt: revision}))
 			write(w, 200, item)
 		default:
 			failure(w, 404, "not_found", "Recurso no encontrado.")
@@ -365,16 +461,43 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 				failure(w, 400, "invalid_request", "No se admiten parámetros de URL.")
 				return
 			}
+			if _, err := h.service.GetOwn(r.Context(), owner, spaceID); err != nil {
+				serviceError(w, err)
+				return
+			}
+			timestamp, err := parseIfMatch(r.Header.Values("If-Match"), spaceID)
+			if err != nil {
+				switch {
+				case errors.Is(err, errMissingPrecondition):
+					failure(w, 428, "precondition_required", "Se requiere If-Match.")
+				case errors.Is(err, errStalePrecondition):
+					failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+				default:
+					failure(w, 400, "invalid_precondition", "If-Match no es válido.")
+				}
+				return
+			}
+			expected, err := time.Parse(time.RFC3339Nano, timestamp)
+			if err != nil {
+				failure(w, 400, "invalid_precondition", "If-Match no es válido.")
+				return
+			}
 			var in struct {
 				TimeZone string `json:"time_zone"`
 			}
 			if !decode(w, r, &in) {
 				return
 			}
-			if err := h.calendar.SetTimeZone(r.Context(), owner, spaceID, in.TimeZone); err != nil {
-				calendarError(w, err)
+			revision, err := h.calendar.SetTimeZoneCAS(r.Context(), owner, spaceID, in.TimeZone, expected)
+			if err != nil {
+				if errors.Is(err, occupancy.ErrPreconditionFailed) {
+					failure(w, 412, "precondition_failed", "La versión del espacio cambió.")
+				} else {
+					calendarError(w, err)
+				}
 				return
 			}
+			w.Header().Set("ETag", DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: revision}))
 			write(w, 200, map[string]string{"space_id": spaceID, "time_zone": in.TimeZone})
 		case http.MethodGet:
 			from, to, ok := queryWindow(w, r.URL.Query())
@@ -501,8 +624,6 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 }
 func serviceError(w http.ResponseWriter, e error) {
 	switch {
-	case errors.Is(e, spaces.ErrEligibilityRequired):
-		failure(w, 409, "eligibility_required", "Se requiere elegibilidad KYC sintética vigente para publicar.")
 	case errors.Is(e, spaces.ErrPublicationConflict):
 		failure(w, 409, "conflict", "La transición de publicación no está permitida desde el estado actual.")
 	case errors.Is(e, spaces.ErrDeleteBlocked):

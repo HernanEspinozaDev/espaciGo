@@ -183,8 +183,11 @@ const mutationFamilies = [
   },
   { name: "uploadPhoto", call: (f) => f.uploadPhoto("l1") },
   { name: "setCoverPhoto", call: (f) => f.setCoverPhoto("l1", "p1") },
-  { name: "removePhoto", call: (f) => f.removePhoto("l1", "p1") },
-  { name: "reorderPhotos", call: (f) => f.reorderPhotos("l1", ["p1"]) },
+  { name: "removePhoto", call: (f) => f.removePhoto("l1", "p1", '"rev-1"') },
+  {
+    name: "movePhoto",
+    call: (f) => f.movePhoto("l1", "p1", 1, '"rev-1"'),
+  },
 ];
 
 for (const { name, call } of mutationFamilies) {
@@ -292,13 +295,13 @@ const authErrorCases = [
   },
   {
     name: "removePhoto",
-    call: (f) => f.removePhoto("l1", "p1"),
+    call: (f) => f.removePhoto("l1", "p1", '"rev-1"'),
     portMethod: "removePhoto",
   },
   {
-    name: "reorderPhotos",
-    call: (f) => f.reorderPhotos("l1", ["p1"]),
-    portMethod: "reorderPhotos",
+    name: "movePhoto",
+    call: (f) => f.movePhoto("l1", "p1", 1, '"rev-1"'),
+    portMethod: "movePhoto",
   },
   {
     name: "loadCategories",

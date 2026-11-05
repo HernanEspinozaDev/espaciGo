@@ -6,7 +6,7 @@
 
 - Una cuenta puede ofrecer espacios, buscar, comunicarse y arrendar. Los papeles de arrendador y arrendatario se determinan por recurso y operación. La administración de plataforma conserva capacidades separadas.
 - Un espacio es una unidad reservable exclusiva con un titular vigente. Solo el titular puede publicar, administrar y republicar. La verificación de identidad contractual se exige al emitir el contrato. El anuncio se valida por titularidad y por sus propias reglas.
-- Conservar las ocho categorías y las unidades CLP hora, día y mes. Un bloque o sesión puntual tiene inicio, fin y precio aceptado. Recurrencia, subdivisión y aforo compartido quedan diferidos.
+- Conservar las nueve categorías del catálogo: Oficina, Sala multipropósito, Bodega, Estacionamiento, Local flexible, Stand, Quincho, Parcela de eventos e Inmuebles. Inmuebles se incorpora en V000067. Casa, departamento, habitación y cabaña son opciones de su perfil. Mantener CLP y las unidades hora, día y mes. Un bloque o sesión puntual tiene inicio, fin y precio aceptado. Recurrencia, subdivisión y aforo compartido quedan diferidos.
 - La galería admite hasta 30 posiciones por espacio, incluidas cargas reservadas, con orden, portada y control de concurrencia.
 - Tras la entrega del arrendatario, el titular confirma desocupación, libera el bloqueo de ese arriendo y puede republicar de inmediato. El contrato queda asociado al historial. Los demás intervalos vigentes se conservan.
 

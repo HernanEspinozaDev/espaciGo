@@ -6,7 +6,6 @@ import {
   Plus,
   Edit3,
   Archive,
-  Trash2,
   Send,
   Building2,
   AlertCircle,
@@ -42,6 +41,7 @@ export function HostListingsList() {
     publishListing,
     archiveListing,
     deleteListing,
+    selectListing,
   } = useHostListings();
 
   const [activeFilter, setActiveFilter] = useState<FilterStatus>("all");
@@ -88,7 +88,11 @@ export function HostListingsList() {
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        await publishListing(listingId);
+        const detail = await selectListing(listingId);
+        if (!detail?.etag || authSnapshot.status !== "authenticated") {
+          throw new Error("No fue posible obtener la revisión del espacio");
+        }
+        await publishListing(listingId, detail.etag);
         setActionSuccess("Espacio publicado exitosamente con estado activo.");
       } catch (err) {
         const message =
@@ -109,7 +113,11 @@ export function HostListingsList() {
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        await archiveListing(listingId);
+        const detail = await selectListing(listingId);
+        if (!detail?.etag || authSnapshot.status !== "authenticated") {
+          throw new Error("No fue posible obtener la revisión del espacio");
+        }
+        await archiveListing(listingId, detail.etag);
         setActionSuccess(
           "Espacio archivado. Ya no será visible en el catálogo público.",
         );
@@ -125,10 +133,10 @@ export function HostListingsList() {
     });
   };
 
-  const handleDeleteDraft = async (listingId: string, title: string) => {
+  const handleRetirePublication = async (listingId: string, title: string) => {
     if (authSnapshot.status !== "authenticated") return;
     const confirmed = window.confirm(
-      `¿Estás seguro de eliminar el borrador "${title}"? Esta acción no se puede deshacer.`,
+      `¿Retirar la publicación "${title}" del catálogo? Las reservas e historiales se conservarán; esto no elimina el espacio físicamente.`,
     );
     if (!confirmed) return;
 
@@ -138,12 +146,12 @@ export function HostListingsList() {
     startTransition(async () => {
       try {
         await deleteListing(listingId);
-        setActionSuccess("Borrador eliminado correctamente.");
+        setActionSuccess("Publicación retirada correctamente.");
       } catch (err) {
         const message =
           err instanceof Error
             ? err.message
-            : "No fue posible eliminar el borrador";
+            : "No fue posible retirar la publicación";
         setActionError(message);
       } finally {
         setOperatingId(null);
@@ -446,18 +454,6 @@ export function HostListingsList() {
                           )}
                           Publicar
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={isOperating}
-                          onClick={() =>
-                            handleDeleteDraft(listing.id, listing.title)
-                          }
-                          className="text-destructive hover:bg-destructive/10 text-xs px-2"
-                          aria-label={`Eliminar borrador ${listing.title}`}
-                        >
-                          <Trash2 className="size-3.5" aria-hidden="true" />
-                        </Button>
                       </>
                     )}
 
@@ -500,6 +496,23 @@ export function HostListingsList() {
                           <Send className="size-3.5" aria-hidden="true" />
                         )}
                         Reactivar
+                      </Button>
+                    )}
+
+                    {(listing.state === "activa" ||
+                      listing.state === "oculta") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={isOperating}
+                        onClick={() =>
+                          handleRetirePublication(listing.id, listing.title)
+                        }
+                        className="text-destructive hover:bg-destructive/10 text-xs px-2"
+                        aria-label={`Retirar publicación ${listing.title}`}
+                      >
+                        <Archive className="size-3.5" aria-hidden="true" />
+                        Retirar publicación
                       </Button>
                     )}
                   </div>
