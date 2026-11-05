@@ -175,6 +175,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	publicCatalogEnabled, err := localPublicCatalogEnabled(os.Getenv, runtimeProfileValue)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadRuntimeConfig(os.Getenv, runtimeProfileValue)
 	if err != nil {
 		return errors.New("invalid API configuration")
@@ -435,7 +439,13 @@ func run() error {
 			}
 			registerLocalRepublicationRoutes(mux, operationhttp.NewHandler(service, returnService, cfg.allowedOrigins))
 		}
-		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
+		if publicCatalogEnabled || os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
+			if publicCatalogEnabled {
+				publicCatalogMasterKey, err = localPublicCatalogKey(os.Getenv("LOCAL_PUBLIC_CATALOG_CURSOR_KEY_FILE"))
+				if err != nil {
+					return err
+				}
+			}
 			publicCatalogService, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), publicCatalogMasterKey, evidenceStore, mediaStore)
 			if err != nil {
 				return errors.New("public catalog initialization failed")
@@ -446,6 +456,8 @@ func run() error {
 			mux.Handle("/api/v1/public/space-categories", publicCatalogHandler)
 			mux.Handle("/api/v1/public/space-categories/", publicCatalogHandler)
 			mux.Handle("/api/v1/public/locations", publicCatalogHandler)
+		}
+		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
 			quoteTTL, err := localTrialDuration("LOCAL_BOOKING_QUOTE_TTL", 15*time.Minute)
 			if err != nil {
 				return errors.New("invalid local quote lifetime")

@@ -427,7 +427,12 @@ func persistNewFiles(ctx context.Context, tx pgx.Tx, caseID string, purpose dv.P
 
 func identityCurrent(ctx context.Context, tx pgx.Tx, subject string) (bool, error) {
 	var id string
-	e := tx.QueryRow(ctx, `SELECT id::text FROM public.document_verification_case WHERE purpose='identity' AND subject_id=$1 AND state='aprobada' AND verified_until>now() ORDER BY verified_until DESC,id LIMIT 1 FOR SHARE`, subject).Scan(&id)
+	e := tx.QueryRow(ctx, `SELECT current_case.id::text FROM (
+ SELECT * FROM public.document_verification_case
+ WHERE purpose='identity' AND subject_id=$1 AND state IN ('aprobada','revocada','vencida')
+ ORDER BY updated_at DESC,id DESC LIMIT 1 FOR SHARE
+) current_case WHERE state='aprobada' AND verified_at<=now() AND verified_until>now()
+ AND document_expires_at>now() AND revoked_at IS NULL`, subject).Scan(&id)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return false, nil
 	}

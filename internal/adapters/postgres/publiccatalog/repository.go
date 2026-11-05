@@ -124,6 +124,46 @@ const eligiblePublicSQL = ` FROM public.espacio e
 JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo AND c.activa
 JOIN LATERAL (SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1) t ON true
 JOIN public.usuario owner ON owner.id=e.propietario_id AND owner.estado='activo'
+LEFT JOIN LATERAL (
+ SELECT
+   EXISTS (
+     SELECT 1 FROM (
+       SELECT * FROM public.document_verification_case
+       WHERE purpose='identity' AND subject_id=owner.id
+         AND state IN ('aprobada','revocada','vencida')
+       ORDER BY updated_at DESC,id DESC LIMIT 1
+     ) identity_case
+     WHERE identity_case.purpose='identity' AND identity_case.subject_id=owner.id
+       AND identity_case.state='aprobada' AND identity_case.verified_at<=now()
+       AND identity_case.verified_until>now() AND identity_case.document_expires_at>now()
+       AND identity_case.revoked_at IS NULL AND identity_case.superseded_at IS NULL
+   ) AS identity_verified,
+   EXISTS (
+     SELECT 1 FROM (
+       SELECT * FROM public.document_verification_case
+       WHERE purpose='space' AND space_id=e.id AND subject_id=owner.id
+         AND state IN ('aprobada','revocada','vencida')
+       ORDER BY updated_at DESC,id DESC LIMIT 1
+     ) space_case
+     WHERE space_case.purpose='space' AND space_case.space_id=e.id
+       AND space_case.subject_id=owner.id AND space_case.state='aprobada'
+       AND space_case.verified_at<=now() AND space_case.verified_until>now()
+       AND space_case.document_expires_at>now() AND space_case.revoked_at IS NULL
+       AND space_case.superseded_at IS NULL
+       AND EXISTS (
+         SELECT 1 FROM (
+           SELECT * FROM public.document_verification_case
+           WHERE purpose='identity' AND subject_id=owner.id
+             AND state IN ('aprobada','revocada','vencida')
+           ORDER BY updated_at DESC,id DESC LIMIT 1
+         ) identity_case
+         WHERE identity_case.purpose='identity' AND identity_case.subject_id=owner.id
+           AND identity_case.state='aprobada' AND identity_case.verified_at<=now()
+           AND identity_case.verified_until>now() AND identity_case.document_expires_at>now()
+           AND identity_case.revoked_at IS NULL AND identity_case.superseded_at IS NULL
+       )
+   ) AS space_verified
+) verification ON true
 LEFT JOIN public.region_publica r ON r.catalogo_version=e.ubicacion_catalogo_version AND r.codigo=e.region_codigo
 LEFT JOIN public.comuna_publica m ON m.catalogo_version=e.ubicacion_catalogo_version AND m.region_codigo=e.region_codigo AND m.codigo=e.comuna_codigo
 LEFT JOIN public.espacio_caracteristicas attrs ON attrs.espacio_id=e.id AND attrs.categoria_codigo=e.categoria_codigo
@@ -141,9 +181,6 @@ LEFT JOIN LATERAL (
 ) cover ON true
 WHERE e.estado='activa'
 AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=owner.id)
-AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local eligibility
- JOIN public.verificacion v ON v.id=eligibility.verificacion_id AND v.usuario_id=eligibility.usuario_id AND v.tipo=eligibility.tipo AND v.estado='aprobada'
- WHERE eligibility.usuario_id=owner.id AND eligibility.tipo='kyc' AND eligibility.estado='elegible')
 AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture f WHERE f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.habilitada)`
 
 const projection = `SELECT e.id::text,e.categoria_codigo,c.nombre,e.titulo,e.descripcion,e.superficie_m2::double precision,t.modalidad,t.precio_base_clp,t.moneda,c.orden,lower(e.titulo) COLLATE "C"`
@@ -178,7 +215,8 @@ SELECT e.id::text AS space_id,e.categoria_codigo,c.nombre AS category_name,e.tit
             WHEN t.precio_base_clp::numeric * public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria)::numeric > 9223372036854775807::numeric THEN NULL
             ELSE (t.precio_base_clp::numeric * public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria)::numeric)::bigint END AS estimated_total,
        CASE WHEN $5='' THEN 0::real ELSE ts_rank(e.busqueda_publica,plainto_tsquery('public.espacigo_es_unaccent'::regconfig,$5)) END AS relevance_rank,
-       attrs.valores AS filter_values,attrs.perfil_version AS filter_profile_version
+       attrs.valores AS filter_values,attrs.perfil_version AS filter_profile_version,
+       verification.identity_verified,verification.space_verified
 ` + eligiblePublicSQL + `
 AND ($1='' OR e.categoria_codigo=$1)
   AND ($2='' OR t.modalidad=$2)
@@ -191,7 +229,8 @@ AND ($1='' OR e.categoria_codigo=$1)
   AND ($10::jsonb='{}'::jsonb OR (attrs.perfil_version=$9 AND attrs.valores @> $10::jsonb))
 )
 SELECT space_id, categoria_codigo, category_name,titulo,descripcion,area_m2,modalidad,precio_base_clp,moneda,
-       category_order,title_key,zona_horaria,region_code,region_name,commune_code,commune_name,cover_image_id,estimated_total,relevance_rank
+       category_order,title_key,zona_horaria,region_code,region_name,commune_code,commune_name,cover_image_id,estimated_total,relevance_rank,
+       identity_verified,space_verified
 FROM candidates
 WHERE ($13::bigint IS NULL OR estimated_total >= $13)
   AND ($14::bigint IS NULL OR estimated_total <= $14)`
@@ -297,7 +336,7 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		v.Images = []publiccatalog.PublicImageRef{}
 		var timeZone, regionCode, regionName, communeCode, communeName, coverImageID sql.NullString
 		var estimatedTotal sql.NullInt64
-		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &estimatedTotal, &v.RelevanceRank); err != nil {
+		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &estimatedTotal, &v.RelevanceRank, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified); err != nil {
 			return nil, err
 		}
 		if timeZone.Valid {
@@ -329,7 +368,7 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
 	var v publiccatalog.Space
-	err := r.pool.QueryRow(ctx, projection+`,e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre`+eligiblePublicSQL+` AND e.id=$1`, id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName)
+	err := r.pool.QueryRow(ctx, projection+`,e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified`+eligiblePublicSQL+` AND e.id=$1`, id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified)
 	if err == pgx.ErrNoRows {
 		return publiccatalog.Space{}, publiccatalog.ErrNotFound
 	}

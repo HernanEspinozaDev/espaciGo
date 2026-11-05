@@ -7690,6 +7690,14 @@ components:
                 generated_at: { type: string, format: date-time },
               },
           }
+    PublicDocumentVerification:
+      type: object
+      additionalProperties: false
+      required: [identity_verified, space_verified]
+      description: Distintivos documentales independientes de la publicación. Se calculan con la titularidad y vigencia actuales; no acreditan dominio, legalidad, garantía ni identidad contractual. No contienen expedientes ni identificadores privados.
+      properties:
+        identity_verified: { type: boolean }
+        space_verified: { type: boolean }
     PublicSpace:
       type: object
       additionalProperties: false
@@ -7744,6 +7752,8 @@ components:
             type: array,
             items: { $ref: "#/components/schemas/PublicSpaceImageRef" },
           }
+        verification:
+          { $ref: "#/components/schemas/PublicDocumentVerification" }
     PublicSpaceEnvelope:
       type: object
       additionalProperties: false
@@ -7796,6 +7806,8 @@ components:
             type: array,
             items: { $ref: "#/components/schemas/PublicSpaceImageRef" },
           }
+        verification:
+          { $ref: "#/components/schemas/PublicDocumentVerification" }
     PublicSpaceDetailEnvelope:
       type: object
       additionalProperties: false
