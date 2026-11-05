@@ -90,6 +90,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   } = useHostListings();
 
   const [activeTab, setActiveTab] = useState<TabKey>("info");
+  const [galleryBusy, setGalleryBusy] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [feedbackSuccess, setFeedbackSuccess] = useState<string | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
@@ -475,7 +476,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
               <Button
                 variant="default"
                 size="sm"
-                disabled={isPending || !publishCheck.eligible}
+                disabled={galleryBusy || isPending || !publishCheck.eligible}
                 onClick={handleGlobalPublish}
                 className="gap-1.5 font-semibold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
                 title={
@@ -490,7 +491,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={isPending}
+                disabled={galleryBusy || isPending}
                 onClick={handleGlobalDelete}
                 className="text-destructive hover:bg-destructive/10"
               >
@@ -504,7 +505,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             <Button
               variant="outline"
               size="sm"
-              disabled={isPending}
+              disabled={galleryBusy || isPending}
               onClick={handleGlobalArchive}
               className="gap-1.5 text-amber-700 hover:bg-amber-50"
             >
@@ -517,9 +518,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             <Button
               variant="default"
               size="sm"
-              disabled={isPending || !publishCheck.eligible}
+              disabled={galleryBusy || isPending || !publishCheck.eligible}
               onClick={handleGlobalPublish}
-              className="gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+              className="gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white"
             >
               <Send className="size-4" aria-hidden="true" />
               Reactivar
@@ -596,6 +597,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           id="tab-info"
           aria-controls="panel-info"
           aria-selected={activeTab === "info"}
+          disabled={galleryBusy}
           onClick={() => setActiveTab("info")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "info"
@@ -613,6 +615,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           id="tab-pricing"
           aria-controls="panel-pricing"
           aria-selected={activeTab === "pricing"}
+          disabled={galleryBusy}
           onClick={() => setActiveTab("pricing")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "pricing"
@@ -630,6 +633,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           id="tab-schedule"
           aria-controls="panel-schedule"
           aria-selected={activeTab === "schedule"}
+          disabled={galleryBusy}
           onClick={() => setActiveTab("schedule")}
           className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
             activeTab === "schedule"
@@ -1270,6 +1274,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
             token={accessToken!}
             photos={snapshot.photos}
             selectedListing={currentListing}
+            onBusyChange={setGalleryBusy}
             uploadPhoto={uploadPhoto}
             replacePhoto={replacePhoto}
             setCoverPhoto={setCoverPhoto}

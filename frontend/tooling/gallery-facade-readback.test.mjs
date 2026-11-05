@@ -35,6 +35,41 @@ async function withFacade(run) {
   }
 }
 
+test("upload forwards the exact AbortSignal, file input and original idempotency key", async () => {
+  await withFacade(async (Facade) => {
+    let received;
+    const facade = new Facade({
+      getListing: async () => ({ id: "A", etag: '"1"' }),
+      getPricing: async () => null,
+      getWeeklySchedule: async () => null,
+      listPhotos: async () => [{ id: "photo", state: "ready" }],
+      uploadPhoto: async (...args) => {
+        received = args;
+        return { id: "photo", state: "ready" };
+      },
+    });
+    await facade.selectListing("session", "A");
+    const controller = new AbortController();
+    const input = {
+      image: new File(["synthetic"], "test.png", { type: "image/png" }),
+    };
+    await facade.uploadPhoto(
+      "session",
+      "A",
+      input,
+      "original-key",
+      controller.signal,
+    );
+    assert.deepEqual(received, [
+      "session",
+      "A",
+      input,
+      "original-key",
+      controller.signal,
+    ]);
+  });
+});
+
 for (const operation of [
   "configureTimeZone",
   "updateWeeklySchedule",

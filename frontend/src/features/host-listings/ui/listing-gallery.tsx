@@ -21,6 +21,7 @@ import {
 import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 import type { AccessToken } from "@/features/auth/application/auth.port";
 import type { GalleryPhoto, GalleryUploadStatus } from "../domain/types";
+import { GalleryUploadBatch } from "./gallery-upload-batch";
 
 const MAX_PHOTOS = 30;
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -41,6 +42,7 @@ interface ListingGalleryProps {
     listingId: string,
     input: { image: File },
     key?: string,
+    signal?: AbortSignal,
   ): Promise<GalleryPhoto>;
   replacePhoto(
     token: AccessToken,
@@ -81,6 +83,7 @@ interface ListingGalleryProps {
     listingId: string,
     key: string,
   ): Promise<GalleryUploadStatus>;
+  onBusyChange?(busy: boolean): void;
 }
 
 interface RetryTask {
@@ -96,19 +99,30 @@ function newKey(): string {
 }
 
 export function ListingGallery(props: ListingGalleryProps) {
-  const { listingId, token, photos, selectedListing, loadPhotoVariant } = props;
+  const {
+    listingId,
+    token,
+    photos,
+    selectedListing,
+    loadPhotoVariant,
+    onBusyChange,
+  } = props;
   const [pending, setPending] = useState<string | null>(null);
+  const [uploadBusy, setUploadBusy] = useState(false);
   const [uncertain, setUncertain] = useState<RetryTask | null>(null);
   const [retryAllowed, setRetryAllowed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const galleryKey = useMemo(() => `host-gallery:${listingId}`, [listingId]);
+  useEffect(() => {
+    onBusyChange?.(uploadBusy || pending !== null || uncertain !== null);
+  }, [onBusyChange, uploadBusy, pending, uncertain]);
   const lifetime = useRef(0);
   useEffect(() => {
-    lifetime.current++;
+    const generation = ++lifetime.current;
     return () => {
-      lifetime.current++;
+      lifetime.current = generation + 1;
     };
   }, [listingId, token]);
 
@@ -144,7 +158,8 @@ export function ListingGallery(props: ListingGalleryProps) {
   }, [galleryKey, listingId, photos, loadPhotoVariant, token]);
 
   async function run(task: RetryTask): Promise<void> {
-    if (pending !== null || (uncertain !== null && !retryAllowed)) return;
+    if (uploadBusy || pending !== null || (uncertain !== null && !retryAllowed))
+      return;
     const generation = lifetime.current;
     const marker = task.photoId ?? "new";
     setPending(marker);
@@ -226,7 +241,7 @@ export function ListingGallery(props: ListingGalleryProps) {
     operation: () => Promise<unknown>,
     success: string,
   ) {
-    if (pending !== null || uncertain !== null) return;
+    if (uploadBusy || pending !== null || uncertain !== null) return;
     const generation = lifetime.current;
     setPending(id);
     setError(null);
@@ -244,7 +259,7 @@ export function ListingGallery(props: ListingGalleryProps) {
   }
 
   async function refreshGallery(): Promise<void> {
-    if (pending !== null) return;
+    if (uploadBusy || pending !== null) return;
     const generation = lifetime.current;
     if (uncertain) {
       await checkUpload(uncertain);
@@ -334,32 +349,16 @@ export function ListingGallery(props: ListingGalleryProps) {
               Selecciona la portada y organiza las fotografías del espacio.
             </CardDescription>
           </div>
-          <label className="text-sm font-medium">
-            Subir fotografías
-            <input
-              id="gallery-photo-upload"
-              aria-label="Subir fotografías"
-              type="file"
-              accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-              disabled={
-                pending !== null ||
-                uncertain !== null ||
-                photos.length >= MAX_PHOTOS
-              }
-              className="mt-2 block min-h-11 max-w-full text-sm"
-              onChange={(event) => {
-                const files = Array.from(event.currentTarget.files ?? []);
-                event.currentTarget.value = "";
-                if (photos.length + files.length > MAX_PHOTOS) {
-                  setError("La galería admite hasta 30 fotografías.");
-                  return;
-                }
-                const file = files[0];
-                if (file && valid(file))
-                  void run({ kind: "upload", file, key: newKey() });
-              }}
-            />
-          </label>
+          <GalleryUploadBatch
+            listingId={listingId}
+            token={token}
+            photoCount={photos.length}
+            disabled={pending !== null || uncertain !== null}
+            onBusyChange={setUploadBusy}
+            uploadPhoto={props.uploadPhoto}
+            getPhotoUploadStatus={props.getPhotoUploadStatus}
+            loadPhotos={props.loadPhotos}
+          />
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between text-sm">
@@ -370,7 +369,7 @@ export function ListingGallery(props: ListingGalleryProps) {
             <Button
               type="button"
               variant="outline"
-              disabled={pending !== null}
+              disabled={uploadBusy || pending !== null}
               onClick={() => void refreshGallery()}
             >
               Actualizar galería
@@ -447,7 +446,9 @@ export function ListingGallery(props: ListingGalleryProps) {
                           type="button"
                           variant="ghost"
                           className="min-h-11"
-                          disabled={pending !== null || uncertain !== null}
+                          disabled={
+                            uploadBusy || pending !== null || uncertain !== null
+                          }
                           onClick={() =>
                             void action(
                               photo.id,
@@ -475,7 +476,10 @@ export function ListingGallery(props: ListingGalleryProps) {
                           variant="outline"
                           className="size-11 p-0"
                           disabled={
-                            pending !== null || uncertain !== null || idx === 0
+                            uploadBusy ||
+                            pending !== null ||
+                            uncertain !== null ||
+                            idx === 0
                           }
                           aria-label="Mover foto antes"
                           onClick={() => {
@@ -498,6 +502,7 @@ export function ListingGallery(props: ListingGalleryProps) {
                           variant="outline"
                           className="size-11 p-0"
                           disabled={
+                            uploadBusy ||
                             pending !== null ||
                             uncertain !== null ||
                             idx === photos.length - 1
@@ -525,7 +530,9 @@ export function ListingGallery(props: ListingGalleryProps) {
                           type="file"
                           aria-label="Reemplazar fotografía"
                           accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                          disabled={pending !== null || uncertain !== null}
+                          disabled={
+                            uploadBusy || pending !== null || uncertain !== null
+                          }
                           className="sr-only"
                           onChange={(event) => {
                             const file = event.currentTarget.files?.[0];
@@ -545,7 +552,9 @@ export function ListingGallery(props: ListingGalleryProps) {
                         type="button"
                         variant="ghost"
                         className="min-h-11 text-red-800"
-                        disabled={pending !== null || uncertain !== null}
+                        disabled={
+                          uploadBusy || pending !== null || uncertain !== null
+                        }
                         aria-label="Eliminar foto"
                         onClick={() => {
                           if (

@@ -112,6 +112,7 @@ export interface HostListingsView {
     listingId: string,
     input?: PhotoUploadInput,
     idempotencyKey?: string,
+    signal?: AbortSignal,
   ): Promise<GalleryPhoto>;
   replacePhoto(
     token: AccessToken,
@@ -299,8 +300,15 @@ export function useHostListings(): HostListingsView {
       listingId: string,
       input?: PhotoUploadInput,
       idempotencyKey?: string,
+      signal?: AbortSignal,
     ) =>
-      hostListingsFacade.uploadPhoto(token, listingId, input, idempotencyKey),
+      hostListingsFacade.uploadPhoto(
+        token,
+        listingId,
+        input,
+        idempotencyKey,
+        signal,
+      ),
     [],
   );
 

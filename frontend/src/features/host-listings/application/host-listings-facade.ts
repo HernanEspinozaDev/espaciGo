@@ -657,6 +657,7 @@ export class HostListingsFacade {
     listingId: string,
     input?: PhotoUploadInput,
     idempotencyKey?: string,
+    signal?: AbortSignal,
   ): Promise<GalleryPhoto> {
     const generation = this.#generation;
     this.#setSnapshot({ loading: true, error: null });
@@ -666,6 +667,7 @@ export class HostListingsFacade {
         listingId,
         input,
         idempotencyKey,
+        signal,
       );
       this.#assertGeneration(generation);
       await this.#refreshGallery(token, listingId);
@@ -677,6 +679,10 @@ export class HostListingsFacade {
       return photo;
     } catch (err) {
       this.#assertGeneration(generation);
+      if (signal?.aborted) {
+        this.#setSnapshot({ loading: false });
+        throw err;
+      }
       const message =
         err instanceof Error ? err.message : "Error al subir foto";
       this.#setSnapshot({ loading: false, error: message });

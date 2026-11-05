@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { deflateSync } from "node:zlib";
 
-function syntheticPng(seed: number): Buffer {
+function syntheticPng(seed: number, transparent = false): Buffer {
   const crc = (data: Buffer) => {
     let value = 0xffffffff;
     for (const byte of data) {
@@ -26,14 +26,16 @@ function syntheticPng(seed: number): Buffer {
   header.writeUInt32BE(64, 0);
   header.writeUInt32BE(48, 4);
   header[8] = 8;
-  header[9] = 2;
-  const pixels = Buffer.alloc(48 * (1 + 64 * 3));
+  header[9] = transparent ? 6 : 2;
+  const channels = transparent ? 4 : 3;
+  const pixels = Buffer.alloc(48 * (1 + 64 * channels));
   for (let y = 0; y < 48; y++)
     for (let x = 0; x < 64; x++) {
-      const offset = y * 193 + 1 + x * 3;
+      const offset = y * (1 + 64 * channels) + 1 + x * channels;
       pixels[offset] = (x * 3 + seed * 41) % 256;
       pixels[offset + 1] = (y * 5 + seed * 23) % 256;
       pixels[offset + 2] = (x + y + seed * 61) % 256;
+      if (transparent) pixels[offset + 3] = 96;
     }
   return Buffer.concat([
     Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
@@ -377,39 +379,73 @@ test("@space-gallery @native owner creates, edits and independently rehydrates r
     let gallery = await galleryRead();
     expect(gallery.max_photos).toBe(30);
 
-    const uploadThroughUI = async (seed: number) => {
-      await expect(page.locator("#gallery-photo-upload")).toBeEnabled();
-      const uploadResponsePromise = page.waitForResponse(
-        (response) =>
-          new URL(response.url()).pathname === galleryPath &&
-          response.request().method() === "POST",
-      );
-      await page.locator("#gallery-photo-upload").setInputFiles({
+    let activeUploads = 0;
+    let maximumUploads = 0;
+
+    page.on("request", (request) => {
+      if (
+        new URL(request.url()).pathname === galleryPath &&
+        request.method() === "POST"
+      ) {
+        activeUploads++;
+        maximumUploads = Math.max(maximumUploads, activeUploads);
+      }
+    });
+    page.on("response", (response) => {
+      if (
+        new URL(response.url()).pathname === galleryPath &&
+        response.request().method() === "POST"
+      )
+        activeUploads--;
+    });
+    await expect(page.locator("#gallery-photo-upload")).toBeEnabled();
+    await page.locator("#gallery-photo-upload").setInputFiles(
+      [1, 2, 3].map((seed) => ({
         name: `synthetic-${seed}.png`,
         mimeType: "image/png",
-        buffer: syntheticPng(seed),
-      });
-      const uploaded = await uploadResponsePromise;
-      expect([201, 200].includes(uploaded.status())).toBe(true);
-      const uploadedBody = (await uploaded.json()) as {
-        item?: GalleryPhoto;
-        photo?: GalleryPhoto;
-      };
-      const id = uploadedBody.item?.id ?? uploadedBody.photo?.id;
-      expect(/^[0-9a-f-]{36}$/i.test(id ?? "")).toBe(true);
-      await expect(
-        page.locator(`[data-testid="gallery-photo"][data-photo-id="${id}"]`),
-      ).toBeVisible();
-      await expect
-        .poll(async () =>
-          (await galleryRead()).items.some((photo) => photo.id === id),
-        )
-        .toBe(true);
-      return id!;
-    };
-    await uploadThroughUI(1);
-    const createdPhotoID = await uploadThroughUI(2);
-    await uploadThroughUI(3);
+        buffer: syntheticPng(seed, seed === 1),
+      })),
+    );
+    await expect(
+      page.locator(
+        '[data-testid="gallery-upload-item"][data-upload-state="ready"]',
+      ),
+    ).toHaveCount(3);
+    await expect.poll(async () => (await galleryRead()).items.length).toBe(3);
+    expect(maximumUploads).toBe(2);
+    const uploadRequests = observed.filter(
+      (request) => request.path === galleryPath && request.method === "POST",
+    );
+    expect(uploadRequests.length).toBe(3);
+    expect(uploadRequests.every((request) => request.status === 201)).toBe(
+      true,
+    );
+    const createdPhotoID = (await galleryRead()).items[1]!.id;
+    await expect
+      .poll(async () =>
+        page
+          .locator('[data-testid="gallery-photo"] img')
+          .evaluateAll((images) =>
+            images
+              .map((image) => {
+                if (
+                  !(image instanceof HTMLImageElement) ||
+                  !image.complete ||
+                  !image.naturalWidth
+                )
+                  return -1;
+                const canvas = document.createElement("canvas");
+                canvas.width = image.naturalWidth;
+                canvas.height = image.naturalHeight;
+                const context = canvas.getContext("2d");
+                if (!context) return -1;
+                context.drawImage(image, 0, 0);
+                return context.getImageData(0, 0, 1, 1).data[3];
+              })
+              .sort((a, b) => a - b),
+          ),
+      )
+      .toEqual([96, 255, 255]);
 
     gallery = await galleryRead();
     expect(gallery.items.some((photo) => photo.id === createdPhotoID)).toBe(

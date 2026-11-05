@@ -1,0 +1,211 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/workspace/ui/button";
+import type { AccessToken } from "@/features/auth/application/auth.port";
+import type { GalleryPhoto, GalleryUploadStatus } from "../domain/types";
+import {
+  GalleryUploadQueue,
+  type QueueItem,
+} from "../application/gallery-upload-queue";
+
+interface GalleryUploadBatchProps {
+  listingId: string;
+  token: AccessToken;
+  photoCount: number;
+  disabled: boolean;
+  onBusyChange(busy: boolean): void;
+  uploadPhoto(
+    token: AccessToken,
+    listingId: string,
+    input: { image: File },
+    key?: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryPhoto>;
+  getPhotoUploadStatus(
+    token: AccessToken,
+    listingId: string,
+    key: string,
+  ): Promise<GalleryUploadStatus>;
+  loadPhotos(
+    token: AccessToken,
+    listingId: string,
+  ): Promise<readonly GalleryPhoto[]>;
+}
+
+const labels: Record<QueueItem["state"], string> = {
+  queued: "En cola",
+  uploading: "Subiendo…",
+  pending: "Resultado pendiente de confirmar",
+  ready: "Completada",
+  failed:
+    "Carga sin confirmar; consulta el resultado o reintenta explícitamente",
+  cancelled: "Cancelada antes del envío",
+};
+
+export function GalleryUploadBatch({
+  listingId,
+  token,
+  photoCount,
+  disabled,
+  onBusyChange,
+  uploadPhoto,
+  getPhotoUploadStatus,
+  loadPhotos,
+}: GalleryUploadBatchProps) {
+  const queue = useRef<GalleryUploadQueue | null>(null);
+  const [items, setItems] = useState<readonly QueueItem[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const unresolved = items.some(
+    (item) => item.state !== "ready" && item.state !== "cancelled",
+  );
+  const completed = items.filter((item) => item.state === "ready").length;
+  useEffect(() => {
+    let alive = true;
+    const current = new GalleryUploadQueue({
+      upload: (task, signal) =>
+        uploadPhoto(token, listingId, { image: task.file }, task.key, signal),
+      lookup: (task) => getPhotoUploadStatus(token, listingId, task.key),
+      confirm: async (_task, photoId) =>
+        (await loadPhotos(token, listingId)).some(
+          (photo) => photo.id === photoId && photo.state === "ready",
+        ),
+      changed: (snapshot) => {
+        if (!alive) return;
+        setItems(snapshot);
+        onBusyChange(
+          snapshot.some(
+            (item) => item.state !== "ready" && item.state !== "cancelled",
+          ),
+        );
+      },
+    });
+    queue.current = current;
+    return () => {
+      alive = false;
+      current.dispose();
+      queue.current = null;
+      onBusyChange(false);
+    };
+  }, [
+    listingId,
+    token,
+    uploadPhoto,
+    getPhotoUploadStatus,
+    loadPhotos,
+    onBusyChange,
+  ]);
+
+  return (
+    <section aria-label="Cola de carga de fotografías" className="space-y-3">
+      <label className="text-sm font-medium">
+        Subir fotografías
+        <input
+          id="gallery-photo-upload"
+          aria-label="Subir fotografías"
+          type="file"
+          multiple
+          accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
+          disabled={disabled || unresolved || photoCount >= 30}
+          className="mt-2 block min-h-11 max-w-full text-sm"
+          onChange={(event) => {
+            const files = Array.from(event.currentTarget.files ?? []);
+            event.currentTarget.value = "";
+            setError(null);
+            if (disabled || unresolved || !queue.current) return;
+            if (photoCount + files.length > 30) {
+              setError(
+                "La galería admite hasta 30 fotografías, incluidas las cargas en curso.",
+              );
+              return;
+            }
+            if (
+              files.some(
+                (file) =>
+                  !["image/jpeg", "image/png", "image/webp"].includes(
+                    file.type,
+                  ) || file.size > 10 * 1024 * 1024,
+              )
+            ) {
+              setError("Usa imágenes JPG, PNG o WebP de hasta 10 MiB.");
+              return;
+            }
+            queue.current.enqueue(
+              files.map((file) => ({
+                id: crypto.randomUUID(),
+                file,
+                key: crypto.randomUUID(),
+              })),
+            );
+          }}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Hasta dos cargas simultáneas. Cancelar el envío no revierte una
+        operación ya recibida por el servidor.
+      </p>
+      {error && (
+        <p role="alert" className="text-sm text-red-800">
+          {error}
+        </p>
+      )}
+      {items.length > 0 && (
+        <>
+          <p role="status" className="text-sm text-emerald-800">
+            {completed === 0
+              ? "Todavía no hay cargas confirmadas."
+              : completed === 1
+                ? "Fotografía agregada a la galería."
+                : `${completed} fotografías agregadas a la galería.`}
+          </p>
+          <ol aria-label="Estado de las cargas" className="space-y-2">
+            {items.map((item, index) => (
+              <li
+                key={item.id}
+                data-testid="gallery-upload-item"
+                data-upload-state={item.state}
+                className="flex flex-wrap items-center gap-2 rounded border p-2 text-sm"
+              >
+                <span>
+                  Fotografía {index + 1}:{" "}
+                  <span role="status">{labels[item.state]}</span>
+                </span>
+                {(item.state === "queued" || item.state === "uploading") && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => queue.current?.cancel(item.id)}
+                  >
+                    {item.state === "queued"
+                      ? "Cancelar en cola"
+                      : "Detener envío y consultar"}
+                  </Button>
+                )}
+                {(item.state === "pending" || item.state === "failed") && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      void queue.current?.check(item.id);
+                    }}
+                  >
+                    Consultar estado de carga
+                  </Button>
+                )}
+                {item.retryAllowed && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => queue.current?.retry(item.id)}
+                  >
+                    Reintentar carga con el mismo archivo
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </section>
+  );
+}
