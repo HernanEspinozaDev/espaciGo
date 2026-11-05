@@ -416,6 +416,26 @@ func (r *Repository) setPublicationState(ctx context.Context, owner, id, state, 
 		return spaces.Draft{}, spaces.ErrEnabledFixture
 	}
 	if state == "activa" {
+		// Publication is independent of contractual identity and financial flows,
+		// but must not bypass an outstanding hand-back. Reception releases only
+		// the ended rental's exact occupation; other blocks remain untouched.
+		var pendingReturn bool
+		if err = tx.QueryRow(ctx, `SELECT EXISTS(
+			SELECT 1 FROM public.reserva_ensayo_local r
+			WHERE r.espacio_id=$1 AND (
+				r.estado='en_curso' OR (
+					r.estado='finalizada' AND (
+						NOT EXISTS(SELECT 1 FROM public.operacion_arriendo_ensayo_local o WHERE o.reserva_id=r.id AND o.tipo='recepcion')
+						OR EXISTS(SELECT 1 FROM public.ocupacion oc WHERE oc.reserva_id=r.id AND oc.espacio_id=r.espacio_id AND oc.activo)
+					)
+				)
+			)
+		)`, id).Scan(&pendingReturn); err != nil {
+			return spaces.Draft{}, err
+		}
+		if pendingReturn {
+			return spaces.Draft{}, spaces.ErrPublicationConflict
+		}
 		if draft.State != "borrador" && draft.State != "oculta" {
 			return spaces.Draft{}, spaces.ErrPublicationConflict
 		}

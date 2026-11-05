@@ -167,6 +167,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API runtime profile")
 	}
+	republicationEnabled, err := localRepublicationEnabled(os.Getenv, runtimeProfileValue)
+	if err != nil {
+		return err
+	}
 	cfg, err := loadRuntimeConfig(os.Getenv, runtimeProfileValue)
 	if err != nil {
 		return errors.New("invalid API configuration")
@@ -410,6 +414,13 @@ func run() error {
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/content", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/variants/{variant}", galleryHandler)
 		mux.Handle("/api/v1/spaces/{spaceID}/gallery/{photoID}/publication", galleryHandler)
+		if republicationEnabled {
+			returnService, e := operation.NewService(operationspg.New(pool), evidenceStore, credentials.Generator{}, businessNow)
+			if e != nil {
+				return errors.New("local return operation initialization failed")
+			}
+			registerLocalRepublicationRoutes(mux, operationhttp.NewHandler(service, returnService, cfg.allowedOrigins))
+		}
 		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
 			publicCatalogService, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), publicCatalogMasterKey, evidenceStore, mediaStore)
 			if err != nil {
@@ -872,6 +883,7 @@ func registerContractRoutes(mux *http.ServeMux, handler http.Handler) {
 }
 
 func registerOperationRoutes(mux *http.ServeMux, handler http.Handler) {
+	mux.Handle("GET /api/v1/local/booking-trial/spaces/{spaceID}/returns", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/check-in", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/check-out", handler)
 	mux.Handle("POST /api/v1/local/booking-trial/reservations/{reservationID}/reception", handler)

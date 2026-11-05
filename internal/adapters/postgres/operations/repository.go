@@ -6,7 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"sort"
+
 	"strings"
 	"time"
 
@@ -26,35 +26,8 @@ func (r *Repository) ReserveCandidate(ctx context.Context, actor, reservation, k
 		return mapError(err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	var host, renter string
-	if err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text
-		FROM public.reserva_ensayo_local WHERE id=$1`, reservation).Scan(&host, &renter); err != nil {
-		return mapError(err)
-	}
-	if actor != host && actor != renter {
-		return operation.ErrNotFound
-	}
-	ids := []string{host, renter}
-	sort.Strings(ids)
-	for i, id := range ids {
-		if i > 0 && ids[i-1] == id {
-			continue
-		}
-		var accountState string
-		if err := tx.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, id).Scan(&accountState); err != nil {
-			return mapError(err)
-		}
-		if accountState != "activo" {
-			return operation.ErrConflict
-		}
-	}
-	var lockedHost, lockedRenter string
-	if err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text
-		FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&lockedHost, &lockedRenter); err != nil {
-		return mapError(err)
-	}
-	if lockedHost != host || lockedRenter != renter || actor != lockedHost && actor != lockedRenter {
-		return operation.ErrNotFound
+	if _, err := lockOperationScope(ctx, tx, actor, reservation, kind); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO public.operacion_arriendo_archivo_candidato_local
 		(archivo_id,reserva_id,actor_id,tipo,estado,creada_en,proximo_intento_en)
@@ -83,38 +56,9 @@ func (r *Repository) BeginCandidate(ctx context.Context, actor, reservation, kin
 			_ = tx.Rollback(context.Background())
 		}
 	}()
-	var host, renter string
-	err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text
-		FROM public.reserva_ensayo_local WHERE id=$1`, reservation).Scan(&host, &renter)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && actor != host && actor != renter) {
-		return nil, operation.ErrNotFound
-	}
+	scope, err := lockOperationScope(ctx, tx, actor, reservation, kind)
 	if err != nil {
-		return nil, mapError(err)
-	}
-	ids := []string{host, renter}
-	sort.Strings(ids)
-	for i, id := range ids {
-		if i > 0 && ids[i-1] == id {
-			continue
-		}
-		var state string
-		if err := tx.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, id).Scan(&state); err != nil {
-			return nil, mapError(err)
-		}
-		if state != "activo" {
-			return nil, operation.ErrConflict
-		}
-	}
-	var lockedHost, lockedRenter, state, zone string
-	var start time.Time
-	err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text,estado,inicio,zona_horaria
-		FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&lockedHost, &lockedRenter, &state, &start, &zone)
-	if errors.Is(err, pgx.ErrNoRows) || err == nil && (lockedHost != host || lockedRenter != renter) {
-		return nil, operation.ErrNotFound
-	}
-	if err != nil {
-		return nil, mapError(err)
+		return nil, err
 	}
 	var candidateState string
 	err = tx.QueryRow(ctx, `SELECT estado FROM public.operacion_arriendo_archivo_candidato_local
@@ -126,19 +70,25 @@ func (r *Repository) BeginCandidate(ctx context.Context, actor, reservation, kin
 		return nil, mapError(err)
 	}
 	failed = false
-	return &candidateWriter{tx: tx, actor: actor, reservation: reservation, kind: kind, state: state, start: start, zone: zone, host: host, renter: renter, fileID: fileID}, nil
+	return &candidateWriter{tx: tx, actor: actor, reservation: reservation, kind: kind, state: scope.state, start: scope.start, end: scope.end, zone: scope.zone, host: scope.host, renter: scope.renter, owner: scope.owner, space: scope.space, occupation: scope.occupation, fileID: fileID}, nil
 }
 
 type candidateWriter struct {
-	tx                                                          pgx.Tx
-	actor, reservation, kind, state, zone, host, renter, fileID string
-	start                                                       time.Time
-	done                                                        bool
+	tx                                                                                    pgx.Tx
+	actor, reservation, kind, state, zone, host, renter, owner, space, occupation, fileID string
+	start, end                                                                            time.Time
+	done                                                                                  bool
 }
 
 func (w *candidateWriter) Apply(ctx context.Context, opID, key string, input operation.Input, evidence operation.Evidence, fingerprint []byte, clock func() time.Time) (operation.Item, bool, error) {
-	if w.done || opID != w.fileID || len(fingerprint) != 32 {
+	if w.done || opID != w.fileID || len(fingerprint) != 32 || input.Kind != w.kind {
 		return operation.Item{}, false, operation.ErrConflict
+	}
+	// Current ownership was revalidated under a space row lock before opening
+	// the writer. Authorize before replay lookup: an old host cannot replay a
+	// receipt after ownership changes and a renter cannot confirm a return.
+	if (w.kind == operation.CheckIn || w.kind == operation.CheckOut || w.kind == operation.DefenseEvidence) && w.actor != w.renter || w.kind == operation.Receipt && w.actor != w.owner {
+		return operation.Item{}, false, w.reject(ctx, operation.ErrNotFound)
 	}
 	prior, priorKey, priorFingerprint, scanErr := scanExistingItem(w.tx.QueryRow(ctx, `SELECT id::text,reserva_id::text,tipo,actor_id::text,ocurrio_en,zona_horaria,ubicacion_sintetica,
 		comentarios,observacion,resultado,clave_idempotencia,huella_solicitud
@@ -156,6 +106,11 @@ func (w *candidateWriter) Apply(ctx context.Context, opID, key string, input ope
 			}
 			return operation.Item{}, false, operation.ErrConflict
 		}
+		if w.kind == operation.Receipt {
+			if err := w.verifyReturnOccupation(ctx, false); err != nil {
+				return operation.Item{}, false, w.reject(ctx, err)
+			}
+		}
 		if err := attachEvidence(ctx, w.tx, &prior); err != nil {
 			return operation.Item{}, false, err
 		}
@@ -172,7 +127,7 @@ func (w *candidateWriter) Apply(ctx context.Context, opID, key string, input ope
 		return operation.Item{}, false, scanErr
 	}
 	// The actor is authorized before any action-specific detail is evaluated.
-	if (w.kind == operation.CheckIn || w.kind == operation.CheckOut || w.kind == operation.DefenseEvidence) && w.actor != w.renter || w.kind == operation.Receipt && w.actor != w.host {
+	if (w.kind == operation.CheckIn || w.kind == operation.CheckOut || w.kind == operation.DefenseEvidence) && w.actor != w.renter || w.kind == operation.Receipt && w.actor != w.owner {
 		return operation.Item{}, false, w.reject(ctx, operation.ErrNotFound)
 	}
 	// Read the clock only after account and reservation locks have been acquired
@@ -215,6 +170,16 @@ func (w *candidateWriter) Apply(ctx context.Context, opID, key string, input ope
 			return operation.Item{}, false, w.reject(ctx, mapError(err))
 		}
 		if !checkedOut {
+			return operation.Item{}, false, w.reject(ctx, operation.ErrConflict)
+		}
+		if err := w.verifyReturnOccupation(ctx, true); err != nil {
+			return operation.Item{}, false, w.reject(ctx, err)
+		}
+		changed, err := w.tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE id=$1 AND activo`, w.occupation, now)
+		if err != nil {
+			return operation.Item{}, false, w.reject(ctx, mapError(err))
+		}
+		if changed.RowsAffected() != 1 {
 			return operation.Item{}, false, w.reject(ctx, operation.ErrConflict)
 		}
 		if strings.TrimSpace(input.Observations) == "" {
