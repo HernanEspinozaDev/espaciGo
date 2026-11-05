@@ -1,0 +1,167 @@
+{
+  "schema": "espacigo-gallery-white-office-provenance/v1",
+  "checkedAtUTC": "2026-11-05",
+  "commonsApiURL": "https://commons.wikimedia.org/w/api.php?action=query&titles=File%3AWhite_office_space_%28Unsplash%29.jpg&prop=info%7Cimageinfo&iiprop=url%7Csize%7Csha1%7Cextmetadata&format=json&formatversion=2",
+  "commonsPageURL": "https://commons.wikimedia.org/wiki/File:White_office_space_(Unsplash).jpg",
+  "pageid": 61681790,
+  "normalizedTitle": "File:White office space (Unsplash).jpg",
+  "origin": "https://upload.wikimedia.org/wikipedia/commons/3/3c/White_office_space_%28Unsplash%29.jpg",
+  "commonsSizeBytes": 2146421,
+  "commonsWidth": 5616,
+  "commonsHeight": 3744,
+  "commonsSHA1": "644ff9db1197bb63fa6f60c5ac5a5ae28a62c9d7",
+  "artistHTML": "Breather <a rel=\"nofollow\" class=\"external text\" href=\"https://unsplash.com/@breather\">breather</a>",
+  "licenseShortName": "CC0",
+  "usageTerms": "Creative Commons Zero, Public Domain Dedication",
+  "attributionRequired": "false",
+  "localCopies": [
+    {
+      "path": "/home/nandev/.hermes/cache/scratch/authorized-gallery-corpus/white_office.jpg",
+      "bytes": 2146421,
+      "sha256": "7e8699acf8bf181856f41cdee23d1b7728cbc05d0d78ff323ca81d82b6538bfe"
+    },
+    {
+      "path": "/home/nandev/.hermes/cache/scratch/authorized-gallery-corpus-after-fallback/white_office.jpg",
+      "bytes": 2146421,
+      "sha256": "7e8699acf8bf181856f41cdee23d1b7728cbc05d0d78ff323ca81d82b6538bfe"
+    }
+  ],
+  "manifestSHA256": "7e8699acf8bf181856f41cdee23d1b7728cbc05d0d78ff323ca81d82b6538bfe",
+  "localCopiesMatchManifest": true,
+  "measurements": {
+    "beforeDisplayBytes": 55418,
+    "afterDisplayBytes": 55418,
+    "beforeThumbnailBytes": 12466,
+    "afterThumbnailBytes": 12466,
+    "beforeAfterDisplaySHA256": "7435ac8286e58c9007ad9c09d145a50757fbf3d853f86912a9878645903d1165",
+    "beforeAfterThumbnailSHA256": "f42eb5afd77964133006f0e26f552f85a8ba20cd78a094bab49af18958d73336",
+    "conclusion": "white_office production variants are byte-identical; fallback was not invoked; the generic fallback caveat was stale for these rows."
+  },
+  "beforeEvidenceImmutable": "gallery-authorized-measurements-20261105.json was not modified.",
+  "commonsApiRawResponse": {
+    "batchcomplete": true,
+    "query": {
+      "normalized": [
+        {
+          "fromencoded": false,
+          "from": "File:White_office_space_(Unsplash).jpg",
+          "to": "File:White office space (Unsplash).jpg"
+        }
+      ],
+      "pages": [
+        {
+          "pageid": 61681790,
+          "ns": 6,
+          "title": "File:White office space (Unsplash).jpg",
+          "contentmodel": "wikitext",
+          "pagelanguage": "en",
+          "pagelanguagehtmlcode": "en",
+          "pagelanguagedir": "ltr",
+          "touched": "2026-02-08T21:31:30Z",
+          "lastrevid": 1054899678,
+          "length": 862,
+          "imagerepository": "local",
+          "imageinfo": [
+            {
+              "size": 2146421,
+              "width": 5616,
+              "height": 3744,
+              "url": "https://upload.wikimedia.org/wikipedia/commons/3/3c/White_office_space_%28Unsplash%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "descriptionurl": "https://commons.wikimedia.org/wiki/File:White_office_space_(Unsplash).jpg",
+              "descriptionshorturl": "https://commons.wikimedia.org/w/index.php?curid=61681790",
+              "sha1": "644ff9db1197bb63fa6f60c5ac5a5ae28a62c9d7",
+              "extmetadata": {
+                "DateTime": {
+                  "value": "2017-08-14 21:12:18",
+                  "source": "mediawiki-metadata",
+                  "hidden": ""
+                },
+                "ObjectName": {
+                  "value": "White office space (Unsplash)",
+                  "source": "mediawiki-metadata"
+                },
+                "CommonsMetadataExtension": {
+                  "value": 1.2,
+                  "source": "extension",
+                  "hidden": ""
+                },
+                "Categories": {
+                  "value": "CC-Zero|Offices|Images uploaded by Fæ|Hanover Street, London|Images from Unsplash|Files with coordinates missing SDC location of creation (51° N, 1° W)",
+                  "source": "commons-categories",
+                  "hidden": ""
+                },
+                "Assessments": {
+                  "value": "",
+                  "source": "commons-categories",
+                  "hidden": ""
+                },
+                "GPSLatitude": {
+                  "value": "51.513724",
+                  "source": "commons-desc-page"
+                },
+                "GPSLongitude": {
+                  "value": "-0.142133",
+                  "source": "commons-desc-page"
+                },
+                "GPSMapDatum": {
+                  "value": "WGS-84",
+                  "source": "commons-desc-page",
+                  "hidden": ""
+                },
+                "ImageDescription": {
+                  "value": "15A Hanover St, London, United Kingdom",
+                  "source": "commons-desc-page"
+                },
+                "DateTimeOriginal": {
+                  "value": "2016-11-15",
+                  "source": "commons-desc-page"
+                },
+                "Credit": {
+                  "value": "<a rel=\"nofollow\" class=\"external free\" href=\"https://unsplash.com/photos/oKlhoijT2JM\">https://unsplash.com/photos/oKlhoijT2JM</a>",
+                  "source": "commons-desc-page"
+                },
+                "Artist": {
+                  "value": "Breather <a rel=\"nofollow\" class=\"external text\" href=\"https://unsplash.com/@breather\">breather</a>",
+                  "source": "commons-desc-page"
+                },
+                "LicenseShortName": {
+                  "value": "CC0",
+                  "source": "commons-desc-page",
+                  "hidden": ""
+                },
+                "UsageTerms": {
+                  "value": "Creative Commons Zero, Public Domain Dedication",
+                  "source": "commons-desc-page"
+                },
+                "AttributionRequired": {
+                  "value": "false",
+                  "source": "commons-desc-page",
+                  "hidden": ""
+                },
+                "LicenseUrl": {
+                  "value": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+                  "source": "commons-desc-page"
+                },
+                "Copyrighted": {
+                  "value": "True",
+                  "source": "commons-desc-page",
+                  "hidden": ""
+                },
+                "Restrictions": {
+                  "value": "",
+                  "source": "commons-desc-page",
+                  "hidden": ""
+                },
+                "License": {
+                  "value": "cc0",
+                  "source": "commons-templates",
+                  "hidden": ""
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
