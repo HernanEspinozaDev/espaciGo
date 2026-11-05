@@ -171,8 +171,8 @@ export function AccessScreen() {
             {pending ? "Conectando…" : "Iniciar sesión"}
           </Button>
           <p className="text-center text-xs leading-relaxed text-gray-600">
-            La sesión se conserva solo en la memoria de esta pestaña y se
-            confirma con el servicio.
+            La sesión se conserva mediante una cookie segura y se confirma con
+            el servicio al volver a abrir la página. Puedes cerrarla aquí.
           </p>
         </form>
       )}

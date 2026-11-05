@@ -91,6 +91,8 @@ export class AuthFacade {
   #expiryTimer: ReturnType<typeof setTimeout> | null = null;
   #snapshot: AuthSnapshot = anonymousSnapshot;
   #listeners = new Set<() => void>();
+  #restorePromise: Promise<boolean> | null = null;
+  #restoreAttempted = false;
 
   constructor(private readonly port: AuthPort) {}
 
@@ -119,7 +121,46 @@ export class AuthFacade {
     return this.#accessToken;
   };
 
+  restoreSession(): Promise<boolean> {
+    if (this.#accessToken) return Promise.resolve(true);
+    if (this.#restorePromise) return this.#restorePromise;
+    if (this.#restoreAttempted) return Promise.resolve(false);
+    this.#restoreAttempted = true;
+    const generation = this.#generation;
+    const signal = this.#sessionController.signal;
+    this.#publish(checkingSnapshot);
+    this.#restorePromise = (async () => {
+      try {
+        const session = await this.port.currentSession(
+          "bff-session" as AccessToken,
+          signal,
+        );
+        if (signal.aborted || generation !== this.#generation) return false;
+        if (!session.expiresAt) throw new ApiProtocolError();
+        const expiresAt = expiryMillis(session.expiresAt);
+        this.#accessToken = "bff-session" as AccessToken;
+        this.#publish(snapshotFromSession(session, session.expiresAt));
+        this.#scheduleExpiry(generation, expiresAt);
+        return true;
+      } catch (error) {
+        if (generation !== this.#generation || signal.aborted) return false;
+        this.#publish(anonymousSnapshot);
+        if (
+          error instanceof ApiError &&
+          (error.status === 401 || error.status === 403)
+        )
+          return false;
+        this.#restoreAttempted = false;
+        throw error;
+      } finally {
+        this.#restorePromise = null;
+      }
+    })();
+    return this.#restorePromise;
+  }
+
   async login(input: LoginRequest): Promise<boolean> {
+    this.#restoreAttempted = true;
     const generation = this.#advanceGeneration();
     this.#accessToken = null;
     this.#publish(checkingSnapshot);
@@ -159,9 +200,7 @@ export class AuthFacade {
     const expiresAt = this.#snapshot.expiresAt;
     const generation = this.#generation;
     if (!accessToken || !expiresAt) {
-      if (this.#snapshot.status !== "anonymous")
-        this.#publish(anonymousSnapshot);
-      return false;
+      return this.restoreSession();
     }
 
     const controller = new AbortController();
@@ -201,11 +240,8 @@ export class AuthFacade {
   }
 
   async logout(): Promise<void> {
-    const accessToken = this.#accessToken;
-    if (!accessToken) {
-      this.#clearIfCurrent(this.#generation);
-      return;
-    }
+    this.#restoreAttempted = true;
+    const accessToken = this.#accessToken ?? ("bff-session" as AccessToken);
 
     this.#advanceGeneration();
     this.#accessToken = null;

@@ -27,6 +27,7 @@ export interface CurrentAuthSession {
   roles: SessionResponse["roles"];
   capabilities: SessionResponse["capabilities"];
   restrictedMode: boolean;
+  expiresAt?: string;
 }
 
 export interface AuthenticatedRequestContext {

@@ -4,6 +4,7 @@ import type {
   CategoryProfileSchema,
   ContentUpdateInput,
   GalleryPhoto,
+  GalleryUploadStatus,
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
@@ -119,22 +120,47 @@ export interface HostListingsPort {
     idempotencyKey?: string,
     signal?: AbortSignal,
   ): Promise<GalleryPhoto>;
+  getPhotoUploadStatus?(
+    token: AccessToken,
+    listingId: string,
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryUploadStatus>;
+  replacePhoto?(
+    token: AccessToken,
+    listingId: string,
+    photoId: string,
+    input: PhotoUploadInput,
+    key: string,
+    ifMatch: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryPhoto>;
+  getPhotoVariant?(
+    token: AccessToken,
+    listingId: string,
+    photoId: string,
+    variant: "thumbnail" | "display",
+    signal?: AbortSignal,
+  ): Promise<Blob>;
   setCoverPhoto(
     token: AccessToken,
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
+    ifMatch?: string,
   ): Promise<void>;
   removePhoto(
     token: AccessToken,
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
+    ifMatch?: string,
   ): Promise<void>;
   reorderPhotos(
     token: AccessToken,
     listingId: string,
     photoIds: string[],
     signal?: AbortSignal,
+    ifMatch?: string,
   ): Promise<void>;
 }

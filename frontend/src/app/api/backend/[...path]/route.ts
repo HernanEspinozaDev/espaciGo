@@ -1,5 +1,11 @@
 import { gatewayOperations } from "@/lib/api/generated/gateway-operations";
 import { getApiBackendBaseUrl } from "@/lib/api/server-config";
+import { getCloudRunIdentityHeadersForBackend } from "@/lib/api/cloud-run-identity";
+import {
+  buildClearSessionCookies,
+  parseSessionCookies,
+  validateCsrfOrigin,
+} from "@/lib/api/server-session";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,16 +21,24 @@ const ignoredTransportHeaders = new Set([
   "accept-encoding",
   "accept-language",
   "cache-control",
+  "cdn-loop",
   "connection",
   "content-length",
+  "dnt",
+  "forwarded",
   "host",
   "keep-alive",
   "origin",
   "pragma",
   "priority",
   "referer",
+  "traceparent",
+  "tracestate",
   "transfer-encoding",
   "user-agent",
+  "via",
+  "x-client-data",
+  "x-cloud-trace-context",
   "x-forwarded-for",
   "x-forwarded-host",
   "x-forwarded-port",
@@ -115,50 +129,6 @@ function validHeaderValue(value: string, maximumLength: number): boolean {
   return value.length <= maximumLength && safeHeaderValue.test(value);
 }
 
-function isSameOriginRequest(request: Request, origin: string): boolean {
-  const host = request.headers.get("host");
-  if (
-    !host ||
-    host !== host.trim() ||
-    host.length > 255 ||
-    /[\s,/@\\?#]/.test(host) ||
-    origin.length > 512
-  ) {
-    return false;
-  }
-
-  try {
-    const parsedOrigin = new URL(origin);
-    if (
-      parsedOrigin.protocol !== "http:" &&
-      parsedOrigin.protocol !== "https:"
-    ) {
-      return false;
-    }
-    if (
-      parsedOrigin.username !== "" ||
-      parsedOrigin.password !== "" ||
-      parsedOrigin.pathname !== "/" ||
-      parsedOrigin.search !== "" ||
-      parsedOrigin.hash !== "" ||
-      parsedOrigin.origin !== origin
-    ) {
-      return false;
-    }
-    const requestOrigin = new URL(`${parsedOrigin.protocol}//${host}`);
-    return (
-      requestOrigin.username === "" &&
-      requestOrigin.password === "" &&
-      requestOrigin.pathname === "/" &&
-      requestOrigin.search === "" &&
-      requestOrigin.hash === "" &&
-      requestOrigin.origin === parsedOrigin.origin
-    );
-  } catch {
-    return false;
-  }
-}
-
 function validateQuery(requestUrl: URL, operation: GatewayOperation): boolean {
   const allowed = new Map<string, boolean>(
     operation.query.map((parameter) => [
@@ -186,18 +156,43 @@ function collectHeaders(
   const headers = new Headers();
   const operationHeaders = new Set<string>(operation.headers);
 
-  if (request.headers.has("cookie")) {
-    return { error: errorResponse(400, "cookies_not_supported", requestId) };
+  if (request.headers.has("authorization")) {
+    return {
+      error: errorResponse(400, "authorization_not_allowed", requestId),
+    };
   }
-  const origin = request.headers.get("origin");
-  if (origin && !isSameOriginRequest(request, origin)) {
+
+  const isMutation =
+    (operation.method as string) !== "GET" &&
+    (operation.method as string) !== "HEAD";
+  if (!validateCsrfOrigin(request, { isMutation })) {
     return { error: errorResponse(403, "origin_not_allowed", requestId) };
+  }
+
+  if (operation.bearer) {
+    const cookieHeader = request.headers.get("cookie");
+    const session = parseSessionCookies(cookieHeader);
+    if (!session) {
+      const [c1, c2] = buildClearSessionCookies();
+      const res = errorResponse(401, "unauthenticated", requestId);
+      res.headers.append("set-cookie", c1);
+      res.headers.append("set-cookie", c2);
+      return { error: res };
+    }
+    headers.set("authorization", `Bearer ${session.token}`);
   }
 
   for (const [rawName, value] of request.headers) {
     const name = rawName.toLowerCase();
     if (name === "cookie") continue;
-    if (ignoredTransportHeaders.has(name) || name.startsWith("sec-")) continue;
+    if (
+      ignoredTransportHeaders.has(name) ||
+      name.startsWith("sec-") ||
+      name.startsWith("x-cloud-") ||
+      name.startsWith("x-goog-") ||
+      name.startsWith("x-appengine-")
+    )
+      continue;
 
     const isOperationHeader = operationHeaders.has(name);
     const isStandardHeader = acceptedApplicationHeaders.has(name);
@@ -354,14 +349,29 @@ async function proxy(
   const encodedPath = path
     .map((segment) => encodeURIComponent(segment))
     .join("/");
-  const upstreamUrl = new URL(`${baseUrl.pathname}/${encodedPath}`, baseUrl);
+  const upstreamUrl = new URL(
+    `${baseUrl.pathname.replace(/\/$/, "")}/${encodedPath.replace(/^\//, "")}`,
+    baseUrl,
+  );
   upstreamUrl.search = requestUrl.search;
+
+  const upstreamHeaders = new Headers(collected.headers);
+  const idHeaders = await getCloudRunIdentityHeadersForBackend(baseUrl);
+  if (idHeaders["X-Serverless-Authorization"]) {
+    upstreamHeaders.set(
+      "X-Serverless-Authorization",
+      idHeaders["X-Serverless-Authorization"],
+    );
+  }
+  if (!upstreamHeaders.has("authorization") && idHeaders["Authorization"]) {
+    upstreamHeaders.set("authorization", idHeaders["Authorization"]);
+  }
 
   let upstream: Response;
   try {
     upstream = await fetch(upstreamUrl, {
       method: operation.method,
-      headers: collected.headers,
+      headers: upstreamHeaders,
       body: body ?? undefined,
       credentials: "omit",
       cache: "no-store",
@@ -380,18 +390,30 @@ async function proxy(
   const allowedResponseMediaTypes = new Set<string>(
     operation.responseMediaTypes,
   );
-  if (
-    (upstream.body !== null && !upstreamMediaType) ||
-    (upstreamMediaType && !allowedResponseMediaTypes.has(upstreamMediaType))
-  ) {
-    await upstream.body?.cancel().catch(() => undefined);
-    if (upstream.status >= 400 && upstream.status < 600) {
-      return errorResponse(upstream.status, "upstream_error", requestId);
+  const isNoBodyResponse =
+    request.method.toUpperCase() === "HEAD" ||
+    [204, 205, 304].includes(upstream.status);
+  if (!isNoBodyResponse) {
+    if (
+      (upstream.body !== null && !upstreamMediaType) ||
+      (upstreamMediaType && !allowedResponseMediaTypes.has(upstreamMediaType))
+    ) {
+      await upstream.body?.cancel().catch(() => undefined);
+      if (upstream.status >= 400 && upstream.status < 600) {
+        return errorResponse(upstream.status, "upstream_error", requestId);
+      }
+      return errorResponse(502, "upstream_content_type_not_allowed", requestId);
     }
-    return errorResponse(502, "upstream_content_type_not_allowed", requestId);
+  } else if (upstream.body !== null) {
+    await upstream.body.cancel().catch(() => undefined);
   }
 
   const outgoingHeaders = new Headers();
+  if (upstream.status === 401 && operation.bearer) {
+    const [clear1, clear2] = buildClearSessionCookies();
+    outgoingHeaders.append("set-cookie", clear1);
+    outgoingHeaders.append("set-cookie", clear2);
+  }
   for (const name of responseHeaders) {
     const value = upstream.headers.get(name);
     if (value !== null) outgoingHeaders.set(name, value);
@@ -405,11 +427,7 @@ async function proxy(
   );
   outgoingHeaders.set("cache-control", "private, no-store");
 
-  const responseBody =
-    request.method.toUpperCase() === "HEAD" ||
-    [204, 205, 304].includes(upstream.status)
-      ? null
-      : upstream.body;
+  const responseBody = isNoBodyResponse ? null : upstream.body;
   return new Response(responseBody, {
     status: upstream.status,
     statusText: upstream.statusText,

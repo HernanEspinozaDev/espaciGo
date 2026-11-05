@@ -49,6 +49,10 @@ function apiSuccess<T>(data: T): MockResult {
 
 async function loginAndNavigate(page: Page, destination = "/reservas") {
   const [pathname] = destination.split("?");
+  await page.goto("/");
+  await page.evaluate(() =>
+    fetch("/api/backend/auth/logout", { method: "POST" }),
+  );
   await page.goto(`/acceso?return_to=${encodeURIComponent(pathname)}`);
   await page
     .getByLabel("Correo electrónico")
@@ -90,6 +94,15 @@ interface TestBookingStoreState {
 }
 
 function createBookingStore() {
+  let authenticated = false;
+  const sessionExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+  const session = {
+    account_id: canonicalAccountId,
+    roles: ["arrendatario", "anfitrion"],
+    capabilities: [],
+    restricted_mode: false,
+    expires_at: sessionExpiresAt,
+  };
   const reservation: BookingDetail = {
     id: canonicalReservationId,
     quote_id: "quote-uuid-1234",
@@ -236,30 +249,22 @@ function createBookingStore() {
 
       // Auth Session Profile & Login
       if (pathname === "/api/backend/auth/login" && method === "POST") {
+        authenticated = true;
         return {
           status: 200,
-          body: {
-            account_id: canonicalAccountId,
-            roles: ["arrendatario", "anfitrion"],
-            capabilities: [],
-            access_token: "synthetic-phase8-session-token-941",
-            token_type: "Bearer",
-            expires_at: new Date(Date.now() + 3600_000).toISOString(),
-            restricted_mode: false,
-          },
+          body: session,
         };
       }
 
       if (pathname === "/api/backend/auth/session" && method === "GET") {
-        return {
-          status: 200,
-          body: {
-            account_id: canonicalAccountId,
-            roles: ["arrendatario", "anfitrion"],
-            capabilities: [],
-            restricted_mode: false,
-          },
-        };
+        return authenticated
+          ? { status: 200, body: session }
+          : { status: 401, body: { code: "unauthenticated" } };
+      }
+
+      if (pathname === "/api/backend/auth/logout" && method === "POST") {
+        authenticated = false;
+        return { status: 204, body: "" };
       }
 
       // 1. Quotes: POST /local/booking-trial/quotes

@@ -26,7 +26,6 @@ const privacyId = "660e8400-e29b-41d4-a716-446655440000";
 const actionToken = "synthetic-ui-action-token-7629";
 const replacementTokenId = "880e8400-e29b-41d4-a716-446655440000";
 const replacementActionToken = "synthetic-ui-action-token-replacement-9041";
-const sessionToken = "synthetic-ui-session-token-3821";
 const accountId = "770e8400-e29b-41d4-a716-446655440000";
 
 function completeDocuments() {
@@ -95,10 +94,35 @@ async function mockGateway(
   page: Page,
   responder: GatewayResponder,
 ): Promise<void> {
+  let authenticated = false;
   await page.route("**/api/backend/**", async (route: Route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
-    const result = await responder(pathname, request.method(), request);
+    const method = request.method();
+    const result = await responder(pathname, method, request);
+    if (
+      pathname === "/api/backend/auth/session" &&
+      method === "GET" &&
+      !authenticated
+    ) {
+      await route.fulfill({
+        status: 401,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { code: "unauthenticated" } }),
+      });
+      return;
+    }
+    if (pathname === "/api/backend/auth/logout" && method === "POST") {
+      authenticated = false;
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
+    if (
+      pathname === "/api/backend/auth/login" &&
+      method === "POST" &&
+      result.status === 200
+    )
+      authenticated = true;
     await route.fulfill({
       status: result.status,
       headers: {
@@ -735,10 +759,8 @@ test("@phase5 @controlled login 401 is generic and confirmed login honors only a
           account_id: accountId,
           roles: ["arrendatario"],
           capabilities: [],
-          access_token: sessionToken,
-          token_type: "Bearer",
-          expires_at: new Date(Date.now() + 60_000).toISOString(),
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
         },
       };
     }
@@ -750,6 +772,7 @@ test("@phase5 @controlled login 401 is generic and confirmed login honors only a
           roles: ["arrendatario"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
         },
       };
     }
@@ -775,6 +798,9 @@ test("@phase5 @controlled login 401 is generic and confirmed login honors only a
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page).toHaveURL(/\/dashboard\/security$/);
 
+  await page.goto("/acceso");
+  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  await expect(page.getByLabel("Correo electrónico")).toBeVisible();
   await page.goto("/acceso?return_to=https%3A%2F%2Foutside.invalid%2Fpath");
   await page
     .getByLabel("Correo electrónico")

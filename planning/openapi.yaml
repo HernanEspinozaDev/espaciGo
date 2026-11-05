@@ -1763,31 +1763,48 @@ paths:
       tags: [M04 local]
       description: Consulta un espacio propio; un recurso ajeno o inexistente responde 404.
       responses:
-        '200':
+        "200":
           description: Espacio propio.
+          headers:
+            ETag:
+              description: ETag fuerte de la versión actual del borrador.
+              schema: { type: string }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SpaceDraft' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
+              schema: { $ref: "#/components/schemas/SpaceDraft" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
     put:
       operationId: updateOwnSpaceDraft
       tags: [M04 local]
       description: Reemplaza los campos de un borrador propio; no permite cambios de estado comercial.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: Debe ser el ETag fuerte obtenido para este espacio.
+          schema: { type: string }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/SpaceDraftInput' }
+            schema: { $ref: "#/components/schemas/SpaceDraftInput" }
       responses:
-        '200':
+        "200":
           description: Borrador actualizado.
+          headers:
+            ETag:
+              description: ETag fuerte de la versión actualizada del borrador.
+              schema: { type: string }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SpaceDraft' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+              schema: { $ref: "#/components/schemas/SpaceDraft" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
     delete:
       operationId: deleteOwnPublication
       tags: [M04 local]
@@ -1798,15 +1815,15 @@ paths:
         reservas, ocupaciones, snapshots e historiales; no cancela ni elimina en cascada. Repetir la
         solicitud devuelve el recibo persistido. No implica anonimización.
       responses:
-        '200':
+        "200":
           description: Publicación retirada o recibo idempotente.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SpaceDeletionReceipt' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
+              schema: { $ref: "#/components/schemas/SpaceDeletionReceipt" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
   /spaces/{spaceId}/publication:
     parameters:
       - name: spaceId
@@ -1817,27 +1834,43 @@ paths:
       operationId: setOwnSpacePublicationState
       tags: [M04 local]
       description: >-
-        Publica u oculta un espacio propio. Requiere rol arrendador; activar exige KYC sintético efectivo
-        de la cuenta personal y no concede ni infiere roles. Solo cambia el estado local del espacio, sin
+        Publica u oculta un espacio propio. Requiere rol arrendador; activar no requiere KYC ni documentos de identidad
+        y no concede ni infiere roles. Solo cambia el estado local del espacio, sin
         abrirlo al catálogo general ni alterar reservas existentes. Publicar exige una zona IANA válida; si
         falta, responde `time_zone_required` y conserva el borrador. Un fixture de ensayo habilitado impide
         transiciones hasta que se deshabilite; se responde 409 con código fixture_enabled.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag fuerte de GET /spaces/{spaceId}.
+          schema: { type: string }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/SpacePublicationInput' }
+            schema: { $ref: "#/components/schemas/SpacePublicationInput" }
       responses:
-        '200':
-          description: Estado de publicación actualizado.
+        "200":
+          description: Estado de publicación actualizado; devuelve ETag fuerte nuevo.
+          headers:
+            ETag:
+              required: true
+              schema: { type: string }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SpaceDraft' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+              schema: { $ref: "#/components/schemas/SpaceDraft" }
+        "400": { description: If-Match malformado. }
+        "412":
+          {
+            description: La revisión actual no coincide; no se reintenta automáticamente.,
+          }
+        "428": { description: Falta If-Match. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /spaces/{spaceId}/publication-content:
     parameters:
       - name: spaceId
@@ -1851,32 +1884,53 @@ paths:
         Modifica título, descripción, capacidad, reglas de uso, ubicación pública y/o precio base de una publicación propia activa u oculta. Requiere titularidad y rol
         arrendador. Un cambio de precio agrega una nueva versión de tarifa y conserva cotizaciones/reservas
         anteriores. La ubicación usa el catálogo SUBDERE_DPA_2018 y no se deriva de dirección o coordenadas.
-        No cambia el estado ni la visibilidad del espacio.
+        An `If-Match` strong ETag from the current listing revision is required. A stale revision returns 412; a missing required precondition returns 428 and a malformed precondition returns 400. Every successful response includes the new strong ETag for the next mutation. The operation is a compare-and-swap; clients must not silently retry stale writes.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag fuerte vigente de la publicación.
+          schema: { type: string }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/PublishedSpaceContentInput' }
+            schema: { $ref: "#/components/schemas/PublishedSpaceContentInput" }
       responses:
-        '200':
-          description: Datos vigentes de la publicación propia.
+        "200":
+          description: Datos vigentes; devuelve ETag fuerte nuevo.
+          headers:
+            ETag:
+              required: true
+              schema: { type: string }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SpaceDraft' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+              schema: { $ref: "#/components/schemas/SpaceDraft" }
+        "400": { description: If-Match malformado. }
+        "412":
+          {
+            description: La revisión actual no coincide; no se reintenta automáticamente.,
+          }
+        "428": { description: Falta If-Match. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /spaces/{spaceId}/gallery:
     parameters:
-      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - {
+          name: spaceId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
     get:
       operationId: listOwnSyntheticSpaceGallery
       tags: [M04 local]
       description: Lista la galería propia compuesta en un orden común; fotos reales permanecen privadas hasta la declaración explícita.
       responses:
-        '200':
+        "200":
           description: Galería sintética propia y límite vigente.
           content:
             application/json:
@@ -1884,40 +1938,132 @@ paths:
                 type: object
                 required: [items, max_photos]
                 properties:
-                  items: { type: array, items: { oneOf: [ { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' }, { $ref: '#/components/schemas/SpaceMediaPhoto' } ] } }
-                  max_photos: { type: integer, const: 10 }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+                  items:
+                    {
+                      type: array,
+                      items:
+                        {
+                          oneOf:
+                            [
+                              {
+                                $ref: "#/components/schemas/SyntheticSpaceGalleryPhoto",
+                              },
+                              { $ref: "#/components/schemas/SpaceMediaPhoto" },
+                            ],
+                        },
+                    }
+                  max_photos: { type: integer, const: 30 }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
     post:
       operationId: createSyntheticOwnSpaceGalleryPhoto
       tags: [M04 local]
       description: >-
-        Sin cuerpo conserva la generación del PNG sintético. Con multipart/form-data y campo image admite JPEG, PNG y WebP estático, normaliza derivados WebP y los guarda en el namespace privado media/v1. Requiere rol arrendador, propiedad del espacio, bearer y clave de idempotencia; máximo común de 10 fotos.
+        Sin cuerpo conserva la generación del PNG sintético. Con multipart/form-data y campo image admite JPEG, PNG y WebP estático, normaliza derivados WebP y los guarda en el namespace privado V2 de fotos de espacio. Requiere rol arrendador, propiedad del espacio, bearer y clave de idempotencia; máximo común de 30 fotos. Las claves históricas V1 permanecen legibles y limpiables.
       parameters:
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 8, maxLength: 128 } }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, minLength: 8, maxLength: 128 },
+          }
       requestBody:
         required: false
         content:
           multipart/form-data:
-            schema: {type: object, required: [image], properties: {image: {type: string, format: binary}}, additionalProperties: false}
+            schema:
+              {
+                type: object,
+                required: [image],
+                properties: { image: { type: string, format: binary } },
+                additionalProperties: false,
+              }
       responses:
-        '200': { description: Resultado reutilizado de un reintento idempotente., content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope' }, { $ref: '#/components/schemas/SpaceMediaPhotoEnvelope' }] } } } }
-        '201': { description: Imagen sintética o foto real normalizada a WebP., content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope' }, { $ref: '#/components/schemas/SpaceMediaPhotoEnvelope' }] } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
-        '503': { description: Storage privado temporalmente no disponible., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "200":
+          {
+            description: Resultado reutilizado de un reintento idempotente.,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        oneOf:
+                          [
+                            {
+                              $ref: "#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope",
+                            },
+                            {
+                              $ref: "#/components/schemas/SpaceMediaPhotoEnvelope",
+                            },
+                          ],
+                      },
+                  },
+              },
+          }
+        "201":
+          {
+            description: Imagen sintética o foto real normalizada a WebP.,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        oneOf:
+                          [
+                            {
+                              $ref: "#/components/schemas/SyntheticSpaceGalleryPhotoEnvelope",
+                            },
+                            {
+                              $ref: "#/components/schemas/SpaceMediaPhotoEnvelope",
+                            },
+                          ],
+                      },
+                  },
+              },
+          }
+        "202":
+          description: La carga con la misma clave sigue pendiente; el cliente puede reconsultar de forma idempotente después del intervalo indicado.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                { $ref: "#/components/schemas/SpaceMediaPhotoPendingEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "503":
+          {
+            description: Storage privado temporalmente no disponible.,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
   /spaces/{spaceId}/cover:
     parameters:
-      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - {
+          name: spaceId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
     put:
       operationId: selectOwnSyntheticSpaceCover
       tags: [M04 local]
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          schema: { type: string }
       description: >-
-        Selecciona como portada una imagen PNG sintética activa de la galería propia. La selección queda ligada al mismo espacio y titular; retirar la imagen elimina la selección en la misma transacción. El archivo continúa privado y no se expone automáticamente al catálogo.
+        Selecciona una imagen activa propia como portada, con la revisión fuerte del espacio. Retirar la imagen elimina su selección en la misma transacción; los bytes privados no se exponen por seleccionar portada.
       requestBody:
         required: true
         content:
@@ -1929,46 +2075,136 @@ paths:
               properties:
                 photo_id: { type: string, format: uuid }
       responses:
-        '200': { description: Portada seleccionada., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceCover' } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        "200":
+          {
+            description: Portada seleccionada.,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/SyntheticSpaceCover" },
+                  },
+              },
+          }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /spaces/{spaceId}/gallery/{photoId}:
     parameters:
-      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
-      - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+      - {
+          name: spaceId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+      - {
+          name: photoId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
     get:
       operationId: getOwnSyntheticSpaceGalleryPhoto
       tags: [M04 local]
       responses:
-        '200': { description: Metadatos de una imagen activa propia., content: { application/json: { schema: { oneOf: [{ $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' }, { $ref: '#/components/schemas/SpaceMediaPhoto' }] } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        "200":
+          {
+            description: Metadatos de una imagen activa propia.,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      {
+                        oneOf:
+                          [
+                            {
+                              $ref: "#/components/schemas/SyntheticSpaceGalleryPhoto",
+                            },
+                            { $ref: "#/components/schemas/SpaceMediaPhoto" },
+                          ],
+                      },
+                  },
+              },
+          }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
     put:
       operationId: updateOwnSpaceMediaPhoto
       tags: [IMG-01 media]
+      description: >-
+        Actualiza los metadatos de una imagen propia usando control de concurrencia optimista.
+        Requiere un If-Match fuerte; responde 428 si falta, 400 si es inválido y 412 si está obsoleto.
+        Toda respuesta exitosa devuelve el ETag fuerte renovado del espacio.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag fuerte vigente obtenido para el espacio.
+          schema: { type: string }
       requestBody:
         required: true
         content:
           application/json:
-            schema: {type: object, additionalProperties: false, minProperties: 1, properties: {alt_text: {type: string, maxLength: 250}, visible: {type: boolean}, position: {type: integer, minimum: 1, maximum: 10}}}
+            schema:
+              {
+                type: object,
+                additionalProperties: false,
+                minProperties: 1,
+                properties:
+                  {
+                    alt_text: { type: string, maxLength: 250 },
+                    visible: { type: boolean },
+                    position: { type: integer, minimum: 1, maximum: 30 },
+                  },
+              }
       responses:
-        '200': {description: Metadata de imagen real actualizada., content: {application/json: {schema: {$ref: '#/components/schemas/SpaceMediaPhoto'}}}}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '422': {$ref: '#/components/responses/UnprocessableEntity'}
+        "200":
+          description: Metadata de imagen real actualizada; devuelve el ETag fuerte renovado del espacio.
+          headers:
+            ETag:
+              description: ETag fuerte de la revisión actualizada del espacio.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SpaceMediaPhoto" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
     delete:
-      operationId: removeOwnSyntheticSpaceGalleryPhoto
+      operationId: removeOwnSpaceGalleryPhoto
       tags: [M04 local]
-      description: Retira la imagen propia y encola limpieza recuperable del archivo privado.
+      description: Retira la imagen propia, actualiza el orden y devuelve la revisión fuerte renovada del espacio.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag fuerte obtenido para la revisión actual del espacio.
+          schema: { type: string }
       responses:
-        '200': { description: Resultado idempotente de la retirada., content: { application/json: { schema: { $ref: '#/components/schemas/SyntheticSpaceGalleryRemoval' } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        "200":
+          description: Resultado idempotente de la retirada.
+          headers:
+            ETag:
+              description: ETag fuerte de la revisión actualizada del espacio.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                { $ref: "#/components/schemas/SyntheticSpaceGalleryRemoval" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
   /spaces/{spaceId}/gallery/{photoId}/publication:
     parameters:
       - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -1994,33 +2230,174 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
   /spaces/{spaceId}/gallery/{photoId}/content:
     parameters:
-      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
-      - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
+      - {
+          name: spaceId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+      - {
+          name: photoId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
     get:
       operationId: getOwnSyntheticSpaceGalleryPhotoContent
       tags: [M04 local]
       description: Autoriza de nuevo al titular en cada consulta; responde PNG privado sin URL persistente.
       responses:
-        '200': { description: Contenido PNG sintético., content: { image/png: { schema: { type: string, format: binary } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { description: Storage privado temporalmente no disponible., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "200":
+          {
+            description: Contenido PNG sintético.,
+            content:
+              { image/png: { schema: { type: string, format: binary } } },
+          }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503":
+          {
+            description: Storage privado temporalmente no disponible.,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
+    put:
+      operationId: replaceOwnSpaceMediaPhoto
+      tags: [IMG-01 media]
+      description: >-
+        Reemplaza el contenido de una foto real activa propia sin cambiar su posición, texto alternativo, visibilidad ni portada. Requiere ETag fuerte actual del borrador en If-Match y una clave Idempotency-Key. El reemplazo se publica atómicamente solo si la revisión coincide; una revisión obsoleta responde 412 y una precondición ausente responde 428.
+      parameters:
+        - {
+            name: If-Match,
+            in: header,
+            required: true,
+            description: "ETag fuerte de GET /spaces/{spaceId}.",
+            schema: { type: string },
+          }
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, minLength: 8, maxLength: 128 },
+          }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              {
+                type: object,
+                required: [image],
+                properties: { image: { type: string, format: binary } },
+                additionalProperties: false,
+              }
+      responses:
+        "200":
+          {
+            description: Reintento idempotente del reemplazo.,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/SpaceMediaPhotoEnvelope" },
+                  },
+              },
+          }
+        "201":
+          {
+            description: Imagen reemplazada atómicamente en su posición existente.,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/SpaceMediaPhotoEnvelope" },
+                  },
+              },
+          }
+        "202":
+          description: El reemplazo con la misma clave sigue pendiente; el cliente puede reconsultar de forma idempotente después del intervalo indicado.
+          headers:
+            Retry-After: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                { $ref: "#/components/schemas/SpaceMediaPhotoPendingEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "413":
+          {
+            description: Imagen excede el tamaño permitido.,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
+        "415":
+          {
+            description: Se requiere multipart/form-data.,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "503":
+          {
+            description: Storage privado temporalmente no disponible.,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
   /spaces/{spaceId}/gallery/{photoId}/variants/{variant}:
     parameters:
-      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
-      - { name: photoId, in: path, required: true, schema: { type: string, format: uuid } }
-      - { name: variant, in: path, required: true, schema: { type: string, enum: [display, thumbnail] } }
+      - {
+          name: spaceId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+      - {
+          name: photoId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+      - {
+          name: variant,
+          in: path,
+          required: true,
+          schema: { type: string, enum: [display, thumbnail] },
+        }
     get:
       operationId: getOwnSpaceMediaVariant
       tags: [IMG-01 media]
       description: Sirve WebP privado mediante autorización del titular en cada solicitud. Nunca expone bucket, object key ni generación.
       responses:
-        '200': {description: Variante WebP privada, content: {image/webp: {schema: {type: string, format: binary}}}}
-        '401': {$ref: '#/components/responses/Unauthorized'}
-        '403': {$ref: '#/components/responses/Forbidden'}
-        '404': {$ref: '#/components/responses/NotFound'}
-        '503': {description: Storage privado temporalmente no disponible.}
+        "200":
+          {
+            description: Variante WebP privada,
+            content:
+              { image/webp: { schema: { type: string, format: binary } } },
+          }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { description: Storage privado temporalmente no disponible. }
   /spaces/{spaceId}/availability:
     parameters:
       - name: spaceId
@@ -2033,68 +2410,126 @@ paths:
       description: >-
         Configura una zona IANA explícita para el borrador propio. Para un espacio activo u oculto heredado,
         solo repara una zona ausente y solo si no tiene reservas; nunca reemplaza una zona existente ni
-        asigna un valor automáticamente. La autorización se limita al titular autenticado.
+        asigna un valor automáticamente. La autorización se limita al titular autenticado. Requiere If-Match
+        con el ETag fuerte vigente compartido por el espacio; responde 428 si falta, 400 si es inválido y
+        412 si está obsoleto. Toda respuesta exitosa devuelve el ETag fuerte renovado. No reintentar automáticamente.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag fuerte vigente obtenido para el espacio.
+          schema: { type: string }
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/AvailabilityConfig' }
+            schema: { $ref: "#/components/schemas/AvailabilityConfig" }
       responses:
-        '200':
-          description: Zona horaria configurada.
+        "200":
+          description: Zona horaria configurada; devuelve el ETag fuerte renovado del espacio.
+          headers:
+            ETag:
+              required: true
+              schema: { type: string }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AvailabilityConfigResponse' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
-        '409': { $ref: '#/components/responses/Conflict' }
+              schema:
+                { $ref: "#/components/schemas/AvailabilityConfigResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "409": { $ref: "#/components/responses/Conflict" }
     get:
       operationId: queryOwnDraftAvailability
       tags: [M04/M06 local]
       description: Comprueba intervalos finitos contra ocupaciones activas. El calendario `ocupacion` sigue siendo propiedad de M06.
       parameters:
-        - { name: from, in: query, required: true, schema: { $ref: '#/components/schemas/UtcTimestamp' } }
-        - { name: to, in: query, required: true, schema: { $ref: '#/components/schemas/UtcTimestamp' } }
+        - {
+            name: from,
+            in: query,
+            required: true,
+            schema: { $ref: "#/components/schemas/UtcTimestamp" },
+          }
+        - {
+            name: to,
+            in: query,
+            required: true,
+            schema: { $ref: "#/components/schemas/UtcTimestamp" },
+          }
       responses:
-        '200':
+        "200":
           description: Resultado de disponibilidad del espacio propio.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/AvailabilityResult' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+              schema: { $ref: "#/components/schemas/AvailabilityResult" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /spaces/{spaceId}/tariff:
     parameters:
-      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - {
+          name: spaceId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
     get:
       operationId: getOwnSpaceTariff
       tags: [M05 local]
       description: Consulta la versión vigente de la tarifa base CLP del espacio propio en estado borrador, activo u oculto.
       responses:
-        '200': { description: Tarifa vigente, content: { application/json: { schema: { $ref: '#/components/schemas/Rate' } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        "200":
+          {
+            description: Tarifa vigente,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Rate" } },
+              },
+          }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
     put:
       operationId: updateOwnSpaceTariff
       tags: [M05 local]
       description: >-
-        Actualiza la tarifa del espacio propio en estado borrador, activo u oculto creando una versión inmutable. Una modalidad incompatible con un horario semanal activo responde conflicto y no cambia la tarifa. Cotizaciones, reservas y simulaciones existentes conservan sus snapshots. No cambia el estado de publicación.
+        Actualiza la tarifa del espacio propio en estado borrador, activo u oculto creando una versión inmutable. Una modalidad incompatible con un horario semanal activo responde conflicto y no cambia la tarifa. Cotizaciones, reservas y simulaciones existentes conservan sus snapshots. No cambia el estado de publicación. Requiere If-Match con el ETag fuerte vigente del espacio; no se reintenta automáticamente ante revisión obsoleta.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag fuerte vigente obtenido de GET /spaces/{spaceId}.
+          schema: { type: string }
       requestBody:
         required: true
         content:
-          application/json: { schema: { $ref: '#/components/schemas/RateInput' } }
+          application/json:
+            { schema: { $ref: "#/components/schemas/RateInput" } }
       responses:
-        '200': { description: Nueva versión, content: { application/json: { schema: { $ref: '#/components/schemas/Rate' } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        "200":
+          {
+            description: Nueva versión; ETag contiene la revisión autoritativa actualizada del espacio.,
+            headers: { ETag: { required: true, schema: { type: string } } },
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Rate" } },
+              },
+          }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /spaces/{spaceId}/tariffs:
     parameters:
       - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
@@ -2282,19 +2717,40 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
   /local/booking-trial/catalog/{spaceId}/weekly-hours:
     parameters:
-      - { name: spaceId, in: path, required: true, schema: { type: string, format: uuid } }
+      - {
+          name: spaceId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
     get:
       operationId: getOwnSyntheticHourlyWeeklyHours
       tags: [M06 local]
       description: Solo el anfitrión del fixture sintético por hora puede consultar la regla. Sin fila, activo es false y se conserva la disponibilidad previa. Con activo true, días sin tramos están cerrados. La respuesta incluye la zona IANA vigente.
       responses:
-        '200': { description: Configuración semanal del espacio propio., content: { application/json: { schema: { $ref: '#/components/schemas/LocalWeeklyHoursEnvelope' } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
+        "200":
+          description: Configuración semanal del espacio propio.
+          headers:
+            ETag:
+              required: true
+              description: ETag fuerte de la revisión compartida del espacio.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalWeeklyHoursEnvelope" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
     put:
       operationId: replaceOwnSyntheticHourlyWeeklyHours
       tags: [M06 local]
-      description: Solo el anfitrión. Hasta dos tramos por día, apertura < cierre, sin solapes ni cruce de medianoche. Cierre 24:00 es límite exclusivo final del día; apertura 00:00 es válida. Horas inexistentes no producen intervalos; durante horas repetidas solo se ofrece un intervalo si todas sus porciones reales permanecen dentro de un tramo. La escritura se serializa con cotizaciones y solicitudes. No altera ocupaciones, reservas ni historial. Día/mes no son elegibles.
+      description: >-
+        Solo el anfitrión. Hasta dos tramos por día, apertura < cierre, sin solapes ni cruce de medianoche. Cierre 24:00 es límite exclusivo final del día; apertura 00:00 es válida. Horas inexistentes no producen intervalos; durante horas repetidas solo se ofrece un intervalo si todas sus porciones reales permanecen dentro de un tramo. La escritura se serializa con cotizaciones y solicitudes. No altera ocupaciones, reservas ni historial. Día/mes no son elegibles. Requiere If-Match fuerte de la revisión compartida del espacio; 428 ausente, 400 inválido, 412 obsoleto. Éxito devuelve ETag renovado; no reintentar automáticamente.
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag fuerte vigente obtenido para el espacio.
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -2304,13 +2760,31 @@ paths:
               required: [enabled, days]
               properties:
                 enabled: { type: boolean }
-                days: { type: array, minItems: 7, maxItems: 7, items: { $ref: '#/components/schemas/LocalWeeklyDay' } }
+                days:
+                  {
+                    type: array,
+                    minItems: 7,
+                    maxItems: 7,
+                    items: { $ref: "#/components/schemas/LocalWeeklyDay" },
+                  }
       responses:
-        '200': { description: Configuración semanal persistida., content: { application/json: { schema: { $ref: '#/components/schemas/LocalWeeklyHoursEnvelope' } } } }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
-        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        "200":
+          description: Configuración semanal persistida.
+          headers:
+            ETag:
+              required: true
+              description: ETag fuerte renovado de la revisión compartida del espacio.
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LocalWeeklyHoursEnvelope" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "412": { $ref: "#/components/responses/PreconditionFailed" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "428": { $ref: "#/components/responses/PreconditionRequired" }
   /local/booking-trial/quotes:
     post:
       operationId: quoteAuthorizedLocalBooking
@@ -3353,6 +3827,55 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
+  /spaces/{spaceId}/gallery/upload-status:
+    parameters:
+      - {
+          name: spaceId,
+          in: path,
+          required: true,
+          schema: { type: string, format: uuid },
+        }
+    get:
+      operationId: getOwnSpaceGalleryUploadStatus
+      tags: [M04 local]
+      description: >-
+        Consulta el resultado autoritativo de una carga propia por su clave de idempotencia después de una respuesta perdida o una interrupción del cliente. El estado no cancela ni revierte una operación en el servidor.
+      parameters:
+        - {
+            name: Idempotency-Key,
+            in: header,
+            required: true,
+            schema: { type: string, minLength: 8, maxLength: 128 },
+          }
+      responses:
+        "200":
+          {
+            description: Reserva de carga propia en estado pending,
+            ready,
+            failed o deleting.,
+            content:
+              {
+                application/json:
+                  {
+                    schema:
+                      { $ref: "#/components/schemas/SpaceGalleryUploadStatus" },
+                  },
+              },
+          }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "503":
+          {
+            description: El estado de la carga no pudo consultarse.,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
 components:
   parameters:
     IdempotencyKey:
@@ -3386,6 +3909,28 @@ components:
         type: string
         minLength: 1
   schemas:
+    SpaceGalleryUploadStatus:
+      type: object
+      additionalProperties: false
+      required: [photo_id, state]
+      properties:
+        photo_id: { type: string, format: uuid }
+        state: { type: string, enum: [pending, ready, failed, deleting] }
+    SpaceMediaPhotoPendingEnvelope:
+      type: object
+      additionalProperties: false
+      required: [photo, reused]
+      properties:
+        photo: { $ref: "#/components/schemas/SpaceMediaPhotoPending" }
+        reused: { type: boolean }
+    SpaceMediaPhotoPending:
+      type: object
+      additionalProperties: false
+      required: [id, space_id, state]
+      properties:
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        state: { type: string, const: pending }
     AdminCapability:
       type: string
       enum: [legacy.administration, accounts.list, accounts.read, accounts.update, accounts.block, accounts.roles, publications.list, publications.read, publications.update, publications.moderate, publications.retire, admin_access.manage, kpi.read, audit.read, audit.export]
@@ -4617,44 +5162,138 @@ components:
     SpaceDraftInput:
       type: object
       additionalProperties: false
-      required: [category_code, title, description, area_m2, capacity, usage_rules, rate_unit, base_price_clp, address]
+      required:
+        [
+          category_code,
+          title,
+          description,
+          area_m2,
+          capacity,
+          usage_rules,
+          rate_unit,
+          base_price_clp,
+          address,
+        ]
       properties:
         category_code: { type: string }
         title: { type: string, minLength: 1, maxLength: 70 }
         description: { type: string, minLength: 100 }
-        area_m2: { type: number, minimum: 0.01, maximum: 99999999.99, multipleOf: 0.01 }
+        area_m2:
+          {
+            type: number,
+            minimum: 0.01,
+            maximum: 99999999.99,
+            multipleOf: 0.01,
+          }
         capacity: { type: integer, minimum: 1, maximum: 2147483647 }
         usage_rules: { type: string, minLength: 1, maxLength: 250 }
         rate_unit: { type: string, enum: [hora, dia, mes] }
-        base_price_clp: { type: integer, minimum: 5001, maximum: 9223372036854775807 }
-        address: { type: string, minLength: 1, maxLength: 500, description: Dirección privada del borrador. }
-        region_code: { type: string, pattern: '^[0-9]{2}$', description: Código de región del catálogo público SUBDERE_DPA_2018; omitir ambos códigos deja la ubicación pública sin declarar. }
-        comuna_code: { type: string, pattern: '^[0-9]{5}$', description: Código de comuna de la región seleccionada; debe enviarse junto con region_code. }
-        attribute_schema_version: { type: integer, minimum: 1, description: Versión del perfil de atributos; se asume la vigente si se omite. }
-        attributes: { type: object, maxProperties: 80, description: Valores opcionales declarados; claves y tipos se validan contra el perfil de categoría. }
+        base_price_clp:
+          { type: integer, minimum: 5001, maximum: 9223372036854775807 }
+        address:
+          {
+            type: string,
+            minLength: 1,
+            maxLength: 500,
+            description: Dirección privada del borrador.,
+          }
+        region_code:
+          {
+            type: string,
+            pattern: "^[0-9]{2}$",
+            description: Código de región del catálogo público SUBDERE_DPA_2018; omitir ambos códigos deja la ubicación pública sin declarar.,
+          }
+        comuna_code:
+          {
+            type: string,
+            pattern: "^[0-9]{5}$",
+            description: Código de comuna de la región seleccionada; debe enviarse junto con region_code.,
+          }
+        attribute_schema_version:
+          {
+            type: integer,
+            minimum: 1,
+            description: Versión del perfil de atributos; se asume la vigente si se omite.,
+          }
+        attributes:
+          {
+            type: object,
+            maxProperties: 80,
+            description: Valores opcionales declarados; claves y tipos se validan contra el perfil de categoría.,
+          }
     SpaceDraft:
       type: object
       additionalProperties: false
-      required: [id, category_code, category_name, title, description, area_m2, capacity, usage_rules, rate_unit, base_price_clp, address, state, attribute_schema_version, attributes]
+      required:
+        [
+          id,
+          category_code,
+          category_name,
+          title,
+          description,
+          area_m2,
+          capacity,
+          usage_rules,
+          rate_unit,
+          base_price_clp,
+          address,
+          state,
+          attribute_schema_version,
+          attributes,
+        ]
       properties:
         id: { type: string, format: uuid }
         category_code: { type: string }
         category_name: { type: string }
         title: { type: string, minLength: 1, maxLength: 70 }
         description: { type: string, minLength: 100 }
-        area_m2: { type: number, minimum: 0.01, maximum: 99999999.99, multipleOf: 0.01 }
+        area_m2:
+          {
+            type: number,
+            minimum: 0.01,
+            maximum: 99999999.99,
+            multipleOf: 0.01,
+          }
         capacity: { type: integer, minimum: 1, maximum: 2147483647 }
         usage_rules: { type: string, minLength: 1, maxLength: 250 }
         rate_unit: { type: string, enum: [hora, dia, mes] }
-        base_price_clp: { type: integer, minimum: 5001, maximum: 9223372036854775807 }
+        base_price_clp:
+          { type: integer, minimum: 5001, maximum: 9223372036854775807 }
         address: { type: string, minLength: 1, maxLength: 500 }
         state: { type: string, enum: [borrador, activa, oculta] }
-        time_zone: { type: string, nullable: true, maxLength: 100, description: Zona IANA propia; puede ser nula en datos heredados pendientes de reparación. }
-        region_code: { type: string, pattern: '^[0-9]{2}$', description: Código regional público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública. }
-        comuna_code: { type: string, pattern: '^[0-9]{5}$', description: Código comunal público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública. }
+        time_zone:
+          {
+            type: string,
+            nullable: true,
+            maxLength: 100,
+            description: Zona IANA propia; puede ser nula en datos heredados pendientes de reparación.,
+          }
+        region_code:
+          {
+            type: string,
+            pattern: "^[0-9]{2}$",
+            description: Código regional público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública.,
+          }
+        comuna_code:
+          {
+            type: string,
+            pattern: "^[0-9]{5}$",
+            description: Código comunal público declarado por el anfitrión; ausente para espacios anteriores sin ubicación pública.,
+          }
         attribute_schema_version: { type: integer, minimum: 1 }
-        attributes: { type: object, maxProperties: 80, description: Características declaradas y validadas por el perfil versionado. }
-        cover_photo_id: { type: string, format: uuid, nullable: true, description: Identificador de portada sintética activa propia; no revela contenido ni URL del archivo privado. }
+        attributes:
+          {
+            type: object,
+            maxProperties: 80,
+            description: Características declaradas y validadas por el perfil versionado.,
+          }
+        cover_photo_id:
+          {
+            type: string,
+            format: uuid,
+            nullable: true,
+            description: Identificador de portada sintética activa propia; no revela contenido ni URL del archivo privado.,
+          }
     SyntheticSpaceCover:
       type: object
       additionalProperties: false
@@ -4666,53 +5305,79 @@ components:
     SyntheticSpaceGalleryPhoto:
       type: object
       additionalProperties: false
-      required: [id, fixture_code, mime_type, sha256, size_bytes, created_at, public_in_catalog]
+      required:
+        [
+          id,
+          fixture_code,
+          mime_type,
+          sha256,
+          size_bytes,
+          created_at,
+          public_in_catalog,
+        ]
       properties:
         id: { type: string, format: uuid }
         fixture_code: { type: string, const: synthetic-png-v1 }
         mime_type: { type: string, const: image/png }
-        sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
         size_bytes: { type: integer, minimum: 1, maximum: 1048576 }
         created_at: { type: string, format: date-time }
         public_in_catalog: { type: boolean }
-        position: {type: integer, minimum: 1, maximum: 10}
+        position: { type: integer, minimum: 1, maximum: 30 }
     SpaceMediaPhoto:
       type: object
       additionalProperties: false
-      required: [id, space_id, alt_text, visible, cover, position, state, created_at, variants]
+      required:
+        [
+          id,
+          space_id,
+          alt_text,
+          visible,
+          cover,
+          position,
+          state,
+          created_at,
+          variants,
+        ]
       properties:
-        id: {type: string, format: uuid}
-        space_id: {type: string, format: uuid}
-        alt_text: {type: string, maxLength: 250}
-        visible: {type: boolean}
-        cover: {type: boolean}
-        position: {type: integer, minimum: 1, maximum: 10}
-        state: {type: string, enum: [ready]}
-        created_at: {type: string, format: date-time}
-        variants: {type: array, minItems: 1, maxItems: 2, items: {$ref: '#/components/schemas/SpaceMediaVariant'}}
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        alt_text: { type: string, maxLength: 250 }
+        visible: { type: boolean }
+        cover: { type: boolean }
+        position: { type: integer, minimum: 1, maximum: 30 }
+        state: { type: string, enum: [ready] }
+        created_at: { type: string, format: date-time }
+        variants:
+          {
+            type: array,
+            minItems: 1,
+            maxItems: 2,
+            items: { $ref: "#/components/schemas/SpaceMediaVariant" },
+          }
     SpaceMediaVariant:
       type: object
       additionalProperties: false
       required: [name, url, mime_type, size_bytes, sha256, width, height]
       properties:
-        name: {type: string, enum: [display, thumbnail, avatar]}
-        url: {type: string, format: uri-reference}
-        mime_type: {type: string, const: image/webp}
-        size_bytes: {type: integer, minimum: 1, maximum: 10485760}
-        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
-        width: {type: integer, minimum: 1, maximum: 1600}
-        height: {type: integer, minimum: 1, maximum: 1600}
+        name: { type: string, enum: [display, thumbnail, avatar] }
+        url: { type: string, format: uri-reference }
+        mime_type: { type: string, const: image/webp }
+        size_bytes: { type: integer, minimum: 1, maximum: 10485760 }
+        sha256: { type: string, pattern: "^[0-9a-f]{64}$" }
+        width: { type: integer, minimum: 1, maximum: 1600 }
+        height: { type: integer, minimum: 1, maximum: 1600 }
     SpaceMediaPhotoEnvelope:
       type: object
       required: [photo, reused]
       properties:
-        photo: {$ref: '#/components/schemas/SpaceMediaPhoto'}
-        reused: {type: boolean}
+        photo: { $ref: "#/components/schemas/SpaceMediaPhoto" }
+        reused: { type: boolean }
     SyntheticSpaceGalleryPhotoEnvelope:
       type: object
       required: [photo, reused, synthetic]
       properties:
-        photo: { $ref: '#/components/schemas/SyntheticSpaceGalleryPhoto' }
+        photo: { $ref: "#/components/schemas/SyntheticSpaceGalleryPhoto" }
         reused: { type: boolean }
         synthetic: { type: boolean, const: true }
     SyntheticSpaceGalleryRemoval:
@@ -5502,6 +6167,15 @@ components:
                   code: conflict
                   message: La operación no es compatible con el estado actual.
                   request_id: 550e8400-e29b-41d4-a716-446655440000
+    PreconditionFailed:
+      description: El ETag proporcionado no coincide con la versión actual del recurso.
+      headers:
+        X-Request-ID:
+          $ref: "#/components/headers/X-Request-ID"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
     PreconditionRequired:
       description: Se requiere el encabezado If-Match.
       headers:

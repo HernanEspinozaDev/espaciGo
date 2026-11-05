@@ -13,7 +13,9 @@ const requestsOutsideLoopback = new WeakMap<Page, boolean>();
 test.beforeEach(async ({ page }) => {
   requestsOutsideLoopback.set(page, false);
   page.on("request", (request) => {
-    if (!request.url().startsWith("http://127.0.0.1:"))
+    const url = new URL(request.url());
+    const networkURL = url.protocol === "blob:" ? new URL(url.pathname) : url;
+    if (networkURL.hostname !== "127.0.0.1")
       requestsOutsideLoopback.set(page, true);
   });
 });
@@ -48,6 +50,7 @@ async function mockGateway(
       headers: {
         "cache-control": "no-store",
         "content-type": "application/json; charset=utf-8",
+        ...(pathname.startsWith("/api/backend/spaces/") ? { etag: '"1"' } : {}),
         ...(result.headers ?? {}),
       },
       body:
@@ -78,7 +81,6 @@ function apiError(
 }
 
 const accountId = "770e8400-e29b-41d4-a716-446655440000";
-const sessionToken = "synthetic-phase7-session-token-941";
 
 async function loginAndNavigate(
   page: Page,
@@ -94,34 +96,44 @@ async function loginAndNavigate(
 }
 
 // Mocks comunes de sesión
+const authStateByPage = new WeakMap<Page, { expiresAt: string | null }>();
+
 function handleAuthRequests(
+  page: Page,
   pathname: string,
   method: string,
 ): MockResult | null {
   if (pathname === "/api/backend/auth/login" && method === "POST") {
+    const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+    authStateByPage.set(page, { expiresAt });
     return {
       status: 200,
       body: {
         account_id: accountId,
         roles: ["arrendatario", "anfitrion"],
         capabilities: [],
-        access_token: sessionToken,
-        token_type: "Bearer",
-        expires_at: new Date(Date.now() + 3600_000).toISOString(),
+        expires_at: expiresAt,
         restricted_mode: false,
       },
     };
   }
   if (pathname === "/api/backend/auth/session" && method === "GET") {
+    const authState = authStateByPage.get(page);
+    if (!authState?.expiresAt) return apiError(401, "unauthorized");
     return {
       status: 200,
       body: {
         account_id: accountId,
         roles: ["arrendatario", "anfitrion"],
         capabilities: [],
+        expires_at: authState.expiresAt,
         restricted_mode: false,
       },
     };
+  }
+  if (pathname === "/api/backend/auth/logout" && method === "POST") {
+    authStateByPage.set(page, { expiresAt: null });
+    return { status: 204 };
   }
   return null;
 }
@@ -238,7 +250,7 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
   ];
 
   await mockGateway(page, async (pathname, method) => {
-    const authRes = handleAuthRequests(pathname, method);
+    const authRes = handleAuthRequests(page, pathname, method);
     if (authRes) return authRes;
 
     if (pathname === "/api/backend/spaces" && method === "GET") {
@@ -363,7 +375,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos con pe
   };
 
   await mockGateway(page, async (pathname, method, request) => {
-    const authRes = handleAuthRequests(pathname, method);
+    const authRes = handleAuthRequests(page, pathname, method);
     if (authRes) return authRes;
 
     if (pathname === "/api/backend/spaces/categories" && method === "GET") {
@@ -392,6 +404,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos con pe
       >;
       return {
         status: 201,
+        headers: { etag: '"1"' },
         body: {
           id: newSpaceId,
           category_code: "oficina",
@@ -462,7 +475,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos con pe
           state: "borrador",
           time_zone: "America/Santiago",
           region_code: "13",
-          comuna_code: "Las Condes",
+          comuna_code: "13114",
           attribute_schema_version: 2,
           attributes: { has_wifi: true },
         },
@@ -525,7 +538,8 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos con pe
     page.getByText("Paso 2: Ubicación y características"),
   ).toBeVisible();
   await page.locator("#wizard-address").fill("Av. Apoquindo 3000, Las Condes");
-  await page.locator("#wizard-comuna").fill("Las Condes");
+  await page.locator("#wizard-region").selectOption("13");
+  await page.locator("#wizard-comuna").fill("13114");
   await page.locator("#wizard-area").fill("35");
   await page.locator("#wizard-capacity").fill("6");
 
@@ -595,7 +609,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos con pe
 test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pestañas (Información con PUT /spaces/{id}/publication-content, Tarifas e historial con PUT /spaces/{id}/tariff y GET /spaces/{id}/tariffs, Horarios con PUT /spaces/{id}/availability, Fotos con aviso visible permanente de entorno sintético y reordenamiento, y Publicación con PUT /spaces/{id}/publication)", async ({
   page,
 }) => {
-  const spaceId = "space-edit-42";
+  const spaceId = "00000000-0000-4000-8000-000000000042";
   let putContentBody: Record<string, unknown> | null = null;
   let putTariffBody: Record<string, unknown> | null = null;
   let putAvailabilityBody: Record<string, unknown> | null = null;
@@ -639,12 +653,12 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   const photos: Array<Record<string, unknown>> = [];
 
   await mockGateway(page, async (pathname, method, request) => {
-    const authRes = handleAuthRequests(pathname, method);
+    const authRes = handleAuthRequests(page, pathname, method);
     if (authRes) return authRes;
 
     // Espacio actual
     if (pathname === `/api/backend/spaces/${spaceId}` && method === "GET") {
-      return { status: 200, body: currentSpace };
+      return { status: 200, headers: { etag: '"1"' }, body: currentSpace };
     }
 
     // Atributos de categoría
@@ -790,20 +804,24 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
       pathname === `/api/backend/spaces/${spaceId}/gallery` &&
       method === "GET"
     ) {
-      return { status: 200, body: { items: photos } };
+      return { status: 200, body: { items: photos, max_photos: 30 } };
     }
     if (
       pathname === `/api/backend/spaces/${spaceId}/gallery` &&
       method === "POST"
     ) {
       postGalleryCount += 1;
-      const photoId = `photo-${postGalleryCount}`;
+      expect(request.headers()["content-type"]).toContain(
+        "multipart/form-data",
+      );
+      expect(request.headers()["idempotency-key"]).toMatch(/^[0-9a-f-]{36}$/i);
+      const photoId = `00000000-0000-4000-8000-${String(postGalleryCount).padStart(12, "0")}`;
       const newPhoto = {
         id: photoId,
         photo_id: photoId,
         space_id: spaceId,
-        fixture_code: "synthetic-png-v1",
-        mime_type: "image/png",
+        state: "ready",
+        mime_type: "image/webp",
         sha256: `synthetic-sha256-mock-${postGalleryCount}`,
         size_bytes: 2048,
         position: photos.length + 1,
@@ -829,13 +847,32 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
       for (const p of photos) {
         p.is_cover = p.id === putCoverBody.photo_id;
       }
-      return { status: 204 };
+      return { status: 200, body: { photo_id: currentSpace.cover_photo_id } };
+    }
+    if (
+      pathname.includes(`/spaces/${spaceId}/gallery/`) &&
+      pathname.endsWith("/variants/thumbnail") &&
+      method === "GET"
+    ) {
+      return {
+        status: 200,
+        headers: { "content-type": "image/webp" },
+        body: Buffer.from(
+          "UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA",
+          "base64",
+        ),
+      };
     }
     if (
       pathname.startsWith(`/api/backend/spaces/${spaceId}/gallery/`) &&
       method === "PUT"
     ) {
       reorderPutCount += 1;
+      const id = pathname.split("/").at(-1);
+      const payload = request.postDataJSON() as { position: number };
+      const photo = photos.find((p) => p.id === id);
+      if (photo) photo.position = payload.position;
+      photos.sort((a, b) => Number(a.position) - Number(b.position));
       return { status: 200, body: {} };
     }
 
@@ -897,23 +934,27 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   // 4. Pestaña Fotos: verificar aviso visible permanente y agregar fotos de ensayo
   await page.getByRole("tab", { name: /Fotografías/ }).click();
   await expect(
-    page.getByText(
-      "Aviso permanente: Las fotografías cargadas en este entorno de desarrollo son simuladas y sintéticas",
-    ),
+    page.getByText("Entorno de ensayo de galería privada.", { exact: false }),
   ).toBeVisible();
 
   // Subir primera foto sintética (quedará como portada)
-  await page
-    .getByRole("button", { name: "Generar primera fotografía" })
-    .click();
+  const inputPhoto = {
+    name: "synthetic.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  };
+  await page.locator("#gallery-photo-upload").setInputFiles(inputPhoto);
   await expect(
-    page.getByText("Fotografía sintética de ensayo agregada a la galería."),
+    page.getByText("Fotografía agregada a la galería."),
   ).toBeVisible();
   await expect(page.getByText("Portada", { exact: true })).toBeVisible();
   expect(postGalleryCount).toBe(1);
 
   // Subir segunda foto sintética para ejercitar reordenamiento
-  await page.getByRole("button", { name: "Agregar foto de ensayo" }).click();
+  await page.locator("#gallery-photo-upload").setInputFiles(inputPhoto);
   await expect(page.getByText("#2", { exact: true })).toBeVisible();
   expect(postGalleryCount).toBe(2);
 
@@ -922,9 +963,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
     "button[aria-label='Mover foto antes']:not([disabled])",
   );
   await moveUpButton.click();
-  await expect(
-    page.getByText("Orden de fotografías actualizado."),
-  ).toBeVisible();
+  await expect(page.getByText("Orden actualizado.")).toBeVisible();
   expect(reorderPutCount).toBeGreaterThanOrEqual(1);
 
   // 5. Publicación global del espacio con PUT /spaces/{id}/publication
@@ -944,7 +983,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
 test("@phase7 @a11y auditoría de accesibilidad Axe y verificación estricta de no desbordamiento horizontal en desktop (1365x900) y mobile (390x844)", async ({
   page,
 }) => {
-  const spaceId = "test-space-a11y";
+  const spaceId = "00000000-0000-4000-8000-000000000043";
   const testSpace = {
     id: spaceId,
     category_code: "oficina",
@@ -967,7 +1006,7 @@ test("@phase7 @a11y auditoría de accesibilidad Axe y verificación estricta de 
   };
 
   await mockGateway(page, async (pathname, method) => {
-    const authRes = handleAuthRequests(pathname, method);
+    const authRes = handleAuthRequests(page, pathname, method);
     if (authRes) return authRes;
 
     if (pathname === "/api/backend/spaces" && method === "GET") {

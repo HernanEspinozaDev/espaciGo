@@ -16,11 +16,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  Star,
-  ArrowUp,
-  ArrowDown,
   Plus,
-  Info,
   History,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
@@ -45,11 +41,11 @@ import {
   validateScheduleSlots,
 } from "../domain/validation";
 import type {
-  GalleryPhoto,
   PricingHistoryItem,
   RateUnit,
   ScheduleSlot,
 } from "../domain/types";
+import { ListingGallery } from "./listing-gallery";
 
 interface ListingEditorProps {
   readonly listingId: string;
@@ -69,7 +65,7 @@ const DAYS_MAP = [
 
 export function ListingEditor({ listingId }: ListingEditorProps) {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, snapshot: authSnapshot } = useAuth();
   const {
     snapshot,
     selectListing,
@@ -84,6 +80,10 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     setCoverPhoto,
     removePhoto,
     reorderPhotos,
+    replacePhoto,
+    loadPhotoVariant,
+    getPhotoUploadStatus,
+    loadPhotos,
     publishListing,
     archiveListing,
     deleteListing,
@@ -320,79 +320,6 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     });
   };
 
-  // Pestaña 4: Fotos
-  const handleUploadSyntheticPhoto = async () => {
-    if (!accessToken) return;
-    setFeedbackError(null);
-    setFeedbackSuccess(null);
-
-    startTransition(async () => {
-      try {
-        await uploadPhoto(accessToken, listingId, {
-          caption: `Foto de ensayo para ${currentListing?.title || "espacio"}`,
-          is_cover: snapshot.photos.length === 0,
-        });
-        setFeedbackSuccess(
-          "Fotografía sintética de ensayo agregada a la galería.",
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "Error al subir foto";
-        setFeedbackError(msg);
-      }
-    });
-  };
-
-  const handleSetCover = async (photoId: string) => {
-    if (!accessToken) return;
-    startTransition(async () => {
-      try {
-        await setCoverPhoto(accessToken, listingId, photoId);
-        setFeedbackSuccess("Foto de portada actualizada.");
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Error al definir portada";
-        setFeedbackError(msg);
-      }
-    });
-  };
-
-  const handleRemovePhoto = async (photoId: string) => {
-    if (!accessToken) return;
-    startTransition(async () => {
-      try {
-        await removePhoto(accessToken, listingId, photoId);
-        setFeedbackSuccess("Foto eliminada de la galería.");
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Error al eliminar foto";
-        setFeedbackError(msg);
-      }
-    });
-  };
-
-  const handleMovePhoto = async (index: number, direction: "up" | "down") => {
-    if (!accessToken) return;
-    const targetIndex = direction === "up" ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= snapshot.photos.length) return;
-
-    const newOrder = [...snapshot.photos];
-    const temp = newOrder[index]!;
-    newOrder[index] = newOrder[targetIndex]!;
-    newOrder[targetIndex] = temp;
-
-    const photoIds = newOrder.map((p) => p.id);
-    startTransition(async () => {
-      try {
-        await reorderPhotos(accessToken, listingId, photoIds);
-        setFeedbackSuccess("Orden de fotografías actualizado.");
-      } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Error al reordenar fotos";
-        setFeedbackError(msg);
-      }
-    });
-  };
-
   // Acciones Globales: Publicar / Archivar / Eliminar
   const handleGlobalPublish = async () => {
     if (!accessToken || !currentListing) return;
@@ -516,7 +443,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
               }
               className={`text-xs ${
                 currentListing.state === "activa"
-                  ? "bg-emerald-600 text-white"
+                  ? "bg-emerald-700 text-white"
                   : currentListing.state === "oculta"
                     ? "bg-amber-100 text-amber-800"
                     : "bg-slate-100 text-slate-700"
@@ -550,7 +477,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                 size="sm"
                 disabled={isPending || !publishCheck.eligible}
                 onClick={handleGlobalPublish}
-                className="gap-1.5 font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                className="gap-1.5 font-semibold bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs"
                 title={
                   publishCheck.eligible
                     ? "Publicar espacio"
@@ -1337,192 +1264,21 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         hidden={activeTab !== "photos"}
       >
         {activeTab === "photos" && (
-          <div className="space-y-6">
-            {/* Aviso Permanente de Ensayo / Fotos Sintéticas */}
-            <div
-              role="note"
-              className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 flex items-start gap-3"
-            >
-              <Info
-                className="size-4 text-amber-700 shrink-0 mt-0.5"
-                aria-hidden="true"
-              />
-              <div className="space-y-0.5">
-                <div className="font-semibold">
-                  Entorno de ensayo de galería privada
-                </div>
-                <p className="text-amber-800">
-                  Aviso permanente: Las fotografías cargadas en este entorno de
-                  desarrollo son simuladas y sintéticas para pruebas y ensayos
-                  locales de layout y concurrencia. No se almacenan en
-                  servidores productivos externos.
-                </p>
-              </div>
-            </div>
-
-            <Card>
-              <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <CardTitle className="text-lg">Galería de imágenes</CardTitle>
-                  <CardDescription>
-                    Selecciona la imagen principal de portada y reorganiza el
-                    orden de visualización.
-                  </CardDescription>
-                </div>
-                <Button
-                  type="button"
-                  onClick={handleUploadSyntheticPhoto}
-                  disabled={isPending}
-                  className="gap-1.5 shrink-0"
-                >
-                  <Plus className="size-4" aria-hidden="true" />
-                  Agregar foto de ensayo
-                </Button>
-              </CardHeader>
-              <CardContent>
-                {snapshot.photos.length === 0 ? (
-                  <div className="border-2 border-dashed rounded-xl p-10 text-center space-y-3">
-                    <ImageIcon
-                      className="size-10 text-muted-foreground mx-auto"
-                      aria-hidden="true"
-                    />
-                    <p className="text-sm font-medium text-foreground">
-                      No hay imágenes en la galería
-                    </p>
-                    <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                      Agrega al menos una fotografía para ilustrar el espacio a
-                      tus futuros clientes.
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleUploadSyntheticPhoto}
-                      disabled={isPending}
-                      className="mt-2"
-                    >
-                      Generar primera fotografía
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {snapshot.photos.map((photo: GalleryPhoto, idx: number) => {
-                      const isCover =
-                        photo.is_cover ||
-                        currentListing.cover_photo_id === photo.id;
-
-                      return (
-                        <div
-                          key={photo.id}
-                          className={`relative rounded-xl border overflow-hidden p-3 flex flex-col justify-between space-y-3 transition-all ${
-                            isCover
-                              ? "border-primary ring-2 ring-primary/20 bg-primary/5"
-                              : "bg-card hover:border-border"
-                          }`}
-                        >
-                          {/* Cabecera miniatura */}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs font-mono text-muted-foreground">
-                              #{idx + 1}
-                            </span>
-                            {isCover ? (
-                              <Badge
-                                variant="default"
-                                className="gap-1 bg-primary text-xs"
-                              >
-                                <Star
-                                  className="size-3 fill-current"
-                                  aria-hidden="true"
-                                />
-                                Portada
-                              </Badge>
-                            ) : (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleSetCover(photo.id)}
-                                disabled={isPending}
-                                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                              >
-                                Marcar portada
-                              </Button>
-                            )}
-                          </div>
-
-                          {/* Ilustración visual sintética */}
-                          <div className="h-32 rounded-lg bg-muted/60 flex flex-col items-center justify-center p-2 text-center border">
-                            <ImageIcon
-                              className="size-6 text-muted-foreground mb-1"
-                              aria-hidden="true"
-                            />
-                            <span className="text-xs font-medium text-foreground line-clamp-1">
-                              {photo.alt_text || "Foto de ensayo"}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground font-mono truncate max-w-full">
-                              {photo.sha256.slice(0, 12)}...
-                            </span>
-                          </div>
-
-                          {/* Botones de acción: Mover arriba/abajo y eliminar */}
-                          <div className="flex items-center justify-between border-t pt-2">
-                            <div className="flex items-center gap-1">
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={idx === 0 || isPending}
-                                onClick={() => handleMovePhoto(idx, "up")}
-                                className="size-7 p-0"
-                                aria-label="Mover foto antes"
-                              >
-                                <ArrowUp
-                                  className="size-3.5"
-                                  aria-hidden="true"
-                                />
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                disabled={
-                                  idx === snapshot.photos.length - 1 ||
-                                  isPending
-                                }
-                                onClick={() => handleMovePhoto(idx, "down")}
-                                className="size-7 p-0"
-                                aria-label="Mover foto después"
-                              >
-                                <ArrowDown
-                                  className="size-3.5"
-                                  aria-hidden="true"
-                                />
-                              </Button>
-                            </div>
-
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemovePhoto(photo.id)}
-                              disabled={isPending}
-                              className="h-7 px-2 text-destructive hover:bg-destructive/10 text-xs"
-                              aria-label="Eliminar foto"
-                            >
-                              <Trash2
-                                className="size-3.5 mr-1"
-                                aria-hidden="true"
-                              />
-                              Quitar
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
+          <ListingGallery
+            key={`${authSnapshot.accountId}:${listingId}`}
+            listingId={listingId}
+            token={accessToken!}
+            photos={snapshot.photos}
+            selectedListing={currentListing}
+            uploadPhoto={uploadPhoto}
+            replacePhoto={replacePhoto}
+            setCoverPhoto={setCoverPhoto}
+            reorderPhotos={reorderPhotos}
+            removePhoto={removePhoto}
+            loadPhotos={loadPhotos}
+            loadPhotoVariant={loadPhotoVariant}
+            getPhotoUploadStatus={getPhotoUploadStatus}
+          />
         )}
       </div>
     </div>

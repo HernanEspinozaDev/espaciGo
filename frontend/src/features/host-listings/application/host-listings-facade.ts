@@ -8,6 +8,7 @@ import type {
   CategoryProfileSchema,
   ContentUpdateInput,
   GalleryPhoto,
+  GalleryUploadStatus,
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
@@ -59,6 +60,50 @@ export class HostListingsFacade {
   #abortController: AbortController | null = null;
   #snapshot: HostListingsSnapshot = initialSnapshot;
   #listeners = new Set<() => void>();
+  #generation = 0;
+
+  #assertGeneration(generation: number): void {
+    if (generation !== this.#generation)
+      throw new DOMException("Operación obsoleta", "AbortError");
+  }
+
+  #revision(listingId: string, expected?: string): string {
+    const value =
+      expected ??
+      (this.#snapshot.selectedListing?.id === listingId
+        ? this.#snapshot.selectedListing.etag
+        : undefined);
+    if (!value || !/^"[\x21\x23-\x7e\x80-\xff]+"$/.test(value))
+      throw new Error("Actualiza el espacio antes de guardar cambios.");
+    return value;
+  }
+
+  async #refreshListing(token: AccessToken, listingId: string): Promise<void> {
+    const detail = await this.#port.getListing(token, listingId);
+    if (this.#snapshot.selectedListing?.id === listingId) {
+      this.#setSnapshot({ selectedListing: detail });
+    }
+  }
+
+  async #refreshGallery(token: AccessToken, listingId: string): Promise<void> {
+    const generation = this.#generation;
+    const [detail, photos] = await Promise.all([
+      this.#port.getListing(token, listingId),
+      this.#port.listPhotos(token, listingId),
+    ]).catch((error: unknown) => {
+      this.#assertGeneration(generation);
+      throw new Error(
+        "Resultado sin confirmar. Actualiza la galería antes de continuar.",
+        { cause: error },
+      );
+    });
+    this.#assertGeneration(generation);
+    if (this.#snapshot.selectedListing?.id !== listingId) return;
+    this.#setSnapshot({
+      selectedListing: detail,
+      photos: Object.freeze(photos),
+    });
+  }
 
   constructor(port: HostListingsPort) {
     this.#port = port;
@@ -80,6 +125,7 @@ export class HostListingsFacade {
   };
 
   cancel(): void {
+    this.#generation++;
     if (this.#abortController) {
       this.#abortController.abort();
       this.#abortController = null;
@@ -196,6 +242,7 @@ export class HostListingsFacade {
     token: AccessToken,
     listingId: string,
   ): Promise<ListingDetail | null> {
+    const generation = ++this.#generation;
     this.#setSnapshot({ loading: true, error: null });
     try {
       const [detail, tariff, schedule, photos] = await Promise.all([
@@ -204,6 +251,7 @@ export class HostListingsFacade {
         this.#port.getWeeklySchedule(token, listingId).catch(() => null),
         this.#port.listPhotos(token, listingId).catch(() => []),
       ]);
+      this.#assertGeneration(generation);
 
       this.#setSnapshot({
         selectedListing: detail,
@@ -215,6 +263,8 @@ export class HostListingsFacade {
       });
       return detail;
     } catch (err) {
+      if (generation !== this.#generation)
+        throw new DOMException("Operación obsoleta", "AbortError");
       const message =
         err instanceof Error
           ? err.message
@@ -277,7 +327,7 @@ export class HostListingsFacade {
         token,
         listingId,
         input,
-        ifMatch,
+        this.#revision(listingId, ifMatch),
       );
       const updatedListings = this.#snapshot.listings.map((item) =>
         item.id === listingId
@@ -350,7 +400,7 @@ export class HostListingsFacade {
         token,
         listingId,
         input,
-        ifMatch,
+        this.#revision(listingId, ifMatch),
       );
       const updatedListings = this.#snapshot.listings.map((item) =>
         item.id === listingId
@@ -386,7 +436,11 @@ export class HostListingsFacade {
   ): Promise<ListingDetail> {
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const detail = await this.#port.publishListing(token, listingId, ifMatch);
+      const detail = await this.#port.publishListing(
+        token,
+        listingId,
+        this.#revision(listingId, ifMatch),
+      );
       const updatedListings = this.#snapshot.listings.map((item) =>
         item.id === listingId ? { ...item, state: "activa" as const } : item,
       );
@@ -412,7 +466,11 @@ export class HostListingsFacade {
   ): Promise<ListingDetail> {
     this.#setSnapshot({ loading: true, error: null });
     try {
-      const detail = await this.#port.archiveListing(token, listingId, ifMatch);
+      const detail = await this.#port.archiveListing(
+        token,
+        listingId,
+        this.#revision(listingId, ifMatch),
+      );
       const updatedListings = this.#snapshot.listings.map((item) =>
         item.id === listingId ? { ...item, state: "oculta" as const } : item,
       );
@@ -459,8 +517,9 @@ export class HostListingsFacade {
         token,
         listingId,
         input,
-        ifMatch,
+        this.#revision(listingId, ifMatch),
       );
+      await this.#refreshListing(token, listingId);
       this.#setSnapshot({
         activeTariff: updated,
         tariffHistory: Object.freeze([
@@ -505,15 +564,13 @@ export class HostListingsFacade {
   ): Promise<void> {
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.configureTimeZone(token, listingId, timeZone, ifMatch);
-      if (this.#snapshot.selectedListing?.id === listingId) {
-        this.#setSnapshot({
-          selectedListing: {
-            ...this.#snapshot.selectedListing,
-            time_zone: timeZone,
-          },
-        });
-      }
+      await this.#port.configureTimeZone(
+        token,
+        listingId,
+        timeZone,
+        this.#revision(listingId, ifMatch),
+      );
+      await this.#refreshListing(token, listingId);
       this.#setSnapshot({ loading: false, error: null });
     } catch (err) {
       const message =
@@ -551,8 +608,9 @@ export class HostListingsFacade {
         token,
         listingId,
         input,
-        ifMatch,
+        this.#revision(listingId, ifMatch),
       );
+      await this.#refreshListing(token, listingId);
       this.#setSnapshot({
         weeklySchedule: schedule,
         loading: false,
@@ -571,11 +629,22 @@ export class HostListingsFacade {
     token: AccessToken,
     listingId: string,
   ): Promise<readonly GalleryPhoto[]> {
+    const generation = this.#generation;
     try {
-      const photos = await this.#port.listPhotos(token, listingId);
-      this.#setSnapshot({ photos: Object.freeze(photos) });
+      const [detail, photos] = await Promise.all([
+        this.#port.getListing(token, listingId),
+        this.#port.listPhotos(token, listingId),
+      ]);
+      this.#assertGeneration(generation);
+      if (this.#snapshot.selectedListing?.id === listingId) {
+        this.#setSnapshot({
+          selectedListing: detail,
+          photos: Object.freeze(photos),
+        });
+      }
       return photos;
     } catch (err) {
+      this.#assertGeneration(generation);
       const message =
         err instanceof Error ? err.message : "Error al cargar fotos";
       this.#setSnapshot({ error: message });
@@ -589,6 +658,7 @@ export class HostListingsFacade {
     input?: PhotoUploadInput,
     idempotencyKey?: string,
   ): Promise<GalleryPhoto> {
+    const generation = this.#generation;
     this.#setSnapshot({ loading: true, error: null });
     try {
       const photo = await this.#port.uploadPhoto(
@@ -597,14 +667,16 @@ export class HostListingsFacade {
         input,
         idempotencyKey,
       );
-      const updatedPhotos = [...this.#snapshot.photos, photo];
+      this.#assertGeneration(generation);
+      await this.#refreshGallery(token, listingId);
+      this.#assertGeneration(generation);
       this.#setSnapshot({
-        photos: Object.freeze(updatedPhotos),
         loading: false,
         error: null,
       });
       return photo;
     } catch (err) {
+      this.#assertGeneration(generation);
       const message =
         err instanceof Error ? err.message : "Error al subir foto";
       this.#setSnapshot({ loading: false, error: message });
@@ -617,23 +689,22 @@ export class HostListingsFacade {
     listingId: string,
     photoId: string,
   ): Promise<void> {
+    const generation = this.#generation;
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.setCoverPhoto(token, listingId, photoId);
-      const updated = this.#snapshot.photos.map((p) => ({
-        ...p,
-        is_cover: p.id === photoId,
-      }));
-      this.#setSnapshot({
-        photos: Object.freeze(updated),
-        selectedListing:
-          this.#snapshot.selectedListing?.id === listingId
-            ? { ...this.#snapshot.selectedListing, cover_photo_id: photoId }
-            : this.#snapshot.selectedListing,
-        loading: false,
-        error: null,
-      });
+      await this.#port.setCoverPhoto(
+        token,
+        listingId,
+        photoId,
+        undefined,
+        this.#revision(listingId),
+      );
+      this.#assertGeneration(generation);
+      await this.#refreshGallery(token, listingId);
+      this.#assertGeneration(generation);
+      this.#setSnapshot({ loading: false, error: null });
     } catch (err) {
+      this.#assertGeneration(generation);
       const message =
         err instanceof Error ? err.message : "Error al definir foto de portada";
       this.#setSnapshot({ loading: false, error: message });
@@ -646,20 +717,22 @@ export class HostListingsFacade {
     listingId: string,
     photoId: string,
   ): Promise<void> {
+    const generation = this.#generation;
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.removePhoto(token, listingId, photoId);
-      const updated = this.#snapshot.photos.filter((p) => p.id !== photoId);
-      this.#setSnapshot({
-        photos: Object.freeze(updated),
-        selectedListing:
-          this.#snapshot.selectedListing?.cover_photo_id === photoId
-            ? { ...this.#snapshot.selectedListing, cover_photo_id: null }
-            : this.#snapshot.selectedListing,
-        loading: false,
-        error: null,
-      });
+      await this.#port.removePhoto(
+        token,
+        listingId,
+        photoId,
+        undefined,
+        this.#revision(listingId),
+      );
+      this.#assertGeneration(generation);
+      await this.#refreshGallery(token, listingId);
+      this.#assertGeneration(generation);
+      this.#setSnapshot({ loading: false, error: null });
     } catch (err) {
+      this.#assertGeneration(generation);
       const message =
         err instanceof Error ? err.message : "Error al eliminar foto";
       this.#setSnapshot({ loading: false, error: message });
@@ -672,28 +745,86 @@ export class HostListingsFacade {
     listingId: string,
     photoIds: string[],
   ): Promise<void> {
+    const generation = this.#generation;
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.reorderPhotos(token, listingId, photoIds);
-      const idMap = new Map<string, number>();
-      photoIds.forEach((id, idx) => idMap.set(id, idx + 1));
-      const updated = [...this.#snapshot.photos]
-        .map((p) => ({
-          ...p,
-          position: idMap.get(p.id) ?? p.position,
-        }))
-        .sort((a, b) => a.position - b.position);
-      this.#setSnapshot({
-        photos: Object.freeze(updated),
-        loading: false,
-        error: null,
-      });
+      await this.#port.reorderPhotos(
+        token,
+        listingId,
+        photoIds,
+        undefined,
+        this.#revision(listingId),
+      );
+      this.#assertGeneration(generation);
+      await this.#refreshGallery(token, listingId);
+      this.#assertGeneration(generation);
+      this.#setSnapshot({ loading: false, error: null });
     } catch (err) {
+      this.#assertGeneration(generation);
       const message =
         err instanceof Error ? err.message : "Error al reordenar fotos";
       this.#setSnapshot({ loading: false, error: message });
       throw err;
     }
+  }
+
+  async replacePhoto(
+    token: AccessToken,
+    listingId: string,
+    photoId: string,
+    input: PhotoUploadInput,
+    key: string,
+    ifMatch?: string,
+  ): Promise<GalleryPhoto> {
+    if (!this.#port.replacePhoto)
+      throw new Error("El reemplazo no está disponible.");
+    const generation = this.#generation;
+    const photo = await this.#port.replacePhoto(
+      token,
+      listingId,
+      photoId,
+      input,
+      key,
+      this.#revision(listingId, ifMatch),
+    );
+    this.#assertGeneration(generation);
+    await this.#refreshGallery(token, listingId);
+    this.#assertGeneration(generation);
+    return photo;
+  }
+
+  async getPhotoUploadStatus(
+    token: AccessToken,
+    listingId: string,
+    key: string,
+  ): Promise<GalleryUploadStatus> {
+    if (!this.#port.getPhotoUploadStatus)
+      throw new Error("La consulta de carga no está disponible.");
+    const generation = this.#generation;
+    const status = await this.#port.getPhotoUploadStatus(token, listingId, key);
+    this.#assertGeneration(generation);
+    return status;
+  }
+
+  async loadPhotoVariant(
+    token: AccessToken,
+    listingId: string,
+    photoId: string,
+    variant: "thumbnail" | "display",
+    signal?: AbortSignal,
+  ): Promise<Blob> {
+    if (!this.#port.getPhotoVariant)
+      throw new Error("La imagen no está disponible.");
+    const generation = this.#generation;
+    const blob = await this.#port.getPhotoVariant(
+      token,
+      listingId,
+      photoId,
+      variant,
+      signal,
+    );
+    this.#assertGeneration(generation);
+    return blob;
   }
 
   clear(): void {

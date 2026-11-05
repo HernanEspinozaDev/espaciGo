@@ -48,7 +48,7 @@ test("createDraft sends only Authorization and ignores legacy idempotency key", 
   try {
     await writeFile(
       path.join(scratch, "api-client.mjs"),
-      `export const apiClient = { POST: async (_path, options) => { globalThis.__capturedCreateDraft = options; return { response: { ok: true }, data: { id: "550e8400-e29b-41d4-a716-446655440000", category_code: "oficina", category_name: "Oficina", title: "Synthetic", description: "Synthetic", area_m2: 20, capacity: 2, usage_rules: "Synthetic", rate_unit: "hora", base_price_clp: 5001, address: "Synthetic", state: "borrador", region_code: "RM", comuna_code: "Santiago", attribute_schema_version: 1 } }; } };`,
+      `export const apiClient = { POST: async (_path, options) => { globalThis.__capturedCreateDraft = options; return { response: { ok: true, headers: new Headers({ ETag: '"synthetic-revision"' }) }, data: { id: "550e8400-e29b-41d4-a716-446655440000", category_code: "oficina", category_name: "Oficina", title: "Synthetic", description: "Synthetic", area_m2: 20, capacity: 2, usage_rules: "Synthetic", rate_unit: "hora", base_price_clp: 5001, address: "Synthetic", state: "borrador", region_code: "13", comuna_code: "13101", attribute_schema_version: 1 } }; } };`,
     );
     await writeFile(
       path.join(scratch, "errors.mjs"),

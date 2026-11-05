@@ -45,6 +45,7 @@ import type {
   RateUnit,
   ScheduleSlot,
 } from "../domain/types";
+import { validateWizardLocation } from "../domain/wizard-location";
 
 const STEPS = [
   { number: 1, title: "Tipo y Resumen", icon: Building2 },
@@ -89,7 +90,7 @@ export function ListingWizard() {
   // Paso 2: Ubicación, dimensiones y atributos dinámicos
   const [address, setAddress] = useState<string>("");
   const [comunaCode, setComunaCode] = useState<string>("");
-  const [regionCode, setRegionCode] = useState<string>("13"); // Metropolitana por defecto
+  const [regionCode, setRegionCode] = useState<string>("");
   const [areaM2, setAreaM2] = useState<number>(25);
   const [capacity, setCapacity] = useState<number>(4);
   const [dynamicAttributes, setDynamicAttributes] = useState<
@@ -202,6 +203,11 @@ export function ListingWizard() {
       }
       if (capacity < 1) {
         setStepError("La capacidad debe ser de al menos 1 persona.");
+        return false;
+      }
+      const locationValidation = validateWizardLocation(regionCode, comunaCode);
+      if (!locationValidation.valid) {
+        setStepError(locationValidation.message);
         return false;
       }
       if (currentSchema) {
@@ -389,7 +395,7 @@ export function ListingWizard() {
                     isCurrent
                       ? "bg-primary text-primary-foreground"
                       : isCompleted
-                        ? "bg-emerald-600 text-white"
+                        ? "bg-emerald-700 text-white"
                         : "bg-muted text-muted-foreground"
                   }`}
                 >
@@ -521,13 +527,15 @@ export function ListingWizard() {
 
                 <div className="space-y-2">
                   <Label htmlFor="wizard-comuna" className="font-semibold">
-                    Comuna (nombre o código)
+                    Código de comuna (5 dígitos)
                   </Label>
                   <Input
                     id="wizard-comuna"
                     value={comunaCode}
                     onChange={(e) => setComunaCode(e.target.value)}
-                    placeholder="Ej: Las Condes o 13114"
+                    placeholder="Ej: 13114"
+                    inputMode="numeric"
+                    maxLength={5}
                   />
                 </div>
 
@@ -541,6 +549,7 @@ export function ListingWizard() {
                     onChange={(e) => setRegionCode(e.target.value)}
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   >
+                    <option value="">-- Sin ubicación administrativa --</option>
                     <option value="13">Región Metropolitana (13)</option>
                     <option value="05">Valparaíso (05)</option>
                     <option value="08">Biobío (08)</option>
@@ -1008,8 +1017,8 @@ export function ListingWizard() {
                 Paso 5: Resumen y confirmación de alta
               </CardTitle>
               <CardDescription>
-                Revisa todos los datos ingresados antes de crear el borrador
-                seguro con clave de idempotencia.
+                Revisa todos los datos ingresados antes de crear el borrador y
+                continuar al editor.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -1097,9 +1106,9 @@ export function ListingWizard() {
                   aria-hidden="true"
                 />
                 <div>
-                  Al confirmar, se generará un borrador oficial con clave de
-                  idempotencia única UUIDv4. Serás redirigido al editor donde
-                  podrás cargar fotografías y gestionar la publicación.
+                  Al confirmar, se creará un borrador. Serás redirigido al
+                  editor donde podrás cargar fotografías y gestionar la
+                  publicación.
                 </div>
               </div>
             </CardContent>

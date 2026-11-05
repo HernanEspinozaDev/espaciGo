@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { authFacade } from "../auth-runtime";
 import type { AuthSnapshot } from "../application/auth-facade";
 import type {
@@ -23,6 +23,9 @@ export interface AuthView {
 }
 
 export function useAuth(): AuthView {
+  useEffect(() => {
+    void authFacade.restoreSession().catch(() => undefined);
+  }, []);
   const snapshot = useSyncExternalStore(
     authFacade.subscribe,
     authFacade.getSnapshot,

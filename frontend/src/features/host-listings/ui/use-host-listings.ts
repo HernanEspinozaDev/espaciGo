@@ -9,6 +9,7 @@ import type {
   CategoryProfileSchema,
   ContentUpdateInput,
   GalleryPhoto,
+  GalleryUploadStatus,
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
@@ -112,6 +113,26 @@ export interface HostListingsView {
     input?: PhotoUploadInput,
     idempotencyKey?: string,
   ): Promise<GalleryPhoto>;
+  replacePhoto(
+    token: AccessToken,
+    listingId: string,
+    photoId: string,
+    input: PhotoUploadInput,
+    key: string,
+    ifMatch?: string,
+  ): Promise<GalleryPhoto>;
+  loadPhotoVariant(
+    token: AccessToken,
+    listingId: string,
+    photoId: string,
+    variant: "thumbnail" | "display",
+    signal?: AbortSignal,
+  ): Promise<Blob>;
+  getPhotoUploadStatus(
+    token: AccessToken,
+    listingId: string,
+    key: string,
+  ): Promise<GalleryUploadStatus>;
   setCoverPhoto(
     token: AccessToken,
     listingId: string,
@@ -289,6 +310,49 @@ export function useHostListings(): HostListingsView {
     [],
   );
 
+  const replacePhoto = useCallback(
+    (
+      token: AccessToken,
+      listingId: string,
+      photoId: string,
+      input: PhotoUploadInput,
+      key: string,
+      ifMatch?: string,
+    ) =>
+      hostListingsFacade.replacePhoto(
+        token,
+        listingId,
+        photoId,
+        input,
+        key,
+        ifMatch,
+      ),
+    [],
+  );
+  const loadPhotoVariant = useCallback(
+    (
+      token: AccessToken,
+      listingId: string,
+      photoId: string,
+      variant: "thumbnail" | "display",
+      signal?: AbortSignal,
+    ) =>
+      hostListingsFacade.loadPhotoVariant(
+        token,
+        listingId,
+        photoId,
+        variant,
+        signal,
+      ),
+    [],
+  );
+
+  const getPhotoUploadStatus = useCallback(
+    (token: AccessToken, listingId: string, key: string) =>
+      hostListingsFacade.getPhotoUploadStatus(token, listingId, key),
+    [],
+  );
+
   const removePhoto = useCallback(
     (token: AccessToken, listingId: string, photoId: string) =>
       hostListingsFacade.removePhoto(token, listingId, photoId),
@@ -329,6 +393,9 @@ export function useHostListings(): HostListingsView {
     updateWeeklySchedule,
     loadPhotos,
     uploadPhoto,
+    replacePhoto,
+    loadPhotoVariant,
+    getPhotoUploadStatus,
     setCoverPhoto,
     removePhoto,
     reorderPhotos,

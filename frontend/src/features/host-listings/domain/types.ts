@@ -67,6 +67,7 @@ export interface ListingDetail {
   readonly attribute_schema_version: number;
   readonly attributes: Readonly<Record<string, unknown>>;
   readonly cover_photo_id?: string | null;
+  readonly etag?: string;
 }
 
 export interface ListingDraftInput {
@@ -150,7 +151,26 @@ export interface GalleryPhoto {
   readonly visible: boolean;
   readonly position: number;
   readonly alt_text?: string;
+  readonly variants?: readonly GalleryPhotoVariant[];
+  readonly state?: "pending" | "ready";
 }
+
+export interface GalleryPhotoVariant {
+  readonly name: "thumbnail" | "display";
+  readonly url: string;
+  readonly mime_type: "image/webp";
+  readonly size_bytes: number;
+  readonly sha256: string;
+  readonly width: number;
+  readonly height: number;
+}
+
+export type GalleryUploadStatus =
+  | { readonly state: "not_found" }
+  | {
+      readonly photo_id: string;
+      readonly state: "pending" | "ready" | "failed" | "deleting";
+    };
 
 export interface PhotoUploadInput {
   image?: Blob | File;

@@ -11,6 +11,22 @@ const scratch = await mkdtemp(
   path.join(process.env.TMPDIR ?? os.tmpdir(), "espacigo-gateway-"),
 );
 const serverConfigPath = path.join(scratch, "server-config.mjs");
+await writeFile(
+  path.join(scratch, "cloud-run-identity.mjs"),
+  `export async function getCloudRunIdentityHeadersForBackend() { return {}; }`,
+);
+const sessionSource = (
+  await readFile(path.join(root, "src/lib/api/server-session.ts"), "utf8")
+).replace('import "server-only";', "");
+await writeFile(
+  path.join(scratch, "server-session.mjs"),
+  ts.transpileModule(sessionSource, {
+    compilerOptions: {
+      target: ts.ScriptTarget.ES2022,
+      module: ts.ModuleKind.ESNext,
+    },
+  }).outputText,
+);
 const operationsSource = await readFile(
   path.join(root, "src/lib/api/generated/gateway-operations.ts"),
   "utf8",
@@ -41,7 +57,13 @@ const source = (
   .replace(
     'import { getApiBackendBaseUrl } from "@/lib/api/server-config";',
     'import { getApiBackendBaseUrl } from "./server-config.mjs";',
-  );
+  )
+  .replace(
+    'import { getCloudRunIdentityHeadersForBackend } from "@/lib/api/cloud-run-identity";',
+    'import { getCloudRunIdentityHeadersForBackend } from "./cloud-run-identity.mjs";',
+  )
+  .replace('from "@/lib/api/server-session";', 'from "./server-session.mjs";')
+  .replace('import "server-only";', "");
 const compiled = ts.transpileModule(source, {
   compilerOptions: {
     target: ts.ScriptTarget.ES2022,
@@ -52,6 +74,14 @@ const routePath = path.join(scratch, "route.mjs");
 await writeFile(routePath, compiled);
 const { GET, POST } = await import(pathToFileURL(routePath));
 const originalFetch = globalThis.fetch;
+const sessionCookie = `__Host-espacigo-session=synthetic-opaque-token; __Host-espacigo-session-expiry=${new Date(Date.now() + 3600000).toISOString()}`;
+function requestWithSession(url, init = {}) {
+  const headers = new Headers(init.headers);
+  headers.set("cookie", sessionCookie);
+  headers.set("host", "127.0.0.1:3000");
+  headers.set("origin", "https://127.0.0.1:3000");
+  return new Request(url, { ...init, headers });
+}
 test.after(async () => {
   globalThis.fetch = originalFetch;
   await rm(scratch, { recursive: true, force: true });
@@ -126,14 +156,14 @@ test("all six document operations forward Bearer without browser credentials", a
       });
     };
 
-    const headers = new Headers({ authorization: "Bearer synthetic-token" });
+    const headers = new Headers();
     if (scenario.ifMatch) headers.set("if-match", scenario.ifMatch);
     if (scenario.requestContentType) {
       headers.set("content-type", scenario.requestContentType);
     }
     const init = { method: scenario.method, headers };
     if (scenario.requestBody !== undefined) init.body = scenario.requestBody;
-    const request = new Request(
+    const request = requestWithSession(
       `http://127.0.0.1:3000/api/backend/${scenario.path.join("/")}`,
       init,
     );
@@ -146,7 +176,7 @@ test("all six document operations forward Bearer without browser credentials", a
     assert.equal(upstreamOptions.credentials, "omit");
     assert.equal(
       upstreamOptions.headers.get("authorization"),
-      "Bearer synthetic-token",
+      "Bearer synthetic-opaque-token",
     );
     assert.equal(upstreamOptions.headers.has("cookie"), false);
     assert.equal(upstreamOptions.cache, "no-store");
@@ -195,11 +225,11 @@ test("BFF preserves upstream auth and CAS statuses without exposing text errors"
         status: scenario.status,
         headers: { "content-type": "text/plain; charset=utf-8" },
       });
-    const headers = new Headers({ authorization: "Bearer synthetic-token" });
+    const headers = new Headers();
     if (scenario.ifMatch) headers.set("if-match", scenario.ifMatch);
     const handler = scenario.method === "GET" ? GET : POST;
     const response = await handler(
-      new Request(
+      requestWithSession(
         `http://127.0.0.1:3000/api/backend/${scenario.path.join("/")}`,
         { method: scenario.method, headers },
       ),
@@ -252,7 +282,7 @@ test("BFF sanitizes disallowed-media errors at status boundaries and cancels bod
     globalThis.fetch = async () => upstream;
 
     const response = await GET(
-      new Request(
+      requestWithSession(
         `http://127.0.0.1:3000/api/backend/document-verification/cases/${caseID}`,
       ),
       {
@@ -286,7 +316,7 @@ test("BFF passes contract JSON errors through with their original status", async
     });
 
   const response = await GET(
-    new Request(
+    requestWithSession(
       `http://127.0.0.1:3000/api/backend/document-verification/cases/${caseID}`,
     ),
     {

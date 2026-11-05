@@ -6,7 +6,6 @@ const spaceId = "660e8400-e29b-41d4-a716-446655440000";
 const caseId = "770e8400-e29b-41d4-a716-446655440000";
 const secondCaseId = "990e8400-e29b-41d4-a716-446655440000";
 const fileId = "880e8400-e29b-41d4-a716-446655440000";
-const sessionToken = "synthetic-document-session-token";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -60,7 +59,7 @@ test("owner completes the six document operations and downloads only a clean spa
     observed.push({
       path: pathname,
       method,
-      authorization: headers.authorization,
+      authorization: headers["authorization"],
       ifMatch: headers["if-match"],
     });
 
@@ -86,6 +85,7 @@ test("owner completes the six document operations and downloads only a clean spa
             roles: ["arrendador"],
             capabilities: [],
             restricted_mode: false,
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
           })
         : json(401, {
             error: {
@@ -101,10 +101,8 @@ test("owner completes the six document operations and downloads only a clean spa
         account_id: accountId,
         roles: ["arrendador"],
         capabilities: [],
-        access_token: sessionToken,
-        token_type: "Bearer",
-        expires_at: new Date(Date.now() + 60_000).toISOString(),
         restricted_mode: false,
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
       });
     }
     if (pathname === "/api/backend/spaces" && method === "GET") {
@@ -426,9 +424,7 @@ test("owner completes the six document operations and downloads only a clean spa
     `GET /api/backend/document-verification/space-cases/${caseId}/files/${fileId}/content`,
   ]);
   expect(
-    documentRequests.every(
-      ({ authorization }) => authorization === `Bearer ${sessionToken}`,
-    ),
+    documentRequests.every(({ authorization }) => authorization === undefined),
   ).toBe(true);
   expect(
     documentRequests
@@ -493,7 +489,7 @@ test("identity case supports the private workflow without exposing a download", 
     observed.push({
       path: pathname,
       method,
-      authorization: headers.authorization,
+      authorization: headers["authorization"],
       ifMatch: headers["if-match"],
     });
 
@@ -519,6 +515,7 @@ test("identity case supports the private workflow without exposing a download", 
             roles: ["arrendador"],
             capabilities: [],
             restricted_mode: false,
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
           })
         : json(401, {
             error: {
@@ -534,10 +531,8 @@ test("identity case supports the private workflow without exposing a download", 
         account_id: accountId,
         roles: ["arrendador"],
         capabilities: [],
-        access_token: sessionToken,
-        token_type: "Bearer",
-        expires_at: new Date(Date.now() + 60_000).toISOString(),
         restricted_mode: false,
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
       });
     }
     if (pathname === "/api/backend/spaces" && method === "GET") {
@@ -698,9 +693,7 @@ test("identity case supports the private workflow without exposing a download", 
     ),
   ).toBe(true);
   expect(
-    documentRequests.every(
-      ({ authorization }) => authorization === `Bearer ${sessionToken}`,
-    ),
+    documentRequests.every(({ authorization }) => authorization === undefined),
   ).toBe(true);
   expect(
     documentRequests
@@ -773,6 +766,7 @@ test("late superseded case selection does not show a load error", async ({
             roles: ["arrendador"],
             capabilities: [],
             restricted_mode: false,
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
           })
         : json(401, { error: { code: "unauthenticated" } });
     }
@@ -782,10 +776,8 @@ test("late superseded case selection does not show a load error", async ({
         account_id: accountId,
         roles: ["arrendador"],
         capabilities: [],
-        access_token: sessionToken,
-        token_type: "Bearer",
-        expires_at: new Date(Date.now() + 60_000).toISOString(),
         restricted_mode: false,
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
       });
     }
     if (pathname === "/api/backend/spaces" && method === "GET") {

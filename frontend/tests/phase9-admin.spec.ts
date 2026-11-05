@@ -80,6 +80,15 @@ interface TestAdminStore {
 }
 
 function createAdminStore(): TestAdminStore {
+  let authenticated = false;
+  const sessionExpiresAt = new Date(Date.now() + 30 * 60_000).toISOString();
+  const session = {
+    account_id: canonicalAdminId,
+    roles: ["administrador_global"],
+    capabilities: ADMIN_CAPABILITIES,
+    restricted_mode: false,
+    expires_at: sessionExpiresAt,
+  };
   const me: GlobalAdminMe = {
     account_id: canonicalAdminId,
     roles: ["administrador_global"],
@@ -260,30 +269,22 @@ function createAdminStore(): TestAdminStore {
 
       // Auth Session Profile & Login
       if (pathname === "/api/backend/auth/login" && method === "POST") {
+        authenticated = true;
         return {
           status: 200,
-          body: {
-            account_id: canonicalAdminId,
-            roles: ["administrador_global"],
-            capabilities: store.me.capabilities,
-            access_token: "synthetic-phase9-admin-token-777",
-            token_type: "Bearer",
-            expires_at: new Date(Date.now() + 3600_000).toISOString(),
-            restricted_mode: false,
-          },
+          body: session,
         };
       }
 
       if (pathname === "/api/backend/auth/session" && method === "GET") {
-        return {
-          status: 200,
-          body: {
-            account_id: canonicalAdminId,
-            roles: ["administrador_global"],
-            capabilities: store.me.capabilities,
-            restricted_mode: false,
-          },
-        };
+        return authenticated
+          ? { status: 200, body: session }
+          : { status: 401, body: { code: "unauthenticated" } };
+      }
+
+      if (pathname === "/api/backend/auth/logout" && method === "POST") {
+        authenticated = false;
+        return { status: 204, body: "" };
       }
 
       // Global Admin Me & Overview & KPIs
@@ -545,6 +546,10 @@ async function installMockGateway(page: Page, handler: MockHandler) {
 
 async function loginAndNavigate(page: Page, destination = "/administracion") {
   const [pathname] = destination.split("?");
+  await page.goto("/");
+  await page.evaluate(() =>
+    fetch("/api/backend/auth/logout", { method: "POST" }),
+  );
   await page.goto(`/acceso?return_to=${encodeURIComponent(pathname)}`);
   await page
     .getByLabel("Correo electrónico")

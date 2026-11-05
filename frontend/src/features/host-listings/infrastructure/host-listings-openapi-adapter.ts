@@ -11,6 +11,7 @@ import type {
   CategoryProfileSchema,
   ContentUpdateInput,
   GalleryPhoto,
+  GalleryUploadStatus,
   ListingDeletionReceipt,
   ListingDetail,
   ListingDraftInput,
@@ -66,7 +67,10 @@ function mapAttributeProfile(
   };
 }
 
-function mapSpaceDraftToDetail(draft: OpenApiSpaceDraft): ListingDetail {
+function mapSpaceDraftToDetail(
+  draft: OpenApiSpaceDraft,
+  etag?: string,
+): ListingDetail {
   return {
     id: draft.id,
     category_code: draft.category_code,
@@ -88,7 +92,14 @@ function mapSpaceDraftToDetail(draft: OpenApiSpaceDraft): ListingDetail {
       (draft.attributes as Record<string, unknown>) ?? {},
     ),
     cover_photo_id: draft.cover_photo_id ?? null,
+    ...(etag ? { etag } : {}),
   };
+}
+
+function requireStrongEtag(value: string | null): string {
+  if (!value || !/^"[\x21\x23-\x7e\x80-\xff]+"$/.test(value))
+    throw new ApiProtocolError();
+  return value;
 }
 
 function mapSpaceDraftToSummary(draft: OpenApiSpaceDraft): ListingSummary {
@@ -134,8 +145,7 @@ function mapWeeklyHours(data: OpenApiLocalWeeklyHours): ScheduleData {
 
 function mapPhotoToGalleryPhoto(raw: unknown): GalleryPhoto {
   const p = raw as Record<string, unknown>;
-  const isSynthetic =
-    p.fixture_code === "synthetic-png-v1" || !Array.isArray(p.variants);
+  const isSynthetic = p.fixture_code === "synthetic-png-v1";
   return {
     id: String(p.id ?? ""),
     space_id: p.space_id ? String(p.space_id) : undefined,
@@ -147,15 +157,42 @@ function mapPhotoToGalleryPhoto(raw: unknown): GalleryPhoto {
           : "image/webp",
     sha256: typeof p.sha256 === "string" ? p.sha256 : "",
     size_bytes: typeof p.size_bytes === "number" ? p.size_bytes : 0,
-    created_at:
-      typeof p.created_at === "string"
-        ? p.created_at
-        : new Date().toISOString(),
+    created_at: typeof p.created_at === "string" ? p.created_at : "",
     is_synthetic: isSynthetic,
     is_cover: Boolean(p.cover),
     visible: p.visible !== false,
     position: typeof p.position === "number" ? p.position : 0,
     alt_text: typeof p.alt_text === "string" ? p.alt_text : undefined,
+    state: p.state === "pending" ? "pending" : "ready",
+    variants: Array.isArray(p.variants)
+      ? p.variants.flatMap((rawVariant) => {
+          if (!rawVariant || typeof rawVariant !== "object") return [];
+          const v = rawVariant as Record<string, unknown>;
+          if (
+            (v.name !== "thumbnail" && v.name !== "display") ||
+            v.mime_type !== "image/webp" ||
+            typeof v.url !== "string" ||
+            v.url !==
+              `/api/v1/spaces/${p.space_id}/gallery/${p.id}/variants/${v.name}` ||
+            typeof v.size_bytes !== "number" ||
+            typeof v.width !== "number" ||
+            typeof v.height !== "number" ||
+            typeof v.sha256 !== "string"
+          )
+            return [];
+          return [
+            {
+              name: v.name,
+              url: v.url.replace("/api/v1/", "/api/backend/"),
+              mime_type: "image/webp" as const,
+              size_bytes: v.size_bytes,
+              width: v.width,
+              height: v.height,
+              sha256: v.sha256,
+            },
+          ];
+        })
+      : [],
   };
 }
 
@@ -255,7 +292,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async createDraft(
@@ -289,7 +329,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async updateDraft(
@@ -302,6 +345,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     const result = await apiClient.PUT("/spaces/{spaceId}", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
       },
       headers: {
         ...authHeader(token),
@@ -329,7 +373,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async deleteListing(
@@ -371,6 +418,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       {
         params: {
           path: { spaceId: listingId },
+          header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
         },
         headers: {
           ...authHeader(token),
@@ -393,7 +441,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async publishListing(
@@ -405,6 +456,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     const result = await apiClient.PUT("/spaces/{spaceId}/publication", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
       },
       headers: {
         ...authHeader(token),
@@ -418,7 +470,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async archiveListing(
@@ -430,6 +485,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     const result = await apiClient.PUT("/spaces/{spaceId}/publication", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
       },
       headers: {
         ...authHeader(token),
@@ -443,7 +499,10 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     if (!result.data) throw new ApiProtocolError();
-    return mapSpaceDraftToDetail(result.data);
+    return mapSpaceDraftToDetail(
+      result.data,
+      requireStrongEtag(result.response.headers.get("ETag")),
+    );
   }
 
   async getPricing(
@@ -475,6 +534,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   ): Promise<PricingHistoryItem> {
     const result = await apiClient.PUT("/spaces/{spaceId}/tariff", {
       params: {
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
         path: { spaceId: listingId },
       },
       headers: {
@@ -523,6 +583,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
   ): Promise<{ listingId: string; timeZone: string }> {
     const result = await apiClient.PUT("/spaces/{spaceId}/availability", {
       params: {
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
         path: { spaceId: listingId },
       },
       headers: {
@@ -580,6 +641,7 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       "/local/booking-trial/catalog/{spaceId}/weekly-hours",
       {
         params: {
+          header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
           path: { spaceId: listingId },
         },
         headers: {
@@ -660,8 +722,14 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     }
     if (!result.data?.photo) throw new ApiProtocolError();
     const photo = mapPhotoToGalleryPhoto(result.data.photo);
-    if (input?.is_cover) {
-      await this.setCoverPhoto(token, listingId, photo.id, signal);
+    if (input?.is_cover && photo.state !== "pending") {
+      await this.setCoverPhoto(
+        token,
+        listingId,
+        photo.id,
+        signal,
+        requireStrongEtag(result.response.headers.get("ETag")),
+      );
     }
     return photo;
   }
@@ -671,12 +739,17 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
+    ifMatch?: string,
   ): Promise<void> {
     const result = await apiClient.PUT("/spaces/{spaceId}/cover", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
       },
-      headers: authHeader(token),
+      headers: {
+        ...authHeader(token),
+        "If-Match": requireStrongEtag(ifMatch ?? null),
+      },
       body: { photo_id: photoId },
       bodySerializer: serializeExactJson,
       signal,
@@ -691,14 +764,19 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
+    ifMatch?: string,
   ): Promise<void> {
     const result = await apiClient.DELETE(
       "/spaces/{spaceId}/gallery/{photoId}",
       {
         params: {
           path: { spaceId: listingId, photoId },
+          header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
         },
-        headers: authHeader(token),
+        headers: {
+          ...authHeader(token),
+          "If-Match": requireStrongEtag(ifMatch ?? null),
+        },
         signal,
       },
     );
@@ -713,7 +791,9 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     listingId: string,
     photoIds: string[],
     signal?: AbortSignal,
+    ifMatch?: string,
   ): Promise<void> {
+    let revision = requireStrongEtag(ifMatch ?? null);
     for (let index = 0; index < photoIds.length; index += 1) {
       const photoId = photoIds[index];
       const result = await apiClient.PUT(
@@ -721,8 +801,9 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         {
           params: {
             path: { spaceId: listingId, photoId },
+            header: { "If-Match": revision },
           },
-          headers: authHeader(token),
+          headers: { ...authHeader(token), "If-Match": revision },
           body: { position: index + 1 },
           bodySerializer: serializeExactJson,
           signal,
@@ -731,6 +812,95 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       if (!result.response.ok) {
         throw normalizeApiError(result.response, result.error);
       }
+      revision = requireStrongEtag(result.response.headers.get("ETag"));
     }
+  }
+
+  async getPhotoUploadStatus(
+    token: AccessToken,
+    listingId: string,
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryUploadStatus> {
+    const result = await apiClient.GET(
+      "/spaces/{spaceId}/gallery/upload-status",
+      {
+        params: {
+          path: { spaceId: listingId },
+          header: { "Idempotency-Key": key },
+        },
+        headers: authHeader(token),
+        signal,
+      },
+    );
+    if (result.response.status === 404) return { state: "not_found" };
+    if (!result.response.ok)
+      throw normalizeApiError(result.response, result.error);
+    if (!result.data?.photo_id || !result.data.state)
+      throw new ApiProtocolError();
+    return { photo_id: result.data.photo_id, state: result.data.state };
+  }
+
+  async replacePhoto(
+    token: AccessToken,
+    listingId: string,
+    photoId: string,
+    input: PhotoUploadInput,
+    key: string,
+    ifMatch: string,
+    signal?: AbortSignal,
+  ): Promise<GalleryPhoto> {
+    if (!input.image) throw new ApiProtocolError();
+    const form = new FormData();
+    form.append("image", input.image);
+    const result = await apiClient.PUT(
+      "/spaces/{spaceId}/gallery/{photoId}/content",
+      {
+        params: {
+          path: { spaceId: listingId, photoId },
+          header: {
+            "If-Match": requireStrongEtag(ifMatch),
+            "Idempotency-Key": key,
+          },
+        },
+        headers: {
+          ...authHeader(token),
+          "If-Match": requireStrongEtag(ifMatch),
+          "Idempotency-Key": key,
+        },
+        body: form as unknown as { image: string },
+        signal,
+      },
+    );
+    if (!result.response.ok)
+      throw normalizeApiError(result.response, result.error);
+    if (!result.data?.photo) throw new ApiProtocolError();
+    return mapPhotoToGalleryPhoto(result.data.photo);
+  }
+
+  async getPhotoVariant(
+    token: AccessToken,
+    listingId: string,
+    photoId: string,
+    variant: "thumbnail" | "display",
+    signal?: AbortSignal,
+  ): Promise<Blob> {
+    const result = await apiClient.GET(
+      "/spaces/{spaceId}/gallery/{photoId}/variants/{variant}",
+      {
+        params: { path: { spaceId: listingId, photoId, variant } },
+        headers: authHeader(token),
+        parseAs: "blob",
+        signal,
+      },
+    );
+    if (!result.response.ok)
+      throw normalizeApiError(result.response, result.error);
+    if (
+      !(result.data instanceof Blob) ||
+      result.data.type.split(";")[0] !== "image/webp"
+    )
+      throw new ApiProtocolError();
+    return result.data;
   }
 }
