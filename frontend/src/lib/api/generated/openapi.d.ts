@@ -3254,6 +3254,11 @@ export interface components {
         generated_at: string;
       };
     };
+    /** @description Distintivos documentales independientes de la publicación. Se calculan con la titularidad y vigencia actuales; no acreditan dominio, legalidad, garantía ni identidad contractual. No contienen expedientes ni identificadores privados. */
+    PublicDocumentVerification: {
+      identity_verified: boolean;
+      space_verified: boolean;
+    };
     PublicSpace: {
       /** Format: uuid */
       space_id: string;
@@ -3284,6 +3289,7 @@ export interface components {
       cover_image_id?: string;
       features?: components["schemas"]["PublicSpaceFeature"][];
       images?: components["schemas"]["PublicSpaceImageRef"][];
+      verification?: components["schemas"]["PublicDocumentVerification"];
     };
     PublicSpaceEnvelope: {
       data: components["schemas"]["PublicSpace"];
@@ -3311,6 +3317,7 @@ export interface components {
       usage_rules: string;
       features: components["schemas"]["PublicSpaceFeature"][];
       images: components["schemas"]["PublicSpaceImageRef"][];
+      verification?: components["schemas"]["PublicDocumentVerification"];
     };
     PublicSpaceDetailEnvelope: {
       data: components["schemas"]["PublicSpaceDetail"];

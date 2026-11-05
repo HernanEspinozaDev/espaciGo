@@ -28,6 +28,10 @@ async function compile(sourcePath, outputName, replacements = []) {
 
 await compile("src/lib/api/clp.ts", "clp.mjs");
 await compile("src/lib/api/time.ts", "time.mjs");
+const verificationPath = await compile(
+  "src/features/public-catalog/domain/verification.ts",
+  "verification.mjs",
+);
 const queryPath = await compile(
   "src/features/public-catalog/domain/query-state.ts",
   "query-state.mjs",
@@ -48,6 +52,41 @@ const mediaPath = await compile(
 const queryModule = await import(pathToFileURL(queryPath));
 const presentationModule = await import(pathToFileURL(presentationPath));
 const mediaModule = await import(pathToFileURL(mediaPath));
+const verificationModule = await import(pathToFileURL(verificationPath));
+
+test("normalizes optional verification flags strictly and fails closed", () => {
+  assert.deepEqual(verificationModule.publicVerification(undefined), {
+    identityVerified: false,
+    spaceVerified: false,
+  });
+  assert.deepEqual(
+    verificationModule.publicVerification({
+      identity_verified: true,
+      space_verified: false,
+    }),
+    {
+      identityVerified: true,
+      spaceVerified: false,
+    },
+  );
+  assert.deepEqual(
+    verificationModule.publicVerification({
+      identity_verified: "true",
+      space_verified: true,
+    }),
+    {
+      identityVerified: false,
+      spaceVerified: false,
+    },
+  );
+  assert.deepEqual(
+    verificationModule.publicVerification({ identity_verified: true }),
+    {
+      identityVerified: true,
+      spaceVerified: false,
+    },
+  );
+});
 
 test("allowlists scalar query parameters and preserves opaque cursor values", () => {
   const query = queryModule.parseCatalogQuery({

@@ -14,6 +14,13 @@ import type {
   TermsResponse,
 } from "../domain/types";
 import type { PublicCatalogPort } from "../application/catalog-port";
+import { publicVerification } from "../domain/verification";
+import type { components } from "@/lib/api/generated/openapi";
+
+function adaptSpace<T extends { verification?: unknown }>(space: T) {
+  const { verification, ...details } = space;
+  return { ...details, verification: publicVerification(verification) };
+}
 
 function safeCode(value: unknown): string | undefined {
   if (typeof value === "string" && /^[A-Za-z0-9_.-]{1,96}$/.test(value)) {
@@ -77,8 +84,18 @@ function pathWithQuery(path: string, query: URLSearchParams): string {
 
 export const goPublicCatalogAdapter: PublicCatalogPort = {
   listSpaces(query: CatalogQuery) {
-    return requestJson<PublicSpacePage>(
+    return requestJson<components["schemas"]["PublicSpacePage"]>(
       pathWithQuery("/public/spaces", serializeCatalogQuery(query)),
+    ).then((result): CatalogResult<PublicSpacePage> =>
+      result.ok
+        ? {
+            ok: true,
+            value: {
+              ...result.value,
+              items: result.value.items.map(adaptSpace),
+            },
+          }
+        : result,
     );
   },
   listCategories() {
@@ -99,10 +116,10 @@ export const goPublicCatalogAdapter: PublicCatalogPort = {
     );
   },
   getSpace(spaceId: string) {
-    return requestJson<{ data: PublicSpaceDetail }>(
+    return requestJson<{ data: components["schemas"]["PublicSpaceDetail"] }>(
       `/public/spaces/${encodeURIComponent(spaceId)}`,
-    ).then((result) =>
-      result.ok ? { ok: true as const, value: result.value.data } : result,
+    ).then((result): CatalogResult<PublicSpaceDetail> =>
+      result.ok ? { ok: true, value: adaptSpace(result.value.data) } : result,
     );
   },
   listTerms() {

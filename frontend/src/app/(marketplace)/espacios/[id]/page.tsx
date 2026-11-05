@@ -14,6 +14,7 @@ import {
 } from "@/features/public-catalog/domain/presentation";
 import { publicCatalog } from "@/features/public-catalog/infrastructure/catalog-runtime";
 import { CatalogUnavailable } from "@/features/public-catalog/ui/catalog-states";
+import { PublicVerificationBadges } from "@/features/public-catalog/ui/public-verification-badges";
 
 export const dynamic = "force-dynamic";
 type PageProps = { params: Promise<{ id: string }> };
@@ -130,6 +131,7 @@ export default async function PublicSpacePage({ params }: PageProps) {
             <h1 className="text-4xl font-medium tracking-tight text-foreground lg:text-5xl">
               {title}
             </h1>
+            <PublicVerificationBadges verification={space.verification} />
             <p className="text-muted-foreground">
               {[space.comuna_name, space.region_name]
                 .filter(Boolean)
