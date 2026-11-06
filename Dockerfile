@@ -2,6 +2,7 @@ FROM golang:1.27.1-alpine3.24@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270
 WORKDIR /src
 RUN apk add --no-cache ca-certificates
 COPY go.mod go.sum ./
+COPY third_party/pdfcpu ./third_party/pdfcpu
 RUN go mod download
 
 FROM go-deps AS api-build
