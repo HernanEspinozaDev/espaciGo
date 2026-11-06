@@ -17,6 +17,8 @@ func main() {
 	recoverRuntimeACL := flag.Bool("recover-runtime-acl", false, "read back the exact F5 ACL contract first, then forward-reconcile only if needed")
 	confirmRuntimeACL := flag.String("confirm-runtime-acl", "", "must exactly equal the isolated F5 target name")
 	confirmF5AdminMigration := flag.String("confirm-f5-admin-migration", "", "allow the one-time versioned migration only on the isolated F5 target")
+	cloudOwner := flag.Bool("cloud-owner-migration", false, "run confirmed CloudSQL staging repair V76..V80")
+	confirmCloudOwner := flag.String("confirm-cloud-owner-pre81", "", "exact CloudSQL staging confirmation")
 	flag.Parse()
 
 	runtimeACLMode, err := validateRuntimeACLInvocation(*applyRuntimeACL, *recoverRuntimeACL, *planOnly, *confirmRuntimeACL, *confirmF5AdminMigration)
@@ -31,6 +33,10 @@ func main() {
 
 	settings, err := loadConnectionSettings(os.Getenv)
 	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if err := validateCloudOwnerInvocation(*cloudOwner, *planOnly, *applyRuntimeACL, *recoverRuntimeACL, *confirmCloudOwner, settings, os.Getenv); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -59,6 +65,33 @@ func main() {
 		} else {
 			fmt.Println("runtime ACL forward recovery applied; complete pre- and post-commit readback passed")
 		}
+		return
+	}
+	if *cloudOwner {
+		if *confirmF5AdminMigration != "" {
+			fmt.Fprintln(os.Stderr, "cloud owner mode cannot combine with F5 migration")
+			os.Exit(2)
+		}
+		dir, cleanup, e := makeCloudOwnerSnapshot(*migrationDir)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, e)
+			os.Exit(2)
+		}
+		defer cleanup()
+		plan, e := migrator.Plan(ctx, settings.databaseURL, dir, "")
+		if e == nil {
+			e = validateCloudOwnerPending(plan)
+		}
+		if e != nil {
+			fmt.Fprintf(os.Stderr, "cloud owner preflight failed: %v\n", e)
+			os.Exit(1)
+		}
+		result, e := migrator.RunWithRoleInRange(ctx, settings.databaseURL, dir, "", 75, 80)
+		if e != nil {
+			fmt.Fprintf(os.Stderr, "cloud owner migration failed: %v\n", e)
+			os.Exit(1)
+		}
+		fmt.Printf("applied migrations: %v\n", result.Applied)
 		return
 	}
 	if *planOnly {
