@@ -60,6 +60,21 @@ func RunWithRole(ctx context.Context, databaseURL, migrationDir, setRole string)
 	return runWithConfig(ctx, config, migrationDir, setRole)
 }
 
+// RunWithRoleInRange applies migrations only when the existing ledger is a
+// verified prefix of the exact migration inventory 1..maxVersion.
+func RunWithRoleInRange(ctx context.Context, databaseURL, migrationDir, setRole string, minApplied, maxVersion int64) (Result, error) {
+	if minApplied < 1 || maxVersion < minApplied {
+		return Result{}, errors.New("migration range is invalid")
+	}
+	config, err := pgx.ParseConfig(databaseURL)
+	if err != nil {
+		return Result{}, errors.New("invalid database connection configuration")
+	}
+	return runWithConfigOptions(ctx, config, migrationDir, setRole, &migrationRange{minApplied: minApplied, maxVersion: maxVersion})
+}
+
+type migrationRange struct{ minApplied, maxVersion int64 }
+
 // RunCloudSQL runs the existing migration sequence through Cloud SQL Go
 // Connector. databaseURL supplies PostgreSQL username/database; password is
 // supplied separately from the secret file, and the URL network host is a
@@ -178,6 +193,10 @@ func runWithConnector(ctx context.Context, config *pgx.ConnConfig, migrationDir,
 }
 
 func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir, setRole string) (Result, error) {
+	return runWithConfigOptions(ctx, config, migrationDir, setRole, nil)
+}
+
+func runWithConfigOptions(ctx context.Context, config *pgx.ConnConfig, migrationDir, setRole string, bounded *migrationRange) (Result, error) {
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		return Result{}, errors.New("connect to migration database")
@@ -191,7 +210,7 @@ func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir, se
 			return Result{}, errors.New("could not assume configured database role")
 		}
 	}
-	result, err := runWithConn(ctx, conn, migrationDir)
+	result, err := runWithConnOptions(ctx, conn, migrationDir, bounded)
 	if err != nil {
 		return result, err
 	}
@@ -199,6 +218,10 @@ func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir, se
 }
 
 func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Result, error) {
+	return runWithConnOptions(ctx, conn, migrationDir, nil)
+}
+
+func runWithConnOptions(ctx context.Context, conn *pgx.Conn, migrationDir string, bounded *migrationRange) (Result, error) {
 	migrations, err := DiscoverMigrations(migrationDir)
 	if err != nil {
 		return Result{}, err
@@ -218,6 +241,28 @@ func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Resu
 
 	if err := guardHistoryInitialization(ctx, conn); err != nil {
 		return Result{}, err
+	}
+	if bounded != nil {
+		if err := verifyRangeInventory(migrations, *bounded); err != nil {
+			return Result{}, err
+		}
+		var historyExists bool
+		if err := conn.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='schema_migrations' AND c.relkind IN ('r','p'))`).Scan(&historyExists); err != nil {
+			return Result{}, fmt.Errorf("inspect bounded migration history: %w", err)
+		}
+		if !historyExists {
+			return Result{}, errors.New("bounded migration run requires an existing migration history")
+		}
+		history, err := readHistory(ctx, conn)
+		if err != nil {
+			return Result{}, err
+		}
+		if err := verifyHistory(migrations, history); err != nil {
+			return Result{}, err
+		}
+		if int64(len(history)) < bounded.minApplied {
+			return Result{}, fmt.Errorf("applied migration prefix is %d, below required minimum %d", len(history), bounded.minApplied)
+		}
 	}
 	var historyExists, canCreateHistory bool
 	if err := conn.QueryRow(ctx, `
@@ -304,6 +349,21 @@ func AcquireMigrationAdvisoryLock(ctx context.Context, conn *pgx.Conn) (func(con
 		}
 		return nil
 	}, nil
+}
+
+func verifyRangeInventory(migrations []Migration, bounds migrationRange) error {
+	if bounds.minApplied < 1 || bounds.maxVersion < bounds.minApplied {
+		return errors.New("migration range is invalid")
+	}
+	if int64(len(migrations)) != bounds.maxVersion {
+		return fmt.Errorf("migration inventory has %d entries, want exactly %d", len(migrations), bounds.maxVersion)
+	}
+	for i, migration := range migrations {
+		if migration.Version != int64(i+1) || migration.Version < 1 || migration.Version > bounds.maxVersion {
+			return fmt.Errorf("migration inventory is not exactly contiguous within 1..%d", bounds.maxVersion)
+		}
+	}
+	return nil
 }
 
 func shouldInitializeMigrationHistory(historyExists, canCreate bool) (bool, error) {

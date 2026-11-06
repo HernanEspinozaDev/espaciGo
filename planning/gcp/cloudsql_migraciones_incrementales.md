@@ -97,3 +97,20 @@ Los archivos históricos `cloudsql_postgres.password` y `dms_migrator.password` 
 Un cambio de red, autenticación, ownership o runner exige evidencia del fallo, propuesta acotada y revisión documentada. El objetivo es resolver el bloqueo dentro de este flujo, no iniciar ciclos de herramientas alternativas.
 
 Referencia oficial consultada: [conectividad DMS PostgreSQL](https://docs.cloud.google.com/database-migration/docs/postgres/networking-methods). Describe el túnel inverso para conectar DMS al origen; no prescribe su reutilización para migraciones incrementales de la aplicación.
+
+## Registro vigente del esquema — verificación 2026-11-05
+
+Esta entrada sustituye los valores operativos remotos históricos de §Estado concreto; no borra aquellos diagnósticos. La versión del esquema corresponde al ledger, no al motor ni a la aplicación desplegada.
+
+| Destino separado | Motor / ledger verificado | Fuente y pendientes |
+| --- | --- | --- |
+| Cloud SQL `espacigo-testprod-db`, base `espacigo_dms_stage_20261020`; SSH propio `127.0.0.1:15432` → `10.189.0.15:5432` | PostgreSQL18.6; 83 entradas contiguas V1–V83, lectura READ ONLY posterior al commit | Candidato ejecutado `dfcecfdb6fd0a373769135dbc46bfb1dbff0e5bf`; 83 nombres/checksums coincidentes, cero pendientes. Migraciones idénticas a `9edd61c405bc01f7f5ac5c46e616a6d3063bdf5f`. |
+| Ensayo `espacigo-spaces-cloud-recovery-20261105`, namespace aislado sin puertos host; loopback15432 interno | PostgreSQL18.6; V83/cero cuentas | Restore solo schema autorizado + metadata literal del ledger75; CLI real75→83 y fallo/reanudación78, sin cuentas cloud. No sustituye al destino remoto. |
+| Ensayo previo `espacigo-spaces-cloud-delta-20261105`, namespace aislado sin puertos host | PostgreSQL18.6; V83/cero cuentas | Ensayo real de commit82 y fallo83/rollback de función + recuperación83; conservado. |
+| PostgreSQL nativo persistente `127.0.0.1:5432`, base homónima | **No inspeccionado en este corte** | No inferir su versión a partir de Cloud SQL ni de contenedores; no se ejecutó DDL ni API sobre él. |
+
+- Aplicación remota real: V76–V80 mediante modo Cloud Owner con inventario pinned y mínimo/máximo bajo lock; preparación exacta V81; V81 y luego V82–V83 mediante `espacigo_migrator_login`/`SET ROLE espacigo_schema_owner`. Repairs versionados delimitan y cierran la ventana V82/V83. No se utilizó la excepción F5 ni un wrapper local en Cloud SQL.
+- Postcheck remoto: propietario de función restaurado a postgres; CREATE/membership/grant-option temporales retirados; el grant adicional UPDATE(id) a runtime es directo de postgres sin GO para la tabla reviewer; helpers privados con owner NOLOGIN y EXECUTE runtime. Inventario ACL de14columnas en catálogo compara todos los objetos previos/owners/defaults/PUBLIC/initprivs; los únicos cambios previos son los seis prescritos por preparación (cuatro celdas de columnas, USAGE de public y ledger), no drift adicional. Roles/memberships exactos.
+- Backups: gestionado `1793899104062` SUCCESSFUL; custom remoto `/home/nandev/.local/share/espacigo-cloudsql-backups/spaces-v75-pre-delta-20261105.dump`, modo0600, 7472032bytes, SHA256 `a077fd6e75f476af3db59fe18f7228cadc42eaaadadfea9cfc06aa80f10e650d`, listado y parse pg_restore PASS. No confundir validación del archivo con una restauración cloud ejecutada.
+- Evidencia y límites: `espacios_cloudsql_v83_aplicacion_20261105.json`, `espacios_cloudsql_v83_ensayo_local_20261105.json` y `espacios_cloudsql_v83_ejecucion_20261105.md`. Nueve funciones y147constraints remotos coinciden con el clon ensayado. Integración a main, Cloud Run y recorrido funcional online no se cierran por este cambio; este último lo realizará el usuario.
+- Transporte retirado después del postcheck: forward host15432 cerrado, bastión devuelto a TERMINATED (su estado inicial) y credenciales transitorias propias eliminadas. La ruta de la tabla describe el transporte **utilizado**, no un listener actualmente activo. Para otra captura/release, revalidar y abrir una nueva sesión propia por el mismo procedimiento; no reutilizar passfiles retirados.
