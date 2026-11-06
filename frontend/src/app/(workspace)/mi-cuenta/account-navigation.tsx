@@ -63,7 +63,9 @@ export function AccountNavigation() {
         className="flex flex-row md:flex-col gap-1.5 overflow-x-auto pb-2 md:pb-0"
       >
         {items.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive =
+            pathname === item.href ||
+            (item.href !== "/mi-cuenta" && Boolean(pathname?.startsWith(item.href)));
           const Icon = item.icon;
 
           return (
