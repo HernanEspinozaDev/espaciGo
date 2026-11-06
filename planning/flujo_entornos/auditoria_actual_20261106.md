@@ -99,7 +99,8 @@ Añadir inventario acotado de discos/IP/snapshots asociados por identificadores 
 
 ## 4. Evidencia del corte documental
 
-- Worktree aislado desde main actualizado por fast-forward y fetch: rama `codex/docs/chore/plan-flujo-entornos-migraciones`.
+- Worktree aislado desde main actualizado por fast-forward y fetch: rama `codex/docs/chore/flujo-00-plan-entornos-migraciones`.
+- El hook rechazó el primer nombre sin identificador de corte; se corrigió a `flujo-00`, conservando hooks e historial local.
 - Revisión local íntegra de los dos documentos nuevos; `git diff --check` PASS.
 - Comprobación de enlaces locales, bloques Markdown y alcance de archivos PASS; inventario estático V1–V83 contiguo PASS.
 - Consulta de documentación pública oficial de Google Cloud/PostgreSQL, enlazada en el plan. Sin pruebas funcionales, build de imagen ni suites SQL ejecutadas: este corte solo añade documentación.
