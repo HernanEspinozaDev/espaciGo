@@ -1,0 +1,517 @@
+{
+  "candidate_sha": "dfcecfdb6fd0a373769135dbc46bfb1dbff0e5bf",
+  "migrations_unchanged_source_sha": "9edd61c405bc01f7f5ac5c46e616a6d3063bdf5f",
+  "runner_sha256": "4e4523966933543cef9584292777f525952e7b518cda2c9a070340e7c858be98",
+  "target": {
+    "project": "espacigo-testprod",
+    "instance": "espacigo-testprod-db",
+    "database": "espacigo_dms_stage_20261020",
+    "engine": "18.6",
+    "transport": "owned bastion SSH forward 127.0.0.1:15432 to private 10.189.0.15:5432; TLS"
+  },
+  "managed_backup": {
+    "id": "1793899104062",
+    "verified_status": "SUCCESSFUL"
+  },
+  "custom_backup": {
+    "path": "/home/nandev/.local/share/espacigo-cloudsql-backups/spaces-v75-pre-delta-20261105.dump",
+    "bytes": 7472032,
+    "mode": "0o600",
+    "sha256": "a077fd6e75f476af3db59fe18f7228cadc42eaaadadfea9cfc06aa80f10e650d",
+    "archive_list_and_restore_parse": "PASS; not an executed restore"
+  },
+  "committed_steps": [
+    [
+      76,
+      77,
+      78,
+      79,
+      80
+    ],
+    [
+      81
+    ],
+    [
+      82,
+      83
+    ]
+  ],
+  "preparation_finalization": "three reviewed SQL files executed without local wrappers; each committed and independently read back",
+  "final_plan": {
+    "database": "espacigo_dms_stage_20261020",
+    "server_version": "18.6",
+    "read_only": true,
+    "history_exists": true,
+    "applied": [
+      {
+        "version": 1,
+        "name": "V000001__m01_identity.sql",
+        "checksum": "34736e22df35ffbd88bb43a1071788ba88ac9e6b35f2a5aeba83b9b87bf161f8"
+      },
+      {
+        "version": 2,
+        "name": "V000002__m02_profile_rights.sql",
+        "checksum": "e3f9c0b9e60244490ef40230b5af6a452deb63cd475b43b7378d9a3895877ec2"
+      },
+      {
+        "version": 3,
+        "name": "V000003__m03_verification.sql",
+        "checksum": "161a2fc06b46eb181b6ddec78eac4ff8e3020b48553429f435ce81c08ce4814f"
+      },
+      {
+        "version": 4,
+        "name": "V000004__m03_reason_codes.sql",
+        "checksum": "f3942ba61513556253650fabc962843350e9c441fd384d8d5b8bd59ecf7362d1"
+      },
+      {
+        "version": 5,
+        "name": "V000005__m04_space_drafts.sql",
+        "checksum": "f5ca7a06da755c8bbf8adba1ed7c539c69fb50743b3f58012079eb565b564f86"
+      },
+      {
+        "version": 6,
+        "name": "V000006__m04_extensible_category_attributes.sql",
+        "checksum": "67bf11f666e9c3f2687e7bd6c3c0fcd82f075c51ff012f874ed3638b64cf2968"
+      },
+      {
+        "version": 7,
+        "name": "V000007__m04_profile_attribute_order.sql",
+        "checksum": "c39bc8c2c3a7161bec0dd0b01b1f7cb04ff87c70aae15ea6db46a6054b1780c5"
+      },
+      {
+        "version": 8,
+        "name": "V000008__m03_synthetic_evidence.sql",
+        "checksum": "896d0808f925f44f5bb82222b56fde369723b3579fae510c3bd3b1a84002113d"
+      },
+      {
+        "version": 9,
+        "name": "V000009__m06_draft_manual_occupancy.sql",
+        "checksum": "e3fd2c98930f3d44280406a1698aa6d4594aa7b7e8ae708157c81ed4103ed900"
+      },
+      {
+        "version": 10,
+        "name": "V000010__m05_versioned_rates_and_private_simulations.sql",
+        "checksum": "291748cd18b0ff3424066c322e570a9ff206a386a92e08ad714a9d0709ef212b"
+      },
+      {
+        "version": 11,
+        "name": "V000011__m06_local_booking_trial.sql",
+        "checksum": "7d6e5dfda683164f434c70b415c7383a48d16120abc4d2d10ef0c64db710f452"
+      },
+      {
+        "version": 12,
+        "name": "V000012__m06_local_booking_conditions_snapshot.sql",
+        "checksum": "daa604294fbab0c9d3ac027e3e2629a366c93c78795ea7f5edd75733dfd3a1cd"
+      },
+      {
+        "version": 13,
+        "name": "V000013__m06_booking_history_sequence.sql",
+        "checksum": "8aaa68c5b3f06a8b363bc8332bb7574e937417616610d5dc4df8ac26365f30de"
+      },
+      {
+        "version": 14,
+        "name": "V000014__m06_deterministic_history_backfill.sql",
+        "checksum": "c5b25c4d450f7ff5f60ebac401e85506a8835ade8e80c3043d0ddd2706682ccb"
+      },
+      {
+        "version": 15,
+        "name": "V000015__m05_local_synthetic_catalog.sql",
+        "checksum": "55c2641621ca6dcba8c00108fb0d3bd607730a1544417f79388d2942c2a18525"
+      },
+      {
+        "version": 16,
+        "name": "V000016__m09_local_reservation_messages.sql",
+        "checksum": "21772b55240bd9e42dcee9a0c60267f87e0c5652e9d20a2d4d84526994cc4a06"
+      },
+      {
+        "version": 17,
+        "name": "V000017__m09_reservation_message_read_cursor.sql",
+        "checksum": "d22702994f854621e3eca912ce07a320a3b83e7c9bf1ad2910f82d8ef3cfe127"
+      },
+      {
+        "version": 18,
+        "name": "V000018__m05_synthetic_fixture_locations.sql",
+        "checksum": "65ff0d76bafb9b7e78207aac40172cb45443291b2903c71165650174c9eac89b"
+      },
+      {
+        "version": 19,
+        "name": "V000019__m06_local_weekly_hours.sql",
+        "checksum": "99d516ecae702fd158204d985662d1cc0c70104a9cd520a926009860dc160d57"
+      },
+      {
+        "version": 20,
+        "name": "V000020__m06_local_flexible_cancellation.sql",
+        "checksum": "a594aa744d8fa8ffcf1884561d4e0f0730ea1a35098f422b55b46b4e933570d0"
+      },
+      {
+        "version": 21,
+        "name": "V000021__m06_local_payment_inbox.sql",
+        "checksum": "3c3e72a6fcf9e1b6570362c7254a65cd6024c2838792898dfee5daeebd088a86"
+      },
+      {
+        "version": 22,
+        "name": "V000022__local_identity_history_and_outbox.sql",
+        "checksum": "f2166790c2500956a2cbbf4bc16280a7bec11d3d36bf6096cc5ae666f9b5b4a8"
+      },
+      {
+        "version": 23,
+        "name": "V000023__local_privacy_suppression_review.sql",
+        "checksum": "b38c23af4953e46c6d6c3b145d7c1c8212b0408ddc39e7eb434cd945ed355f2c"
+      },
+      {
+        "version": 24,
+        "name": "V000024__local_dispute_privacy_blocker.sql",
+        "checksum": "ed27af7effe2c16f13896a4a6240cb62da46333158588755c4f835c6ded66e29"
+      },
+      {
+        "version": 25,
+        "name": "V000025__local_synthetic_privacy_suppression.sql",
+        "checksum": "cf390257626036c35d4f0ca4715ca977a4ceab2b3032ced3e789f4a4098ded19"
+      },
+      {
+        "version": 26,
+        "name": "V000026__local_privacy_retention_purge_and_replay.sql",
+        "checksum": "38eaed77c3421a34c1c3361e33d281d5ea1418bfc1c0d0c2d57ac8e8c6846e7b"
+      },
+      {
+        "version": 27,
+        "name": "V000027__local_credential_notice_terminal_recovery.sql",
+        "checksum": "a30512e5efcf43b47426ef2a771b8899104d65aad4851058e990915a81ef94ec"
+      },
+      {
+        "version": 28,
+        "name": "V000028__local_kyc_eligibility_and_history.sql",
+        "checksum": "dd3ebc10d38f9000b4ec1183a40b8ed4222e14c2fc358b8cbe26f98b7896a1a7"
+      },
+      {
+        "version": 29,
+        "name": "V000029__local_privacy_kyc_eligibility.sql",
+        "checksum": "9ed0486313c8c6172cd7d133c08e39c6bed39fd3bbfb596b1a4a3bbbda1595b6"
+      },
+      {
+        "version": 30,
+        "name": "V000030__m02_synthetic_profile_photo_and_payout.sql",
+        "checksum": "1130f484103f2383cbe310f312823a1af571ffc6e73603e03acb8e564bef4220"
+      },
+      {
+        "version": 31,
+        "name": "V000031__m04_local_publication_lifecycle.sql",
+        "checksum": "7c18af2f8437bcbf7752dc021892c25d65033562f05eb40d0d400ad05e76483a"
+      },
+      {
+        "version": 32,
+        "name": "V000032__m04_synthetic_space_gallery.sql",
+        "checksum": "803d2026c722795b0c008cc9ab81ac9fa796642dc83505161d614d7df0b3f994"
+      },
+      {
+        "version": 33,
+        "name": "V000033__m04_gallery_candidate_cleanup.sql",
+        "checksum": "f3b0d590ba5b92d4483c0e173a6de758f6f3b7d69bff3923950bca5bb9ee0425"
+      },
+      {
+        "version": 34,
+        "name": "V000034__local_synthetic_contract_signing.sql",
+        "checksum": "8c1e2bcc99df3f0f120e57ba087f627ce4c3148791d9626a1c4ba6f7d5dbbda4"
+      },
+      {
+        "version": 35,
+        "name": "V000035__local_synthetic_rental_operations.sql",
+        "checksum": "205e0f230d0bf69c15da08c48f3dc1abc0639bba4980372e9451a49658ce7c26"
+      },
+      {
+        "version": 36,
+        "name": "V000036__local_communication_reviews_and_notices.sql",
+        "checksum": "322fd98a8b921b905832bd75b4006d5fbed3f233334d400a6863c3a03aea2b09"
+      },
+      {
+        "version": 37,
+        "name": "V000037__local_communication_privacy_coordination.sql",
+        "checksum": "ad45697b244bac64d5713145b89cadf1f1522fa723f99f63feda8aa497ffd665"
+      },
+      {
+        "version": 38,
+        "name": "V000038__local_damage_claim_resolution.sql",
+        "checksum": "88000b1e3f94e68efca57e36a38914483cbf0d10c62741c75f57b282a7291b25"
+      },
+      {
+        "version": 39,
+        "name": "V000039__local_damage_claim_privacy_retention.sql",
+        "checksum": "86bd6b0d684c33d4213eb47d68763f00edc8b5716e2fe5e85d46fbaf1916e083"
+      },
+      {
+        "version": 40,
+        "name": "V000040__local_guarantee_and_dispute_finance.sql",
+        "checksum": "c749f178824ff5c1695483d2c32cde6b7c76794e247a5d423101ce7486058b0d"
+      },
+      {
+        "version": 41,
+        "name": "V000041__local_admin_account_block.sql",
+        "checksum": "4e31876d355c374c61f335f199441647ffc68fc7991bd3404596c7005cd6db58"
+      },
+      {
+        "version": 42,
+        "name": "V000042__admin_block_privacy_minimization.sql",
+        "checksum": "0bc20128faf1e745ad7d9d5e95b4b4596a06ccf2be00ebd12946bb274ba9a512"
+      },
+      {
+        "version": 43,
+        "name": "V000043__local_admin_financial_audit_actions.sql",
+        "checksum": "cc4105234f80e6d27152ecf7ec35c50838789fc58c5b07d7e82209bb151eded4"
+      },
+      {
+        "version": 44,
+        "name": "V000044__local_fake_settlement_receipt.sql",
+        "checksum": "f3ff70285a2c020b930eb34104be3c600cc0aeeb98f15cdd82f9b949a8addabf"
+      },
+      {
+        "version": 45,
+        "name": "V000045__local_settlement_privacy_obligations.sql",
+        "checksum": "8a7f12beb68ddaa7c5d063b2659b4c1a851fefffaac8f3db91e76f451bb54754"
+      },
+      {
+        "version": 46,
+        "name": "V000046__local_close_durable_notices.sql",
+        "checksum": "74e70bad1a0fb0d99dfb25a66e5dae169d957c62914e879fda18489501ab5736"
+      },
+      {
+        "version": 47,
+        "name": "V000047__local_privacy_retention_purgers.sql",
+        "checksum": "cdde799f60c3648c26e1cc943a3ef53b0d09814e3b38e050720a87d6139dd8c9"
+      },
+      {
+        "version": 48,
+        "name": "V000048__local_defense_synthetic_evidence.sql",
+        "checksum": "4da2568b0aa12f228da51ebf3570a0e61f72a200d08a73823d578f80bb00ebee"
+      },
+      {
+        "version": 49,
+        "name": "V000049__local_m04_gallery_cover.sql",
+        "checksum": "2327da85443e0b4e182c02b94341e9288ee37a3e3ac8b3354bcfb4b12e423f64"
+      },
+      {
+        "version": 50,
+        "name": "V000050__local_publication_retirement.sql",
+        "checksum": "1ba7ea88a0cb0d8b663f7756655d91104c5f266c0aae5bf6e749bcacb8bcd02e"
+      },
+      {
+        "version": 51,
+        "name": "V000051__local_close_reservation_after_settlement.sql",
+        "checksum": "ad9411b1477ee6512086147c3961dc950b4f0113c163556003c7c257d19bfce7"
+      },
+      {
+        "version": 52,
+        "name": "V000052__scoped_publication_rate_retirement.sql",
+        "checksum": "5c204afa60a4c83fd570b5c82f771711f1f890339bd42a23ad78190bbdee8330"
+      },
+      {
+        "version": 53,
+        "name": "V000053__local_close_contract_and_publication_retention.sql",
+        "checksum": "2c34092c9db8cab94c0e6ebab1e72d82b061eead465b913d46e91aeb77842e68"
+      },
+      {
+        "version": 54,
+        "name": "V000054__local_contract_signature_expiry_retention.sql",
+        "checksum": "7fc01ac4ee0ee83db339fadfe95fc032a25cd2621184abe4d2408245ce926af3"
+      },
+      {
+        "version": 55,
+        "name": "V000055__mpv2_02_public_search_and_locations.sql",
+        "checksum": "a6b2e9b6eb055ea0375b35ebe881091e41ad1d0eacfa78d82896b9b8827ab6b6"
+      },
+      {
+        "version": 56,
+        "name": "V000056__mpv2_04_public_gallery.sql",
+        "checksum": "5cccdde76a613a82afbefb582d5ef2bab16512c9c7a0b0cfcdbf11a91710d5a0"
+      },
+      {
+        "version": 57,
+        "name": "V000057__mpv2_11_typed_public_category_filters.sql",
+        "checksum": "4da5888e15043f22576fd026934896aa6adebf3a49a65df43534c98a02d9be9d"
+      },
+      {
+        "version": 58,
+        "name": "V000058__gadm_01_global_administrator.sql",
+        "checksum": "d902d5aab8a6ba0a18bdc4e332792e567c0e5a00a69c897c3274c93384418acc"
+      },
+      {
+        "version": 59,
+        "name": "V000059__gadm_03_audit_scope_and_query_indexes.sql",
+        "checksum": "a097a82fd5ece1b66ca953e4d48073834adc2edf4d31596f7d57f6ae36dbe93a"
+      },
+      {
+        "version": 60,
+        "name": "V000060__gadm_local_bootstrap_restricted_role.sql",
+        "checksum": "75495ea50cdc2e6f5a61566dd725f5f623eca6133dcfdef55bde88498f424156"
+      },
+      {
+        "version": 61,
+        "name": "V000061__mpv2_12_hourly_publication_schedules.sql",
+        "checksum": "cb3f719b3b846607abef9b8d356c980b47da1a22f5da38b55839112f2b619b95"
+      },
+      {
+        "version": 62,
+        "name": "V000062__gcp04_durable_privacy_replay_registry.sql",
+        "checksum": "6fc1ea07d47287fe4ddafaf6f613a8c2e88daf441b0d337d8b6b35eead1243e8"
+      },
+      {
+        "version": 63,
+        "name": "V000063__gcp04_privacy_suppression_claim_fencing.sql",
+        "checksum": "a42c0943ff314c5199d6fdd87c13f6552eeeb69629e811f6d41853e4eb16a858"
+      },
+      {
+        "version": 64,
+        "name": "V000064__gcp04_privacy_cleanup_worker_role.sql",
+        "checksum": "9b791ae6950dd9f23d87c31ae59dcbeb1feb9d85631ac21fa95e1e9a6a4763bf"
+      },
+      {
+        "version": 65,
+        "name": "V000065__gcp06_bootstrap_audit_actor.sql",
+        "checksum": "b1f7126f125bc9694e30d43205a509f34aa9e39ad8257456f666a431f5492fd8"
+      },
+      {
+        "version": 66,
+        "name": "V000066__gcp06_test_access_reset.sql",
+        "checksum": "05a751e9d9ab73bf2babadd0b3ad9ab170ee44ddf8ca7d441625d516f4cadcb6"
+      },
+      {
+        "version": 67,
+        "name": "V000067__inmuebles_residential_rentals.sql",
+        "checksum": "0d5052cee2e9c45911c00bd32ee97cc3eb9c656c0a680b998911fbbdb48e0bcb"
+      },
+      {
+        "version": 68,
+        "name": "V000068__img_01b_media_schema.sql",
+        "checksum": "5eeda41115017b5ba292db13215304f1e576002e015b6d46352ebd2de98f2626"
+      },
+      {
+        "version": 69,
+        "name": "V000069__img_01c_local_media_provider.sql",
+        "checksum": "9dc863b5e4b1edd7cd32bf1c2e48ecce6f9e36d6bc13072a3bf3e5cd8a433493"
+      },
+      {
+        "version": 70,
+        "name": "V000070__img_01c_durable_media_write_intents.sql",
+        "checksum": "71bcbcd91091013b91a89b3be9a152a46bd9f86f71565a898b50cb95701f6cc6"
+      },
+      {
+        "version": 71,
+        "name": "V000071__img_01c_terminal_media_write_intents.sql",
+        "checksum": "30d355260611615324ca70336ced97498340b0e2725b7a8828147af6adc82d14"
+      },
+      {
+        "version": 72,
+        "name": "V000072__img_01d_media_relation_trigger_scope.sql",
+        "checksum": "50b7f34d340c20a690c9506e68e9146a311363a526eb7449812d2674cf39f461"
+      },
+      {
+        "version": 73,
+        "name": "V000073__img_01e_privacy_media_cleanup.sql",
+        "checksum": "ac2bfc0ba17e97ee40297dc75d8aaaa25f8506e5602a2d281d09415158670ada"
+      },
+      {
+        "version": 74,
+        "name": "V000074__first_business_action_roles.sql",
+        "checksum": "a91df632b305468e1389ee72831e77121382e4c467d2cc279ea393e1bdc57bf8"
+      },
+      {
+        "version": 75,
+        "name": "V000075__auth_evaluation_consent_documents.sql",
+        "checksum": "d6396472df02f2dd2cddd43994be064e6b0705c3fa2cb044bed970fcc9992220"
+      },
+      {
+        "version": 76,
+        "name": "V000076__spaces_gallery_capacity_replacement_v2.sql",
+        "checksum": "c3ea6cbead8a41dfd283b5fe1393499228afb0e3447b4c2fccecc50ea39f7843"
+      },
+      {
+        "version": 77,
+        "name": "V000077__img01b_gallery_slot_record_guard.sql",
+        "checksum": "22b98284b303f7a9e69e88afc83c978a5bbab1840e1ed12097b9fe24f653218c"
+      },
+      {
+        "version": 78,
+        "name": "V000078__img01b_gallery_replay_expected_revision.sql",
+        "checksum": "6cb99e5b21db0d4c975d1419596b4850410fb47f7cb2d104481334a9eb082c9e"
+      },
+      {
+        "version": 79,
+        "name": "V000079__document_verification_cases.sql",
+        "checksum": "248ecdd6eac067a704871d24148d850b5a603a6577e59e89d9b03d9a74130e5b"
+      },
+      {
+        "version": 80,
+        "name": "V000080__document_verification_space_ownership_supersession.sql",
+        "checksum": "fc2c3eacf10bc99d6ad4c66a7a5aa2c80a0592b45eeee6e938400c95f613c401"
+      },
+      {
+        "version": 81,
+        "name": "V000081__document_verification_runtime_scope_helpers.sql",
+        "checksum": "7b9700b546532854ab7569654d05039c1df832a6a80154ae053d13b5cea43967"
+      },
+      {
+        "version": 82,
+        "name": "V000082__document_verification_retention_precedence.sql",
+        "checksum": "b53fe7f6f03af4d9081e4a378053ad0780d8b532962326488108201eb098ed96"
+      },
+      {
+        "version": 83,
+        "name": "V000083__document_verification_lock_and_transfer_fix.sql",
+        "checksum": "405c2f02f8a29e962421a44cbbd07e6e7fae4aa4696483e9d45ab209e82e9333"
+      }
+    ],
+    "pending": []
+  },
+  "acl_comparison": {
+    "coverage_acl_columns": 14,
+    "prior_acl_owner_rows_preserved_except_source_changes": true,
+    "source_required_changed_column_cells": 4,
+    "other_reviewed_changes": [
+      "schema_migrations SELECT/INSERT schema_owner instead of migrator direct SELECT",
+      "public USAGE helper"
+    ],
+    "changed_existing_cells": 6,
+    "removed_cells": [],
+    "added_rows": {
+      "pg_attribute": 239,
+      "pg_class": 40,
+      "pg_database": 0,
+      "pg_default_acl": 0,
+      "pg_foreign_data_wrapper": 0,
+      "pg_foreign_server": 0,
+      "pg_init_privs": 0,
+      "pg_language": 0,
+      "pg_largeobject_metadata": 0,
+      "pg_namespace": 1,
+      "pg_parameter_acl": 0,
+      "pg_proc": 9,
+      "pg_tablespace": 0,
+      "pg_type": 12
+    },
+    "roles_and_all_memberships_exact": true
+  },
+  "new_function_constraint_comparison_with_tested_clone": {
+    "functions": 9,
+    "constraints": 147,
+    "matched": true,
+    "metadata_sha256": "629bd60cf94c12aed277734354c550171fc81f6456eba8fb2b4a0ae6df075edc"
+  },
+  "runtime_separation": "helpers private SECURITY DEFINER with pg_catalog, pg_temp search_path; four functions; runtime no helper role, no private CREATE, no ledger access; migrator direct ledger SELECT removed; explicit SET ROLE only",
+  "owner_function": "postgres",
+  "runtime_reviewer_id_update": {
+    "grantor": "postgres",
+    "grant_option": false
+  },
+  "functional_online_checks": "not executed; reserved for user",
+  "main_integration": "pending",
+  "cloud_run_deploy": "pending",
+  "transport_cleanup": {
+    "owned_forward": "closed; host port15432 listener absence verified",
+    "bastion": "TERMINATED; initial state restored and described after stop",
+    "own_transient_cloud_credential_files_removed": true,
+    "retained_local_schema_only_clones": [
+      "espacigo-spaces-cloud-delta-20261105",
+      "espacigo-spaces-cloud-recovery-20261105"
+    ],
+    "retention_owner": "parent agent during integration review; existing demos untouched"
+  }
+}
