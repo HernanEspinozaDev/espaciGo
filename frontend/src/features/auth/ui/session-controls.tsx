@@ -56,6 +56,12 @@ export function SessionControls({ variant }: SessionControlsProps) {
     if (variant === "workspace") {
       return (
         <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+          <Link
+            href="/mi-cuenta"
+            className="text-sm font-medium text-gray-700 hover:text-gray-900"
+          >
+            Mi cuenta
+          </Link>
           <span
             className="inline-block max-w-[110px] min-[390px]:max-w-[130px] sm:max-w-[200px] truncate text-sm font-medium text-gray-700"
             title={displayIdentity || undefined}

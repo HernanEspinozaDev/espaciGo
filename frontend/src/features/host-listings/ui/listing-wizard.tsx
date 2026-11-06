@@ -490,12 +490,19 @@ export function ListingWizard() {
             Completa los 5 pasos para dar de alta tu propiedad en EspaciGo.
           </p>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/anfitrion/espacios" className="gap-1.5">
-            <ArrowLeft className="size-4" aria-hidden="true" />
-            Volver al listado
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/mi-cuenta" className="gap-1.5">
+              <ArrowLeft className="size-4" aria-hidden="true" />
+              Mi cuenta
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/anfitrion/espacios" className="gap-1.5">
+              Mis espacios
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Indicador de progreso de 5 pasos accesibles */}

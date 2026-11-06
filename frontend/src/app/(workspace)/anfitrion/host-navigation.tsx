@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, PlusCircle, CalendarCheck } from "lucide-react";
+import { Building2, PlusCircle, CalendarCheck, User } from "lucide-react";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,15 +29,15 @@ export function HostNavigation() {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink href="/">Inicio</BreadcrumbLink>
+            <BreadcrumbLink href="/mi-cuenta">Mi cuenta</BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
             {isListado ? (
-              <BreadcrumbPage>Panel Anfitrión</BreadcrumbPage>
+              <BreadcrumbPage>Mis Espacios</BreadcrumbPage>
             ) : (
               <BreadcrumbLink href="/anfitrion/espacios">
-                Panel Anfitrión
+                Mis Espacios
               </BreadcrumbLink>
             )}
           </BreadcrumbItem>
@@ -73,6 +73,14 @@ export function HostNavigation() {
         aria-label="Navegación del panel de anfitrión"
         className="border-b border-border flex items-center gap-1 overflow-x-auto pb-px"
       >
+        <Link
+          href="/mi-cuenta"
+          className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+        >
+          <User className="size-4" aria-hidden="true" />
+          <span>Mi Cuenta</span>
+        </Link>
+
         <Link
           href="/anfitrion/espacios"
           aria-current={isListado ? "page" : undefined}

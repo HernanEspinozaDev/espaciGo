@@ -9,9 +9,9 @@ function Header() {
     <header className="border-b border-gray-200 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
         <Link
-          href="/"
+          href="/mi-cuenta"
           className="flex items-center"
-          aria-label="EspaciGo, volver al inicio"
+          aria-label="EspaciGo, volver a mi cuenta"
         >
           <Image
             src="/espacigo-mark.svg"
