@@ -1,0 +1,56 @@
+name: Database migration quality
+
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths:
+      - 'db/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile.runtime-migrator'
+      - 'cloudbuild-migrator-image.yaml'
+      - 'third_party/pdfcpu/go.mod'
+      - 'third_party/pdfcpu/go.sum'
+      - 'scripts/test-migration-runner-postgres.sh'
+      - 'scripts/test-runtime-migrator-image.sh'
+      - 'scripts/gcp/check_migration_ci.py'
+      - 'scripts/gcp/test_check_migration_ci.py'
+      - 'scripts/gcp/verify_migration_inventory.py'
+      - 'scripts/gcp/test_verify_migration_inventory.py'
+      - 'scripts/gcp/migration_job_plan.py'
+      - 'scripts/gcp/test_migration_job_plan.py'
+      - 'scripts/gcp/migration_release_manifest.py'
+      - 'scripts/gcp/test_migration_release_manifest.py'
+      - '.github/workflows/database-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  database-migrations:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+          cache: true
+      - name: Test inventory and connection guards
+        run: go test ./cmd/dbmigrate ./internal/migrator ./internal/database/cloudsql
+      - name: Test mandatory database evidence and inventory verifiers
+        run: |
+          python3 -m unittest discover -s scripts/gcp -p 'test_check_migration_ci.py' -v
+          python3 -m unittest discover -s scripts/gcp -p 'test_verify_migration_inventory.py' -v
+          python3 -m unittest discover -s scripts/gcp -p 'test_migration_job_plan.py' -v
+          python3 -m unittest discover -s scripts/gcp -p 'test_migration_release_manifest.py' -v
+      - name: Run mandatory isolated PostgreSQL migrations and failure recovery
+        run: bash scripts/test-migration-runner-postgres.sh
+      - name: Build and inspect the exact current migrator image locally
+        run: bash scripts/test-runtime-migrator-image.sh

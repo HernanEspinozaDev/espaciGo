@@ -5,18 +5,24 @@ ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=linux GOARCH=amd64
 WORKDIR /src
 RUN apk add --no-cache ca-certificates
 COPY go.mod go.sum ./
+# The module graph includes a local pdfcpu replacement even though this
+# executable does not import PDF code. Module resolution still needs its mod.
+COPY third_party/pdfcpu/go.mod third_party/pdfcpu/go.sum ./third_party/pdfcpu/
 RUN go mod download
 COPY cmd/dbmigrate ./cmd/dbmigrate
 COPY internal/database/cloudsql ./internal/database/cloudsql
 COPY internal/dbbootstrap ./internal/dbbootstrap
 COPY internal/migrator ./internal/migrator
-COPY db/migrations/V00000[1-9]__*.sql db/migrations/V0000[1-6][0-9]__*.sql /out/migrations/
+COPY db/migrations/ /out/migrations/
 RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/dbmigrate ./cmd/dbmigrate
+# Validate the entire current inventory during the build, without a database.
+RUN /out/dbmigrate -inventory-only -dir /out/migrations > /out/migration-inventory.json
 
 FROM scratch
 WORKDIR /app
 COPY --from=build /out/dbmigrate /app/dbmigrate
 COPY --from=build /out/migrations /app/db/migrations
+COPY --from=build /out/migration-inventory.json /app/migration-inventory.json
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 65532:65532
 ENTRYPOINT ["/app/dbmigrate", "-dir", "/app/db/migrations"]
