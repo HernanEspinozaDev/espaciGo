@@ -462,9 +462,9 @@ export function ListingWizard() {
         );
       }
 
-      // Redirigir al editor tras el alta
+      // Redirigir al editor tras el alta dentro de mi cuenta
       startTransition(() => {
-        router.push(`/anfitrion/espacios/${created.id}/editar`);
+        router.push(`/mi-cuenta/espacios/${created.id}/editar`);
       });
     } catch (err) {
       const message =
@@ -490,19 +490,12 @@ export function ListingWizard() {
             Completa los 5 pasos para dar de alta tu propiedad en EspaciGo.
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
           <Button asChild variant="outline" size="sm">
-            <Link href="/mi-cuenta" className="gap-1.5">
+            <Link href="/mi-cuenta/espacios" className="gap-1.5">
               <ArrowLeft className="size-4" aria-hidden="true" />
-              Mi cuenta
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/anfitrion/espacios" className="gap-1.5">
               Mis espacios
             </Link>
           </Button>
-        </div>
       </div>
 
       {/* Indicador de progreso de 5 pasos accesibles */}

@@ -36,7 +36,7 @@ export function HostNavigation() {
             {isListado ? (
               <BreadcrumbPage>Mis Espacios</BreadcrumbPage>
             ) : (
-              <BreadcrumbLink href="/anfitrion/espacios">
+              <BreadcrumbLink href="/mi-cuenta/espacios">
                 Mis Espacios
               </BreadcrumbLink>
             )}

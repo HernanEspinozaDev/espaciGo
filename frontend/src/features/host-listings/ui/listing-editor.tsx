@@ -661,7 +661,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           anfitrión sobre él.
         </p>
         <Button asChild>
-          <Link href="/anfitrion/espacios">Volver a mis espacios</Link>
+          <Link href="/mi-cuenta/espacios">Volver a mis espacios</Link>
         </Button>
       </div>
     );
