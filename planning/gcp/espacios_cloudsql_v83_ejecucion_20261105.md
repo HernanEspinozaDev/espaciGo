@@ -107,3 +107,7 @@ Antes de aplicar: fijar SHA revisado, probar commit y recuperación ante fallo e
 - El bastión se devolvió al estado inicial: `espacigo-dms-bastion-v67` **TERMINATED**, confirmado por describe posterior al stop. No se modificaron instancia Cloud SQL, servicios, IAM, red ni datos para esa retirada.
 - Retirados y verificada ausencia de los tres archivos transitorios propios de credenciales cloud (`postgres.pgpass`, `espacigo_migrator_login.pgpass`, `postgres.raw`). Backups y evidencia privada se preservan; no se tocaron secretos/credenciales de demos.
 - Los dos clones sintéticos V83 y sus helpers permanecen retenidos por el agente padre para trazabilidad/revisión de integración, sin puertos host ni egress; no son demos con cuentas ni sustituyen Cloud SQL. La demo F5 y recursos ajenos se conservan intactos.
+
+### Ramas de publicación aprobadas
+
+El primer push de la rama DB quedó rechazado por el hook: el nombre histórico no incluía el corte numérico exigido. No se deshabilitó ni modificó el control. El usuario aprobó renombrar, conservando commits: DB `codex/database/fix/cloudsql-83-espacios` e integración `codex/marketplace/feature/release-83-espacios`. Ambos cambios de nombre se verificaron con HEAD idéntico; también se preservó MERGE_HEAD del frontend. El trigger remoto consultado sigue escuchando exclusivamente `^main$`; publicar la rama de tarea no inicia ese rollout ni autoriza por sí solo un push a main.
