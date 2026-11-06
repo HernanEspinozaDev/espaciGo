@@ -1,5 +1,11 @@
 # Integración de espacios y preparación de release — 2026-11-05
 
+## Continuación vigente — 2026-11-06
+
+Frontend/backend reconciliados por merge normal `d2487324084cc5840388991ab028fbd68756065e`; rama DB incorporada por merge normal `cd517412432a78b2702c0066dc41e95858a2cabe`, conservando como segundo padre `61ecc92b51eceaf22fd7275c1bd3f8c209e075ab`. Revisiones funcional/seguridad adjudicadas sin bloqueantes demostrables en el alcance inspeccionado; seis candidatos estáticos de ejecución dinámica son harness de tooling. La discrepancia de hashes del revisor se reprodujo y resolvió como contexto/binary distintos del mismo índice. Gates vigentes:449unitPASS/139E2EPASS/54nativosSKIP; API197/tipos/formato/buildPASS, lint0errores/3warnings; Go completo repetido tras merge DB PASS. Frontend/OpenAPI sin delta posterior al gate; migraciones V1–V83 inmutables.
+
+Cloud SQL permanece en su cierre real V83; no se conectó ni ejecutó nuevo SQL. Main `f4bc7bd2330c91827a02b01aeef71209dff12b01` sin publicar ni desplegar. Documental cloud seguro sigue como gate de implementación y operaciones concretas: no lo satisface el cierre Git/DB. Acceso read-only al proyecto revalidado mediante metadata de APIs/servicios/buckets, sin leer versiones de secretos ni navegación de aplicación; no se habilitaron recursos/APIs. Evidencia detallada: `../frontend_next/evidence/integracion-espacios-20261106.md` y recibo JSON. Los apartados siguientes conservan la secuencia histórica;398unitarias y22/3browser ya no son el estado vigente.
+
 ## Estado operativo posterior — Cloud SQL completado, integración en curso
 
 Cloud SQL ya está **V83/pending0**, aplicado con candidato revisado `dfcecfdb6fd0a373769135dbc46bfb1dbff0e5bf` y postchecks independientes de ledger/checksums, owners, ACL y constraints. La entrega DB está publicada/verificada en `codex/database/fix/cloudsql-83-espacios`, HEAD `61ecc92b51eceaf22fd7275c1bd3f8c209e075ab`, worktree limpio. Su evidencia vigente es `planning/gcp/espacios_cloudsql_v83_aplicacion_20261105.json` en esa rama; se incorporará por Git normal después de cerrar el merge frontend. Las lecturas V75 y los bloqueos SQL de los apartados anteriores son historia **previa a esa aplicación**, no estado remoto actual.

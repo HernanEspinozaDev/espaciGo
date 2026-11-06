@@ -2,9 +2,9 @@
 
 ## Estado y alcance
 
-Worktree `/home/nandev/Documentos/projects/espaciGo-spaces-release`, rama autorizada `codex/marketplace/feature/release-83-espacios`, HEAD base `9edd61c405bc01f7f5ac5c46e616a6d3063bdf5f`, merge frontend abierto de `7a9dc8244f82277c8d303d14a57be21b68638c4d`. Las pruebas acreditan el working tree combinado, no un commit candidato limpio. El recibo JSON contiguo fija SHA256 de las fuentes críticas probadas. El agente padre es el único dueño del build.
+Worktree `/home/nandev/Documentos/projects/espaciGo-spaces-release`, rama autorizada `codex/marketplace/feature/release-83-espacios`. Merge frontend cerrado en `d2487324084cc5840388991ab028fbd68756065e`, padres `9edd61c405bc01f7f5ac5c46e616a6d3063bdf5f` y `7a9dc8244f82277c8d303d14a57be21b68638c4d`; incorporación normal de la rama DB cerrada en `cd517412432a78b2702c0066dc41e95858a2cabe`. Ese checkpoint conserva el frontend y OpenAPI byteidénticos al merge frontend probado y las migraciones byteidénticas a la base. El recibo JSON contiguo fija SHA256 de las fuentes críticas probadas. El agente padre es el único dueño del build. Es checkpoint de integración local, no release cloud documental listo.
 
-Cloud SQL ya quedó V83/pending0 el 2026-11-05; entrega DB publicada en `codex/database/fix/cloudsql-83-espacios`, HEAD `61ecc92b51eceaf22fd7275c1bd3f8c209e075ab`. No se reaplicó SQL durante esta continuación. Su incorporación por Git normal sigue pendiente de cerrar el merge frontend. Main conserva `f4bc7bd2330c91827a02b01aeef71209dff12b01`: sin push ni despliegue.
+Cloud SQL ya quedó V83/pending0 el 2026-11-05; entrega DB publicada en `codex/database/fix/cloudsql-83-espacios`, HEAD `61ecc92b51eceaf22fd7275c1bd3f8c209e075ab`, ahora incorporada como segundo padre del checkpoint. No se reaplicó SQL durante esta continuación. Main conserva `f4bc7bd2330c91827a02b01aeef71209dff12b01`: sin push ni despliegue.
 
 ## Correcciones verificadas
 
@@ -33,11 +33,21 @@ Logs privados sin credenciales bajo scratch: `spaces-resume-unit-final.log`, `sp
 
 ## Incidente de ejecución y recuperación
 
-Una hoja de la tarea de cerca de mutaciones sustituyó el working tree de la fachada por un stage del índice, violando su ownership y perdiendo cambios combinados no comprometidos. Esa entrega se rechazó. El padre recuperó por AST los cuerpos desde un módulo realmente ejecutado antes del contador, conservó las firmas TypeScript y comprobó emisión JavaScript byteidéntica a ese artefacto. Después repitió RED/GREEN del contador, casos de éxito/error tardío y las regresiones de mutaciones. El cierre global anterior es posterior a esa recuperación. No hubo reset, pérdida de commits ni alteración de la historia. El snapshot final de fuente queda retenido como `.ts.txt` privado; no se presenta una elección ours/theirs como integración.
+Se detectó que la fachada había perdido cambios combinados no comprometidos; la causa exacta de la sustitución no quedó acreditada y no se atribuye a una hoja sin evidencia suficiente. El padre recuperó por AST los cuerpos desde un módulo realmente ejecutado antes del contador, conservó las firmas TypeScript y comprobó emisión JavaScript byteidéntica a ese artefacto. Después repitió RED/GREEN del contador, casos de éxito/error tardío y las regresiones de mutaciones. El cierre global anterior es posterior a esa recuperación. No hubo reset, pérdida de commits ni alteración de la historia. El snapshot final de fuente queda retenido como `.ts.txt` privado; no se presenta una elección ours/theirs como integración.
+
+## Revisión y cierre de los merges
+
+La revisión funcional independiente `deleg_4ccdd6aa` no encontró bloqueantes demostrables en fachada/bridge/cola/UI; reportó28pruebas focales, no browser/build/DB nuevos. La revisión de seguridad `deleg_4f21514a` devolvió JSON válido `passed:true` con listas vacías de riesgos/errores concretos, dentro de su cobertura declarada de auth/BFF/documental/galería y los seis candidatos `new Function` de tooling. Estos ejecutan código versionado con fixtures, no input arbitrario de runtime. No revisó cada línea de los120archivos.
+
+La observación de hashes de esa revisión quedó resuelta antes de comprometer: el padre reprodujo exactamente `999eb82…` con `git diff --cached --unified=0`, `c2c17af…` con contexto por defecto y `59e7336…` con `--binary`. Son representaciones diferentes del mismo índice, no un cambio de fuentes. Los tres hashes completos se conservan en el recibo. Diez fuentes críticas siguieron coincidiendo con su digest y el índice quedó sin conflictos.
+
+El merge DB solo tuvo conflicto documental en el plan: se combinó la autorización/estado vigente, los gates449/139 y la fila DB con su evidencia detallada, manteniendo una sola matriz. El procedimiento canónico conservó su historial y añadió el registro V83. Tras reunirlo se ejecutó de nuevo `go test ./...` en entorno allowlist: PASS, con caché/opt-in nativo no habilitado (`spaces-release-post-db-go.log`). `git diff` confirma frontend/OpenAPI sin cambios respecto de `d248732` y V1–V83 sin cambios respecto de `9edd61c`; no se repitió innecesariamente la suite browser idéntica.
+
+El borrador rechazado preV81 y su comprobación estática se conservaron byte por byte como `.txt` bajo `planning/gcp/rejected/`, fuera de SQL operativo y descubrimiento de tests. No sustituyen los repairs V81/V82/finalV83 realmente revisados/aplicados.
 
 ## Gates restantes
 
-- Adjudicar la revisión independiente del árbol actual y completar la resolución semántica/índice del merge; después incorporar la rama DB conservando historia.
+- Publicar/verificar el checkpoint en su rama de tarea y continuar la adaptación documental cloud segura. Los dos merges ya están cerrados conservando sus padres e historia; no hay aprobación humana de producto inventada.
 - Documental cloud seguro sigue sin store de objetos cifrados, scanner privado y worker durable desplegados. Sus recursos, IAM, clave, red y coste requieren la operación concreta autorizada; no trasladar excepciones F5, crear cuentas SQL ni relajar permisos para avanzar.
 - Push a main dispara `espacigo-main-rollout`; no ejecutarlo por inferencia de este PASS. Mantener los gates del procedimiento/autoridad de lanzamiento y la compatibilidad del SHA exacto.
 - Las demos y sus cuentas, datos, volúmenes y backups se conservan. Esta evidencia es regresión local controlada y de código, no una nueva aceptación humana ni recorrido funcional online.

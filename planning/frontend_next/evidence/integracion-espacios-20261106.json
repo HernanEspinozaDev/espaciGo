@@ -2,7 +2,10 @@
   "baseline_head": "9edd61c405bc01f7f5ac5c46e616a6d3063bdf5f",
   "merge_head": "7a9dc8244f82277c8d303d14a57be21b68638c4d",
   "branch": "codex/marketplace/feature/release-83-espacios",
-  "candidate_commit": null,
+  "candidate_commit": "cd517412432a78b2702c0066dc41e95858a2cabe",
+  "candidate_status": "local combined checkpoint; not a deployable cloud-document release",
+  "frontend_merge_commit": "d2487324084cc5840388991ab028fbd68756065e",
+  "database_source_commit": "61ecc92b51eceaf22fd7275c1bd3f8c209e075ab",
   "source_sha256": {
     "frontend/src/features/host-listings/application/host-listings-facade.ts": "15e1d1ead372e7199453373f05f6ce21d6306c27de37160b44499f6b86c19b63",
     "frontend/src/features/host-listings/application/host-listings-feature-bridge.ts": "a05e48b8affb5b570490ce776ee8dfe5d305db1f30de93293407c381190cc143",
@@ -25,10 +28,29 @@
     "failed": 0,
     "skipped_native": 54
   },
+  "review": {
+    "functional_delegation": "deleg_4ccdd6aa",
+    "security_delegation": "deleg_4f21514a",
+    "security_passed": true,
+    "security_concerns": [],
+    "logic_errors": [],
+    "scope": "focused staged auth/BFF/session, document and gallery review; not every changed line or native SQL/CAS/online verification",
+    "dynamic_execution_candidates": "six checked-in transpilation/extraction test harnesses; no demonstrated runtime user-input eval",
+    "frontend_precommit_diff_u0_sha256": "999eb82ac8bf83a2d65adb2a7ff5a8ee1e26049d503769b5470e9f30fe20aa99",
+    "frontend_precommit_diff_default_sha256": "c2c17af81712ce68a6836b34dc55e411c08dd18edc3d05c6bcd40fca7db59ce9",
+    "frontend_precommit_diff_binary_sha256": "59e73363027e6e51b787c4cf67d5eeca419714930cf6117eded17a2f3b77f09c",
+    "hash_discrepancy": "resolved by parent before commit: same index, distinct unified-context/binary representations, all exact hashes independently reproduced"
+  },
+  "post_database_merge": {
+    "go_test_all": "PASS; isolated allowlist environment, no opt-in database integration",
+    "go_log": "spaces-release-post-db-go.log",
+    "frontend_and_openapi_diff_from_frontend_merge": "empty",
+    "migrations_diff_from_baseline": "empty"
+  },
   "limits": [
     "No prueba nativa Go/PostgreSQL nueva",
     "Sin publicación de main ni despliegue",
-    "Revisión independiente aún por adjudicar",
+    "Revisiones adjudicadas dentro del alcance inspeccionado; sin garantía de todas las líneas/casos",
     "Documental cloud seguro pendiente de implementación/operaciones concretas"
   ]
 }

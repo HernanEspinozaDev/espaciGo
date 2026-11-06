@@ -4,7 +4,7 @@ Fecha: 2026-10-23. Regla operativa solicitada por el usuario; este documento no 
 
 ## Registro histórico — preflight anterior al delta de espacios, 2026-11-05
 
-Esta lectura se conserva como evidencia **anterior** a la aplicación. El estado posterior verificado es Cloud SQL V83/pending0 en la rama `codex/database/fix/cloudsql-83-espacios`, HEAD `61ecc92b51eceaf22fd7275c1bd3f8c209e075ab`, cuya evidencia/registro se incorporará al cerrar el merge actual. El usuario autorizó integración, migraciones incrementales y release por Cloud Build; reservó para sí el recorrido funcional online. Evidencia de continuación: `planning/gcp/espacios_integracion_release_20261105.md`. Las referencias a V75, forward activo o passfiles de este registro no describen la sesión ya cerrada.
+Esta lectura se conserva como evidencia **anterior** a la aplicación. El estado posterior verificado es Cloud SQL V83/pending0 en la rama `codex/database/fix/cloudsql-83-espacios`, HEAD `61ecc92b51eceaf22fd7275c1bd3f8c209e075ab`, incorporada con su evidencia por merge normal `cd517412432a78b2702c0066dc41e95858a2cabe` en la rama de integración el2026-11-06. El usuario autorizó integración, migraciones incrementales y release por Cloud Build; reservó para sí el recorrido funcional online. Evidencia de continuación: `planning/gcp/espacios_integracion_release_20261105.md`. Las referencias a V75, forward activo o passfiles de este registro no describen la sesión ya cerrada.
 
 | Destino | Lectura verificada | Estado de esquema |
 | --- | --- | --- |
