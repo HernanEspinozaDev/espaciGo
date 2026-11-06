@@ -47,7 +47,7 @@ El borrador rechazado preV81 y su comprobación estática se conservaron byte po
 
 ## Gates restantes
 
-- Publicar/verificar el checkpoint en su rama de tarea y continuar la adaptación documental cloud segura. Los dos merges ya están cerrados conservando sus padres e historia; no hay aprobación humana de producto inventada.
+- Checkpoint y evidencia publicados/verificados como `696510d7fb4b5d25401ae5a8a3d69c3777ddf432` en la rama de tarea, con hook/identidad HernanEspinozaDev y SHA remoto igual a HEAD; worktree limpio al publicar. Los dos merges están cerrados conservando sus padres e historia. La adaptación documental cloud continúa por rebanadas locales registradas en la matriz única; no hay aprobación humana de producto inventada.
 - Documental cloud seguro sigue sin store de objetos cifrados, scanner privado y worker durable desplegados. Sus recursos, IAM, clave, red y coste requieren la operación concreta autorizada; no trasladar excepciones F5, crear cuentas SQL ni relajar permisos para avanzar.
 - Push a main dispara `espacigo-main-rollout`; no ejecutarlo por inferencia de este PASS. Mantener los gates del procedimiento/autoridad de lanzamiento y la compatibilidad del SHA exacto.
 - Las demos y sus cuentas, datos, volúmenes y backups se conservan. Esta evidencia es regresión local controlada y de código, no una nueva aceptación humana ni recorrido funcional online.

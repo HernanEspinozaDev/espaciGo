@@ -2,9 +2,7 @@ package documentfs
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
+
 	"errors"
 	"io"
 	"os"
@@ -12,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/documentcodec"
 	"github.com/HernanEspinozaDev/espaciGo/internal/documentverification"
 )
 
@@ -31,7 +30,7 @@ var (
 
 type Store struct {
 	root string
-	aead cipher.AEAD
+	key  []byte
 }
 
 func New(root string, encryptionKey []byte) (*Store, error) {
@@ -41,14 +40,7 @@ func New(root string, encryptionKey []byte) (*Store, error) {
 	if len(encryptionKey) != 32 {
 		return nil, ErrInvalid
 	}
-	block, err := aes.NewCipher(encryptionKey)
-	if err != nil {
-		return nil, ErrInvalid
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, ErrInvalid
-	}
+	key := append([]byte(nil), encryptionKey...)
 	info, err := os.Lstat(root)
 	if errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(root, 0o700); err != nil {
@@ -68,7 +60,7 @@ func New(root string, encryptionKey []byte) (*Store, error) {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
 		return nil, ErrStorage
 	}
-	return &Store{root: root, aead: aead}, nil
+	return &Store{root: root, key: key}, nil
 }
 
 func (s *Store) PutIdentityDocument(ctx context.Context, ownerID, caseID, fileID string, content []byte) error {
@@ -98,6 +90,9 @@ func (s *Store) DeleteSpaceDocument(ctx context.Context, ownerID, spaceID, caseI
 }
 
 func (s *Store) put(ctx context.Context, relative string, content []byte) error {
+	if s == nil {
+		return ErrStorage
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -107,7 +102,7 @@ func (s *Store) put(ctx context.Context, relative string, content []byte) error 
 	if len(content) > MaxDocumentBytes {
 		return ErrTooLarge
 	}
-	sealed, err := s.seal(relative, content)
+	sealed, err := documentcodec.Seal(s.key, documentcodec.ScopeFromAAD(relative), content)
 	if err != nil {
 		return ErrStorage
 	}
@@ -180,7 +175,7 @@ func (s *Store) read(ctx context.Context, relative string) ([]byte, error) {
 	if err != nil || len(sealed) > maxStoredBytes {
 		return nil, ErrStorage
 	}
-	content, err := s.open(relative, sealed)
+	content, err := documentcodec.Open(s.key, documentcodec.ScopeFromAAD(relative), sealed)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return nil, ctxErr
 	}
@@ -299,27 +294,17 @@ func splitPath(path string) []string {
 }
 
 func (s *Store) seal(relative string, content []byte) ([]byte, error) {
-	if s == nil || s.aead == nil {
+	if s == nil || len(s.key) != 32 {
 		return nil, ErrStorage
 	}
-	nonce := make([]byte, s.aead.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return nil, err
-	}
-	sealed := make([]byte, 0, len(storageEnvelopeMagic)+len(nonce)+len(content)+s.aead.Overhead())
-	sealed = append(sealed, storageEnvelopeMagic...)
-	sealed = append(sealed, nonce...)
-	sealed = s.aead.Seal(sealed, nonce, content, []byte(relative))
-	return sealed, nil
+	return documentcodec.Seal(s.key, documentcodec.ScopeFromAAD(relative), content)
 }
 
 func (s *Store) open(relative string, sealed []byte) ([]byte, error) {
-	if s == nil || s.aead == nil || len(sealed) < len(storageEnvelopeMagic)+s.aead.NonceSize()+s.aead.Overhead() || string(sealed[:len(storageEnvelopeMagic)]) != storageEnvelopeMagic {
+	if s == nil || len(s.key) != 32 {
 		return nil, ErrStorage
 	}
-	nonceStart := len(storageEnvelopeMagic)
-	nonceEnd := nonceStart + s.aead.NonceSize()
-	return s.aead.Open(nil, sealed[nonceStart:nonceEnd], sealed[nonceEnd:], []byte(relative))
+	return documentcodec.Open(s.key, documentcodec.ScopeFromAAD(relative), sealed)
 }
 
 func identityPath(ownerID, caseID, fileID string) string {
