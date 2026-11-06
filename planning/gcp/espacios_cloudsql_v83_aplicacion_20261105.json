@@ -513,5 +513,25 @@
       "espacigo-spaces-cloud-recovery-20261105"
     ],
     "retention_owner": "parent agent during integration review; existing demos untouched"
-  }
+  },
+  "retained_local_reference_backups": [
+    {
+      "path": "/home/nandev/.local/share/espacigo-cloudsql-backups/LOCAL-delta-reference-v83-20261105.dump",
+      "bytes": 645263,
+      "sha256": "0b6f198f8b7741859396e1708b1279f5bba3764165a0ffe2c9252a3cba562f3b",
+      "mode": "0o600",
+      "accounts": 0,
+      "schema_version": 83,
+      "restore_parse": "PASS"
+    },
+    {
+      "path": "/home/nandev/.local/share/espacigo-cloudsql-backups/LOCAL-recovery-reference-v83-20261105.dump",
+      "bytes": 645187,
+      "sha256": "11cf7bafb96e804222907bb67a28898f5aff8c251af390e94a8cc81c6003037e",
+      "mode": "0o600",
+      "accounts": 0,
+      "schema_version": 83,
+      "restore_parse": "PASS"
+    }
+  ]
 }
