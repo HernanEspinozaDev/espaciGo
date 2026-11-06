@@ -3444,8 +3444,6 @@ paths:
       operationId: createOwnSpaceDraft
       tags: [M04 local]
       description: Crea un borrador privado. El propietario se obtiene de la sesión; no hay publicación, reserva ni cobro.
-      parameters:
-        - { $ref: "#/components/parameters/IdempotencyKey" }
       requestBody:
         required: true
         content:
@@ -10375,14 +10373,20 @@ components:
           required: [purpose, document_expires_at]
           properties:
             purpose: { type: string, const: identity }
-            document_expires_at: { type: string, format: date-time }
+            document_expires_at:
+              type: string
+              format: date-time
+              description: Debe ser posterior al instante de recepción en el servidor.
         - type: object
           additionalProperties: false
           required: [purpose, space_id]
           properties:
             purpose: { type: string, const: space }
             space_id: { type: string, format: uuid }
-            document_expires_at: { type: string, format: date-time }
+            document_expires_at:
+              type: string
+              format: date-time
+              description: Si se proporciona, debe ser posterior al instante de recepción en el servidor.
     DocumentVerificationOwnerFile:
       type: object
       additionalProperties: false

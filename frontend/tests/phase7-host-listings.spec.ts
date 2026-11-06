@@ -9,14 +9,18 @@ import AxeBuilder from "@axe-core/playwright";
 import { createBffFixtureState } from "./helpers/bff-fixture";
 import categoryProfileFixture from "./fixtures/category-profiles-v1.json";
 import type { CategoryProfileSchema } from "../src/features/host-listings/domain/types";
+import { isAllowedLocalResource } from "./helpers/local-resource-origin";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
 const requestsOutsideLoopback = new WeakMap<Page, boolean>();
 test.beforeEach(async ({ page }) => {
   requestsOutsideLoopback.set(page, false);
+  const baseUrl = test.info().project.use.baseURL;
+  if (typeof baseUrl !== "string")
+    throw new Error("Playwright baseURL is required");
   page.on("request", (request) => {
-    if (!request.url().startsWith("http://127.0.0.1:"))
+    if (!isAllowedLocalResource(request.url(), baseUrl))
       requestsOutsideLoopback.set(page, true);
   });
 });
@@ -89,10 +93,8 @@ function syntheticDraftEtag(
   spaceId: string,
   updatedAt: string = "2026-10-28T12:00:00Z",
 ): string {
-  const payload = Buffer.from(`${spaceId}\0${updatedAt}`, "utf8").toString(
-    "base64url",
-  );
-  return `"${payload}"`;
+  void spaceId;
+  return `"${Date.parse(updatedAt)}"`;
 }
 
 const accountId = "770e8400-e29b-41d4-a716-446655440000";
@@ -770,7 +772,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
     /.+/,
   );
   await page.locator("#wizard-address").fill("Av. Apoquindo 3000, Las Condes");
-  await page.locator("#wizard-comuna").fill("Las Condes");
+  await page.locator("#wizard-comuna").fill("13114");
   await page.locator("#wizard-area").fill("0");
   await page.locator("#wizard-capacity").fill("6");
   await page.locator("#wizard-address").fill("😀".repeat(501));
@@ -845,7 +847,10 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await expect(
     page.getByText("Paso 3: Tarifas iniciales y condiciones"),
   ).toBeVisible();
-  await expect(page.locator("#wizard-deposit")).toHaveCount(0);
+  await expect(page.locator("#wizard-deposit")).toBeDisabled();
+  await expect(page.locator("#wizard-deposit-help")).toContainText(
+    "no está disponible",
+  );
   await page.locator("#wizard-rate-unit").selectOption("hora");
   const priceField = page.locator("#wizard-price");
   await priceField.fill("5000");
@@ -964,7 +969,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   ).toBeVisible();
   await expect(page.getByText("$5.001 CLP")).toBeVisible();
 
-  // Enviar y verificar llamada con Idempotency-Key UUID
+  // Enviar una sola alta; este endpoint no ofrece replay idempotente.
   const postCreateSessionPromise = page.waitForResponse(
     (response) =>
       response.request().method() === "GET" &&
@@ -987,14 +992,12 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   );
   await expect(page.locator("h1")).toHaveText("Oficina Ejecutiva El Golf");
 
-  // Verificaciones del contrato POST /spaces y clave de idempotencia
-  expect(capturedIdempotencyKey).toBeTruthy();
+  // POST /spaces no admite Idempotency-Key; la galería sí lo conserva.
+  expect(capturedIdempotencyKey).toBeNull();
   expect(createPostCount).toBe(1);
   expect(timezoneIfMatch).toBe('"rev-create-1"');
   expect(weeklyHoursIfMatch).toBe('"rev-timezone-2"');
-  expect(capturedIdempotencyKey).toMatch(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-  );
+
   expect(capturedCreateBody).not.toBeNull();
   const createBody = capturedCreateBody!;
   expect(createBody.category_code).toBe("oficina");
@@ -1046,7 +1049,8 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   const replacementAttempts: ReplacementAttempt[] = [];
   let replacementStatusLookupCount = 0;
   let replacementStatusState:
-    "pending" | "not_found" | "deleting" | "ready" | "error" = "pending";
+    "pending" | "not_found" | "deleting" | "ready" | "failed" | "error" =
+    "pending";
   let putTariffBody: Record<string, unknown> | null = null;
   let tariffIfMatchHeader: string | undefined;
   let putAvailabilityBody: Record<string, unknown> | null = null;
@@ -1089,7 +1093,8 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   let pendingStatusCheckCount = 0;
   let cancelledUploadKey: string | null = null;
   let cancelledUploadPhotoId: string | null = null;
-  let cancelledUploadState: "pending" | "ready" | "not_found" = "pending";
+  let cancelledUploadState: "pending" | "ready" | "not_found" | "failed" =
+    "pending";
   let cancelledUploadStatusLookupCount = 0;
   const galleryStatusLookups: string[] = [];
   const replacementStatusLookups: string[] = [];
@@ -1487,7 +1492,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
         })),
       };
       photos.splice(targetIndex, 1, replacementPhoto);
-      if (wasCover) currentSpace.cover_photo_id = replacementPhotoId;
+      if (wasCover) currentSpace.cover_photo_id = nextReplacementPhotoId;
       currentSpaceEtag = syntheticDraftEtag(spaceId, "2026-10-28T12:00:02Z");
       return {
         status: 201,
@@ -1695,10 +1700,13 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
         unknown
       >;
       currentSpace.cover_photo_id = String(putCoverBody.photo_id);
-      for (const p of photos) {
-        p.is_cover = p.id === putCoverBody.photo_id;
+      for (const photo of photos) {
+        photo.cover = photo.id === putCoverBody.photo_id;
       }
-      return { status: 204 };
+      return {
+        status: 200,
+        body: { cover_photo_id: currentSpace.cover_photo_id },
+      };
     }
     const galleryDeleteMatch = pathname.match(
       new RegExp(`^/api/backend/spaces/${spaceId}/gallery/([^/]+)$`),
@@ -2077,31 +2085,55 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   await expect(
     page.getByText(/entorno sintético|simuladas y sintéticas/i),
   ).toHaveCount(0);
-  const imageInput = page.getByLabel("Subir imágenes", { exact: true });
+  const imageInput = page.getByLabel("Subir fotografías", { exact: true });
+  const uploadRows = page.getByTestId("gallery-upload-item");
+  const rowsByFile = new Map<string, ReturnType<Page["getByTestId"]>>();
+  const uploadRow = (name: string) => {
+    const row = rowsByFile.get(name);
+    if (!row) throw new Error(`Missing enqueued fixture: ${name}`);
+    return row;
+  };
+  async function attachImages(
+    input:
+      | { name: string; mimeType: string; buffer: Buffer }
+      | Array<{ name: string; mimeType: string; buffer: Buffer }>,
+  ) {
+    const first = await uploadRows.count();
+    await expect(imageInput).toBeEnabled();
+    await imageInput.setInputFiles(input);
+    (Array.isArray(input) ? input : [input]).forEach((file, index) =>
+      rowsByFile.set(file.name, uploadRows.nth(first + index)),
+    );
+  }
+  page.on("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("fotografía");
+    await dialog.accept();
+  });
+
   await expect(imageInput).toHaveAttribute(
     "accept",
-    "image/jpeg,image/png,image/webp",
+    "image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp",
   );
   await expect(imageInput).toHaveAttribute("multiple", "");
   await expect(page.locator("#gallery-upload-help")).toContainText(
-    "30 por espacio",
+    "La galería admite hasta 30 fotografías",
   );
   const tinyPng = Buffer.from(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNQSlv1HwAEEgIyVuBIjQAAAABJRU5ErkJggg==",
     "base64",
   );
-  await imageInput.setInputFiles({
+  await attachImages({
     name: "foto-1.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect.poll(() => postGalleryCount).toBe(1);
   await expect(
-    page.getByText("Lote de galería finalizado: 1 correcta.", { exact: true }),
+    page.getByText("Fotografía agregada a la galería.", { exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Portada", { exact: true })).toBeVisible();
   const firstPhotoImage = page.getByRole("img", {
-    name: "Imagen 1 del espacio",
+    name: "Fotografía del espacio",
     exact: true,
   });
   await expect.poll(() => thumbnailGetCount).toBeGreaterThan(0);
@@ -2115,14 +2147,13 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(galleryUploads[0].idempotencyKey).toMatch(/^[0-9a-f-]{36}$/i);
 
   const etagBeforeReplacement = currentSpaceEtag;
-  await page.getByRole("button", { name: "Reemplazar imagen 1" }).click();
-  await page.locator("#gallery-replace-input").setInputFiles({
+  await page.getByLabel("Reemplazar fotografía").setInputFiles({
     name: "foto-reemplazo.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect.poll(() => replacementAttempt).not.toBeNull();
-  await expect(page.getByText("Foto reemplazada correctamente.")).toBeVisible();
+  await expect(page.getByText("Fotografía reemplazada.")).toBeVisible();
   expect(replacementAttempt!.ifMatch).toBe(etagBeforeReplacement);
   expect(replacementAttempt!.idempotencyKey).toMatch(
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
@@ -2132,58 +2163,56 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   );
   expect(replacementAttempt!.body).toContain('name="image"');
   expect(replacementAttempt!.body).toContain("foto-reemplazo.png");
-  await page.getByRole("button", { name: "Reemplazar imagen 1" }).click();
-  await page.locator("#gallery-replace-input").setInputFiles({
+  await page.getByLabel("Reemplazar fotografía").setInputFiles({
     name: "foto-reemplazo-pending.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page.getByText(
-      "El reemplazo está pendiente de confirmación; la foto actual se conserva.",
-      { exact: true },
-    ),
+    page.getByText("Fotografía pendiente de procesamiento.", { exact: true }),
   ).toBeVisible();
   expect(photos).toHaveLength(1);
   expect(photos[0]?.id).toBe(replacementPhotoId);
   const pendingReplacementKey = replacementAttempt!.idempotencyKey;
+  await expect.poll(() => replacementStatusLookupCount).toBe(1);
   expect(pendingReplacementKey).toMatch(/^[0-9a-f-]{36}$/i);
   expect(replacementAttempts).toHaveLength(2);
   await page
     .getByRole("button", {
-      name: "Revisar estado del reemplazo foto-reemplazo-pending.png",
+      name: "Consultar estado",
+      exact: true,
     })
     .click();
   await expect(
-    page.getByText(
-      "El reemplazo continúa pendiente; la foto actual se conserva.",
-      {
-        exact: true,
-      },
-    ),
+    page.getByText("Fotografía pendiente de procesamiento.", {
+      exact: true,
+    }),
   ).toBeVisible();
-  expect(replacementStatusLookupCount).toBe(1);
+  expect(replacementStatusLookupCount).toBe(2);
   expect(replacementStatusLookups.at(-1)).toBe(pendingReplacementKey);
   expect(replacementAttempts).toHaveLength(2);
   expect(photos[0]?.id).toBe(replacementPhotoId);
   await expect(
-    page.getByRole("img", { name: "Imagen 1 del espacio", exact: true }),
+    page.getByRole("img", { name: "Fotografía del espacio", exact: true }),
   ).toBeVisible();
   await expect(page.getByText("Portada", { exact: true })).toBeVisible();
 
   replacementStatusState = "not_found";
   await page
     .getByRole("button", {
-      name: "Revisar estado del reemplazo foto-reemplazo-pending.png",
+      name: "Consultar estado",
+      exact: true,
     })
     .click();
   await expect(
     page.getByRole("button", {
-      name: "Reintentar reemplazo foto-reemplazo-pending.png",
+      name: "Reintentar con el mismo archivo",
+      exact: true,
     }),
   ).toBeVisible();
-  expect(replacementStatusLookupCount).toBe(2);
+  expect(replacementStatusLookupCount).toBe(3);
   expect(replacementStatusLookups).toEqual([
+    pendingReplacementKey,
     pendingReplacementKey,
     pendingReplacementKey,
   ]);
@@ -2191,10 +2220,11 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(photos[0]?.id).toBe(replacementPhotoId);
   await page
     .getByRole("button", {
-      name: "Reintentar reemplazo foto-reemplazo-pending.png",
+      name: "Reintentar con el mismo archivo",
+      exact: true,
     })
     .click();
-  await expect(page.getByText("Foto reemplazada correctamente.")).toBeVisible();
+  await expect(page.getByText("Fotografía reemplazada.")).toBeVisible();
   expect(replacementAttempts).toHaveLength(3);
   expect(replacementAttempts[2]?.idempotencyKey).toBe(pendingReplacementKey);
   expect(replacementAttempts[2]?.ifMatch).toBe(replacementAttempts[1]?.ifMatch);
@@ -2209,33 +2239,34 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   const readyLookupStart = replacementStatusLookupCount;
   const readyAttemptStart = replacementAttempts.length;
   const blobBeforeReady = await firstPhotoImage.getAttribute("src");
-  await page.getByRole("button", { name: "Reemplazar imagen 1" }).click();
-  await page.locator("#gallery-replace-input").setInputFiles({
+  await page.getByLabel("Reemplazar fotografía").setInputFiles({
     name: "foto-reemplazo-pending.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page.getByText(
-      "El reemplazo está pendiente de confirmación; la foto actual se conserva.",
-      { exact: true },
-    ),
+    page.getByText("Fotografía pendiente de procesamiento.", { exact: true }),
   ).toBeVisible();
   const readyReplacementKey = replacementAttempt!.idempotencyKey;
+  await expect
+    .poll(() => replacementStatusLookupCount)
+    .toBe(readyLookupStart + 1);
   expect(readyReplacementKey).not.toBe(pendingReplacementKey);
   expect(replacementAttempts).toHaveLength(readyAttemptStart + 1);
   replacementStatusState = "error";
   await page
     .getByRole("button", {
-      name: "Revisar estado del reemplazo foto-reemplazo-pending.png",
+      name: "Consultar estado",
+      exact: true,
     })
     .click();
   await expect(
-    page
-      .getByRole("alert")
-      .filter({ hasText: "API request failed (503: unavailable)" }),
+    page.getByRole("alert").filter({
+      hasText:
+        "No se pudo consultar el resultado; la operación sigue incierta.",
+    }),
   ).toBeVisible();
-  expect(replacementStatusLookupCount).toBe(readyLookupStart + 1);
+  expect(replacementStatusLookupCount).toBe(readyLookupStart + 2);
   expect(replacementStatusLookups.at(-1)).toBe(readyReplacementKey);
   expect(replacementAttempts).toHaveLength(readyAttemptStart + 1);
   await expect(firstPhotoImage).toHaveAttribute("src", blobBeforeReady!);
@@ -2244,25 +2275,27 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   const galleryReadsBeforeReady = galleryReloads.length;
   await expect(
     page.getByRole("button", {
-      name: "Revisar estado del reemplazo foto-reemplazo-pending.png",
+      name: "Consultar estado",
+      exact: true,
     }),
   ).toBeEnabled();
   replacementStatusState = "ready";
   await page
     .getByRole("button", {
-      name: "Revisar estado del reemplazo foto-reemplazo-pending.png",
+      name: "Consultar estado",
+      exact: true,
     })
     .click();
   await expect(
-    page.getByText("Foto reemplazada correctamente.", { exact: true }),
+    page.getByText("Fotografía reemplazada.", { exact: true }),
   ).toBeVisible();
-  expect(replacementStatusLookupCount).toBe(readyLookupStart + 2);
+  expect(replacementStatusLookupCount).toBe(readyLookupStart + 3);
   expect(replacementStatusLookups.slice(-2)).toEqual([
     readyReplacementKey,
     readyReplacementKey,
   ]);
   expect(replacementAttempts).toHaveLength(readyAttemptStart + 1);
-  expect(detailReloads).toHaveLength(detailReadsBeforeReady + 1);
+  expect(detailReloads).toHaveLength(detailReadsBeforeReady + 2);
   // Lookup reconciles photos in the facade; selectListing then reloads detail and photos.
   expect(galleryReloads).toHaveLength(galleryReadsBeforeReady + 2);
   expect(detailReloads.at(-1)).toEqual({
@@ -2277,23 +2310,21 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   await expect(page.getByText("Portada", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: "Revisar estado del reemplazo foto-reemplazo-pending.png",
+      name: "Consultar estado",
+      exact: true,
     }),
   ).toHaveCount(0);
 
+  replacementStatusState = "pending";
   const oldPhotoDuringCleanupId = photos[0]?.id;
   const replacementCountBeforeCleanup = replacementAttempts.length;
-  await page.getByRole("button", { name: "Reemplazar imagen 1" }).click();
-  await page.locator("#gallery-replace-input").setInputFiles({
+  await page.getByLabel("Reemplazar fotografía").setInputFiles({
     name: "foto-reemplazo-deleting.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page.getByText(
-      "El reemplazo está pendiente de confirmación; la foto actual se conserva.",
-      { exact: true },
-    ),
+    page.getByText("Fotografía pendiente de procesamiento.", { exact: true }),
   ).toBeVisible();
   const deletingReplacementKey = replacementAttempts.at(-1)!.idempotencyKey;
   expect(replacementAttempts).toHaveLength(replacementCountBeforeCleanup + 1);
@@ -2302,27 +2333,45 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   );
   replacementStatusState = "deleting";
   await page
-    .getByRole("button", {
-      name: "Revisar estado del reemplazo foto-reemplazo-deleting.png",
-    })
+    .getByRole("button", { name: "Consultar estado", exact: true })
     .click();
   await expect(
-    page.getByText(
-      "El reemplazo no se completó; el archivo reservado está en limpieza. La foto actual se conserva. Elige nuevamente una imagen para iniciar otro intento.",
-      { exact: true },
-    ),
+    page.getByText("Fotografía pendiente de procesamiento.", { exact: true }),
   ).toBeVisible();
   expect(replacementStatusLookups.at(-1)).toBe(deletingReplacementKey);
   expect(replacementAttempts).toHaveLength(replacementCountBeforeCleanup + 1);
   expect(photos[0]?.id).toBe(oldPhotoDuringCleanupId);
   await expect(
     page.getByRole("button", {
-      name: "Revisar estado del reemplazo foto-reemplazo-deleting.png",
+      name: "Reintentar con el mismo archivo",
+      exact: true,
     }),
-  ).toHaveCount(0);
+  ).toBeDisabled();
+  await expect(page.getByLabel("Reemplazar fotografía")).toBeDisabled();
+  replacementStatusState = "failed";
+  await page
+    .getByRole("button", { name: "Consultar estado", exact: true })
+    .click();
+  expect(replacementAttempts).toHaveLength(replacementCountBeforeCleanup + 1);
+  const explicitCleanupRetry = page.getByRole("button", {
+    name: "Reintentar con el mismo archivo",
+    exact: true,
+  });
+  await expect(explicitCleanupRetry).toBeEnabled();
+  const cleanupAttempt = replacementAttempts.at(-1)!;
+  await explicitCleanupRetry.click();
   await expect(
-    page.getByRole("button", { name: "Reemplazar imagen 1" }),
-  ).toBeEnabled();
+    page.getByText("Fotografía reemplazada.", { exact: true }),
+  ).toBeVisible();
+  expect(replacementAttempts).toHaveLength(replacementCountBeforeCleanup + 2);
+  expect(replacementAttempts.at(-1)?.idempotencyKey).toBe(
+    deletingReplacementKey,
+  );
+  expect(replacementAttempts.at(-1)?.ifMatch).toBe(cleanupAttempt.ifMatch);
+  expect(replacementAttempts.at(-1)?.body).toContain(
+    "foto-reemplazo-deleting.png",
+  );
+  await expect(page.getByLabel("Reemplazar fotografía")).toBeEnabled();
 
   const refreshedEtag = currentSpaceEtag;
   await page.getByRole("tab", { name: "Información" }).click();
@@ -2334,18 +2383,16 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(draftIfMatchHeader).toBe(refreshedEtag);
   await page.getByRole("tab", { name: /Fotografías/ }).click();
 
-  await imageInput.setInputFiles({
+  await attachImages({
     name: "retry-me.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page
-      .getByRole("status")
-      .filter({ hasText: /Error al subir retry-me\.png/ }),
+    uploadRow("retry-me.png").filter({ hasText: "Carga sin confirmar" }),
   ).toBeVisible();
-  const retryButton = page.getByRole("button", {
-    name: "Reintentar retry-me.png",
+  const retryButton = uploadRow("retry-me.png").getByRole("button", {
+    name: "Reintentar carga con el mismo archivo",
   });
   await expect(retryButton).toBeVisible();
   expect(postGalleryCount).toBe(2);
@@ -2359,7 +2406,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(firstFailedAttempt.imagePayload).toBeTruthy();
   await retryButton.click();
   await expect(
-    page.getByText("Carga completada: retry-me.png", { exact: true }),
+    uploadRow("retry-me.png").filter({ hasText: "Completada" }),
   ).toBeVisible();
   await expect.poll(() => postGalleryCount).toBe(3);
   expect(photos).toHaveLength(2);
@@ -2369,7 +2416,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(retriedAttempt.body).toContain("retry-me.png");
   expect(retriedAttempt.imagePayload).toBe(firstFailedAttempt.imagePayload);
 
-  await imageInput.setInputFiles({
+  await attachImages({
     name: "foto-2.png",
     mimeType: "image/png",
     buffer: tinyPng,
@@ -2388,7 +2435,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
 
   // Cola acotada: dos solicitudes activas y el resto en espera.
   deferGalleryPosts = true;
-  await imageInput.setInputFiles(
+  await attachImages(
     Array.from({ length: 3 }, (_, index) => ({
       name: `cola-${index + 1}.png`,
       mimeType: "image/png",
@@ -2396,20 +2443,20 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
     })),
   );
   await expect(
-    page.getByText("Subiendo cola-1.png", { exact: true }),
+    uploadRow("cola-1.png").filter({ hasText: "Subiendo…" }),
   ).toBeVisible();
   await expect(
-    page.getByText("En cola cola-3.png", { exact: true }),
+    uploadRow("cola-3.png").filter({ hasText: "En cola" }),
   ).toBeVisible();
   await expect.poll(() => activeGalleryPosts).toBe(2);
   expect(maxActiveGalleryPosts).toBe(2);
-  const cancelQueuedUpload = page.getByRole("button", {
-    name: "Cancelar carga cola-3.png",
+  const cancelQueuedUpload = uploadRow("cola-3.png").getByRole("button", {
+    name: "Cancelar en cola",
   });
   await expect(cancelQueuedUpload).toBeVisible();
   await cancelQueuedUpload.click();
   await expect(
-    page.getByText("Carga cancelada: cola-3.png", { exact: true }),
+    uploadRow("cola-3.png").filter({ hasText: "Cancelada antes del envío" }),
   ).toBeVisible();
   expect(postGalleryCount).toBe(6);
   for (let released = 0; released < 2; released += 1) {
@@ -2417,40 +2464,47 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
     releaseGalleryPosts.shift()!();
   }
   await expect(
-    page.getByText("Carga completada: cola-1.png", { exact: true }),
+    uploadRow("cola-1.png").filter({ hasText: "Completada" }),
   ).toBeVisible();
   await expect(
-    page.getByText("Carga completada: cola-2.png", { exact: true }),
+    uploadRow("cola-2.png").filter({ hasText: "Completada" }),
   ).toBeVisible();
+  await expect
+    .poll(async () =>
+      Promise.all(
+        ["cola-1.png", "cola-2.png", "cola-3.png"].map((name) =>
+          uploadRow(name).getAttribute("data-upload-state"),
+        ),
+      ),
+    )
+    .toEqual(["ready", "ready", "cancelled"]);
   await expect(
-    page.getByText("Lote de galería finalizado: 2 correctas.", { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText("Carga completada: cola-3.png", { exact: true }),
+    uploadRow("cola-3.png").filter({ hasText: "Completada" }),
   ).toHaveCount(0);
   expect(postGalleryCount).toBe(6);
   deferGalleryPosts = false;
 
   // Cancelar una carga ya enviada debe parar el fetch local y reconciliar con el estado autoritativo.
   deferGalleryPosts = true;
-  await imageInput.setInputFiles({
+  await attachImages({
     name: "cancel-in-flight.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page.getByText("Subiendo cancel-in-flight.png", { exact: true }),
+    uploadRow("cancel-in-flight.png").filter({ hasText: "Subiendo…" }),
   ).toBeVisible();
   await expect.poll(() => activeGalleryPosts).toBe(1);
-  const cancelInFlightButton = page.getByRole("button", {
-    name: "Cancelar carga cancel-in-flight.png",
-  });
+  const cancelInFlightButton = uploadRow("cancel-in-flight.png").getByRole(
+    "button",
+    { name: "Detener env\u00edo y consultar" },
+  );
   await expect(cancelInFlightButton).toBeVisible();
   const photosBeforeCancel = photos.length;
   await cancelInFlightButton.click();
   await expect(
-    page.getByText("Carga pendiente de confirmación: cancel-in-flight.png", {
-      exact: true,
+    uploadRow("cancel-in-flight.png").filter({
+      hasText: "Resultado pendiente de confirmar",
     }),
   ).toBeVisible();
   await expect.poll(() => cancelledUploadStatusLookupCount).toBe(1);
@@ -2460,17 +2514,17 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   releaseGalleryPosts.shift()!();
   await expect.poll(() => activeGalleryPosts).toBe(0);
   await expect.poll(() => photos.length).toBe(photosBeforeCancel + 1);
-  await page
-    .getByRole("button", { name: "Revisar estado cancel-in-flight.png" })
+  await uploadRow("cancel-in-flight.png")
+    .getByRole("button", { name: "Consultar estado de carga" })
     .click();
   await expect(
-    page.getByText("Carga completada: cancel-in-flight.png", { exact: true }),
+    uploadRow("cancel-in-flight.png").filter({ hasText: "Completada" }),
   ).toBeVisible();
   await expect.poll(() => cancelledUploadStatusLookupCount).toBe(2);
   expect(postGalleryCount).toBe(7);
   const firstDeleteIfMatch = currentSpaceEtag;
   await page.getByRole("button", { name: "Eliminar foto" }).last().click();
-  await expect(page.getByText("Foto eliminada de la galería.")).toBeVisible();
+  await expect(page.getByText("Fotografía eliminada.")).toBeVisible();
   expect(galleryDeleteIfMatchHeaders[0]).toBe(firstDeleteIfMatch);
   expect(currentSpaceEtag).toBe(galleryDeleteResponseEtags[0]);
   expect(deletedPhotoId).toBe(cancelledUploadPhotoId);
@@ -2480,32 +2534,34 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(firstCancelledUploadKey).toMatch(/^[0-9a-f-]{36}$/i);
   // Si la solicitud abortada aún no tiene reserva, revisar estado no debe repetir el POST.
   cancelledUploadState = "pending";
-  await imageInput.setInputFiles({
+  await attachImages({
     name: "cancel-not-found.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page.getByText("Subiendo cancel-not-found.png", { exact: true }),
+    uploadRow("cancel-not-found.png").filter({ hasText: "Subiendo…" }),
   ).toBeVisible();
   await expect.poll(() => activeGalleryPosts).toBe(1);
-  await page
-    .getByRole("button", { name: "Cancelar carga cancel-not-found.png" })
+  await uploadRow("cancel-not-found.png")
+    .getByRole("button", { name: "Detener env\u00edo y consultar" })
     .click();
   await expect(
-    page.getByText("Carga pendiente de confirmación: cancel-not-found.png", {
-      exact: true,
+    uploadRow("cancel-not-found.png").filter({
+      hasText: "Resultado pendiente de confirmar",
     }),
   ).toBeVisible();
   await expect.poll(() => cancelledUploadStatusLookupCount).toBe(3);
   const notFoundCancelledUploadKey = cancelledUploadKey;
   expect(notFoundCancelledUploadKey).toMatch(/^[0-9a-f-]{36}$/i);
   cancelledUploadState = "not_found";
-  await page
-    .getByRole("button", { name: "Revisar estado cancel-not-found.png" })
+  await uploadRow("cancel-not-found.png")
+    .getByRole("button", { name: "Consultar estado de carga" })
     .click();
   await expect(
-    page.getByRole("button", { name: "Reintentar cancel-not-found.png" }),
+    uploadRow("cancel-not-found.png").getByRole("button", {
+      name: "Reintentar carga con el mismo archivo",
+    }),
   ).toBeVisible();
   await expect.poll(() => cancelledUploadStatusLookupCount).toBe(4);
   expect(postGalleryCount).toBe(8);
@@ -2515,9 +2571,10 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(postGalleryCount).toBe(8);
   deferGalleryPosts = false;
 
-  const canceledNotFoundRetry = page.getByRole("button", {
-    name: "Reintentar cancel-not-found.png",
-  });
+  const canceledNotFoundRetry = uploadRow("cancel-not-found.png").getByRole(
+    "button",
+    { name: "Reintentar carga con el mismo archivo" },
+  );
   await canceledNotFoundRetry.click();
   await expect(canceledNotFoundRetry).toBeVisible();
   await expect.poll(() => postGalleryCount).toBe(9);
@@ -2529,14 +2586,35 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
     canceledNotFoundAttempts.map((upload) => upload.idempotencyKey),
   ).toEqual([notFoundCancelledUploadKey, notFoundCancelledUploadKey]);
 
+  // A not_found result never permits discard. Only a later terminal failure does.
+  const cancelledRow = uploadRow("cancel-not-found.png");
+  await expect(
+    cancelledRow.getByRole("button", { name: "Descartar carga fallida" }),
+  ).toHaveCount(0);
+  cancelledUploadState = "failed";
+  await cancelledRow
+    .getByRole("button", { name: "Consultar estado de carga" })
+    .click();
+  const discardFailed = cancelledRow.getByRole("button", {
+    name: "Descartar carga fallida",
+  });
+  await expect(discardFailed).toBeEnabled();
+  await discardFailed.click();
+  await expect(cancelledRow).toHaveCount(0);
+  expect(postGalleryCount).toBe(9);
+  expect(
+    galleryStatusLookups.filter((key) => key === cancelledUploadKey),
+  ).toHaveLength(4);
+  const lookupKeysBeforePending = [...galleryStatusLookups];
+
   const postCountBeforeMismatchedExtension = postGalleryCount;
-  await imageInput.setInputFiles({
+  await attachImages({
     name: "foto-mal-etiquetada.jpg",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page.getByText("Usa imágenes JPG, PNG o WebP de hasta 10 MiB cada una.", {
+    page.getByText("Usa imágenes JPG, PNG o WebP de hasta 10 MiB.", {
       exact: true,
     }),
   ).toBeVisible();
@@ -2572,9 +2650,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   const reorderStart = reorderPutCount;
   const revisionBeforeReorder = currentSpaceEtag;
   await moveUpButton.first().click();
-  await expect(
-    page.getByText("Orden de fotografías actualizado."),
-  ).toBeVisible();
+  await expect(page.getByText("Orden actualizado.")).toBeVisible();
   expect(reorderPutCount).toBe(reorderStart + 1);
   expect(reorderRequests[reorderStart]).toEqual({
     photoId: movedPhotoId,
@@ -2599,10 +2675,18 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   );
   expect(currentSpaceEtag).toBe(revisionAfterReorder);
   await expect.poll(visiblePhotoIds).toEqual(orderBeforeStaleReorder);
+  await expect(
+    page.getByRole("button", { name: "Eliminar foto" }).first(),
+  ).toBeDisabled();
+  await page
+    .getByRole("button", { name: "Actualizar galería", exact: true })
+    .first()
+    .click();
+  expect(reorderPutCount).toBe(requestsBeforeStaleReorder + 1);
 
   // Quitar la foto real que quedó primera tras el reordenamiento
   await page.getByRole("button", { name: "Eliminar foto" }).first().click();
-  await expect(page.getByText("Foto eliminada de la galería.")).toBeVisible();
+  await expect(page.getByText("Fotografía eliminada.")).toBeVisible();
   expect(galleryDeleteIfMatchHeaders[1]).toBe(revisionAfterReorder);
   expect(currentSpaceEtag).toBe(galleryDeleteResponseEtags[1]);
   await expect(page.getByRole("button", { name: "Eliminar foto" })).toHaveCount(
@@ -2612,11 +2696,11 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
 
   // Límite actual: el exceso se rechaza antes de enviar POST a la galería.
   const galleryLimitError = page.getByText(
-    "El límite actual es de 30 imágenes por espacio.",
+    "La galería admite hasta 30 fotografías, incluidas las cargas en curso.",
     { exact: true },
   );
   const postCountBeforeOverflow = postGalleryCount;
-  await imageInput.setInputFiles(
+  await attachImages(
     Array.from({ length: 27 }, (_, index) => ({
       name: `overflow-${index + 1}.png`,
       mimeType: "image/png",
@@ -2626,7 +2710,10 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   await expect(galleryLimitError).toBeVisible();
   expect(postGalleryCount).toBe(postCountBeforeOverflow);
 
-  await imageInput.setInputFiles(
+  const readyBeforeLimitBatch = await page
+    .locator('[data-testid="gallery-upload-item"][data-upload-state="ready"]')
+    .count();
+  await attachImages(
     Array.from({ length: 26 }, (_, index) => ({
       name: `limite-${index + 1}.png`,
       mimeType: "image/png",
@@ -2634,10 +2721,10 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
     })),
   );
   await expect(
-    page.getByText("Lote de galería finalizado: 26 correctas.", {
-      exact: true,
-    }),
-  ).toBeVisible();
+    page.locator(
+      '[data-testid="gallery-upload-item"][data-upload-state="ready"]',
+    ),
+  ).toHaveCount(readyBeforeLimitBatch + 26);
   await expect.poll(() => postGalleryCount).toBe(postCountBeforeOverflow + 26);
   await expect(page.getByRole("button", { name: "Eliminar foto" })).toHaveCount(
     30,
@@ -2647,63 +2734,56 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   // Un reintento idempotente pendiente no cuenta como completado ni ocupa una ranura.
   const postCountBeforePending = postGalleryCount;
   await page.getByRole("button", { name: "Eliminar foto" }).first().click();
-  await expect(page.getByText("Foto eliminada de la galería.")).toBeVisible();
+  await expect(page.getByText("Fotografía eliminada.")).toBeVisible();
   expect(galleryDeleteIfMatchHeaders[2]).toBe(galleryDeleteResponseEtags[1]);
   expect(currentSpaceEtag).toBe(galleryDeleteResponseEtags[2]);
   await expect(page.getByRole("button", { name: "Eliminar foto" })).toHaveCount(
     29,
   );
   await expect(imageInput).toBeEnabled();
-  await imageInput.setInputFiles({
+  await attachImages({
     name: "pending-me.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page.getByText("Carga pendiente de confirmación: pending-me.png", {
-      exact: true,
+    uploadRow("pending-me.png").filter({
+      hasText: "Resultado pendiente de confirmar",
     }),
   ).toBeVisible();
   await expect(
-    page.getByText(
-      "Lote de galería finalizado: 0 correctas; 1 pendiente de confirmación.",
-      { exact: true },
-    ),
+    uploadRow("pending-me.png").filter({
+      hasText: "Resultado pendiente de confirmar",
+    }),
   ).toBeVisible();
   await expect.poll(() => postGalleryCount).toBe(postCountBeforePending + 1);
   expect(photos).toHaveLength(29);
   const pendingUpload = galleryUploads.at(-1)!;
-  const pendingRetryButton = page.getByRole("button", {
-    name: "Revisar estado pending-me.png",
+  const pendingRetryButton = uploadRow("pending-me.png").getByRole("button", {
+    name: "Consultar estado de carga",
   });
   await expect(pendingRetryButton).toBeVisible();
   await pendingRetryButton.click();
   await expect(
-    page.getByText("Carga pendiente de confirmación: pending-me.png", {
-      exact: true,
+    uploadRow("pending-me.png").filter({
+      hasText: "Resultado pendiente de confirmar",
     }),
   ).toBeVisible();
   expect(postGalleryCount).toBe(postCountBeforePending + 1);
   expect(galleryStatusLookups).toEqual([
-    firstCancelledUploadKey,
-    firstCancelledUploadKey,
-    cancelledUploadKey,
-    cancelledUploadKey,
+    ...lookupKeysBeforePending,
     pendingUpload.idempotencyKey,
   ]);
   expect(photos).toHaveLength(29);
   await pendingRetryButton.click();
-  const completedStatus = page.getByText("Carga completada: pending-me.png", {
-    exact: true,
+  const completedStatus = uploadRow("pending-me.png").filter({
+    hasText: "Completada",
   });
   await expect(completedStatus).toHaveCount(1);
   await expect(completedStatus).toBeVisible();
   expect(postGalleryCount).toBe(postCountBeforePending + 1);
   expect(galleryStatusLookups).toEqual([
-    firstCancelledUploadKey,
-    firstCancelledUploadKey,
-    cancelledUploadKey,
-    cancelledUploadKey,
+    ...lookupKeysBeforePending,
     pendingUpload.idempotencyKey,
     pendingUpload.idempotencyKey,
   ]);
@@ -2723,7 +2803,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(putPublicationBody!.state).toBe("activa");
   await expect(page.getByText("Publicado").first()).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Retirar publicación" }),
+    page.getByRole("button", { name: "Archivar", exact: true }),
   ).toBeVisible();
 
   await page.getByRole("tab", { name: "Información" }).click();
@@ -2893,13 +2973,15 @@ test("@phase7 @controlled una carga inicial pendiente conserva la intención de 
       photos.splice(0, photos.length, {
         id: photoId,
         space_id: spaceId,
+        alt_text: "",
+        visible: true,
+        cover: false,
+        position: 1,
+        state: "ready",
+        created_at: "2026-10-28T12:00:00Z",
         mime_type: "image/webp",
         sha256: "b".repeat(64),
         size_bytes: 128,
-        created_at: "2026-10-28T12:00:00Z",
-        is_cover: false,
-        visible: true,
-        position: 1,
         variants: ["thumbnail", "display"].map((name) => ({
           name,
           url: `/api/v1/spaces/${spaceId}/gallery/${photoId}/variants/${name}`,
@@ -2935,32 +3017,30 @@ test("@phase7 @controlled una carga inicial pendiente conserva la intención de 
 
   await loginAndNavigate(page, `/anfitrion/espacios/${spaceId}/editar`);
   await page.getByRole("tab", { name: /Fotografías/ }).click();
-  const imageInput = page.getByLabel("Subir imágenes", { exact: true });
+  const imageInput = page.getByLabel("Subir fotografías", { exact: true });
   await imageInput.setInputFiles({
     name: "pending-cover.png",
     mimeType: "image/png",
     buffer: tinyPng,
   });
   await expect(
-    page.getByText("Carga pendiente de confirmación: pending-cover.png", {
+    page.getByText("Resultado pendiente de confirmar", {
       exact: true,
     }),
   ).toBeVisible();
   expect(uploadCount).toBe(1);
   const reviewButton = page.getByRole("button", {
-    name: "Revisar estado pending-cover.png",
+    name: "Consultar estado de carga",
   });
   await reviewButton.click();
   await expect(
-    page.getByText("Carga pendiente de confirmación: pending-cover.png", {
+    page.getByText("Resultado pendiente de confirmar", {
       exact: true,
     }),
   ).toBeVisible();
   expect(uploadCount).toBe(1);
   await reviewButton.click();
-  await expect(
-    page.getByText("Carga completada: pending-cover.png", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Completada", { exact: true })).toBeVisible();
   expect(statusLookupCount).toBe(2);
   expect(uploadCount).toBe(1);
   expect(coverPhotoID).toBe(photoId);
@@ -3882,7 +3962,7 @@ test("@phase7 @controlled cambiar categoría elimina atributos dinámicos anteri
   await page.getByRole("button", { name: "Siguiente" }).click();
   await expect(page.getByLabel(access!.label)).toBeVisible();
   await page.locator("#wizard-address").fill("Dirección sintética 123");
-  await page.locator("#wizard-comuna").fill("Las Condes");
+  await page.locator("#wizard-comuna").fill("13114");
   await page.getByRole("button", { name: "Siguiente" }).click();
   await expect(page.getByText("Paso 3: Tarifas")).toBeVisible();
   await page.getByRole("button", { name: "Siguiente" }).click();

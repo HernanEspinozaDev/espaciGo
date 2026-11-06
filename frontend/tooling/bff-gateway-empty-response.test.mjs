@@ -52,12 +52,12 @@ const { gatewayOperations: rawOps } = await import(
   pathToFileURL(origOpsPath).href
 );
 
-test("POST /spaces declares Idempotency-Key for the BFF allowlist", () => {
+test("POST /spaces does not allow unsupported Idempotency-Key", () => {
   const operation = rawOps.find(
     (candidate) => candidate.method === "POST" && candidate.path === "/spaces",
   );
   assert.ok(operation);
-  assert.ok(operation.headers.includes("idempotency-key"));
+  assert.equal(operation.headers.includes("idempotency-key"), false);
 });
 
 const extendedOperations = [

@@ -7,6 +7,7 @@ import {
   publicImageUrl,
 } from "@/features/public-catalog/domain/media";
 import { PublicMediaImage } from "@/features/public-catalog/ui/public-media-image";
+import { PublicVerificationBadges } from "@/features/public-catalog/ui/public-verification-badges";
 import {
   formatPublicClp,
   rateUnitLabel,
@@ -96,6 +97,7 @@ export function ProductCard({
         </span>
       </div>
       <div className="space-y-1">
+        <PublicVerificationBadges verification={space.verification} />
         <h2 className="text-base font-medium text-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">
           {[space.comuna_name, space.region_name].filter(Boolean).join(", ")}

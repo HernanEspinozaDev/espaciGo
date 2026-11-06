@@ -1,0 +1,61 @@
+"""Source-contract checks for the proposed Cloud SQL V81 preparation SQL.
+
+These tests intentionally do not connect to PostgreSQL or claim SQL semantics.
+"""
+from pathlib import Path
+import re
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+SQL_PATH = ROOT / "db/repair/cloudsql_spaces_pre_v81_contract.sql"
+
+
+class CloudSQLSpacesPreV81ContractSourceTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.sql = SQL_PATH.read_text(encoding="utf-8")
+        cls.normalized = re.sub(r"--[^\n]*|\s+", " ", cls.sql).lower()
+
+    def test_target_and_ledger_guards_are_explicit(self):
+        for fragment in (
+            "current_database() <> 'espacigo_dms_stage_20261020'",
+            "session_user <> 'postgres'",
+            "current_setting('server_version_num')::integer / 10000 <> 18",
+            "count(*) from public.schema_migrations",
+            "max(version) from public.schema_migrations",
+            "expected contiguous ledger 1..80",
+        ):
+            self.assertIn(fragment, self.normalized)
+
+    def test_creates_only_restricted_roles_and_private_schema(self):
+        for role in ("espacigo_schema_owner", "espacigo_document_verification_fn"):
+            self.assertRegex(self.normalized, rf"create role {role} no?login")
+            self.assertIn(f"create role {role} nologin nosuperuser nocreatedb nocreaterole noreplication nobypassrls noinherit", self.normalized)
+        self.assertIn("create schema document_verification_private authorization espacigo_document_verification_fn", self.normalized)
+        self.assertNotRegex(self.normalized, r"alter\s+\w+\s+owner\s+to")
+
+    def test_exact_helper_grants_memberships_and_ledger_scope(self):
+        for fragment in (
+            "grant select (id, estado), update (id) on table public.usuario to espacigo_document_verification_fn",
+            "grant select (id, propietario_id), update (id) on table public.espacio to espacigo_document_verification_fn",
+            "grant espacigo_schema_owner to espacigo_migrator_login with inherit false, set true, admin false",
+            "grant espacigo_document_verification_fn to espacigo_schema_owner with inherit false, set true, admin false",
+            "grant espacigo_runtime to espacigo_api_login with inherit false, set true, admin false",
+            "alter role espacigo_api_login noinherit",
+            "grant select, insert on table public.schema_migrations to espacigo_schema_owner",
+        ):
+            self.assertIn(fragment, self.normalized)
+        self.assertIn("revoke all privileges on table public.schema_migrations from espacigo_migrator_login", self.normalized)
+
+    def test_transaction_bounds_and_no_public_create_grants(self):
+        self.assertTrue(self.sql.lstrip().startswith("--"))
+        self.assertEqual(1, len(re.findall(r"(?im)^begin;\s*$", self.sql)))
+        self.assertEqual(1, len(re.findall(r"(?im)^commit;\s*$", self.sql)))
+        self.assertNotRegex(self.normalized, r"grant\s+create\s+on\s+schema\s+public")
+        self.assertNotIn("grant all", self.normalized)
+        self.assertIn("preparation postcondition failed", self.normalized)
+        self.assertIn("does not claim v82/v83 readiness", self.sql.lower())
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -20,6 +20,10 @@ export interface PublicAuthSession {
 
 export type CurrentAuthSession = PublicAuthSession;
 
+// Compatibility marker, never a bearer token. apiClient strips it before
+// transport; only the BFF obtains the Go credential from its HttpOnly cookie.
+export type AccessToken = `bff-session:${string}`;
+
 export interface AuthLogoutResult {
   cookieCleared: boolean;
   revocationConfirmed: boolean;

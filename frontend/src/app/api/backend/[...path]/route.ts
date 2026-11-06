@@ -113,9 +113,19 @@ function operationFor(
   method: string,
   segments: string[],
 ): { operation?: GatewayOperation; allowedMethods: string[] } {
-  const pathMatches = gatewayOperations.filter((entry) =>
+  const specificity = (entry: GatewayOperation) =>
+    entry.path
+      .split("/")
+      .filter(Boolean)
+      .map((part) => (part.startsWith("{") ? "0" : "1"))
+      .join("");
+  const candidates = gatewayOperations.filter((entry) =>
     matchesPath(entry.path, segments),
   );
+  // Choose the most specific path before its method/header policy; do not
+  // merge the upload-status policy with the matching photo-id route.
+  const best = candidates.map(specificity).sort().at(-1);
+  const pathMatches = candidates.filter((entry) => specificity(entry) === best);
   const operation = pathMatches.find((entry) => entry.method === method);
   return {
     operation,
@@ -374,6 +384,7 @@ async function proxy(
       headers: upstreamHeaders,
       body: body ?? undefined,
       cache: "no-store",
+      credentials: "omit",
       redirect: "manual",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]),
     });
@@ -398,6 +409,18 @@ async function proxy(
       (upstreamMediaType && !allowedResponseMediaTypes.has(upstreamMediaType))
     ) {
       await upstream.body?.cancel().catch(() => undefined);
+      if (upstream.status >= 400 && upstream.status <= 599) {
+        const sanitized = errorResponse(
+          upstream.status,
+          "upstream_error",
+          requestId,
+        );
+        if (upstream.status === 401 && operation.bearer) {
+          for (const cookie of buildClearSessionCookies())
+            sanitized.headers.append("set-cookie", cookie);
+        }
+        return sanitized;
+      }
       return errorResponse(502, "upstream_content_type_not_allowed", requestId);
     }
   } else if (upstream.body !== null) {

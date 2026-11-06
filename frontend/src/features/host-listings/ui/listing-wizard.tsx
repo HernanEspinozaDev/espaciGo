@@ -31,9 +31,10 @@ import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import { authFacade } from "@/features/auth/auth-runtime";
+import { validateWizardLocation } from "../domain/wizard-location";
 import { useHostListings } from "./use-host-listings";
 import {
-  generateIdempotencyKey,
   validateCategoryAttributes,
   validateListingDraftInput,
   validateScheduleSlots,
@@ -68,7 +69,12 @@ const DAYS_MAP = [
 
 export function ListingWizard() {
   const router = useRouter();
-  const { snapshot: authSnapshot, checkSession } = useAuth();
+  const {
+    snapshot: authSnapshot,
+    checkSession,
+    accessToken,
+    getAccessToken,
+  } = useAuth();
   const {
     snapshot,
     loadCategories,
@@ -136,16 +142,17 @@ export function ListingWizard() {
 
   // Cargar categorías dinámicamente de Go
   useEffect(() => {
-    loadCategories().catch(() => {});
-  }, [loadCategories]);
+    if (!accessToken) return;
+    loadCategories(accessToken).catch(() => {});
+  }, [loadCategories, accessToken]);
 
   // Si se selecciona o cambia categoría, cargar esquema de Go.
   // El wizard conserva el bloqueo del paso 2 hasta que exista el perfil vigente.
   useEffect(() => {
-    if (!categoryCode || currentSchema) return;
+    if (!accessToken || !categoryCode || currentSchema) return;
 
     let active = true;
-    loadCategorySchema(categoryCode)
+    loadCategorySchema(accessToken, categoryCode)
       .then((schema) => {
         if (active && !schema) setSchemaLoadError({ categoryCode });
       })
@@ -156,7 +163,13 @@ export function ListingWizard() {
     return () => {
       active = false;
     };
-  }, [categoryCode, currentSchema, loadCategorySchema, schemaRetryToken]);
+  }, [
+    categoryCode,
+    currentSchema,
+    loadCategorySchema,
+    schemaRetryToken,
+    accessToken,
+  ]);
 
   const handleAttributeChange = (code: string, value: unknown) => {
     setDynamicAttributes((prev) => {
@@ -231,9 +244,11 @@ export function ListingWizard() {
         errors.description =
           "La descripción debe tener al menos 100 caracteres.";
     } else if (step === 2) {
+      const location = validateWizardLocation(regionCode, comunaCode);
       if (!address.trim()) errors.address = "La dirección es obligatoria.";
       else if (Array.from(address).length > 500)
         errors.address = "La dirección no puede superar los 500 caracteres.";
+      if (!location.valid) errors.comuna = location.message;
       if (!isValidAreaM2(areaM2))
         errors.area =
           "La superficie debe estar entre 0,01 y 99.999.999,99 m², con hasta 2 decimales.";
@@ -364,8 +379,18 @@ export function ListingWizard() {
   };
 
   const handleCreateDraft = async () => {
-    if (authSnapshot.status !== "authenticated") {
+    if (authSnapshot.status !== "authenticated" || !accessToken) {
       setStepError("Sesión no disponible. Inicia sesión nuevamente.");
+      return;
+    }
+
+    if (!currentSchema) {
+      setStepError("Espera a que cargue el perfil de la categoría.");
+      return;
+    }
+    const location = validateWizardLocation(regionCode, comunaCode);
+    if (!location.valid) {
+      setStepError(location.message);
       return;
     }
 
@@ -382,7 +407,7 @@ export function ListingWizard() {
       address: address.trim(),
       region_code: regionCode || undefined,
       comuna_code: comunaCode.trim() || undefined,
-      attribute_schema_version: currentSchema?.schema_version ?? 1,
+      attribute_schema_version: currentSchema.schema_version,
       attributes: dynamicAttributes,
     };
 
@@ -399,11 +424,18 @@ export function ListingWizard() {
     setStepError(null);
 
     try {
-      const idempotencyKey = generateIdempotencyKey();
-      const created = await createDraft(draftPayload, idempotencyKey);
+      const created = await createDraft(accessToken, draftPayload);
 
       if (!authSnapshot.roles.includes("arrendador")) {
         await checkSession().catch(() => false);
+      }
+
+      const currentScope = getAccessToken();
+      if (
+        !currentScope ||
+        authFacade.getSnapshot().accountId !== authSnapshot.accountId
+      ) {
+        throw new DOMException("La sesión cambió.", "AbortError");
       }
 
       // Configure timezone first, then use its renewed ETag for schedule.
@@ -412,12 +444,14 @@ export function ListingWizard() {
         throw new Error("No se pudo verificar la versión del borrador creado.");
       }
       const configured = await configureTimeZone(
+        currentScope,
         created.id,
         timeZone,
         createdEtag,
       );
       if (scheduleEnabled && slots.length > 0) {
         await updateWeeklySchedule(
+          currentScope,
           created.id,
           {
             timezone: timeZone,
@@ -687,14 +721,26 @@ export function ListingWizard() {
 
                 <div className="space-y-2">
                   <Label htmlFor="wizard-comuna" className="font-semibold">
-                    Comuna (nombre o código)
+                    Código de comuna (5 dígitos)
                   </Label>
                   <Input
                     id="wizard-comuna"
+                    {...fieldFeedback("comuna")}
                     value={comunaCode}
-                    onChange={(e) => setComunaCode(e.target.value)}
-                    placeholder="Ej: Las Condes o 13114"
+                    onChange={(e) => {
+                      setComunaCode(e.target.value);
+                      clearFieldError("comuna");
+                    }}
+                    placeholder="Ej: 13114"
                   />
+                  {fieldErrors.comuna && (
+                    <p
+                      id="wizard-comuna-error"
+                      className="text-sm text-destructive"
+                    >
+                      {fieldErrors.comuna}
+                    </p>
+                  )}
                 </div>
 
                 <div className="space-y-2">
@@ -1137,6 +1183,24 @@ export function ListingWizard() {
                     Monto en pesos chilenos por cada {rateUnit}.
                   </p>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wizard-deposit">
+                    Garantía (no disponible)
+                  </Label>
+                  <Input
+                    id="wizard-deposit"
+                    type="number"
+                    value={0}
+                    disabled
+                    aria-describedby="wizard-deposit-help"
+                  />
+                  <p
+                    id="wizard-deposit-help"
+                    className="text-xs text-muted-foreground"
+                  >
+                    La garantía no está disponible en este flujo.
+                  </p>
+                </div>
 
                 <div className="space-y-2">
                   <Label
@@ -1415,7 +1479,8 @@ export function ListingWizard() {
               </CardTitle>
               <CardDescription>
                 Revisa todos los datos ingresados antes de crear el borrador
-                seguro con clave de idempotencia.
+                privado. Si el resultado queda incierto, comprueba tus espacios
+                antes de repetir el alta.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -1503,9 +1568,9 @@ export function ListingWizard() {
                   aria-hidden="true"
                 />
                 <div>
-                  Al confirmar, se generará un borrador oficial con clave de
-                  idempotencia única UUIDv4. Serás redirigido al editor donde
-                  podrás cargar fotografías y gestionar la publicación.
+                  Al confirmar, se generará un borrador privado. Serás
+                  redirigido al editor donde podrás cargar fotografías y
+                  gestionar la publicación.
                 </div>
               </div>
             </CardContent>

@@ -312,9 +312,8 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     idempotencyKey?: string,
     signal?: AbortSignal,
   ): Promise<ListingDetail> {
-    const key = idempotencyKey ?? generateIdempotencyKey();
+    void idempotencyKey;
     const result = await apiClient.POST("/spaces", {
-      params: { header: { "Idempotency-Key": key } },
       body: {
         category_code: input.category_code,
         title: input.title,
@@ -754,10 +753,12 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
+    ifMatch?: string,
   ): Promise<void> {
     const result = await apiClient.PUT("/spaces/{spaceId}/cover", {
       params: {
         path: { spaceId: listingId },
+        header: { "If-Match": requireStrongEtag(ifMatch ?? null) },
       },
       body: { photo_id: photoId },
       bodySerializer: serializeExactJson,
@@ -810,5 +811,28 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
       throw normalizeApiError(result.response, result.error);
     }
     return requireStrongEtag(result.response.headers.get("ETag"));
+  }
+
+  async getPhotoVariant(
+    listingId: string,
+    photoId: string,
+    variant: "thumbnail" | "display",
+    signal?: AbortSignal,
+  ): Promise<Blob> {
+    const result = await apiClient.GET(
+      "/spaces/{spaceId}/gallery/{photoId}/variants/{variant}",
+      {
+        params: {
+          path: { spaceId: listingId, photoId, variant },
+        },
+        parseAs: "blob",
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!(result.data instanceof Blob)) throw new ApiProtocolError();
+    return result.data;
   }
 }

@@ -116,6 +116,7 @@ export interface HostListingsPort {
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
+    ifMatch?: string,
   ): Promise<void>;
   removePhoto(
     listingId: string,
@@ -130,4 +131,10 @@ export interface HostListingsPort {
     ifMatch: string,
     signal?: AbortSignal,
   ): Promise<string>;
+  getPhotoVariant?(
+    listingId: string,
+    photoId: string,
+    variant: "thumbnail" | "display",
+    signal?: AbortSignal,
+  ): Promise<Blob>;
 }

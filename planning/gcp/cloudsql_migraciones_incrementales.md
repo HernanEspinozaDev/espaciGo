@@ -2,6 +2,22 @@
 
 Fecha: 2026-10-23. Regla operativa solicitada por el usuario; este documento no acredita ejecución de V68–V74. Alcance: actualizar el esquema de la base existente de testprod conservando sus datos.
 
+## Registro histórico — preflight anterior al delta de espacios, 2026-11-05
+
+Esta lectura se conserva como evidencia **anterior** a la aplicación. El estado posterior verificado es Cloud SQL V83/pending0 en la rama `codex/database/fix/cloudsql-83-espacios`, HEAD `61ecc92b51eceaf22fd7275c1bd3f8c209e075ab`, cuya evidencia/registro se incorporará al cerrar el merge actual. El usuario autorizó integración, migraciones incrementales y release por Cloud Build; reservó para sí el recorrido funcional online. Evidencia de continuación: `planning/gcp/espacios_integracion_release_20261105.md`. Las referencias a V75, forward activo o passfiles de este registro no describen la sesión ya cerrada.
+
+| Destino | Lectura verificada | Estado de esquema |
+| --- | --- | --- |
+| Cloud SQL `espacigo-testprod-db`, base `espacigo_dms_stage_20261020`, privado `10.189.0.15:5432` por forward `127.0.0.1:15432` | 2026-11-05; motor PostgreSQL18.6; sesiones `espacigo_migrator_login` y `postgres`, TLS activo y transacciones READ ONLY | Ledger75 filas contiguas V1–V75, nombres/checksums contrastados con la fuente backend revisada `19dabb18d61511ae972b149d5b9861904bafdcc9`. `cmd/dbmigrate -plan-only` del árbol candidato informa pendientes V76–V83. No se aplicaron. |
+| Ensayo local F5 `127.0.0.1:15434/espacigo_f5_gate_20261101` | Evidencia local del cierre anterior, distinta del destino cloud | V1–V83 con dos cuentas sintéticas. Sus excepciones administrativas, ACL y credenciales no autorizan ni prueban el delta remoto. |
+| Referencia desechable `espacigo-spaces-cloud-delta-20261105` | Creada para ensayar el esquema remoto, imagen PG18.6 fijada, network-none, sin puertos ni volúmenes persistentes | Solo esquema remoto V75 y ledger completo de migraciones restaurados; cero cuentas de aplicación. No copia datos ni credenciales remotos. Todavía no prueba el delta. |
+
+- Cuenta GCP verificada `pasteleriahijitos@gmail.com`, proyecto447373903153. Bastión existente ID5282317084229207114 estaba `TERMINATED`; se inició bajo autorización y se verificó `RUNNING`, manteniendo validación estricta de clave host. Al cerrar, retirar únicamente forward propio y restituir estado inicial si no hay otra operación.
+- Backup remoto automatizado ID1793853780000, `SUCCESSFUL`, finalizado2026-11-05T05:44:24Z. Es metadata del proveedor, no una restauración ensayada de ese backup. Confirmar recuperación y antigüedad antes de cualquier escritura; preparar backup fresco si el delta lo exige.
+- El secreto administrativo versión1 contenía un LF final: bytes exactos rechazados28P01; el usuario autorizó **una única prueba** retirando solo ese terminador al construir un passfile0600. Autenticó como `postgres` por TLS. No se cambió el secreto ni la contraseña; no repetir ni extender esta excepción por inferencia.
+- Los416 objetos públicos inspeccionados pertenecen a `postgres`. El migrador no posee DDL ni memberships; `espacigo_schema_owner`, `espacigo_document_verification_fn` y su schema privado no existen. El API login hereda runtime actualmente. V81/V83 exigen un contrato diferente: preparar una propuesta mínima versionada y probada para decisión humana antes de cambiar roles/ACL/owners. No ejecutar el repair F5 en cloud ni alterar V1–V83 para evitar sus guards.
+- El trigger `espacigo-main-rollout` sigue habilitado para pushes a `^main$`. La autorización posterior del usuario incluye el lanzamiento del SHA integrado tras completar los gates. Un push de rama de tarea no lo dispara; no publicar main antes de compatibilidad SQL/evidencia y validación del candidato.
+
 ## Fuente y precedencia
 
 1. Este procedimiento define la ruta normal para cambios posteriores a la importación inicial.

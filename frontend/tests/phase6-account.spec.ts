@@ -138,6 +138,7 @@ test("@phase6 @controlled /mi-cuenta: 404 inicial muestra estado sin configurar 
           roles: ["arrendatario", "anfitrion"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
         },
       };
     }
@@ -242,6 +243,7 @@ test("@phase6 @controlled foto sintética: generar foto (PUT /profile/photo) car
           roles: ["arrendatario"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
         },
       };
     }
@@ -365,6 +367,7 @@ test("@phase6 @controlled cuenta de cobro fake: PUT /payout-account crea referen
           roles: ["anfitrion"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
         },
       };
     }
@@ -498,6 +501,7 @@ test("@phase6 @controlled /mi-cuenta/privacidad: registrar solicitud ARCO (POST 
           roles: ["arrendatario"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
         },
       };
     }
@@ -628,6 +632,7 @@ test("@phase6 @controlled /mi-cuenta/seguridad: actualizar contraseña (POST /au
           roles: ["arrendatario"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
         },
       };
     }
@@ -718,6 +723,7 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: visualización de elegibili
           roles: ["anfitrion"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
         },
       };
     }
@@ -1064,6 +1070,7 @@ test("@phase6 @a11y account routes fit both viewports and have no Axe violations
           roles: ["arrendatario", "anfitrion"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
         },
       };
     }

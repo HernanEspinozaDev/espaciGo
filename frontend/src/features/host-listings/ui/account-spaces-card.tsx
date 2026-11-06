@@ -14,14 +14,14 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { useHostListings } from "./use-host-listings";
 
 export function AccountSpacesCard() {
-  const { snapshot: auth } = useAuth();
+  const { snapshot: auth, accessToken } = useAuth();
   const { snapshot, loadListings } = useHostListings();
 
   useEffect(() => {
-    if (auth.status === "authenticated") {
-      void loadListings().catch(() => undefined);
+    if (auth.status === "authenticated" && accessToken) {
+      void loadListings(accessToken).catch(() => undefined);
     }
-  }, [auth.status, loadListings]);
+  }, [auth.status, accessToken, loadListings]);
 
   const listings = snapshot.listings;
   const counts = {
@@ -50,7 +50,10 @@ export function AccountSpacesCard() {
               <button
                 type="button"
                 className="underline"
-                onClick={() => void loadListings().catch(() => undefined)}
+                onClick={() =>
+                  accessToken &&
+                  void loadListings(accessToken).catch(() => undefined)
+                }
               >
                 Intentar de nuevo
               </button>

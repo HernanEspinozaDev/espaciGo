@@ -34,7 +34,7 @@ type FilterStatus = "all" | "borrador" | "activa" | "oculta";
 const PAGE_SIZE = 6;
 
 export function HostListingsList() {
-  const { snapshot: authSnapshot } = useAuth();
+  const { snapshot: authSnapshot, accessToken } = useAuth();
   const {
     snapshot,
     loadListings,
@@ -52,12 +52,12 @@ export function HostListingsList() {
   const [operatingId, setOperatingId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (authSnapshot.status === "authenticated") {
-      loadListings().catch(() => {
+    if (authSnapshot.status === "authenticated" && accessToken) {
+      loadListings(accessToken).catch(() => {
         // Error is set in snapshot.error
       });
     }
-  }, [authSnapshot.status, loadListings]);
+  }, [authSnapshot.status, accessToken, loadListings]);
 
   const allListings = snapshot.listings;
   const filteredListings = allListings.filter((item) => {
@@ -82,17 +82,17 @@ export function HostListingsList() {
   };
 
   const handlePublish = async (listingId: string) => {
-    if (authSnapshot.status !== "authenticated") return;
+    if (authSnapshot.status !== "authenticated" || !accessToken) return;
     setActionError(null);
     setActionSuccess(null);
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        const detail = await selectListing(listingId);
+        const detail = await selectListing(accessToken, listingId);
         if (!detail?.etag || authSnapshot.status !== "authenticated") {
           throw new Error("No fue posible obtener la revisión del espacio");
         }
-        await publishListing(listingId, detail.etag);
+        await publishListing(accessToken, listingId, detail.etag);
         setActionSuccess("Espacio publicado exitosamente con estado activo.");
       } catch (err) {
         const message =
@@ -107,17 +107,17 @@ export function HostListingsList() {
   };
 
   const handleArchive = async (listingId: string) => {
-    if (authSnapshot.status !== "authenticated") return;
+    if (authSnapshot.status !== "authenticated" || !accessToken) return;
     setActionError(null);
     setActionSuccess(null);
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        const detail = await selectListing(listingId);
+        const detail = await selectListing(accessToken, listingId);
         if (!detail?.etag || authSnapshot.status !== "authenticated") {
           throw new Error("No fue posible obtener la revisión del espacio");
         }
-        await archiveListing(listingId, detail.etag);
+        await archiveListing(accessToken, listingId, detail.etag);
         setActionSuccess(
           "Espacio archivado. Ya no será visible en el catálogo público.",
         );
@@ -134,7 +134,7 @@ export function HostListingsList() {
   };
 
   const handleRetirePublication = async (listingId: string, title: string) => {
-    if (authSnapshot.status !== "authenticated") return;
+    if (authSnapshot.status !== "authenticated" || !accessToken) return;
     const confirmed = window.confirm(
       `¿Retirar la publicación "${title}" del catálogo? Las reservas e historiales se conservarán; esto no elimina el espacio físicamente.`,
     );
@@ -145,7 +145,7 @@ export function HostListingsList() {
     setOperatingId(listingId);
     startTransition(async () => {
       try {
-        await deleteListing(listingId);
+        await deleteListing(accessToken, listingId);
         setActionSuccess("Publicación retirada correctamente.");
       } catch (err) {
         const message =

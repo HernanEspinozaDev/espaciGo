@@ -11,3 +11,23 @@ export const hostListingsFacade = new HostListingsFacade(
   authFacade,
   () => privateBlobUrls.clear(),
 );
+
+import { createHostListingsFeatureBridge } from "./application/host-listings-feature-bridge";
+import { ListingReturnsFacade } from "./application/listing-returns-facade";
+import { ListingReturnsOpenApiAdapter } from "./infrastructure/listing-returns-openapi-adapter";
+
+export const hostListingsFeatureBridge = createHostListingsFeatureBridge(
+  hostListingsFacade,
+  authFacade,
+);
+export const listingReturnsFacade = new ListingReturnsFacade(
+  new ListingReturnsOpenApiAdapter(),
+);
+let returnScope = authFacade.getAccessToken();
+authFacade.subscribe(() => {
+  const next = authFacade.getAccessToken();
+  if (next !== returnScope) {
+    returnScope = next;
+    listingReturnsFacade.clear();
+  }
+});

@@ -1,7 +1,17 @@
 import type { components, operations } from "@/lib/api/generated/openapi";
 
-export type PublicSpace = components["schemas"]["PublicSpace"];
-export type PublicSpaceDetail = components["schemas"]["PublicSpaceDetail"];
+export type PublicSpace = Omit<
+  components["schemas"]["PublicSpace"],
+  "verification"
+> & {
+  verification: import("./verification").PublicVerification;
+};
+export type PublicSpaceDetail = Omit<
+  components["schemas"]["PublicSpaceDetail"],
+  "verification"
+> & {
+  verification: import("./verification").PublicVerification;
+};
 export type PublicSpaceImageRef = components["schemas"]["PublicSpaceImageRef"];
 export type PublicSpaceCategory = components["schemas"]["PublicSpaceCategory"];
 export type PublicLocation = components["schemas"]["PublicLocation"];
@@ -42,7 +52,12 @@ export type CatalogFailure = {
 export type CatalogResult<T> =
   { ok: true; value: T } | { ok: false; error: CatalogFailure };
 
-export type PublicSpacePage = components["schemas"]["PublicSpacePage"];
+export type PublicSpacePage = Omit<
+  components["schemas"]["PublicSpacePage"],
+  "items"
+> & {
+  items: PublicSpace[];
+};
 export type PublicSpaceCategories =
   components["schemas"]["PublicSpaceCategories"];
 export type PublicCategoryFilters =

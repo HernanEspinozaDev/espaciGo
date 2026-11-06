@@ -1,0 +1,102 @@
+-- Cloud SQL espacigo_dms_stage_20261020 preparation for V81 only.
+-- BLOCKED DRAFT: not an approved application plan. The public-object pin below
+-- comes from V75 and must be reconciled after the V76..V80 rehearsal. V79 adds
+-- documentary tables; the V75 inventory cannot certify a V80 precondition.
+-- Role-creation authority, full ACL readback and V82/V83 remain untested here.
+-- Proposal: reviewable, transactional, and intentionally NOT executed here.
+-- Run only after V80 is committed (ledger 1..80); apply V81 afterward via
+-- the versioned runner as espacigo_migrator_login SET ROLE espacigo_schema_owner.
+BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
+
+DO $guard$
+DECLARE
+    n bigint;
+BEGIN
+    IF current_database() <> 'espacigo_dms_stage_20261020'
+       OR session_user <> 'postgres' OR current_user <> 'postgres'
+       OR current_setting('server_version_num')::integer / 10000 <> 18 THEN
+        RAISE EXCEPTION 'wrong database, identity, or PostgreSQL major version';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.schema_migrations WHERE version=80)
+       OR EXISTS (SELECT 1 FROM public.schema_migrations WHERE version>80)
+       OR (SELECT count(*) FROM public.schema_migrations) <> 80
+       OR (SELECT min(version) FROM public.schema_migrations) <> 1
+       OR (SELECT max(version) FROM public.schema_migrations) <> 80 THEN
+        RAISE EXCEPTION 'expected contiguous ledger 1..80; verify exact V1..V80 checksums externally';
+    END IF;
+    IF (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f','S','i','I')) <> 416
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+                   WHERE n.nspname='public' AND c.relowner <> 'postgres'::regrole) THEN
+        RAISE EXCEPTION 'public object inventory/ownership differs from reviewed snapshot';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='postgres' AND rolcreaterole AND NOT rolsuper)
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolbypassrls AND NOT rolinherit)
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_api_login' AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolbypassrls)
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_migrator_login' AND rolcanlogin AND NOT rolinherit AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolbypassrls)
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname IN ('espacigo_schema_owner','espacigo_document_verification_fn'))
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname='document_verification_private') THEN
+        RAISE EXCEPTION 'role/schema snapshot differs; stop for separate review';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles r ON r.oid=m.roleid JOIN pg_catalog.pg_roles u ON u.oid=m.member WHERE r.rolname='espacigo_runtime' AND u.rolname='espacigo_api_login' AND m.inherit_option AND m.set_option AND NOT m.admin_option)
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m JOIN pg_catalog.pg_roles u ON u.oid=m.member WHERE u.rolname='espacigo_migrator_login') THEN
+        RAISE EXCEPTION 'API/runtime or migrator membership differs from reviewed snapshot';
+    END IF;
+END;
+$guard$;
+
+-- postgres is the observed non-superuser CREATEROLE account and owns the
+-- existing schema objects. No existing object ownership is transferred.
+CREATE ROLE espacigo_schema_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE ROLE espacigo_document_verification_fn NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT;
+CREATE SCHEMA document_verification_private AUTHORIZATION espacigo_document_verification_fn;
+GRANT USAGE ON SCHEMA public TO espacigo_document_verification_fn;
+
+-- Six exact helper column grants required by immutable V81; grantor is postgres.
+GRANT SELECT (id, estado), UPDATE (id) ON TABLE public.usuario TO espacigo_document_verification_fn;
+GRANT SELECT (id, propietario_id), UPDATE (id) ON TABLE public.espacio TO espacigo_document_verification_fn;
+
+-- V81 SET ROLE edges. Memberships are not inherited and cannot be delegated.
+GRANT espacigo_schema_owner TO espacigo_migrator_login WITH INHERIT FALSE, SET TRUE, ADMIN FALSE;
+GRANT espacigo_document_verification_fn TO espacigo_schema_owner WITH INHERIT FALSE, SET TRUE, ADMIN FALSE;
+ALTER ROLE espacigo_api_login NOINHERIT;
+GRANT espacigo_runtime TO espacigo_api_login WITH INHERIT FALSE, SET TRUE, ADMIN FALSE;
+
+-- Restrict migration ledger to its intended writer; preserve owner access.
+REVOKE ALL PRIVILEGES ON TABLE public.schema_migrations FROM espacigo_migrator_login;
+GRANT SELECT, INSERT ON TABLE public.schema_migrations TO espacigo_schema_owner;
+
+DO $postcheck$
+BEGIN
+    IF (SELECT count(*) FROM public.schema_migrations) <> 80
+       OR (SELECT max(version) FROM public.schema_migrations) <> 80
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace n JOIN pg_catalog.pg_roles r ON r.oid=n.nspowner WHERE n.nspname='document_verification_private' AND r.rolname='espacigo_document_verification_fn')
+       OR pg_catalog.has_schema_privilege('espacigo_migrator_login','public','CREATE')
+       OR pg_catalog.has_schema_privilege('espacigo_schema_owner','public','CREATE')
+       OR pg_catalog.has_schema_privilege('espacigo_runtime','public','CREATE')
+       OR pg_catalog.has_schema_privilege('espacigo_api_login','public','CREATE')
+       OR pg_catalog.has_table_privilege('espacigo_migrator_login','public.schema_migrations','SELECT')
+       OR NOT pg_catalog.has_table_privilege('espacigo_schema_owner','public.schema_migrations','SELECT')
+       OR NOT pg_catalog.has_table_privilege('espacigo_schema_owner','public.schema_migrations','INSERT') THEN
+        RAISE EXCEPTION 'V81 preparation postcondition failed';
+    END IF;
+END;
+$postcheck$;
+COMMIT;
+
+-- V82/V83 preparation is separate and MUST follow successful V81 commit.
+-- V82 CREATE OR REPLACE runs as schema_owner, but PostgreSQL function replacement
+-- requires function ownership (or superuser). The current function is owned by
+-- postgres and V81 does not transfer it. Required narrow operation: after V81,
+-- as postgres, ALTER FUNCTION public.document_verification_space_owner_changed()
+-- OWNER TO espacigo_schema_owner; then verify pg_proc.proowner and signature.
+-- Because that owner cannot CREATE in public, it also cannot create the V81
+-- replacement function in public. V82 itself performs CREATE OR REPLACE, which
+-- requires CREATE on public. Granting CREATE even temporarily widens the role and
+-- defeats V81's explicit invariant. Therefore V82/V83 cannot safely run under
+-- schema_owner as authored without either changing immutable migrations or a
+-- separately approved execution model. Do not include an unrevokable-transaction
+-- grant workaround here. Stop before V82 pending an explicit, reviewed migration
+-- runner/privilege decision; this file does not claim V82/V83 readiness.

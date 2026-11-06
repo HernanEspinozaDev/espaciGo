@@ -1,0 +1,34 @@
+{
+  "baseline_head": "9edd61c405bc01f7f5ac5c46e616a6d3063bdf5f",
+  "merge_head": "7a9dc8244f82277c8d303d14a57be21b68638c4d",
+  "branch": "codex/marketplace/feature/release-83-espacios",
+  "candidate_commit": null,
+  "source_sha256": {
+    "frontend/src/features/host-listings/application/host-listings-facade.ts": "15e1d1ead372e7199453373f05f6ce21d6306c27de37160b44499f6b86c19b63",
+    "frontend/src/features/host-listings/application/host-listings-feature-bridge.ts": "a05e48b8affb5b570490ce776ee8dfe5d305db1f30de93293407c381190cc143",
+    "frontend/src/features/host-listings/ui/use-host-listings.ts": "c33daf7939193eea521bcf40f4f9957f5b5ee7f3719c523a2a9ad697357e0bec",
+    "frontend/src/features/host-listings/ui/listing-gallery.tsx": "72824f25068b5ff99568e8466754c726fac32b5e736546ce3582946fc467070b",
+    "frontend/src/features/host-listings/ui/gallery-upload-batch.tsx": "590568a316bfba4ae2c24d38e219599c78fc1d36f8aa4ea780fc55c30831d740",
+    "frontend/src/features/host-listings/application/gallery-upload-queue.ts": "f10e29e2f4104f5139df90eab91e073b5bda00f0f4be66fa1c7329309a89fbd1",
+    "frontend/src/features/auth/application/auth-facade.ts": "9f6eaba5da45674a29949dc38efa93b7cc22ca9a9905f40b6073637e2e5b6f9f",
+    "frontend/src/app/api/backend/[...path]/route.ts": "ae9b51db8dfa5f33ba2c74e85c0e4aa2166da5eeef3d734104ab245181884c51",
+    "frontend/src/lib/api/client.ts": "047f0cdb98a85cc3eb3f2ac5b5932313ceb12932645c8f8e588ca715e801785e",
+    "planning/openapi.yaml": "27bd7cb559532288f8d5d279a1164b61b95b07d33eed53df18f3bf735df1886c"
+  },
+  "frontend_unit": {
+    "passed": 449,
+    "failed": 0,
+    "skipped": 0
+  },
+  "browser_controlled": {
+    "passed": 139,
+    "failed": 0,
+    "skipped_native": 54
+  },
+  "limits": [
+    "No prueba nativa Go/PostgreSQL nueva",
+    "Sin publicación de main ni despliegue",
+    "Revisión independiente aún por adjudicar",
+    "Documental cloud seguro pendiente de implementación/operaciones concretas"
+  ]
+}

@@ -36,6 +36,18 @@ const items = [
     icon: FileCheck,
     description: "Estado de identidad",
   },
+  {
+    title: "Documentos",
+    href: "/mi-cuenta/documentos",
+    icon: FileCheck,
+    description: "Expedientes privados por finalidad",
+  },
+  {
+    title: "Revisión documental",
+    href: "/mi-cuenta/revision-documental",
+    icon: FileCheck,
+    description: "Asignaciones confirmadas por el servidor",
+  },
 ];
 
 export function AccountNavigation() {

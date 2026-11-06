@@ -6,6 +6,7 @@ import { retainAuthLifecycle } from "../application/auth-lifecycle";
 import type { AuthSnapshot } from "../application/auth-facade";
 import type {
   LoginRequest,
+  AccessToken,
   SessionCapabilities,
 } from "../application/auth.port";
 
@@ -13,6 +14,8 @@ type Capability = SessionCapabilities[number];
 
 export interface AuthView {
   snapshot: AuthSnapshot;
+  accessToken: AccessToken | null;
+  getAccessToken(): AccessToken | null;
   login(input: LoginRequest): Promise<boolean>;
   checkSession(): Promise<boolean>;
   logout(): Promise<void>;
@@ -36,6 +39,7 @@ export function useAuth(): AuthView {
   );
   const checkSession = useCallback(() => authFacade.checkSession(), []);
   const logout = useCallback(() => authFacade.logout(), []);
+  const getAccessToken = useCallback(() => authFacade.getAccessToken(), []);
   const hasCapability = useCallback(
     (capability: Capability) => authFacade.hasCapability(capability),
     [],
@@ -47,6 +51,8 @@ export function useAuth(): AuthView {
 
   return {
     snapshot,
+    accessToken: authFacade.getAccessToken(),
+    getAccessToken,
     login,
     checkSession,
     logout,

@@ -9,7 +9,7 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, isAbortError } from "@/lib/api/errors";
 import { Button } from "@/components/workspace/ui/button";
 import { Input } from "@/components/workspace/ui/input";
 import { Label } from "@/components/workspace/ui/label";
@@ -60,7 +60,7 @@ export function RegistrationScreen() {
       if (!validated) throw new Error("terms_incomplete");
       setDocuments(validated);
     } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
+      if (isAbortError(error)) return;
       setTermsError(
         error instanceof ApiError && error.code === "terms_unavailable"
           ? "El servicio no dispone de documentos vigentes completos. El registro permanece bloqueado."

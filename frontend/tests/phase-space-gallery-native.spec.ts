@@ -1,0 +1,845 @@
+import { expect, test, type Page } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { deflateSync } from "node:zlib";
+import { createHash } from "node:crypto";
+
+function syntheticPng(seed: number, transparent = false): Buffer {
+  const crc = (data: Buffer) => {
+    let value = 0xffffffff;
+    for (const byte of data) {
+      value ^= byte;
+      for (let bit = 0; bit < 8; bit++)
+        value = (value >>> 1) ^ (value & 1 ? 0xedb88320 : 0);
+    }
+    return (value ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (kind: string, body: Buffer) => {
+    const data = Buffer.concat([Buffer.from(kind), body]);
+    const size = Buffer.alloc(4);
+    size.writeUInt32BE(body.length);
+    const checksum = Buffer.alloc(4);
+    checksum.writeUInt32BE(crc(data));
+    return Buffer.concat([size, data, checksum]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(64, 0);
+  header.writeUInt32BE(48, 4);
+  header[8] = 8;
+  header[9] = transparent ? 6 : 2;
+  const channels = transparent ? 4 : 3;
+  const pixels = Buffer.alloc(48 * (1 + 64 * channels));
+  for (let y = 0; y < 48; y++)
+    for (let x = 0; x < 64; x++) {
+      const offset = y * (1 + 64 * channels) + 1 + x * channels;
+      pixels[offset] = (x * 3 + seed * 41) % 256;
+      pixels[offset + 1] = (y * 5 + seed * 23) % 256;
+      pixels[offset + 2] = (x + y + seed * 61) % 256;
+      if (transparent) pixels[offset + 3] = 96;
+    }
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(pixels)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+test.use({ trace: "off", screenshot: "off", video: "off" });
+test.describe.configure({ mode: "serial" });
+
+const enabled = process.env.PHASE_SPACE_GALLERY_NATIVE_E2E === "1";
+const privateDir = process.env.PHASE6_PRIVATE_TESTING_DIR;
+const inventoryPath = process.env.PHASE6_ACCOUNT_INVENTORY_FILE;
+const fixtureSuffix = process.env.PHASE_SPACE_GALLERY_FIXTURE_SUFFIX;
+if (fixtureSuffix && !/^\d{8}-[a-z0-9]{1,8}$/.test(fixtureSuffix)) {
+  throw new Error("Synthetic gallery fixture selector is invalid");
+}
+const fixtureTitle = `F6 local synthetic gallery fixture${fixtureSuffix ? ` ${fixtureSuffix}` : ""}`;
+
+type Account = {
+  slot: string;
+  email: string;
+  password: string;
+  account_id: string;
+  registration_http: number;
+  verification_http: number;
+};
+type GalleryPhoto = {
+  id: string;
+  space_id: string;
+  state?: string;
+  cover?: boolean;
+  position?: number;
+  alt_text?: string;
+  variants?: Array<{ name: string; url: string; sha256: string }>;
+};
+type Space = { id: string; title: string };
+
+function accountFile(): string {
+  if (!privateDir || !path.isAbsolute(privateDir)) {
+    throw new Error("Authorized private test-data directory is unavailable");
+  }
+  const root = path.resolve(privateDir);
+  const selected = inventoryPath
+    ? path.resolve(inventoryPath)
+    : path.resolve(
+        root,
+        "f5-gate-20261101-f5a3/f5-a3-accounts-20261103T102133Z.json",
+      );
+  const relative = path.relative(root, selected);
+  if (
+    (inventoryPath !== undefined &&
+      (!path.isAbsolute(inventoryPath) ||
+        path.resolve(inventoryPath) !== inventoryPath)) ||
+    relative === "" ||
+    relative === ".." ||
+    relative.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error("Authorized private account inventory path is invalid");
+  }
+  return selected;
+}
+
+async function authorizedAccounts() {
+  if (!privateDir || !path.isAbsolute(privateDir)) {
+    throw new Error("Authorized private test-data directory is unavailable");
+  }
+  let policy: {
+    database: { host: string; port: number; name: string };
+    account_policy: { never_print_credentials_or_tokens: boolean };
+  };
+  let inventory: { target: Record<string, unknown>; accounts: Account[] };
+  try {
+    [policy, inventory] = await Promise.all([
+      readFile(path.join(privateDir, "test-account-policy.json"), "utf8").then(
+        (value) => JSON.parse(value) as typeof policy,
+      ),
+      readFile(accountFile(), "utf8").then(
+        (value) => JSON.parse(value) as typeof inventory,
+      ),
+    ]);
+  } catch {
+    throw new Error(
+      "Authorized private synthetic-account materials are unavailable",
+    );
+  }
+  expect(policy.account_policy.never_print_credentials_or_tokens).toBe(true);
+  expect(policy.database).toMatchObject({
+    host: "127.0.0.1",
+    port: 15434,
+    name: "espacigo_f5_gate_20261101",
+  });
+  expect(inventory.target).toMatchObject({
+    host: "127.0.0.1",
+    port: 15434,
+    database: "espacigo_f5_gate_20261101",
+  });
+  const owner = inventory.accounts.find((account) => account.slot === "owner");
+  const other = inventory.accounts.find((account) => account.slot !== "owner");
+  for (const account of [owner, other]) {
+    expect(account?.email).toBeTruthy();
+    expect(account?.password).toBeTruthy();
+    expect(account?.registration_http).toBe(201);
+    expect(account?.verification_http).toBe(204);
+  }
+  return { owner: owner!, other: other! };
+}
+
+async function login(
+  page: Page,
+  account: Account,
+  returnTo = "/anfitrion/espacios",
+) {
+  await page.goto(`/acceso?return_to=${encodeURIComponent(returnTo)}`);
+  const email = page.getByLabel("Correo electrónico");
+  const password = page.getByLabel("Contraseña", { exact: true });
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/backend/auth/login",
+    { timeout: 15_000 },
+  );
+  try {
+    await email.fill(account.email);
+    await password.fill(account.password);
+    const [, response] = await Promise.all([
+      page
+        .getByRole("button", { name: "Iniciar sesión" })
+        .click({ noWaitAfter: true }),
+      responsePromise,
+    ]);
+    expect(response.status()).toBe(200);
+    await expect(page).toHaveURL((url) => url.pathname === returnTo);
+  } catch {
+    await email.fill("", { timeout: 500 }).catch(() => undefined);
+    await password.fill("", { timeout: 500 }).catch(() => undefined);
+    throw new Error(
+      "Authorized synthetic login did not reach its local destination",
+    );
+  }
+}
+
+async function logout(page: Page) {
+  if (new URL(page.url()).pathname !== "/acceso") {
+    const link = page.getByRole("link", { name: "Acceso" });
+    if (await link.count()) await link.first().click();
+  }
+  await expect(page).toHaveURL(/\/acceso$/);
+  await expect(page.getByText("Sesión activa")).toBeVisible();
+  const responsePromise = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/backend/auth/logout",
+    { timeout: 15_000 },
+  );
+  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  expect((await responsePromise).status()).toBe(204);
+  await page
+    .getByLabel("Correo electrónico")
+    .fill("", { timeout: 500 })
+    .catch(() => undefined);
+  await page
+    .getByLabel("Contraseña", { exact: true })
+    .fill("", { timeout: 500 })
+    .catch(() => undefined);
+}
+
+test.skip(
+  !enabled,
+  "Requires the selected native Go API and isolated local database",
+);
+
+test("@space-gallery @native owner creates, edits and independently rehydrates real gallery media", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const { owner, other } = await authorizedAccounts();
+  const baseURL = test.info().project.use.baseURL;
+  expect(typeof baseURL).toBe("string");
+  const origin = new URL(baseURL as string).origin;
+  expect(new URL(origin).hostname).toBe("127.0.0.1");
+  expect(new URL(origin).protocol).toBe("https:");
+  const observed: Array<{
+    path: string;
+    method: string;
+    status?: number;
+    bearer: boolean;
+    cookie: boolean;
+  }> = [];
+  const secrets = [owner.email, owner.password, other.email, other.password];
+  let nonLoopback = false;
+  let crossOrigin = false;
+  let secretInConsole = false;
+  let mayHaveSession = false;
+  let currentSpaceID = "";
+  let galleryPath = "";
+
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (
+      ["http:", "https:"].includes(url.protocol) &&
+      url.hostname !== "127.0.0.1"
+    )
+      nonLoopback = true;
+    if (
+      !url.pathname.startsWith("/api/backend/spaces/") ||
+      !url.pathname.includes("/gallery")
+    )
+      return;
+    if (url.origin !== origin) crossOrigin = true;
+    const headers = request.headers();
+    observed.push({
+      path: url.pathname,
+      method: request.method(),
+      bearer: headers.authorization?.startsWith("Bearer ") ?? false,
+      cookie: "cookie" in headers,
+    });
+  });
+  page.on("response", (response) => {
+    const item = observed.findLast(
+      (request) =>
+        request.path === new URL(response.url()).pathname &&
+        request.method === response.request().method() &&
+        request.status === undefined,
+    );
+    if (item) item.status = response.status();
+  });
+  page.on("console", (message) => {
+    const text = message.text();
+    if (
+      secrets.some((secret) => text.includes(secret)) ||
+      /\b(?:bearer\s+\S+|access[_ -]?token|authorization)\b/i.test(text)
+    )
+      secretInConsole = true;
+  });
+
+  try {
+    mayHaveSession = true;
+    await login(page, owner);
+    const listPromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/backend/spaces" &&
+        response.request().method() === "GET",
+    );
+    await page.goto("/anfitrion/espacios");
+    const listResponse = await listPromise;
+    expect(listResponse.status()).toBe(200);
+    const spaces = (await listResponse.json()) as { items: Space[] };
+    let space = spaces.items.find((item) => item.title === fixtureTitle);
+    if (space && fixtureSuffix) {
+      throw new Error(
+        "This native creation gate requires a fresh synthetic fixture selector",
+      );
+    }
+    if (!space) {
+      await page
+        .getByRole("link", { name: "Publicar un espacio" })
+        .first()
+        .click();
+      await expect(
+        page.locator('#wizard-category option[value="oficina"]'),
+      ).toHaveCount(1, { timeout: 15_000 });
+      await page.locator("#wizard-category").selectOption("oficina");
+      await page.locator("#wizard-title").fill(fixtureTitle);
+      await page
+        .locator("#wizard-description")
+        .fill(
+          "Espacio sintético local de ensayo para verificar el recorrido de galería y publicación. No corresponde a una oferta real ni contiene información de personas reales.",
+        );
+      await page.getByRole("button", { name: "Siguiente" }).click();
+      await page
+        .locator("#wizard-address")
+        .fill("Dirección sintética local de ensayo");
+      await page.locator("#wizard-region").selectOption("13");
+      await page.locator("#wizard-comuna").fill("13101");
+      await page.locator("#wizard-area").fill("35");
+      await page.locator("#wizard-capacity").fill("2");
+      await page.getByRole("checkbox", { name: "Wi-Fi", exact: true }).check();
+      await page.getByRole("button", { name: "Siguiente" }).click();
+      await page.locator("#wizard-rate-unit").selectOption("hora");
+      await page.locator("#wizard-price").fill("6000");
+      await page.getByRole("button", { name: "Siguiente" }).click();
+      await page.getByRole("button", { name: "Siguiente" }).click();
+      await expect(page.getByText(/clave de idempotencia/i)).toHaveCount(0);
+      const creation = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === "/api/backend/spaces" &&
+          response.request().method() === "POST",
+      );
+      const configuredTimeZone = page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname.endsWith("/availability") &&
+          response.request().method() === "PUT",
+      );
+      await page
+        .getByRole("button", { name: "Crear espacio y continuar a edición" })
+        .click();
+      const created = await creation;
+      expect(created.status()).toBe(201);
+      expect(created.request().headers()["idempotency-key"]).toBeUndefined();
+      const data = (await created.json()) as { id: string };
+      expect((await configuredTimeZone).status()).toBe(200);
+      await expect(page).toHaveURL(
+        (url) => url.pathname === `/anfitrion/espacios/${data.id}/editar`,
+      );
+      space = { id: data.id, title: fixtureTitle };
+    }
+    currentSpaceID = space!.id;
+    galleryPath = `/api/backend/spaces/${encodeURIComponent(currentSpaceID)}/gallery`;
+
+    await page.goto(`/anfitrion/espacios/${currentSpaceID}/editar`);
+    await expect(page.locator("h1")).toContainText(fixtureTitle);
+    await page.reload();
+    await expect(page.locator("h1")).toContainText(fixtureTitle);
+    const editedTitle = `${fixtureTitle} editado`;
+    await page.locator("#editor-title").fill(editedTitle);
+    const editResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/backend/spaces/${currentSpaceID}` &&
+        response.request().method() === "PUT",
+    );
+    await page.getByRole("button", { name: "Guardar contenido" }).click();
+    expect((await editResponse).status()).toBe(200);
+    await page.reload();
+    await expect(page.locator("h1")).toContainText(editedTitle);
+    await page.getByRole("tab", { name: /Fotografías/ }).click();
+    await expect(
+      page.getByRole("tabpanel", { name: /Fotografías/ }),
+    ).toBeVisible();
+
+    const galleryRead = async () => {
+      const response = await page.request.get(`${origin}${galleryPath}`);
+      expect(response.status()).toBe(200);
+      return (await response.json()) as {
+        items: GalleryPhoto[];
+        max_photos: number;
+      };
+    };
+    let gallery = await galleryRead();
+    expect(gallery.max_photos).toBe(30);
+
+    let activeUploads = 0;
+    let maximumUploads = 0;
+
+    page.on("request", (request) => {
+      if (
+        new URL(request.url()).pathname === galleryPath &&
+        request.method() === "POST"
+      ) {
+        activeUploads++;
+        maximumUploads = Math.max(maximumUploads, activeUploads);
+      }
+    });
+    page.on("response", (response) => {
+      if (
+        new URL(response.url()).pathname === galleryPath &&
+        response.request().method() === "POST"
+      )
+        activeUploads--;
+    });
+    const qualityDir = process.env.PHASE_SPACE_GALLERY_QUALITY_INPUT_DIR;
+    const qualityInputs: Array<{
+      name: string;
+      mimeType: string;
+      buffer: Buffer;
+    }> = [];
+    if (qualityDir) {
+      expect(path.isAbsolute(qualityDir)).toBe(true);
+      for (const format of ["jpeg", "webp"]) {
+        const name = `codec-${format}.${format}`;
+        const buffer = await readFile(path.join(qualityDir, name));
+        const metadata = JSON.parse(
+          await readFile(path.join(qualityDir, name + ".json"), "utf8"),
+        );
+        expect(createHash("sha256").update(buffer).digest("hex")).toBe(
+          metadata.input_sha256,
+        );
+        expect(metadata.rejected_at_approved_floor).toBe(false);
+        qualityInputs.push({ name, mimeType: `image/${format}`, buffer });
+      }
+    }
+    await expect(page.locator("#gallery-photo-upload")).toBeEnabled();
+    await page.locator("#gallery-photo-upload").setInputFiles(
+      [1, 2, 3].map(
+        (seed) =>
+          qualityInputs[seed - 2] ?? {
+            name: `synthetic-${seed}.png`,
+            mimeType: "image/png",
+            buffer: syntheticPng(seed, seed === 1),
+          },
+      ),
+    );
+    await expect(
+      page.locator(
+        '[data-testid="gallery-upload-item"][data-upload-state="ready"]',
+      ),
+    ).toHaveCount(3);
+    await expect.poll(async () => (await galleryRead()).items.length).toBe(3);
+    expect(maximumUploads).toBe(2);
+    const uploadRequests = observed.filter(
+      (request) => request.path === galleryPath && request.method === "POST",
+    );
+    expect(uploadRequests.length).toBe(3);
+    expect(uploadRequests.every((request) => request.status === 201)).toBe(
+      true,
+    );
+    if (qualityDir) {
+      const uploaded = (await galleryRead()).items;
+      for (let index = 0; index < qualityInputs.length; index++) {
+        const expected = JSON.parse(
+          await readFile(
+            path.join(qualityDir, qualityInputs[index].name + ".json"),
+            "utf8",
+          ),
+        );
+        // Concurrent uploads may commit in either order. Bind the binary
+        // assertion to the independently encoded content, not its list index.
+        const photo = uploaded.find((p) =>
+          p.variants?.some(
+            (v) => v.name === "display" && v.sha256 === expected.display.sha256,
+          ),
+        );
+        expect(photo).toBeDefined();
+        for (const name of ["display", "thumbnail"]) {
+          const actual = await page.evaluate(async (uri) => {
+            const response = await fetch(uri, { credentials: "include" });
+            const bytes = await response.arrayBuffer();
+            const bitmap = await createImageBitmap(
+              new Blob([bytes], {
+                type: response.headers.get("content-type") ?? "",
+              }),
+            );
+            const digest = await crypto.subtle.digest("SHA-256", bytes);
+            const result = {
+              status: response.status,
+              mime: response.headers.get("content-type"),
+              bytes: bytes.byteLength,
+              width: bitmap.width,
+              height: bitmap.height,
+              sha256: Array.from(new Uint8Array(digest), (b) =>
+                b.toString(16).padStart(2, "0"),
+              ).join(""),
+            };
+            bitmap.close();
+            return result;
+          }, `${galleryPath}/${photo!.id}/variants/${name}`);
+          expect(actual).toEqual({
+            status: 200,
+            mime: "image/webp",
+            ...expected[name],
+          });
+          expect(actual.bytes).toBeLessThanOrEqual(
+            name === "display" ? 614400 : 102400,
+          );
+          if (name === "display")
+            expect([actual.width, actual.height]).toEqual([1280, 960]);
+        }
+      }
+      const name = "overfloor.png";
+      const buffer = await readFile(path.join(qualityDir, name));
+      const metadata = JSON.parse(
+        await readFile(path.join(qualityDir, name + ".json"), "utf8"),
+      );
+      expect(createHash("sha256").update(buffer).digest("hex")).toBe(
+        metadata.input_sha256,
+      );
+      expect(metadata.rejected_at_approved_floor).toBe(true);
+      const rejectedResponse = page.waitForResponse(
+        (r) =>
+          new URL(r.url()).pathname === galleryPath &&
+          r.request().method() === "POST",
+      );
+      await expect(page.locator("#gallery-photo-upload")).toBeEnabled();
+      await page
+        .locator("#gallery-photo-upload")
+        .setInputFiles({ name, mimeType: "image/png", buffer });
+      expect([400, 422].includes((await rejectedResponse).status())).toBe(true);
+      expect(JSON.stringify((await galleryRead()).items)).toBe(
+        JSON.stringify(uploaded),
+      );
+      const discard = page.getByRole("button", {
+        name: "Descartar carga fallida",
+        exact: true,
+      });
+      await expect(discard).toBeVisible();
+      await discard.click();
+      await expect(page.locator("#gallery-photo-upload")).toBeEnabled();
+      console.info(
+        "NATIVE_GALLERY_TWO_APPROVED_FALLBACKS_BYTES_SHA_DIMENSIONS_AND_OVERFLOOR_REJECTION_PASS",
+      );
+    }
+    const createdPhotoID = (await galleryRead()).items[1]!.id;
+    await expect
+      .poll(async () =>
+        page
+          .locator('[data-testid="gallery-photo"] img')
+          .evaluateAll((images) =>
+            images
+              .map((image) => {
+                if (
+                  !(image instanceof HTMLImageElement) ||
+                  !image.complete ||
+                  !image.naturalWidth
+                )
+                  return -1;
+                const canvas = document.createElement("canvas");
+                canvas.width = image.naturalWidth;
+                canvas.height = image.naturalHeight;
+                const context = canvas.getContext("2d");
+                if (!context) return -1;
+                context.drawImage(image, 0, 0);
+                return context.getImageData(0, 0, 1, 1).data[3];
+              })
+              .sort((a, b) => a - b),
+          ),
+      )
+      .toEqual([96, 255, 255]);
+
+    gallery = await galleryRead();
+    expect(gallery.items.some((photo) => photo.id === createdPhotoID)).toBe(
+      true,
+    );
+    expect(gallery.items.length).toBeGreaterThanOrEqual(1);
+    expect(
+      gallery.items.every(
+        (photo, index) =>
+          photo.position === undefined || photo.position === index + 1,
+      ),
+    ).toBe(true);
+    const card = (id: string) =>
+      page.locator(`[data-testid="gallery-photo"][data-photo-id="${id}"]`);
+    if (qualityDir)
+      console.info(
+        "GALLERY_AFTER_QUALITY_CONTROLS",
+        JSON.stringify({
+          photos: gallery.items.map((p) => ({
+            position: p.position,
+            cover: p.cover,
+          })),
+          targetCover: gallery.items.find((p) => p.id === createdPhotoID)
+            ?.cover,
+          targetButtons: await card(createdPhotoID)
+            .getByRole("button", { name: "Marcar portada" })
+            .count(),
+          disabled: await card(createdPhotoID)
+            .getByRole("button", { name: "Marcar portada" })
+            .evaluateAll((nodes) =>
+              nodes.map((node) => (node as HTMLButtonElement).disabled),
+            ),
+          alerts: (await page.getByRole("alert").allTextContents()).map(
+            (text) => ({
+              uncertainty: /pendiente|confirmar|actualiza/i.test(text),
+              invalidImage: /inválid|formato|imagen/i.test(text),
+            }),
+          ),
+        }),
+      );
+    await expect(
+      card(createdPhotoID).getByRole("button", { name: "Marcar portada" }),
+    ).toBeEnabled({ timeout: 10_000 });
+    const coverResponse = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/backend/spaces/${currentSpaceID}/cover` &&
+        response.request().method() === "PUT",
+    );
+    await card(createdPhotoID)
+      .getByRole("button", { name: "Marcar portada" })
+      .click();
+    expect((await coverResponse).status()).toBe(200);
+    await expect
+      .poll(
+        async () =>
+          (await galleryRead()).items.find(
+            (photo) => photo.id === createdPhotoID,
+          )?.cover,
+      )
+      .toBe(true);
+    const cover = await galleryRead();
+    expect(cover.items.filter((photo) => photo.cover).length).toBe(1);
+
+    await card(createdPhotoID)
+      .getByRole("button", { name: "Mover foto antes" })
+      .click();
+    await expect
+      .poll(
+        async () =>
+          (await galleryRead()).items.find(
+            (photo) => photo.id === createdPhotoID,
+          )?.position,
+      )
+      .toBe(1);
+    const replacementPath = `${galleryPath}/${createdPhotoID}/content`;
+    const priorPhoto = (await galleryRead()).items.find(
+      (photo) => photo.id === createdPhotoID,
+    )!;
+    await expect(
+      card(createdPhotoID).getByLabel("Reemplazar fotografía"),
+    ).toBeEnabled();
+    const failedReplace = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === replacementPath &&
+        response.request().method() === "PUT",
+    );
+    await card(createdPhotoID)
+      .getByLabel("Reemplazar fotografía")
+      .setInputFiles({
+        name: "invalid.png",
+        mimeType: "image/png",
+        buffer: Buffer.from("not a valid image"),
+      });
+    const rejected = await failedReplace;
+    expect(rejected.status()).toBeGreaterThanOrEqual(400);
+    const afterFailure = await galleryRead();
+    expect(
+      JSON.stringify(
+        afterFailure.items.find((photo) => photo.id === createdPhotoID),
+      ) === JSON.stringify(priorPhoto),
+    ).toBe(true);
+    await expect(
+      card(createdPhotoID).getByLabel("Reemplazar fotografía"),
+    ).toBeEnabled();
+    expect(
+      afterFailure.items.some(
+        (photo) =>
+          photo.id === createdPhotoID && photo.cover && photo.position === 1,
+      ),
+    ).toBe(true);
+    const successReplace = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === replacementPath &&
+        response.request().method() === "PUT",
+    );
+    await card(createdPhotoID)
+      .getByLabel("Reemplazar fotografía")
+      .setInputFiles({
+        name: "replacement.png",
+        mimeType: "image/png",
+        buffer: syntheticPng(4),
+      });
+    const replaced = await successReplace;
+    expect(replaced.status()).toBe(201);
+    const newPhoto = ((await replaced.json()) as { photo: GalleryPhoto }).photo;
+    await expect
+      .poll(async () =>
+        (await galleryRead()).items.some(
+          (photo) =>
+            photo.id === newPhoto.id && photo.cover && photo.position === 1,
+        ),
+      )
+      .toBe(true);
+    expect(
+      (await galleryRead()).items.some((photo) => photo.id === createdPhotoID),
+    ).toBe(false);
+    page.once("dialog", async (dialog) => {
+      expect(dialog.type()).toBe("confirm");
+      await dialog.accept();
+    });
+    const removed = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === `${galleryPath}/${newPhoto.id}` &&
+        response.request().method() === "DELETE",
+    );
+    await card(newPhoto.id)
+      .getByRole("button", { name: "Eliminar foto" })
+      .click();
+    const removalResponse = await removed;
+    expect(removalResponse.status()).toBe(200);
+    const removal = (await removalResponse.json()) as {
+      removed: boolean;
+      photo_id: string;
+    };
+    expect(removal.removed).toBe(true);
+    expect(removal.photo_id === newPhoto.id).toBe(true);
+    await expect.poll(async () => (await galleryRead()).items.length).toBe(2);
+
+    // Removing the cover clears it by contract; explicitly choose a surviving photo.
+    const survivingPhoto = (await galleryRead()).items[0]!;
+    await card(survivingPhoto.id)
+      .getByRole("button", { name: "Marcar portada" })
+      .click();
+    await expect
+      .poll(
+        async () => (await galleryRead()).items.filter((p) => p.cover).length,
+      )
+      .toBe(1);
+
+    // Repetitive cap setup uses the real same-origin BFF, not mocks or SQL.
+    for (let seed = 10; (await galleryRead()).items.length < 30; seed++) {
+      const response = await page.request.post(`${origin}${galleryPath}`, {
+        headers: { Origin: origin, "Idempotency-Key": crypto.randomUUID() },
+        multipart: {
+          image: {
+            name: `capacity-${seed}.png`,
+            mimeType: "image/png",
+            buffer: syntheticPng(seed),
+          },
+        },
+      });
+      expect(response.status()).toBe(201);
+    }
+    const overflow = await page.request.post(`${origin}${galleryPath}`, {
+      headers: { Origin: origin, "Idempotency-Key": crypto.randomUUID() },
+      multipart: {
+        image: {
+          name: "overflow.png",
+          mimeType: "image/png",
+          buffer: syntheticPng(99),
+        },
+      },
+    });
+    expect(overflow.status()).toBe(409);
+    expect((await galleryRead()).items.length).toBe(30);
+
+    // Reload forces independent server hydration instead of trusting optimistic UI state.
+    await page.reload();
+    await page.getByRole("tab", { name: /Fotografías/ }).click();
+    gallery = await galleryRead();
+    expect(gallery.items.length).toBe(30);
+    await expect(page.getByTestId("gallery-photo")).toHaveCount(30);
+    await expect(
+      page.getByTestId("gallery-photo").first().getByRole("img"),
+    ).toBeVisible();
+    await expect
+      .poll(async () =>
+        page
+          .getByTestId("gallery-photo")
+          .getByRole("img")
+          .evaluateAll((images) =>
+            images.every(
+              (image) =>
+                image instanceof HTMLImageElement &&
+                image.complete &&
+                image.naturalWidth > 0,
+            ),
+          ),
+      )
+      .toBe(true);
+    for (const viewport of [
+      { width: 1365, height: 900 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      const accessibility = await new AxeBuilder({ page })
+        .include('[role="tabpanel"]')
+        .analyze();
+      expect(accessibility.violations.map((violation) => violation.id)).toEqual(
+        [],
+      );
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    }
+    await page.setViewportSize({ width: 1365, height: 900 });
+    await expect(
+      page.getByRole("button", { name: "Publicar", exact: true }),
+    ).toBeEnabled();
+    const publication = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/backend/spaces/${currentSpaceID}/publication` &&
+        response.request().method() === "PUT",
+    );
+    await page.getByRole("button", { name: "Publicar", exact: true }).click();
+    expect((await publication).status()).toBe(200);
+    const persisted = await page.request.get(
+      `${origin}/api/backend/spaces/${currentSpaceID}`,
+    );
+    expect(persisted.status()).toBe(200);
+    expect(((await persisted.json()) as { state: string }).state).toBe(
+      "activa",
+    );
+
+    for (const request of observed) {
+      expect(
+        request.bearer,
+        "Browser requests must not carry an opaque bearer",
+      ).toBe(false);
+    }
+    expect(nonLoopback).toBe(false);
+    expect(crossOrigin).toBe(false);
+    expect(secretInConsole).toBe(false);
+    await logout(page);
+    mayHaveSession = false;
+
+    // A different authorized account must not read another owner's gallery.
+    mayHaveSession = true;
+    await login(page, other, `/anfitrion/espacios/${currentSpaceID}/editar`);
+    const denied = await page.request.get(`${origin}${galleryPath}`);
+    expect(denied.status()).toBe(403);
+    const denial = (await denied.json()) as {
+      error?: { code?: string };
+      items?: unknown;
+    };
+    expect(denial.error?.code).toBe("forbidden");
+    expect(denial.items).toBeUndefined();
+    await logout(page);
+    mayHaveSession = false;
+  } finally {
+    if (mayHaveSession) await logout(page).catch(() => undefined);
+  }
+});

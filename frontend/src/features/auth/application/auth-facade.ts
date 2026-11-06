@@ -10,6 +10,7 @@ import {
 import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 import type {
   AuthPort,
+  AccessToken,
   CurrentAuthSession,
   LoginRequest,
   SessionCapabilities,
@@ -294,6 +295,32 @@ export class AuthFacade {
 
   canRenderCapability(capability: Capability): boolean {
     return !this.getSnapshot().restrictedMode && this.hasCapability(capability);
+  }
+
+  getAccessToken(): AccessToken | null {
+    const snapshot = this.getSnapshot();
+    if (snapshot.status !== "authenticated") return null;
+    // Scope marker only: the Go credential remains in the HttpOnly cookie.
+    return `bff-session:${encodeURIComponent(
+      JSON.stringify([
+        this.#generation,
+        snapshot.accountId,
+        [...snapshot.roles].sort(),
+        [...snapshot.capabilities].sort(),
+        snapshot.restrictedMode,
+      ]),
+    )}`;
+  }
+
+  async runAuthenticatedOperation<T>(
+    operation: (scope: AccessToken, signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const scope = this.getAccessToken();
+    if (!scope) throw new DOMException("La sesión cambió.", "AbortError");
+    return this.runAuthenticated(async (signal) => ({
+      response: new Response(null, { status: 204 }),
+      value: await operation(scope, signal),
+    }));
   }
 
   async runAuthenticated<T>(

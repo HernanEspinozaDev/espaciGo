@@ -812,6 +812,7 @@ test("@phase5 @controlled login 401 is generic and confirmed login honors only a
           roles: ["arrendatario"],
           capabilities: [],
           restricted_mode: false,
+          expires_at: new Date(Date.now() + 60_000).toISOString(),
         },
       };
     }

@@ -53,6 +53,20 @@ function isAuthError(error: unknown): boolean {
   );
 }
 
+function shouldRefreshGallery(error: unknown): boolean {
+  if (!error || typeof error !== "object") return true;
+  const candidate = error as { status?: unknown; statusCode?: unknown };
+  const status = candidate.status ?? candidate.statusCode;
+  return (
+    typeof status !== "number" ||
+    status < 400 ||
+    status >= 500 ||
+    status === 408 ||
+    status === 409 ||
+    status === 412
+  );
+}
+
 export interface HostListingsSnapshot {
   readonly categories: readonly Category[];
   readonly categorySchemas: Readonly<Record<string, CategoryProfileSchema>>;
@@ -67,6 +81,7 @@ export interface HostListingsSnapshot {
     readonly categoryCode?: string;
   };
   readonly loading: boolean;
+  readonly galleryNeedsRefresh: boolean;
   readonly error: string | null;
 }
 
@@ -83,6 +98,7 @@ const initialSnapshot: HostListingsSnapshot = Object.freeze({
     status: "all",
   }),
   loading: false,
+  galleryNeedsRefresh: false,
   error: null,
 });
 
@@ -100,6 +116,8 @@ export class HostListingsFacade {
   #snapshot: HostListingsSnapshot = initialSnapshot;
   #listeners = new Set<() => void>();
   #epoch = 0;
+  #selectionGeneration = 0;
+  #photoReadGeneration = new Map<string, number>();
 
   constructor(
     port: HostListingsPort,
@@ -407,13 +425,13 @@ export class HostListingsFacade {
   }
 
   async selectListing(listingId: string): Promise<ListingDetail | null> {
+    this.#selectionGeneration += 1;
     if (
       this.#authSource &&
       this.#authSource.getSnapshot().status !== "authenticated"
     ) {
       return null;
     }
-
     const epoch = this.#epoch;
     if (this.#selectAbortController) {
       this.#selectAbortController.abort();
@@ -422,9 +440,9 @@ export class HostListingsFacade {
     const controller = new AbortController();
     this.#selectAbortController = controller;
     const signal = controller.signal;
-
     this.#setSnapshot({ loading: true, error: null });
     try {
+      let galleryReadFailed = false;
       const [detail, tariff, schedule, photos] = await Promise.all([
         this.#port.getListing(listingId, signal),
         this.#port.getPricing(listingId, signal).catch((err) => {
@@ -437,29 +455,26 @@ export class HostListingsFacade {
         }),
         this.#port.listPhotos(listingId, signal).catch((err) => {
           if (isAuthError(err)) throw err;
+          galleryReadFailed = true;
           return [];
         }),
       ]);
-
       if (this.#epoch !== epoch || signal.aborted) {
-        return null;
+        throw new DOMException("Operación cancelada", "AbortError");
       }
-
       this.#setSnapshot({
         selectedListing: detail,
         activeTariff: tariff,
         weeklySchedule: schedule,
         photos: Object.freeze(photos),
+        galleryNeedsRefresh: galleryReadFailed,
         loading: false,
         error: null,
       });
       return detail;
     } catch (err) {
       if (this.#epoch !== epoch || signal.aborted) {
-        if (err instanceof Error && err.name === "AbortError") {
-          throw err;
-        }
-        return null;
+        throw new DOMException("Operación cancelada", "AbortError");
       }
       if (isAuthError(err)) {
         this.#handleAuthError();
@@ -562,7 +577,8 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
@@ -624,7 +640,8 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
@@ -673,7 +690,8 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
@@ -732,7 +750,8 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
@@ -781,7 +800,8 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
@@ -826,7 +846,7 @@ export class HostListingsFacade {
     ) {
       return null;
     }
-
+    const selectionGeneration = this.#selectionGeneration;
     const epoch = this.#epoch;
     if (this.#pricingAbortController) {
       this.#pricingAbortController.abort();
@@ -835,15 +855,18 @@ export class HostListingsFacade {
     const controller = new AbortController();
     this.#pricingAbortController = controller;
     const signal = controller.signal;
-
     try {
       const tariff = await this.#port.getPricing(listingId, signal);
       if (this.#epoch !== epoch || signal.aborted) {
         return null;
       }
+      if (this.#selectionGeneration !== selectionGeneration)
+        throw new DOMException("Operación cancelada", "AbortError");
       this.#setSnapshot({ activeTariff: tariff });
       return tariff;
     } catch (err) {
+      if (this.#selectionGeneration !== selectionGeneration)
+        throw new DOMException("Operación cancelada", "AbortError");
       if (this.#epoch !== epoch || signal.aborted) {
         if (err instanceof Error && err.name === "AbortError") {
           throw err;
@@ -876,7 +899,8 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
@@ -929,7 +953,7 @@ export class HostListingsFacade {
     ) {
       return [];
     }
-
+    const selectionGeneration = this.#selectionGeneration;
     const scope = this.#beginSessionOperation(signal);
     try {
       const history = await this.#port.listPricingHistory(
@@ -939,9 +963,13 @@ export class HostListingsFacade {
       if (!this.#isSessionValid(scope)) {
         return [];
       }
+      if (this.#selectionGeneration !== selectionGeneration)
+        throw new DOMException("Operación cancelada", "AbortError");
       this.#setSnapshot({ tariffHistory: Object.freeze(history) });
       return history;
     } catch (err) {
+      if (this.#selectionGeneration !== selectionGeneration)
+        throw new DOMException("Operación cancelada", "AbortError");
       if (!this.#isSessionValid(scope)) {
         if (err instanceof Error && err.name === "AbortError") {
           throw err;
@@ -974,7 +1002,8 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
@@ -1024,7 +1053,7 @@ export class HostListingsFacade {
     ) {
       return null;
     }
-
+    const selectionGeneration = this.#selectionGeneration;
     const scope = this.#beginSessionOperation(signal);
     try {
       const schedule = await this.#port.getWeeklySchedule(
@@ -1034,9 +1063,13 @@ export class HostListingsFacade {
       if (!this.#isSessionValid(scope)) {
         return null;
       }
+      if (this.#selectionGeneration !== selectionGeneration)
+        throw new DOMException("Operación cancelada", "AbortError");
       this.#setSnapshot({ weeklySchedule: schedule });
       return schedule;
     } catch (err) {
+      if (this.#selectionGeneration !== selectionGeneration)
+        throw new DOMException("Operación cancelada", "AbortError");
       if (!this.#isSessionValid(scope)) {
         if (err instanceof Error && err.name === "AbortError") {
           throw err;
@@ -1067,7 +1100,8 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
     this.#setSnapshot({ loading: true, error: null });
     try {
@@ -1113,31 +1147,60 @@ export class HostListingsFacade {
     if (
       this.#authSource &&
       this.#authSource.getSnapshot().status !== "authenticated"
-    ) {
+    )
       return [];
-    }
-
     const scope = this.#beginSessionOperation(signal);
+    const selectionGeneration = this.#selectionGeneration;
+    const readGeneration = (this.#photoReadGeneration.get(listingId) ?? 0) + 1;
+    this.#photoReadGeneration.set(listingId, readGeneration);
     try {
-      const photos = await this.#port.listPhotos(listingId, scope.signal);
-      if (!this.#isSessionValid(scope)) {
-        return [];
+      const selected = this.#snapshot.selectedListing;
+      const [photos, detail] = await Promise.all([
+        this.#port.listPhotos(listingId, scope.signal),
+        selected?.id === listingId
+          ? this.#port.getListing(listingId, scope.signal)
+          : Promise.resolve(null),
+      ]);
+      if (!this.#isSessionValid(scope)) return [];
+      if (this.#selectionGeneration !== selectionGeneration) {
+        throw new DOMException("Operación cancelada", "AbortError");
       }
-      this.#setSnapshot({ photos: Object.freeze(photos) });
+      if (readGeneration !== this.#photoReadGeneration.get(listingId))
+        return photos;
+      if (
+        selected?.id === listingId &&
+        this.#snapshot.selectedListing?.id !== listingId
+      ) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (selected?.id === listingId && !detail?.etag) {
+        throw new Error(
+          "Resultado sin confirmar. Actualiza la galería antes de continuar.",
+        );
+      }
+      this.#setSnapshot({
+        photos: Object.freeze(photos),
+        galleryNeedsRefresh: false,
+        ...(selected?.id === listingId ? { selectedListing: detail } : {}),
+      });
       return photos;
     } catch (err) {
+      if (this.#selectionGeneration !== selectionGeneration) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (readGeneration !== this.#photoReadGeneration.get(listingId))
+        return [];
       if (!this.#isSessionValid(scope)) {
-        if (err instanceof Error && err.name === "AbortError") {
-          throw err;
-        }
+        if (err instanceof Error && err.name === "AbortError") throw err;
         return [];
       }
       if (isAuthError(err)) {
         this.#handleAuthError();
+        throw err;
       }
       const message =
         err instanceof Error ? err.message : "Error al cargar fotos";
-      this.#setSnapshot({ error: message });
+      this.#setSnapshot({ error: message, galleryNeedsRefresh: true });
       throw err;
     } finally {
       this.#endSessionOperation(scope);
@@ -1157,18 +1220,42 @@ export class HostListingsFacade {
     }
 
     const scope = this.#beginSessionOperation(signal);
+    const selectionGeneration = this.#selectionGeneration;
     try {
       const status = await this.#port.getPhotoUploadStatus(
         listingId,
         idempotencyKey,
         scope.signal,
       );
-      if (!this.#isSessionValid(scope)) {
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
-      if (status.state === "ready") {
+      if (
+        this.#snapshot.selectedListing?.id === listingId &&
+        (status.state === "ready" ||
+          status.state === "failed" ||
+          status.state === "not_found")
+      ) {
+        await this.loadPhotos(listingId, scope.signal);
+        if (
+          !this.#isSessionValid(scope) ||
+          this.#selectionGeneration !== selectionGeneration
+        ) {
+          throw new DOMException("Operación cancelada", "AbortError");
+        }
+        this.#setSnapshot({ loading: false, error: null });
+      } else if (
+        status.state === "ready" &&
+        this.#snapshot.selectedListing === null
+      ) {
         const photos = await this.#port.listPhotos(listingId, scope.signal);
-        if (!this.#isSessionValid(scope)) {
+        if (
+          !this.#isSessionValid(scope) ||
+          this.#selectionGeneration !== selectionGeneration
+        ) {
           throw new DOMException("Operación cancelada", "AbortError");
         }
         this.#setSnapshot({
@@ -1179,11 +1266,15 @@ export class HostListingsFacade {
       }
       return status;
     } catch (err) {
-      if (!this.#isSessionValid(scope)) {
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       if (isAuthError(err)) {
         this.#handleAuthError();
+        throw err;
       }
       const message =
         err instanceof Error ? err.message : "Error al consultar la carga";
@@ -1206,8 +1297,14 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
+    const selectionGeneration = this.#selectionGeneration;
+    if (scope.signal.aborted) {
+      this.#endSessionOperation(scope);
+      throw new DOMException("Operación cancelada", "AbortError");
+    }
     this.#setSnapshot({ loading: true, error: null });
     try {
       const photo = await this.#port.uploadPhoto(
@@ -1216,7 +1313,10 @@ export class HostListingsFacade {
         idempotencyKey,
         scope.signal,
       );
-      if (!this.#isSessionValid(scope)) {
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       if (photo.state === "pending") {
@@ -1231,15 +1331,24 @@ export class HostListingsFacade {
       });
       return photo;
     } catch (err) {
-      if (!this.#isSessionValid(scope)) {
+      if (
+        this.#epoch !== scope.epoch ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       if (isAuthError(err)) {
         this.#handleAuthError();
+        throw err;
       }
       const message =
         err instanceof Error ? err.message : "Error al subir foto";
-      this.#setSnapshot({ loading: false, error: message });
+      this.#setSnapshot({
+        loading: false,
+        error:
+          err instanceof Error && err.name === "AbortError" ? null : message,
+        galleryNeedsRefresh: shouldRefreshGallery(err),
+      });
       throw err;
     } finally {
       this.#endSessionOperation(scope);
@@ -1260,8 +1369,14 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
+    const selectionGeneration = this.#selectionGeneration;
+    if (scope.signal.aborted) {
+      this.#endSessionOperation(scope);
+      throw new DOMException("Operación cancelada", "AbortError");
+    }
     this.#setSnapshot({ loading: true, error: null });
     try {
       const photo = await this.#port.replacePhoto(
@@ -1272,14 +1387,24 @@ export class HostListingsFacade {
         ifMatch,
         scope.signal,
       );
-      if (!this.#isSessionValid(scope)) {
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (photo.state === "pending") {
+        this.#setSnapshot({ loading: false, error: null });
+        return photo;
       }
       const [detail, photos] = await Promise.all([
         this.#port.getListing(listingId, scope.signal),
         this.#port.listPhotos(listingId, scope.signal),
       ]);
-      if (!this.#isSessionValid(scope)) {
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       if (!detail) throw new Error("No se pudo actualizar la galería.");
@@ -1291,15 +1416,24 @@ export class HostListingsFacade {
       });
       return photo;
     } catch (err) {
-      if (!this.#isSessionValid(scope)) {
+      if (
+        this.#epoch !== scope.epoch ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       if (isAuthError(err)) {
         this.#handleAuthError();
+        throw err;
       }
       const message =
         err instanceof Error ? err.message : "Error al reemplazar foto";
-      this.#setSnapshot({ loading: false, error: message });
+      this.#setSnapshot({
+        loading: false,
+        error:
+          err instanceof Error && err.name === "AbortError" ? null : message,
+        galleryNeedsRefresh: shouldRefreshGallery(err),
+      });
       throw err;
     } finally {
       this.#endSessionOperation(scope);
@@ -1310,6 +1444,7 @@ export class HostListingsFacade {
     listingId: string,
     photoId: string,
     signal?: AbortSignal,
+    onlyIfUnassigned = false,
   ): Promise<void> {
     if (
       this.#authSource &&
@@ -1317,37 +1452,85 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
+    if (
+      onlyIfUnassigned &&
+      this.#snapshot.selectedListing?.id === listingId &&
+      this.#snapshot.selectedListing.cover_photo_id
+    )
+      return;
     const scope = this.#beginSessionOperation(signal);
+    const selectionGeneration = this.#selectionGeneration;
+    if (scope.signal.aborted) {
+      this.#endSessionOperation(scope);
+      throw new DOMException("Operación cancelada", "AbortError");
+    }
     this.#setSnapshot({ loading: true, error: null });
     try {
-      await this.#port.setCoverPhoto(listingId, photoId, scope.signal);
-      if (!this.#isSessionValid(scope)) {
+      const selected = this.#snapshot.selectedListing;
+      if (selected?.id !== listingId || !selected.etag) {
+        throw new Error("Actualiza el espacio antes de cambiar la portada.");
+      }
+      await this.#port.setCoverPhoto(
+        listingId,
+        photoId,
+        scope.signal,
+        selected.etag,
+      );
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
-      const updated = this.#snapshot.photos.map((p) => ({
-        ...p,
-        is_cover: p.id === photoId,
-      }));
+      const [detail, photos] = await Promise.all([
+        this.#port.getListing(listingId, scope.signal),
+        this.#port.listPhotos(listingId, scope.signal),
+      ]).catch((cause) => {
+        if (isAuthError(cause)) throw cause;
+        throw new Error(
+          "Resultado sin confirmar. Actualiza la galería antes de continuar.",
+          { cause },
+        );
+      });
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration ||
+        this.#snapshot.selectedListing?.id !== listingId
+      ) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (!detail?.etag || detail.cover_photo_id !== photoId) {
+        throw new Error(
+          "Resultado sin confirmar. Actualiza la galería antes de continuar.",
+        );
+      }
       this.#setSnapshot({
-        photos: Object.freeze(updated),
-        selectedListing:
-          this.#snapshot.selectedListing?.id === listingId
-            ? { ...this.#snapshot.selectedListing, cover_photo_id: photoId }
-            : this.#snapshot.selectedListing,
+        photos: Object.freeze(photos),
+        selectedListing: detail,
         loading: false,
         error: null,
       });
     } catch (err) {
-      if (!this.#isSessionValid(scope)) {
+      if (
+        this.#epoch !== scope.epoch ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       if (isAuthError(err)) {
         this.#handleAuthError();
+        throw err;
       }
       const message =
         err instanceof Error ? err.message : "Error al definir foto de portada";
-      this.#setSnapshot({ loading: false, error: message });
+      this.#setSnapshot({
+        loading: false,
+        error:
+          err instanceof Error && err.name === "AbortError" ? null : message,
+        galleryNeedsRefresh: shouldRefreshGallery(err),
+      });
       throw err;
     } finally {
       this.#endSessionOperation(scope);
@@ -1366,8 +1549,14 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
+    const selectionGeneration = this.#selectionGeneration;
+    if (scope.signal.aborted) {
+      this.#endSessionOperation(scope);
+      throw new DOMException("Operación cancelada", "AbortError");
+    }
     this.#setSnapshot({ loading: true, error: null });
     try {
       const renewedEtag = await this.#port.removePhoto(
@@ -1376,7 +1565,10 @@ export class HostListingsFacade {
         ifMatch,
         scope.signal,
       );
-      if (!this.#isSessionValid(scope)) {
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       const updated = this.#snapshot.photos.filter((p) => p.id !== photoId);
@@ -1397,15 +1589,24 @@ export class HostListingsFacade {
       });
       return renewedEtag;
     } catch (err) {
-      if (!this.#isSessionValid(scope)) {
+      if (
+        this.#epoch !== scope.epoch ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       if (isAuthError(err)) {
         this.#handleAuthError();
+        throw err;
       }
       const message =
         err instanceof Error ? err.message : "Error al eliminar foto";
-      this.#setSnapshot({ loading: false, error: message });
+      this.#setSnapshot({
+        loading: false,
+        error:
+          err instanceof Error && err.name === "AbortError" ? null : message,
+        galleryNeedsRefresh: shouldRefreshGallery(err),
+      });
       throw err;
     } finally {
       this.#endSessionOperation(scope);
@@ -1425,8 +1626,14 @@ export class HostListingsFacade {
     ) {
       throw new Error("unauthenticated");
     }
-
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
     const scope = this.#beginSessionOperation(signal);
+    const selectionGeneration = this.#selectionGeneration;
+    if (scope.signal.aborted) {
+      this.#endSessionOperation(scope);
+      throw new DOMException("Operación cancelada", "AbortError");
+    }
     this.#setSnapshot({ loading: true, error: null });
     try {
       const renewedEtag = await this.#port.movePhoto(
@@ -1436,7 +1643,10 @@ export class HostListingsFacade {
         ifMatch,
         scope.signal,
       );
-      if (!this.#isSessionValid(scope)) {
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       const updated = [...this.#snapshot.photos];
@@ -1447,7 +1657,7 @@ export class HostListingsFacade {
         targetPosition <= updated.length
       ) {
         const [moved] = updated.splice(fromIndex, 1);
-        updated.splice(targetPosition - 1, 0, moved!);
+        updated.splice(targetPosition - 1, 0, moved);
         const reordered = updated.map((photo, index) => ({
           ...photo,
           position: index + 1,
@@ -1464,22 +1674,123 @@ export class HostListingsFacade {
         error: null,
       });
     } catch (err) {
-      if (!this.#isSessionValid(scope)) {
+      if (
+        this.#epoch !== scope.epoch ||
+        this.#selectionGeneration !== selectionGeneration
+      ) {
         throw new DOMException("Operación cancelada", "AbortError");
       }
       if (isAuthError(err)) {
         this.#handleAuthError();
+        throw err;
       }
       const message =
         err instanceof Error ? err.message : "Error al mover foto";
-      this.#setSnapshot({ loading: false, error: message });
+      this.#setSnapshot({
+        loading: false,
+        error:
+          err instanceof Error && err.name === "AbortError" ? null : message,
+        galleryNeedsRefresh: shouldRefreshGallery(err),
+      });
       throw err;
     } finally {
       this.#endSessionOperation(scope);
     }
   }
 
+  async loadPhotoVariant(
+    listingId: string,
+    photoId: string,
+    variant: "thumbnail" | "display",
+    signal?: AbortSignal,
+  ): Promise<Blob> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+    if (!this.#port.getPhotoVariant)
+      throw new Error("La descarga de variantes no está disponible.");
+    const scope = this.#beginSessionOperation(signal);
+    try {
+      const blob = await this.#port.getPhotoVariant(
+        listingId,
+        photoId,
+        variant,
+        scope.signal,
+      );
+      if (
+        !this.#isSessionValid(scope) ||
+        this.#snapshot.selectedListing?.id !== listingId
+      ) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      return blob;
+    } catch (error) {
+      if (!this.#isSessionValid(scope))
+        throw new DOMException("Operación cancelada", "AbortError");
+      if (isAuthError(error)) this.#handleAuthError();
+      throw error;
+    } finally {
+      this.#endSessionOperation(scope);
+    }
+  }
+
+  async reorderPhotos(
+    listingId: string,
+    photoIds: readonly string[],
+  ): Promise<void> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+    const selected = this.#snapshot.selectedListing;
+    const current = this.#snapshot.photos;
+    if (
+      selected?.id !== listingId ||
+      !selected.etag ||
+      photoIds.length !== current.length ||
+      new Set(photoIds).size !== photoIds.length ||
+      photoIds.some((id) => !current.some((photo) => photo.id === id))
+    ) {
+      throw new Error("Actualiza la galería antes de reorganizar sus fotos.");
+    }
+    if (this.#snapshot.galleryNeedsRefresh)
+      throw new Error("Actualiza la galería antes de continuar.");
+    const scope = this.#beginSessionOperation();
+    try {
+      for (const [index, photoId] of photoIds.entries()) {
+        if (
+          !this.#isSessionValid(scope) ||
+          this.#snapshot.selectedListing?.id !== listingId
+        ) {
+          throw new DOMException("Operación cancelada", "AbortError");
+        }
+        if (this.#snapshot.photos[index]?.id === photoId) continue;
+        const revision = this.#snapshot.selectedListing.etag;
+        if (!revision)
+          throw new Error(
+            "Actualiza la galería antes de reorganizar sus fotos.",
+          );
+        await this.movePhoto(
+          listingId,
+          photoId,
+          index + 1,
+          revision,
+          scope.signal,
+        );
+      }
+    } finally {
+      this.#endSessionOperation(scope);
+    }
+  }
+
   clear(): void {
+    this.#photoReadGeneration.clear();
+    this.#selectionGeneration += 1;
     this.#epoch += 1;
     this.cancel();
     this.#setSnapshot(initialSnapshot);

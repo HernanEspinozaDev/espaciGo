@@ -1182,6 +1182,99 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/document-verification/reviewer/cases": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Solo asignaciones vigentes por persona, capacidad y ámbito; excluye conflictos de interés y capacidades incompatibles. No revela identidad ni claves de storage. */
+    get: operations["listAssignedDocumentCases"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/reviewer/cases/{caseID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    get: operations["getAssignedDocumentCase"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/reviewer/cases/{caseID}/files/{fileID}/content": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        fileID: string;
+      };
+      cookie?: never;
+    };
+    /** @description Binario limpio no vencido; asignación vigente bloqueada durante lectura privada, sin caché ni URLs firmadas. Revocar asignación impide nuevas lecturas. */
+    get: operations["downloadAssignedCleanDocument"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/reviewer/cases/{caseID}/review": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Reutiliza decisión documental existente, CAS y auditoría. No asigna permisos ni permite autorrevisión. */
+    post: operations["reviewAssignedDocumentCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/document-verification/reviewer/cases/{caseID}/revoke": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** @description Revoca verificación mediante transición existente con motivo y revisión esperada. La asignación sigue siendo una autoridad independiente. */
+    post: operations["revokeAssignedDocumentCase"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/document-verification/cases": {
     parameters: {
       query?: never;
@@ -1658,7 +1751,7 @@ export interface paths {
       cookie?: never;
     };
     get?: never;
-    /** @description Selecciona como portada una imagen PNG sintética activa de la galería propia. La selección queda ligada al mismo espacio y titular; retirar la imagen elimina la selección en la misma transacción. El archivo continúa privado y no se expone automáticamente al catálogo. */
+    /** @description Selecciona una imagen activa propia como portada, con la revisión fuerte del espacio. Retirar la imagen elimina su selección en la misma transacción; los bytes privados no se exponen por seleccionar portada. */
     put: operations["selectOwnSyntheticSpaceCover"];
     post?: never;
     delete?: never;
@@ -2557,6 +2650,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/local/booking-trial/spaces/{spaceID}/returns": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** @description Proyección mínima de arriendos finalizados para el titular vigente y activo. No entrega identidades de las partes, contratos, pagos ni garantías. Confirmar desocupación reutiliza reception y no publica automáticamente. */
+    get: operations["listCurrentOwnerSpaceReturns"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/local/booking-trial/reservations/{reservationID}/reception": {
     parameters: {
       query?: never;
@@ -2568,7 +2678,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** @description El anfitrión registra recepción y, opcionalmente, observaciones sobre una reserva finalizada. No crea por sí misma un reclamo formal ni liquida fondos ni modifica el plazo que parte del check-out. */
+    /** @description Solo el titular vigente y activo confirma la desocupación de un arriendo finalizado con check-out registrado. Registra la recepción y desactiva atómicamente solo la ocupación del mismo arriendo e intervalo; conserva contrato, historial y otros bloqueos. No publica automáticamente, crea reclamos, liquida fondos ni modifica el plazo que parte del check-out. */
     post: operations["recordSyntheticHostReception"];
     delete?: never;
     options?: never;
@@ -3122,6 +3232,11 @@ export interface components {
         generated_at: string;
       };
     };
+    /** @description Distintivos documentales independientes de la publicación. Se calculan con la titularidad y vigencia actuales; no acreditan dominio, legalidad, garantía ni identidad contractual. No contienen expedientes ni identificadores privados. */
+    PublicDocumentVerification: {
+      identity_verified: boolean;
+      space_verified: boolean;
+    };
     PublicSpace: {
       /** Format: uuid */
       space_id: string;
@@ -3152,6 +3267,7 @@ export interface components {
       cover_image_id?: string;
       features?: components["schemas"]["PublicSpaceFeature"][];
       images?: components["schemas"]["PublicSpaceImageRef"][];
+      verification?: components["schemas"]["PublicDocumentVerification"];
     };
     PublicSpaceEnvelope: {
       data: components["schemas"]["PublicSpace"];
@@ -3179,6 +3295,7 @@ export interface components {
       usage_rules: string;
       features: components["schemas"]["PublicSpaceFeature"][];
       images: components["schemas"]["PublicSpaceImageRef"][];
+      verification?: components["schemas"]["PublicDocumentVerification"];
     };
     PublicSpaceDetailEnvelope: {
       data: components["schemas"]["PublicSpaceDetail"];
@@ -4822,7 +4939,10 @@ export interface components {
       | {
           /** @constant */
           purpose: "identity";
-          /** Format: date-time */
+          /**
+           * Format: date-time
+           * @description Debe ser posterior al instante de recepción en el servidor.
+           */
           document_expires_at: string;
         }
       | {
@@ -4830,7 +4950,10 @@ export interface components {
           purpose: "space";
           /** Format: uuid */
           space_id: string;
-          /** Format: date-time */
+          /**
+           * Format: date-time
+           * @description Si se proporciona, debe ser posterior al instante de recepción en el servidor.
+           */
           document_expires_at?: string;
         };
     DocumentVerificationOwnerFile: {
@@ -7776,6 +7899,156 @@ export interface operations {
       422: components["responses"]["UnprocessableEntity"];
     };
   };
+  listAssignedDocumentCases: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expedientes asignados al revisor autenticado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            items: components["schemas"]["DocumentVerificationOwnerCase"][];
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  getAssignedDocumentCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Expediente minimizado; se revalida asignación y titularidad. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  downloadAssignedCleanDocument: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+        fileID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Archivo privado con nombre fijo, sin metadatos de storage. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/pdf": string;
+          "image/jpeg": string;
+          "image/png": string;
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  reviewAssignedDocumentCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @enum {string} */
+          capability: "review_identity" | "review_space";
+          /** @enum {string} */
+          decision: "approve" | "reject" | "needs_evidence";
+          reason_code?: string;
+          expected_revision: number;
+          /** Format: date-time */
+          verified_until?: string;
+        };
+      };
+    };
+    responses: {
+      /** @description Decisión comprometida y expediente actualizado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  revokeAssignedDocumentCase: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        caseID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** @enum {string} */
+          purpose: "identity" | "space";
+          reason_code: string;
+          expected_revision: number;
+        };
+      };
+    };
+    responses: {
+      /** @description Revocación comprometida y expediente actualizado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
   listOwnDocumentVerificationCases: {
     parameters: {
       query?: never;
@@ -8436,10 +8709,7 @@ export interface operations {
   createOwnSpaceDraft: {
     parameters: {
       query?: never;
-      header: {
-        /** @description Clave opaca que identifica una misma operación para reintentos seguros. */
-        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
-      };
+      header?: never;
       path?: never;
       cookie?: never;
     };
@@ -8806,7 +9076,9 @@ export interface operations {
   selectOwnSyntheticSpaceCover: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        "If-Match": string;
+      };
       path: {
         spaceId: string;
       };
@@ -10875,6 +11147,48 @@ export interface operations {
       401: components["responses"]["Unauthorized"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  listCurrentOwnerSpaceReturns: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Entregas del espacio propio; sin caché. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: {
+              /** Format: uuid */
+              space_id: string;
+              items: {
+                /** Format: uuid */
+                reservation_id: string;
+                /** @enum {string} */
+                state: "finalizada";
+                /** Format: date-time */
+                start_at: string;
+                /** Format: date-time */
+                end_at: string;
+                check_out_recorded: boolean;
+                vacancy_confirmed: boolean;
+              }[];
+            };
+          };
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
       422: components["responses"]["UnprocessableEntity"];
     };
   };
