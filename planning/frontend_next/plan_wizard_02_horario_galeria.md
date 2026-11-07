@@ -3,7 +3,7 @@
 - Fecha: 2026-11-07.
 - Base del worktree: `8f0e06e2d9e5f16b429c69f190aa9dcd44148fc6`.
 - Rama: `codex/frontend/feature/wizard-02-horario-galeria`.
-- Estado: la rama de tarea continúa publicada; integración local normal preparada en el candidato `main` `b89fe0f196eb5ff2c3b155bafd4b60e3ea074618`, sobre `origin/main` `274f37e483a078890e92382a159fa49fd23c2fe8`. Aún no se publicó al ref remoto `main` ni se desplegó. El E2E combinado conserva dos fallas reproducibles también en la base main; IMG-01E y validación online siguen fuera de evidencia.
+- Estado: integración normal y push completados en `origin/main` `5830c9ce2dc61d4df13a4139da984b4cafd6d9ba`; los tres workflows de calidad pasaron. El Cloud Build del trigger falló antes de despliegue por un lock retenido de un release previo que falló durante V000084. No se desbloqueó ni reintentó; el código aún no está desplegado. El E2E combinado mantiene dos fallas reproducibles también en la base main; IMG-01E y validación online siguen fuera de evidencia.
 - Evidencia: [`evidence/wizard-02-local-gates.md`](evidence/wizard-02-local-gates.md).
 
 ## Solicitud
@@ -27,8 +27,8 @@ Se contrastó la tabla oficial IANA tzdb 2026f (`zone1970.tab`, actualizada el 2
 - El control semanal no es un calendario de fechas ni determina ocupación, bloqueos o posibilidad de reservar. No se añade un calendario de reservas ni se relajan sus gates.
 - La galería tiene un flujo de carga en frontend, pero el E2E local usa rutas controladas/mocks. Esta entrega no demuestra upload real a Go/GCS ni persistencia en la cuenta del propietario. IMG-01E sigue incompleto según `planning/imagenes/matriz_capacidades_pruebas_cortes.md`; no declarar fotos reales plenamente aceptadas hasta el recorrido requerido allí.
 - No se consultó ni modificó el espacio informado por el usuario; no se crearon espacios, no se alteraron datos, no se ejecutaron migraciones y no se accedió a la aplicación pública/privada online.
-- No se modificó backend, OpenAPI, SQL, IAM, Terraform, GCP, el volumen persistente ni la política de acceso de la galería.
-- El usuario conserva la prueba funcional online. La integración está solo en worktree local; el push a `main` activa el rollout web automático y espera autorización explícita. No atribuir aceptación de producto a gates locales.
+- No se modificaron fuentes de backend/OpenAPI, SQL/migraciones, IAM, Terraform, configuración GCP, el volumen persistente ni la política de acceso de la galería. El push disparó el Cloud Build automático documentado abajo.
+- El usuario conserva la prueba funcional online. El push autorizado activó el rollout automático, pero el release quedó bloqueado antes de desplegar por el lock heredado; no se tocó base ni lock. No atribuir aceptación de producto a gates locales.
 
 ## Calendario manual por fecha — ampliación local del flujo
 
@@ -38,4 +38,4 @@ Se contrastó la tabla oficial IANA tzdb 2026f (`zone1970.tab`, actualizada el 2
 
 ## Salida
 
-Rama de tarea verificada en `origin/codex/frontend/feature/wizard-02-horario-galeria` (`1c49c042814695f5257feb0262ebac9291622b5f`). Candidato local integrado en `main`: merge `141d348aa6e4bc7002020741830da899715c277f`, seguido de sincronización generada OpenAPI `b89fe0f196eb5ff2c3b155bafd4b60e3ea074618`. En el candidato: `api:check` (200 operaciones), typecheck, 480 unitarias aprobadas/1 omitida, lint (0 errores/4 advertencias), Prettier, build y diff check pasaron. Playwright: 144 aprobadas, 63 omitidas, 2 fallidas; ambas fallas también ocurren sobre `origin/main` sin esta rama. Los tests afectados son KYC y jerarquía de encabezados en Mi Cuenta; no se alteraron aquí. La carga real de fotos permanece bloqueada. `origin/main` sigue en `274f37e483a078890e92382a159fa49fd23c2fe8`; sin push, despliegue ni aceptación online.
+Rama de tarea verificada en `origin/codex/frontend/feature/wizard-02-horario-galeria` (`1c49c042814695f5257feb0262ebac9291622b5f`). Merge local `141d348aa6e4bc7002020741830da899715c277f`, sync OpenAPI `b89fe0f196eb5ff2c3b155bafd4b60e3ea074618` y push a `origin/main` `5830c9ce2dc61d4df13a4139da984b4cafd6d9ba` verificados. En el candidato: `api:check` (200 operaciones), typecheck, 480 unitarias aprobadas/1 omitida, lint (0 errores/4 advertencias), Prettier, build y diff check pasaron; los tres workflows de GitHub pasaron. Playwright: 144 aprobadas, 63 omitidas, 2 fallidas; ambas fallas también ocurren sobre la base sin esta rama. El trigger Cloud Build `7fd2cab8-53a7-4435-9f4c-78e25d4511d6` falló antes de desplegar al hallar un lock retenido de un release previo detenido en V000084 por permiso de esquema. No se hizo postcheck del ledger y no se infiere commit/rollback. Servicios aún sirven la revisión anterior al 100%; no hay aceptación online. La carga real de fotos permanece bloqueada.
