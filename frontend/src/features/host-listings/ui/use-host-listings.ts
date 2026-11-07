@@ -18,6 +18,8 @@ import type {
   ListingDraftInput,
   ListingState,
   ListingSummary,
+  ManualAvailabilityBlock,
+  ManualAvailabilityBlockInput,
   PhotoUploadInput,
   PricingHistoryItem,
   PricingInput,
@@ -106,6 +108,25 @@ export interface HostListingsView {
     input: ScheduleInput,
     ifMatch?: string,
   ): Promise<ScheduleData>;
+  loadManualBlocks(
+    token: AccessToken,
+    listingId: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+  ): Promise<ManualAvailabilityBlock[]>;
+  createManualBlock(
+    token: AccessToken,
+    listingId: string,
+    input: ManualAvailabilityBlockInput,
+    signal?: AbortSignal,
+  ): Promise<ManualAvailabilityBlock>;
+  deleteManualBlock(
+    token: AccessToken,
+    listingId: string,
+    blockId: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
   loadPhotos(
     token: AccessToken,
     listingId: string,
@@ -305,6 +326,56 @@ export function useHostListings(): HostListingsView {
     [],
   );
 
+  const loadManualBlocks = useCallback(
+    (
+      token: AccessToken,
+      listingId: string,
+      from: string,
+      to: string,
+      signal?: AbortSignal,
+    ) =>
+      hostListingsFeatureBridge.listManualBlocks(
+        token,
+        listingId,
+        from,
+        to,
+        signal,
+      ),
+    [],
+  );
+
+  const createManualBlock = useCallback(
+    (
+      token: AccessToken,
+      listingId: string,
+      input: ManualAvailabilityBlockInput,
+      signal?: AbortSignal,
+    ) =>
+      hostListingsFeatureBridge.createManualBlock(
+        token,
+        listingId,
+        input,
+        signal,
+      ),
+    [],
+  );
+
+  const deleteManualBlock = useCallback(
+    (
+      token: AccessToken,
+      listingId: string,
+      blockId: string,
+      signal?: AbortSignal,
+    ) =>
+      hostListingsFeatureBridge.deleteManualBlock(
+        token,
+        listingId,
+        blockId,
+        signal,
+      ),
+    [],
+  );
+
   const loadPhotos = useCallback(
     (token: AccessToken, listingId: string) =>
       hostListingsFeatureBridge.loadPhotos(token, listingId),
@@ -427,6 +498,9 @@ export function useHostListings(): HostListingsView {
     configureTimeZone,
     loadWeeklySchedule,
     updateWeeklySchedule,
+    loadManualBlocks,
+    createManualBlock,
+    deleteManualBlock,
     loadPhotos,
     uploadPhoto,
     replacePhoto,

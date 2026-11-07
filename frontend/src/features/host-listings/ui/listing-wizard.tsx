@@ -37,6 +37,7 @@ import {
   getComunasByRegion,
 } from "../domain/chile-dpa";
 import { validateWizardLocation } from "../domain/wizard-location";
+import { CHILE_TIME_ZONE_OPTIONS } from "../domain/chile-time-zones";
 import {
   cleanAttributesForPayload,
   formatAttributeLabel,
@@ -1329,11 +1330,11 @@ export function ListingWizard() {
                       htmlFor="schedule-enabled"
                       className="text-sm font-semibold text-foreground cursor-pointer"
                     >
-                      Habilitar calendario de reservas semanal
+                      Habilitar horario semanal
                     </Label>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Si está deshabilitado, el espacio requerirá coordinación
-                      manual de disponibilidad.
+                      Actívalo para registrar los tramos habituales del espacio.
+                      No confirma disponibilidad para fechas.
                     </p>
                   </div>
                   <input
@@ -1349,19 +1350,25 @@ export function ListingWizard() {
 
               <div className="space-y-2">
                 <Label htmlFor="wizard-timezone" className="font-semibold">
-                  Zona horaria oficial (IANA) *
+                  Zona horaria de Chile *
                 </Label>
-                <Input
+                <select
                   id="wizard-timezone"
                   value={timeZone}
                   onChange={(e) => {
                     setTimeZone(e.target.value);
                     clearFieldError("timezone");
                   }}
-                  placeholder="America/Santiago"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   required
                   {...fieldFeedback("timezone")}
-                />
+                >
+                  {CHILE_TIME_ZONE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
                 {fieldErrors.timezone && (
                   <p
                     id="wizard-timezone-error"
@@ -1371,8 +1378,8 @@ export function ListingWizard() {
                   </p>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  Por defecto para Chile: <code>America/Santiago</code> o{" "}
-                  <code>America/Punta_Arenas</code>.
+                  Elige la zona que corresponde a la ubicación del espacio. Se
+                  guardará respetando los cambios horarios oficiales.
                 </p>
               </div>
 

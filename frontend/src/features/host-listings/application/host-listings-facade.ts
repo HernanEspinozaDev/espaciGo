@@ -13,6 +13,8 @@ import type {
   ListingDraftInput,
   ListingState,
   ListingSummary,
+  ManualAvailabilityBlock,
+  ManualAvailabilityBlockInput,
   PhotoUploadInput,
   PricingHistoryItem,
   PricingInput,
@@ -1145,6 +1147,108 @@ export class HostListingsFacade {
       const message =
         err instanceof Error ? err.message : "Error al actualizar horario";
       this.#setSnapshot({ loading: false, error: message });
+      throw err;
+    } finally {
+      this.#endSessionOperation(scope);
+    }
+  }
+
+  async listManualBlocks(
+    listingId: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+  ): Promise<ManualAvailabilityBlock[]> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      return [];
+    }
+    const selectionGeneration = this.#selectionGeneration;
+    const scope = this.#beginSessionOperation(signal);
+    try {
+      const blocks = await this.#port.listManualBlocks(
+        listingId,
+        from,
+        to,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) return [];
+      if (this.#selectionGeneration !== selectionGeneration) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      return blocks;
+    } catch (err) {
+      if (this.#selectionGeneration !== selectionGeneration) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (!this.#isSessionValid(scope)) {
+        if (err instanceof Error && err.name === "AbortError") throw err;
+        return [];
+      }
+      if (isAuthError(err)) this.#handleAuthError();
+      throw err;
+    } finally {
+      this.#endSessionOperation(scope);
+    }
+  }
+
+  async createManualBlock(
+    listingId: string,
+    input: ManualAvailabilityBlockInput,
+    signal?: AbortSignal,
+  ): Promise<ManualAvailabilityBlock> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+    const scope = this.#beginSessionOperation(signal);
+    try {
+      const block = await this.#port.createManualBlock(
+        listingId,
+        input,
+        scope.signal,
+      );
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      return block;
+    } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) this.#handleAuthError();
+      throw err;
+    } finally {
+      this.#endSessionOperation(scope);
+    }
+  }
+
+  async deleteManualBlock(
+    listingId: string,
+    blockId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (
+      this.#authSource &&
+      this.#authSource.getSnapshot().status !== "authenticated"
+    ) {
+      throw new Error("unauthenticated");
+    }
+    const scope = this.#beginSessionOperation(signal);
+    try {
+      await this.#port.deleteManualBlock(listingId, blockId, scope.signal);
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+    } catch (err) {
+      if (!this.#isSessionValid(scope)) {
+        throw new DOMException("Operación cancelada", "AbortError");
+      }
+      if (isAuthError(err)) this.#handleAuthError();
       throw err;
     } finally {
       this.#endSessionOperation(scope);

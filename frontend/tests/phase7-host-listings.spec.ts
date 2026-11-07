@@ -419,6 +419,9 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   let capturedCreateBody: Record<string, unknown> | null = null;
   let acceptedCreate = false;
   let createPostCount = 0;
+  let configuredTimeZone = "America/Santiago";
+  let timeZoneRequestBody: Record<string, unknown> | null = null;
+  let weeklyHoursGetCount = 0;
   let timezoneIfMatch: string | null = null;
   let weeklyHoursIfMatch: string | null = null;
   const postCreateSessionRequests: string[] = [];
@@ -601,10 +604,15 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
       method === "PUT"
     ) {
       timezoneIfMatch = request.headers()["if-match"] ?? null;
+      timeZoneRequestBody = JSON.parse(request.postData() ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      configuredTimeZone = String(timeZoneRequestBody.time_zone);
       return {
         status: 200,
         headers: { etag: '"rev-timezone-2"' },
-        body: { space_id: newSpaceId, time_zone: "America/Santiago" },
+        body: { space_id: newSpaceId, time_zone: configuredTimeZone },
       };
     }
 
@@ -620,7 +628,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
           data: {
             space_id: newSpaceId,
             enabled: true,
-            time_zone: "America/Santiago",
+            time_zone: configuredTimeZone,
             days: [],
           },
         },
@@ -678,6 +686,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
       pathname === `/api/backend/spaces/${newSpaceId}/weekly-hours` &&
       method === "GET"
     ) {
+      weeklyHoursGetCount += 1;
       return {
         status: 200,
         headers: { etag: '"rev-weekly-3"' },
@@ -685,7 +694,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
           data: {
             space_id: newSpaceId,
             enabled: true,
-            time_zone: "America/Santiago",
+            time_zone: configuredTimeZone,
             days: [],
           },
         },
@@ -914,26 +923,41 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await expect(page.locator("#wizard-timezone")).toHaveValue(
     "America/Santiago",
   );
-  const timezoneField = page.locator("#wizard-timezone");
-  await timezoneField.fill("Invalid/Timezone");
-  await page.getByRole("button", { name: "Siguiente" }).click();
-  await expect(
-    page.getByText("Paso 4: Disponibilidad semanal y zona horaria"),
-  ).toBeVisible();
-  await expect(timezoneField).toHaveAttribute("aria-invalid", "true");
-  const timezoneErrorIds = await timezoneField.getAttribute("aria-describedby");
-  expect(timezoneErrorIds?.split(/\s+/)).toContain("wizard-timezone-error");
-  await expect(page.locator("#wizard-timezone-error")).toContainText(
-    /identificador IANA válido/i,
+  await expect(page.locator("#wizard-timezone")).toHaveJSProperty(
+    "tagName",
+    "SELECT",
   );
-  await expect(timezoneField).toBeFocused();
-  expect(createPostCount).toBe(0);
-  await timezoneField.fill("America/Santiago");
-  await expect(timezoneField).not.toHaveAttribute("aria-invalid", "true");
-  await expect(page.locator("#wizard-timezone-error")).toHaveCount(0);
+  await expect(page.locator("#wizard-timezone option")).toHaveCount(4);
   await expect(
-    page.getByRole("alert").filter({ hasText: /IANA válido/i }),
-  ).toHaveCount(0);
+    page.locator('#wizard-timezone option[value="America/Punta_Arenas"]'),
+  ).toHaveText("Región de Magallanes");
+  await expect(
+    page.locator('#wizard-timezone option[value="America/Coyhaique"]'),
+  ).toHaveText("Región de Aysén");
+  await expect(
+    page.locator('#wizard-timezone option[value="Pacific/Easter"]'),
+  ).toHaveText("Rapa Nui / Isla de Pascua");
+  const timezoneField = page.locator("#wizard-timezone");
+  for (const timeZone of [
+    "America/Santiago",
+    "America/Coyhaique",
+    "America/Punta_Arenas",
+    "Pacific/Easter",
+  ]) {
+    await timezoneField.selectOption(timeZone);
+    await page.getByRole("button", { name: "Siguiente" }).click();
+    await expect(
+      page.getByText("Paso 5: Resumen y confirmación de alta"),
+    ).toBeVisible();
+    await page
+      .getByRole("navigation", { name: "Pasos del asistente de publicación" })
+      .getByRole("button", { name: "Disponibilidad", exact: true })
+      .click();
+    await expect(
+      page.getByText("Paso 4: Disponibilidad semanal y zona horaria"),
+    ).toBeVisible();
+  }
+  await timezoneField.selectOption("America/Coyhaique");
 
   await page.locator("#schedule-enabled").check();
   const mondayEnd = page.getByLabel(
@@ -1007,6 +1031,19 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
       .getByRole("region", { name: "Contenido de la sección de cuenta" })
       .locator("h1"),
   ).toHaveText("Oficina Ejecutiva El Golf");
+  const editorUrl = page.url();
+  const workspaceLogo = page.getByRole("link", {
+    name: "EspaciGo, volver al inicio",
+  });
+  await expect(workspaceLogo).toHaveAttribute("href", "/");
+  await workspaceLogo.click();
+  await expect(page).toHaveURL(new URL("/", editorUrl).href);
+  await page.goto(editorUrl);
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText("Oficina Ejecutiva El Golf");
 
   // POST /spaces no admite Idempotency-Key; la galería sí lo conserva.
   expect(capturedIdempotencyKey).toBeNull();
@@ -1031,6 +1068,8 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   });
   expect(createBody.attributes).not.toHaveProperty("cancellation_policy");
   expect(createBody.attributes).not.toHaveProperty("security_deposit_clp");
+  expect(timeZoneRequestBody).toEqual({ time_zone: "America/Coyhaique" });
+  const weeklyHoursGetCountBeforeReload = weeklyHoursGetCount;
 
   await page.reload();
   await expect(
@@ -1039,6 +1078,11 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
       .locator("h1"),
   ).toHaveText("Oficina Ejecutiva El Golf");
   await expect(page.getByLabel("calefaccion", { exact: true })).toBeChecked();
+  await page.getByRole("tab", { name: "Calendario y horarios" }).click();
+  await expect(page.locator("#editor-timezone")).toHaveValue(
+    "America/Coyhaique",
+  );
+  expect(weeklyHoursGetCount).toBeGreaterThan(weeklyHoursGetCountBeforeReload);
   expect(createPostCount).toBe(1);
 });
 
@@ -2087,9 +2131,19 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
 
   // 3. Pestaña Horarios: navegar y guardar horarios
   await page.getByRole("tab", { name: "Calendario y horarios" }).click();
+  await expect(page.locator("#editor-sched-enable")).toBeEnabled();
   await expect(page.locator("#editor-timezone")).toHaveValue(
     "America/Santiago",
   );
+  await expect(page.locator("#editor-timezone")).toHaveJSProperty(
+    "tagName",
+    "SELECT",
+  );
+  await page.locator("#editor-timezone").selectOption("America/Punta_Arenas");
+  await expect(page.locator("#editor-timezone")).toHaveValue(
+    "America/Punta_Arenas",
+  );
+  await page.locator("#editor-timezone").selectOption("America/Santiago");
   await page.getByRole("button", { name: "Guardar horarios" }).click();
   await expect(
     page.getByText("Horario semanal habitual y zona horaria guardados."),
@@ -2104,6 +2158,12 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
 
   // 4. Pestaña Fotografías: selección de archivos, carga y reordenamiento
   await page.getByRole("tab", { name: /Fotografías/ }).click();
+  await expect(
+    page.getByText(/entorno de ensayo de galería privada/i),
+  ).toHaveCount(0);
+  await expect(
+    page.getByLabel("Subir fotografías", { exact: true }),
+  ).toBeEnabled();
   await expect(
     page.getByText(/entorno sintético|simuladas y sintéticas/i),
   ).toHaveCount(0);
