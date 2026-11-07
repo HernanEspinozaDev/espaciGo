@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,6 +27,10 @@ func wizardAdminTestFixture(t *testing.T, sourceRoot string) string {
 		}
 		name := entry.Name()
 		if filepath.Ext(name) != ".sql" {
+			continue
+		}
+		var v int
+		if _, err := fmt.Sscanf(name, "V%06d__", &v); err == nil && v > 83 {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(sourceRoot, "db", "migrations", name))

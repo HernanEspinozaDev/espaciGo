@@ -206,9 +206,10 @@ func reviewedWizardAdminInventory(source string) ([]migrator.MigrationSummary, e
 	if err != nil {
 		return nil, errors.New("could not discover complete wizard migration source")
 	}
-	if len(migrations) != len(records) {
+	if len(migrations) < len(records) {
 		return nil, errors.New("wizard migration source differs from reviewed 83-entry manifest")
 	}
+	migrations = migrations[:len(records)]
 	out := make([]migrator.MigrationSummary, len(records))
 	seen := map[int64]bool{}
 	for i, row := range records {

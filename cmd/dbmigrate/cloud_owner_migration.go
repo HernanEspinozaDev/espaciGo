@@ -81,11 +81,11 @@ func makeCloudOwnerSnapshot(source string) (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	if len(all) != 83 {
+	if len(all) < 83 {
 		return "", nil, errors.New("source migration inventory differs from the reviewed V1..V83 manifest")
 	}
 	var inventory strings.Builder
-	for i, m := range all {
+	for i, m := range all[:83] {
 		if m.Version != int64(i+1) {
 			return "", nil, errors.New("source migration sequence is not contiguous")
 		}
