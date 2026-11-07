@@ -1,0 +1,42 @@
+{
+  "format": "espacigo.recovery-inspection-code-review.v1",
+  "date": "2026-11-07",
+  "base_sha": "5830c9ce2dc61d4df13a4139da984b4cafd6d9ba",
+  "delegation_id": "deleg_0a1dba5b",
+  "reviewed_production_sha256": {
+    "scripts/gcp/recovery_inspection.py": "39f793ac43a92cb67937a11acedf7da2f69c7d5070cd91fc1d96aaeebf5e78de",
+    "scripts/gcp/provision_recovery_inspection.py": "9e9fb77c060fa06fcf1974ffb2ede1e9af7706bbff53ba5de4671207fc0245d6",
+    "cloudbuild-db-recovery-inspect.yaml": "16a32c1ac42640ead747e4da533863690e28f130625a39548c4b1feff13785a9",
+    "cloudbuild-db-recovery-provision.yaml": "deb1b539d307b41d5cd20ef3e753ec4cf533631473b6ef112f0bb1305632d1bb",
+    "internal/migrator/recovery_inspection.go": "185762bfb3fdbc5faa40fd211eafb571256e5c35f88211d27a450b9aeb8bf7f5",
+    "cmd/dbmigrate/recovery_inspection.go": "0bde7b82a55050c480feac19ef2c18f525548ffa84572f0d88528f76d9ee5ef8",
+    "cmd/dbmigrate/main.go": "b35dcb2a8f328344f27702c18dec3563880d6f8aadcffcc9b743759aebdf4281"
+  },
+  "python_review": {
+    "passed": true,
+    "security_concerns": [],
+    "logic_errors": [],
+    "scope": "Python orchestration/provisioner and dedicated Cloud Build configs",
+    "limits": "Source approval does not prove effective IAM or real cloud execution"
+  },
+  "go_review": {
+    "passed": true,
+    "security_concerns": [],
+    "logic_errors": [],
+    "scope": "Go inspector/CLI, adjacent configuration and tests",
+    "limits": "Bounded catalog observations are not global least-privilege approval"
+  },
+  "parent_verified": {
+    "frozen_files_match": true,
+    "python_tests_passed": 97,
+    "go_test_all_packages": "PASS; optional integration gates are separate",
+    "go_vet_focused": "PASS",
+    "real_postgres_json_python_bridge": "PASS without skips in own networkless disposable container; cleanup absence verified",
+    "diff_check": "PASS"
+  },
+  "publication_scope": "Task branch only; no main integration, ordinary release trigger or application deployment",
+  "remote_execution_gate": "BLOCKED pending effective child IAM proof or explicitly reviewed authorization; see evidence_recovery_readonly_iam_20261107.json",
+  "sql_apply_authorized": false,
+  "iam_change_authorized": false,
+  "unlock_authorized": false
+}

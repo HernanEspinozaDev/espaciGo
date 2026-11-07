@@ -1,0 +1,60 @@
+{
+  "format": "espacigo.recovery-inspection-iam-preflight.v1",
+  "date": "2026-11-07",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "metadata_only": true,
+  "iam_changed": false,
+  "apis_enabled": false,
+  "job_created": false,
+  "sql_connection_opened": false,
+  "provisioner": "espacigo-release-job-builder@espacigo-testprod.iam.gserviceaccount.com",
+  "observed_project_roles": [
+    "projects/espacigo-testprod/roles/espacigoReleaseJobProvisioner",
+    "roles/logging.logWriter"
+  ],
+  "provisioner_custom_role_permissions": [
+    "cloudbuild.builds.get",
+    "run.jobs.create",
+    "run.jobs.get",
+    "run.operations.get",
+    "serviceusage.services.use",
+    "storage.buckets.get"
+  ],
+  "observed_bucket_object_viewer_condition": "resource.name.startsWith('projects/_/buckets/espacigo-testprod-cloud-build-447373903153/objects/source/') || resource.name.startsWith('projects/_/buckets/espacigo-testprod-cloud-build-447373903153/objects/releases/')",
+  "failed_job_direct_bindings_for_provisioner": [],
+  "new_path_requirements_not_covered_by_these_bindings": [
+    {
+      "permission": "storage.objects.get",
+      "resource": "projects/_/buckets/espacigo-testprod-cloud-build-447373903153/objects/cloudrun-main.lock",
+      "reason": "Pinned retained lock is outside source/ and releases/ object prefixes"
+    },
+    {
+      "permission": "storage.objects.get",
+      "resource": "projects/_/buckets/espacigo-testprod-cloud-build-447373903153/objects/recovery-inspections/<parent-build-id>/job-request.json",
+      "reason": "Immutable inspection request is outside source/ and releases/ object prefixes"
+    },
+    {
+      "permission": "run.executions.get,run.executions.list",
+      "resource": "espacigo-db-r-2dc002a95831471780646432b98d3e01 and its retained execution",
+      "reason": "Child inspects historical failed execution but inspected custom role has neither permission"
+    }
+  ],
+  "effective_access_proven_denied": false,
+  "inheritance_limit": "Project has an organization parent; these project/bucket/Job bindings alone do not exclude every inherited or group grant",
+  "effective_access_troubleshooter": {
+    "principal": "espacigo-release-job-builder@espacigo-testprod.iam.gserviceaccount.com",
+    "permission": "storage.objects.get",
+    "resource": "projects/_/buckets/espacigo-testprod-cloud-build-447373903153/objects/cloudrun-main.lock",
+    "result": "SERVICE_DISABLED",
+    "service": "policytroubleshooter.googleapis.com",
+    "enabled_by_agent": false
+  },
+  "parent_observed_capabilities": {
+    "source": "projects/espacigo-testprod/roles/espacigoMainReleaseExecutor and espacigoCloudBuildDeployer",
+    "includes": ["cloudbuild.builds.create", "cloudbuild.builds.get", "run.jobs.get", "run.jobs.run", "run.jobs.delete", "run.executions.get", "run.executions.list", "logging.logEntries.list"],
+    "bucket_binding": "projects/espacigo-testprod/roles/espacigoCloudBuildBucketOperator"
+  },
+  "gate": "BLOCKED: effective child access not established; no IAM/API change authorized by inspection-only publication",
+  "next_decision": "Establish existing effective read access or explicitly authorize a reviewed temporary, resource-scoped read-only IAM delta with revocation evidence; do not broaden runtime/SQL permissions or enable APIs by inference"
+}

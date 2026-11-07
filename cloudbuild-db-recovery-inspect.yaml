@@ -1,0 +1,21 @@
+# Dedicated manual inspection build. This config is not wired to cloudbuild.yaml or a trigger.
+serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: MUST_MATCH
+  requestedVerifyOption: VERIFIED
+timeout: 3600s
+substitutions:
+  _RECOVERY_INSPECTION_ONLY: "false"
+  _COMMIT_SHA: ""
+  _SOURCE_ARCHIVE_SHA256: ""
+steps:
+  - id: read-only-recovery-inspection
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:1855ee6031f03bb7d4b251cfd0e5b88a18fd9a2552a742cf86d269810832c80b
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        [[ "${_RECOVERY_INSPECTION_ONLY}" == "true" ]]
+        export PYTHONDONTWRITEBYTECODE=1
+        python3 scripts/gcp/recovery_inspection.py --sha="${_COMMIT_SHA}" --build-id="${BUILD_ID}" --source-archive-sha256="${_SOURCE_ARCHIVE_SHA256}"
