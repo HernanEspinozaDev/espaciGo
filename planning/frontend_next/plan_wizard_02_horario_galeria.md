@@ -3,7 +3,7 @@
 - Fecha: 2026-11-07.
 - Base del worktree: `8f0e06e2d9e5f16b429c69f190aa9dcd44148fc6`.
 - Rama: `codex/frontend/feature/wizard-02-horario-galeria`.
-- Estado: cambios locales sin commit. Fases de zona horaria y logo con pruebas controladas; implementación local de bloqueos manuales por fecha con pruebas de flujo, accesibilidad y viewport. Revisión independiente del delta y re-revisión del arreglo de fecha vacía aprobadas. IMG-01E y la validación funcional online del propietario siguen fuera de evidencia.
+- Estado: commit `dafa890cb2f571e707d206dc42e81391fa86978a` publicado en la rama de tarea, no integrado a `main` ni desplegado. Fases de zona horaria y logo con pruebas controladas; implementación local de bloqueos manuales por fecha con pruebas de flujo, accesibilidad y viewport. Revisiones independientes aprobadas. IMG-01E y la validación funcional online del propietario siguen fuera de evidencia.
 - Evidencia: [`evidence/wizard-02-local-gates.md`](evidence/wizard-02-local-gates.md).
 
 ## Solicitud
@@ -28,7 +28,7 @@ Se contrastó la tabla oficial IANA tzdb 2026f (`zone1970.tab`, actualizada el 2
 - La galería tiene un flujo de carga en frontend, pero el E2E local usa rutas controladas/mocks. Esta entrega no demuestra upload real a Go/GCS ni persistencia en la cuenta del propietario. IMG-01E sigue incompleto según `planning/imagenes/matriz_capacidades_pruebas_cortes.md`; no declarar fotos reales plenamente aceptadas hasta el recorrido requerido allí.
 - No se consultó ni modificó el espacio informado por el usuario; no se crearon espacios, no se alteraron datos, no se ejecutaron migraciones y no se accedió a la aplicación pública/privada online.
 - No se modificó backend, OpenAPI, SQL, IAM, Terraform, GCP, el volumen persistente ni la política de acceso de la galería.
-- El usuario conserva la prueba funcional online. No integrar a `main`, publicar, desplegar ni atribuir aceptación del producto a los gates locales.
+- El usuario conserva la prueba funcional online. No integrar a `main`, desplegar ni atribuir aceptación del producto a los gates locales. La publicación registrada corresponde solo a la rama de tarea.
 
 ## Calendario manual por fecha — ampliación local del flujo
 
@@ -38,4 +38,4 @@ Se contrastó la tabla oficial IANA tzdb 2026f (`zone1970.tab`, actualizada el 2
 
 ## Salida
 
-Gates verificados localmente tras corregir el rango vacío: `api:check` (197 operaciones), typecheck, 480 pruebas unitarias aprobadas y 1 omitida, lint (0 errores; 4 advertencias), formato, build y `git diff --check`; suite Playwright combinada: 146 aprobadas, 63 omitidas, 0 fallidas. La revisión independiente aprobó el delta y el arreglo. La carga real de fotos permanece bloqueada por alcance/target de ensayo no autorizado y la aceptación online corresponde al propietario. No hay commit, publicación, integración a `main` ni despliegue.
+Gates verificados localmente tras corregir el rango vacío: `api:check` (197 operaciones), typecheck, 480 pruebas unitarias aprobadas y 1 omitida, lint (0 errores; 4 advertencias), formato, build y `git diff --check`; suite Playwright combinada: 146 aprobadas, 63 omitidas, 0 fallidas. Revisiones independientes aprobadas. Commit `dafa890cb2f571e707d206dc42e81391fa86978a` verificado tanto en local como en `origin/codex/frontend/feature/wizard-02-horario-galeria`. La carga real de fotos permanece bloqueada por alcance/target de ensayo no autorizado y la aceptación online corresponde al propietario. Sin integración a `main` ni despliegue.

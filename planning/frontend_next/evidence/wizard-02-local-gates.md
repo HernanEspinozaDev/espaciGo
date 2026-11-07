@@ -3,6 +3,7 @@
 - Fecha: 2026-11-07.
 - Rama: `codex/frontend/feature/wizard-02-horario-galeria`.
 - HEAD base: `8f0e06e2d9e5f16b429c69f190aa9dcd44148fc6`.
+- Commit: `dafa890cb2f571e707d206dc42e81391fa86978a`, verificado en local y en `origin/codex/frontend/feature/wizard-02-horario-galeria`.
 - Artefacto validado: build Next.js local de esta rama, servido por Playwright en loopback `127.0.0.1:4205`.
 - Datos/servicios: solo E2E controlados y mocks de frontend; sin API/DB de usuario, sin cuentas nuevas y sin servicio externo.
 
@@ -27,7 +28,7 @@
 ## Estado y límites
 
 - No se leyó ni modificó el espacio existente informado por el propietario; no se creó otro espacio.
-- Sin operaciones online, sin login/cuenta real, sin cambios de backend/API/OpenAPI/SQL, sin migraciones y sin cambios Cloud/IAM.
+- Sin interacción con la aplicación online ni login/cuenta real; sí hubo push únicamente a la rama de tarea. Sin cambios de backend/API/OpenAPI/SQL, sin migraciones y sin cambios Cloud/IAM.
 - El port/servidor de Playwright fue gestionado por el runner local. El resultado E2E no constituye aceptación del producto ni prueba de upload real.
-- Cambios aún no comprometidos ni publicados. No hubo integración a `main` ni despliegue. La validación funcional online queda para el propietario.
+- Código comprometido y publicado únicamente en la rama de tarea. No hubo integración a `main` ni despliegue. La validación funcional online queda para el propietario.
 - La revisión independiente inicial no encontró riesgos de seguridad en zona horaria ni en el resto del delta; en calendario encontró el fallo de fecha final vacía. La corrección y su regresión fueron re-revisadas y aprobadas; el reviewer confirmó preservación de los límites de rango y protección frente a respuestas obsoletas. El valor por defecto corresponde a espacios nuevos; el editor preserva valores IANA históricos. La rehidratación se comprueba mediante `GET /weekly-hours` tras recarga y un mock de detalle que conserva Santiago. La prueba UI de IANA inválida se retiró porque el `<select>` limita opciones alcanzables; dominio continúa probando el rechazo. El cambio de galería solo modifica el aviso y la brecha de upload real/online sigue abierta.

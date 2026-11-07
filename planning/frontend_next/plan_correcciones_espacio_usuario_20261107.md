@@ -5,7 +5,7 @@
 - Rama: `codex/frontend/feature/wizard-02-horario-galeria`.
 - HEAD base: `8f0e06e2d9e5f16b429c69f190aa9dcd44148fc6`.
 - Espacio mencionado por el usuario: `df900c8a-5486-46ca-bf49-c677e6227a92`; no consultar ni modificar sin autorización y entorno expresos.
-- Estado externo: sin commit, push, integración a `main` ni despliegue. Las comprobaciones de la aplicación online están reservadas al usuario.
+- Estado externo: commit `dafa890cb2f571e707d206dc42e81391fa86978a` publicado en `origin/codex/frontend/feature/wizard-02-horario-galeria`; sin integración a `main` ni despliegue. Las comprobaciones de la aplicación online están reservadas al usuario.
 - Evidencia relacionada: `plan_wizard_02_horario_galeria.md`, `evidence/wizard-02-local-gates.md`, `planning/imagenes/plan_img_01_carga_crud.md`, `planning/imagenes/matriz_capacidades_pruebas_cortes.md`, `planning/frontend_next/plan_creacion_espacios_galeria_documentos.md`.
 
 ## Objetivo y orden
@@ -18,7 +18,7 @@ Resolver por separado los cuatro problemas reportados, cerrando revisión y prue
 
 **Estado observado:** CERRADA LOCALMENTE. El E2E controlado confirma las cuatro opciones territoriales, selecciona `America/Coyhaique`, comprueba el cuerpo de `PUT /availability`, recarga y valida `GET /weekly-hours` como fuente de rehidratación en el editor. El mock de detalle conserva `America/Santiago` para no satisfacer la aserción por sí mismo. La suite de dominio valida zonas IANA inválidas.
 
-**Gate de cierre:** revisión independiente del delta final aprobada; prueba Playwright enfocada ejecutada el 2026-11-07: 1 passed; suites frontend y diff check pasan según `evidence/wizard-02-local-gates.md`. Evidencia solo UI/mock local, no persistencia de cuenta real. El espacio reportado no se tocó. Cierre local; no publicado.
+**Gate de cierre:** revisión independiente del delta final aprobada; prueba Playwright enfocada ejecutada el 2026-11-07: 1 passed; suites frontend y diff check pasan según `evidence/wizard-02-local-gates.md`. Evidencia solo UI/mock local, no persistencia de cuenta real. El espacio reportado no se tocó. Cierre local; código publicado solo en la rama de tarea, no en la web.
 
 ### Fase 2 — Logo del navbar privado
 
@@ -26,7 +26,7 @@ Resolver por separado los cuatro problemas reportados, cerrando revisión y prue
 
 **Estado observado:** CERRADA LOCALMENTE. El cambio en `(workspace)/layout.tsx` apunta el logo a `/`; el E2E del flujo de creación comprueba el enlace accesible, hace clic, verifica navegación a `/` y vuelve al editor para continuar la prueba.
 
-**Gate de cierre:** destino y navegación comprobados en el shell privado mediante Playwright local; suite completa final: 146 aprobadas, 63 omitidas, 0 fallidas. Esto no constituye aceptación online ni prueba del producto desplegado. Cierre local; no publicado.
+**Gate de cierre:** destino y navegación comprobados en el shell privado mediante Playwright local; suite completa final: 146 aprobadas, 63 omitidas, 0 fallidas. Esto no constituye aceptación online ni prueba del producto desplegado. Cierre local; código publicado solo en la rama de tarea, no en la web.
 
 ### Fase 3 — Agregar imágenes al espacio
 
@@ -54,9 +54,9 @@ Cada corte terminado puede publicarse solo por la ruta autorizada en su rama de 
 
 - 2026-11-07: iniciada la ejecución secuencial. Fase 1 ejecutada y cerrada localmente tras correr `npx --yes pnpm@12.15.0 exec playwright test tests/phase7-host-listings.spec.ts --grep 'asistente en 5 pasos'`: 1 passed. El recorrido verifica selección territorial, guardado IANA y rehidratación tras recarga. En el mismo recorrido se verificó el `href="/"` del logo desde el editor privado; Fase 2 cerrada localmente. No se desplegó ni se consultó la aplicación online.
 - 2026-11-07: preflight de Fase 3, solo conectividad local: `127.0.0.1:18086/health/ready` respondió HTTP 200, Next en `https://127.0.0.1:4206/` respondió HTTP 200 y PostgreSQL en loopback:15436 aceptó conexiones. No se consultaron filas, no hubo login ni mutaciones. Esto no acredita por sí solo la identidad completa de DB ni prueba carga/persistencia de imágenes; el ensayo IMG-01E sigue condicionado a su política y gates, y GCS real no se ha verificado.
-- 2026-11-07: fases 1 y 2 tienen cambios locales sin commit en esta rama. La suite frontend controlada pasó según `evidence/wizard-02-local-gates.md`; revisión independiente del flujo horario señaló inicialmente una aserción de rehidratación insuficiente, que se reforzó para comprobar `GET /weekly-hours` tras recarga. Ese delta fue revisado de forma independiente y aprobado. No hay publicación remota ni despliegue.
+- 2026-11-07: fases 1 y 2 se cerraron localmente; la rehidratación se comprobó mediante `GET /weekly-hours` tras recarga y su revisión independiente fue aprobada. El corte completo de la rama se comprometió y publicó en la rama de tarea; no hay integración a `main` ni despliegue.
 - 2026-11-07: se confirmó en código/OpenAPI que hay contrato backend para bloqueos manuales por fecha; se implementó su consumo Next local en la interfaz de anfitrión. Revisión independiente detectó fallo al refrescar con fecha «Hasta» vacía; la regresión Playwright fue RED, se corrigió el cálculo de rango para validar fechas sin convertir inválidos a ISO, y la prueba focal pasó (1/1). Re-revisión independiente aprobó el arreglo y su cobertura. La última corrida combinada pasó: 146 aprobadas, 63 omitidas, 0 fallidas. Gates adicionales: `api:check` (197 operaciones), typecheck, unitarias (480 aprobadas, 1 omitida), lint (0 errores, 4 advertencias), formato, build y `git diff --check` aprobados. No se inspeccionó la aplicación online ni se accedió al espacio informado.
 
 ## Siguiente paso
 
-Siguiente: mantener IMG-01E bloqueada hasta que exista un alcance/target sintético autorizado conforme a la política privada; no hacer login ni carga real mientras falte. El calendario quedó implementado solo para bloqueos manuales con mocks; integración Go/DB y cualquier disponibilidad basada en reservas permanecen fuera de evidencia. Cualquier push será solo a la rama de tarea después de verificar identidad y hooks; no integrar a `main` ni desplegar, y no tocar el espacio reportado.
+Siguiente: mantener IMG-01E bloqueada hasta que exista un alcance/target sintético autorizado conforme a la política privada; no hacer login ni carga real mientras falte. El calendario quedó implementado solo para bloqueos manuales con mocks; integración Go/DB y cualquier disponibilidad basada en reservas permanecen fuera de evidencia. El código está en la rama de tarea; no integrar a `main` ni desplegar, y no tocar el espacio reportado.
