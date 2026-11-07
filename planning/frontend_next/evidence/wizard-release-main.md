@@ -30,3 +30,17 @@ El padre aplicó únicamente los dos archivos de test modificados a su extracci�
 La revisión independiente aprobó la corrección sin problemas de seguridad ni lógica. La sugerencia no bloqueante sobre archivos SQL no versionados se contrastó en el padre: los 83 SQL presentes coinciden exactamente con las 83 rutas versionadas. Se conserva el fixture sin dependencia de Git para poder probar extracciones limpias sin `.git`.
 
 Pendientes: publicación normal del seguimiento y verificación de CI/release del nuevo SHA. No se declara imagen nueva, migración, revisión Ready, tráfico ni aceptación online de este conjunto. La QA online sigue reservada al usuario.
+
+## Entrega técnica verificada — 2026-11-07
+
+El seguimiento revisado se publicó primero en la rama de tarea y después en main mediante fast-forward normal, SHA exacto `642649ee3b68d54745fa6aad2ae8377c55794e1c`; ambos refs y worktrees limpios se verificaron, con identidad y hooks vigentes. Application quality `42337996740`, Database migration quality `42337996758` y Frontend architecture and quality `42337996739` finalizaron SUCCESS para ese mismo SHA.
+
+El build automático `73aded90-6d97-4a64-b71f-8adcdc6947be` terminó SUCCESS. Child de imágenes API/web `1e984c58-f0d2-44b0-ac3f-5c64754c3875` y child migrador `8f034587-2738-4a85-aa35-384cf75b8b4e`: SUCCESS. El padre releyó los objetos por generación y hash, validó nuevamente el catálogo con el verificador vigente y comprobó independientemente digests/provenance SLSA de las tres imágenes contra esos child builds.
+
+Plan privado: 83 aplicadas, cero pendientes. Postcheck: 83 aplicadas, cero pendientes y lista de nuevas aplicaciones vacía. No se inventó V84 ni se ejecutó una migración nueva. Backup automatizado existente admitido por la política vigente sin SQL pendiente; PITR permanece deshabilitado y no se infiere recuperación funcional. La retención del release no borró backups.
+
+Lectura independiente de Cloud Run: API, web público y web privado están Ready y cada servicio dirige 100% a su revisión `*-b73aded906d974a64b71f8adc`, con labels del SHA/build exactos y digest coincidente. El watermark exitoso corresponde a este release. Esta comprobación fue de metadata/control plane: no se navegó ni consultó la aplicación online.
+
+Recibo sanitizado y referencias inmutables: `wizard-release-verified.json`. F1–F4 y la entrega técnica de F5 quedan acreditados dentro de los límites documentados. **La comprobación funcional online y aceptación final del producto siguen pendientes del usuario**, no se deducen de Ready ni de CI.
+
+La demo sintética local se conserva para esa revisión pendiente bajo responsabilidad técnica del corte `wizard-01`: DB/volumen, una cuenta y los tres recursos ya existentes, sin repetir altas, edición ni publicación. Se mantienen sus credenciales excluidas y sus capturas privadas; no se retiran recursos ajenos ni demos históricas por inferencia de este despliegue.
