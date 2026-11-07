@@ -191,3 +191,5 @@ La decisión de continuar en main y omitir staging **ya está tomada para esta e
 ## Estado de ejecución posterior a FLUJO-04 — 2026-11-06
 
 El [avance vigente](avance_inicial_20261106.md#continuación-flujo-020405-recuperación-y-gate-de-calidad) registra recuperación cloud aislada verificada y recursos temporales retirados, contrato SQL de API local y gate de calidad del mismo SHA implementado en la rama. No se cierra el plan: siguen pendientes aplicación por Job, orquestación de release con exclusión/reportes/provenance, integración y activación en main y retirada del bastión. Staging permanece fuera de esta etapa.
+
+Continuación de implementación: el [contrato del Job aplicador](contrato_job_aplicacion_20261106.md) ya tiene modo release con preflight/aplicación/postcheck bajo un lock de sesión, SHA incorporado y verificación de ejecución; CI del código `0b7853a3c73a6d330022cbc2558d1b259a9708f6` pasó. Sigue en rama de tarea: falta orquestación completa (backup, lock global, provenance/reportes y catálogo IMG-01), provisionamiento/activación cloud y transición del trigger antes de integrar main o retirar bastión.
