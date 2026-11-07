@@ -1,6 +1,7 @@
 # Separate, current-schema migrator image. Dockerfile.dbmigrate remains the
 # immutable GCP-03 V1-V61 scratch runner.
 FROM golang:1.27.1-alpine3.24@sha256:cd9a32216aee5667f957a62d13a10032a63fd58e14b3f3d9cc8c2122f501e95e AS build
+ARG SOURCE_SHA=""
 ENV CGO_ENABLED=0 GOTOOLCHAIN=local GOOS=linux GOARCH=amd64
 WORKDIR /src
 RUN apk add --no-cache ca-certificates
@@ -14,7 +15,8 @@ COPY internal/database/cloudsql ./internal/database/cloudsql
 COPY internal/dbbootstrap ./internal/dbbootstrap
 COPY internal/migrator ./internal/migrator
 COPY db/migrations/ /out/migrations/
-RUN go build -trimpath -buildvcs=false -ldflags='-s -w' -o /out/dbmigrate ./cmd/dbmigrate
+RUN if [ -n "$SOURCE_SHA" ]; then [ "${#SOURCE_SHA}" -eq 40 ] && printf '%s' "$SOURCE_SHA" | grep -Eq '^[a-f0-9]{40}$'; fi && \
+    go build -trimpath -buildvcs=false -ldflags="-s -w -X main.releaseSourceSHA=$SOURCE_SHA" -o /out/dbmigrate ./cmd/dbmigrate
 # Validate the entire current inventory during the build, without a database.
 RUN /out/dbmigrate -inventory-only -dir /out/migrations > /out/migration-inventory.json
 

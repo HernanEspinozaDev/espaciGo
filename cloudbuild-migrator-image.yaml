@@ -13,6 +13,7 @@ steps:
     args:
       - build
       - --file=Dockerfile.runtime-migrator
+      - --build-arg=SOURCE_SHA=${_COMMIT_SHA}
       - --label=org.opencontainers.image.revision=${_COMMIT_SHA}
       - --tag=southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-db-migrator:sha-${_COMMIT_SHA}
       - .

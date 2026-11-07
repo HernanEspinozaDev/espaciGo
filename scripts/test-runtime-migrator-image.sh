@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build locally; run only the inventory path, without network, SQL or secrets.
+# Build locally; inspect inventory and rejection paths without network or SQL.
 set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -22,7 +22,8 @@ if docker image inspect "$IMAGE" >/dev/null 2>&1; then
 fi
 # Claim only our unique tag; failed builds must not remove shared images/cache.
 owned_image=true
-docker build --platform=linux/amd64 --file=Dockerfile.runtime-migrator --tag="$IMAGE" .
+SOURCE_SHA="$(git rev-parse HEAD)"
+docker build --platform=linux/amd64 --file=Dockerfile.runtime-migrator --build-arg="SOURCE_SHA=$SOURCE_SHA" --tag="$IMAGE" .
 go run ./cmd/dbmigrate -inventory-only -dir db/migrations > "$TMP_DIR/source.json"
 docker run --rm --network none --read-only --cap-drop ALL \
   --security-opt=no-new-privileges "$IMAGE" -inventory-only > "$TMP_DIR/image.json"
@@ -34,4 +35,18 @@ if docker run --rm --network none --read-only --cap-drop ALL \
   exit 1
 fi
 grep -Fq -- '-inventory-only cannot combine' "$TMP_DIR/negative.log"
-echo 'PASS: runtime image inventory and conflicting-mode rejection tested without database access.'
+# Validate the compiled source binding without a network or database. A correct
+# SHA reaches the target guard, while a different SHA fails invocation first.
+FINGERPRINT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["inventory_sha256"])' "$TMP_DIR/source.json")"
+for candidate in "$SOURCE_SHA" 0000000000000000000000000000000000000000; do
+  if docker run --rm --network none --read-only --cap-drop ALL \
+    --security-opt=no-new-privileges -e DATABASE_URL='postgres://unused@localhost/unused?sslmode=disable' \
+    "$IMAGE" -release -release-source-sha "$candidate" -release-inventory-sha256 "$FINGERPRINT" \
+    -release-expected-applied 83 > "$TMP_DIR/release-$candidate.log" 2>&1; then
+    echo 'release accepted an unreviewed local target' >&2
+    exit 1
+  fi
+done
+grep -Fq 'release requires the reviewed private Cloud SQL target' "$TMP_DIR/release-$SOURCE_SHA.log"
+grep -Fq 'release requires the embedded source SHA' "$TMP_DIR/release-0000000000000000000000000000000000000000.log"
+echo 'PASS: runtime inventory, embedded release SHA and target/mode guards tested without database access.'

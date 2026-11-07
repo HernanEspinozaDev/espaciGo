@@ -113,6 +113,16 @@ REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
 				if err != nil || len(result.Applied) != 0 {
 					t.Fatalf("reapply was not a no-op: %v", err)
 				}
+				t.Run("release-noop", func(t *testing.T) {
+					conn := connectTestDB(t, ctx, migrationURL.String())
+					defer conn.Close(context.Background())
+					report, err := runReleaseWithConn(ctx, conn, prefix(83), "espacigo_schema_owner", ReleaseContract{
+						SourceSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InventorySHA256: inventoryFingerprint(all), ExpectedApplied: 83, Database: admin.Config().Database,
+					})
+					if err != nil || len(report.Applied) != 0 || len(report.After.Applied) != 83 || len(report.After.Pending) != 0 {
+						t.Fatalf("restricted V83 release no-op failed: %v", err)
+					}
+				})
 				t.Run("api-schema-contract", func(t *testing.T) {
 					assertRuntimeAPISchemaContract(t, ctx, databaseURL, admin)
 				})

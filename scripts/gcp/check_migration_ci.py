@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 
 REQUIRED = frozenset({
+    'TestRunnerReleasePinsInventoryAndReviewedPrefix',
+    'TestRunnerReleaseFailureDoesNotProduceSuccessOrReplayCommittedPrefix',
+    'TestRunnerReleaseSerializesCompetingReviewedPrefixes',
     'TestRunnerAppliesFromEmptyAndRepeatIsNoop',
     'TestRunnerRefusesToInitializeLedgerBesideExistingApplicationObjects',
     'TestPlanOnlyDoesNotInitializeLedgerOrExecutePendingMigrations',
@@ -21,6 +24,8 @@ REQUIRED = frozenset({
     'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75',
     'TestCurrentSchemaMigrationFromEmptyAndV75/empty/api-schema-contract',
     'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/api-schema-contract',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/release-noop',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/release-noop',
 })
 
 

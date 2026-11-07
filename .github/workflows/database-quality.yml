@@ -26,6 +26,8 @@ on:
       - 'scripts/gcp/test_verify_migration_inventory.py'
       - 'scripts/gcp/migration_job_plan.py'
       - 'scripts/gcp/test_migration_job_plan.py'
+      - 'scripts/gcp/migration_execution.py'
+      - 'scripts/gcp/test_migration_execution.py'
       - 'scripts/gcp/migration_release_manifest.py'
       - 'scripts/gcp/test_migration_release_manifest.py'
       - 'scripts/gcp/quality_gate.py'
@@ -59,6 +61,7 @@ jobs:
           python3 -m unittest discover -s scripts/gcp -p 'test_verify_migration_inventory.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_migration_job_plan.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_migration_release_manifest.py' -v
+          python3 -m unittest discover -s scripts/gcp -p 'test_migration_execution.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_quality_gate.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_restore_rehearsal_plan.py' -v
       - name: Run mandatory isolated PostgreSQL migrations and failure recovery
