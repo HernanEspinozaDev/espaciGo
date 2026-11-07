@@ -13,5 +13,10 @@ export const metadata: Metadata = {
 };
 
 export default function VerificacionesPage() {
-  return <><VerificationFlow /><VerificationsView /></>;
+  return (
+    <>
+      <VerificationFlow />
+      <VerificationsView />
+    </>
+  );
 }

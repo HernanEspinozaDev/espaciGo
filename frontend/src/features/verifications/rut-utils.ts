@@ -23,6 +23,7 @@ export function isValidRut(value: string): boolean {
     multiplier = multiplier === 7 ? 2 : multiplier + 1;
   }
   const remainder = 11 - (sum % 11);
-  const expected = remainder === 11 ? "0" : remainder === 10 ? "K" : String(remainder);
+  const expected =
+    remainder === 11 ? "0" : remainder === 10 ? "K" : String(remainder);
   return match[2] === expected;
 }
