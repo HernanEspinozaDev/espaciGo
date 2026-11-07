@@ -29,7 +29,7 @@ func TestCurrentSchemaMigrationFromEmptyAndV75(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A new migration needs a reviewed fresh/upgrade recipe, not silent omission.
-	if len(all) != 83 {
+	if len(all) != 84 {
 		t.Fatal("update the reviewed current-schema bootstrap recipe for the new inventory")
 	}
 	prefix := func(last int) string {
@@ -97,11 +97,17 @@ GRANT UPDATE(id) ON public.document_verification_reviewer_grant TO espacigo_sche
 REVOKE UPDATE(id) ON public.document_verification_reviewer_grant FROM espacigo_schema_owner CASCADE;
 GRANT UPDATE(id) ON public.document_verification_reviewer_grant TO espacigo_runtime;
 REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
-				plan, err := Plan(ctx, migrationURL.String(), prefix(83), "espacigo_schema_owner")
+				// V84 expands identity verification schema; requires CREATE on public schema.
+				mustExec(`GRANT CREATE ON SCHEMA public TO espacigo_schema_owner;`)
+				if _, err := RunWithRole(ctx, migrationURL.String(), prefix(84), "espacigo_schema_owner"); err != nil {
+					t.Fatal(err)
+				}
+				mustExec(`REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
+				plan, err := Plan(ctx, migrationURL.String(), prefix(84), "espacigo_schema_owner")
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !plan.ReadOnly || len(plan.Applied) != 83 || len(plan.Pending) != 0 {
+				if !plan.ReadOnly || len(plan.Applied) != 84 || len(plan.Pending) != 0 {
 					t.Fatalf("incomplete postcheck: %#v", plan)
 				}
 				for i, entry := range before {
@@ -109,18 +115,18 @@ REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
 						t.Fatal("upgrade rewrote the existing migration ledger")
 					}
 				}
-				result, err := RunWithRole(ctx, migrationURL.String(), prefix(83), "espacigo_schema_owner")
+				result, err := RunWithRole(ctx, migrationURL.String(), prefix(84), "espacigo_schema_owner")
 				if err != nil || len(result.Applied) != 0 {
 					t.Fatalf("reapply was not a no-op: %v", err)
 				}
 				t.Run("release-noop", func(t *testing.T) {
 					conn := connectTestDB(t, ctx, migrationURL.String())
 					defer conn.Close(context.Background())
-					report, err := runReleaseWithConn(ctx, conn, prefix(83), "espacigo_schema_owner", ReleaseContract{
-						SourceSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InventorySHA256: inventoryFingerprint(all), ExpectedApplied: 83, Database: admin.Config().Database,
+					report, err := runReleaseWithConn(ctx, conn, prefix(84), "espacigo_schema_owner", ReleaseContract{
+						SourceSHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", InventorySHA256: inventoryFingerprint(all), ExpectedApplied: 84, Database: admin.Config().Database,
 					})
-					if err != nil || len(report.Applied) != 0 || len(report.After.Applied) != 83 || len(report.After.Pending) != 0 {
-						t.Fatalf("restricted V83 release no-op failed: %v", err)
+					if err != nil || len(report.Applied) != 0 || len(report.After.Applied) != 84 || len(report.After.Pending) != 0 {
+						t.Fatalf("restricted V84 release no-op failed: %v", err)
 					}
 				})
 				t.Run("catalog-read", func(t *testing.T) { assertPackagedCatalogRead(t, ctx, migrationURL.String()) })

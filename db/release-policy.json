@@ -3,7 +3,7 @@
   "baseline": 83,
   "automatic_migrations": {
     "V000084__didit_identity_verification_schema.sql": {
-      "checksum": "09c524e69f2cb4ff6c8997df3cade857d32c43a9f75d14f57e6abe255c2ddc8e",
+      "checksum": "d8cc68f3ea73c6e351a31bd8f88fd0606e8217c028777d5ebca7b406bb852b8f",
       "strategy": "expand"
     }
   },

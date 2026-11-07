@@ -2,7 +2,7 @@
 -- Does not store captured documents, images, video, or biometric templates.
 CREATE TABLE identity_verification_attempts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    account_id UUID NOT NULL REFERENCES public.usuario(id) ON DELETE CASCADE,
     status VARCHAR(30) NOT NULL DEFAULT 'CREATED'
         CHECK (status IN ('CREATED', 'PENDING_USER_INPUT', 'PROCESSING', 'APPROVED', 'IN_REVIEW', 'REJECTED', 'EXPIRED', 'FAILED')),
     id_country VARCHAR(3) NOT NULL DEFAULT 'CHL',
@@ -57,3 +57,10 @@ CREATE INDEX idx_didit_webhook_inbox_status ON didit_webhook_inbox (status);
 
 COMMENT ON TABLE didit_webhook_inbox IS
     'Durable, deduplicated inbox for authenticated Didit webhook events.';
+
+DO $grants$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'espacigo_runtime') THEN
+        GRANT SELECT, INSERT, UPDATE ON TABLE public.identity_verification_attempts TO espacigo_runtime;
+        GRANT SELECT, INSERT, UPDATE ON TABLE public.didit_webhook_inbox TO espacigo_runtime;
+    END IF;
+END $grants$;
