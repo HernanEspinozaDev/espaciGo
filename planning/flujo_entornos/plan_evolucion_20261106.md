@@ -1,5 +1,7 @@
 # Plan de evolución — etapa inicial de desarrollo sin staging
 
+> **Estado vigente: cierre técnico inicial completado.** El circuito está activo en main y Cloud SQL actual, release285b7700-7712-4512-ac8a-321c667caa39 SUCCESS; bastión/disco/reglas exclusivas eliminados, diagnóstico privado posterior PASS. [Recibo](evidence/cierre_tecnico_flujo_inicial.json) y [operación](operacion_main_sin_bastion.md). Las entradas anteriores conservan su historia de preparación; QA funcional del usuario y preparación de producción no se infieren de este cierre.
+
 Fecha: 2026-11-06. Revisión 3. Estado: **plan de ejecución inicial; componentes pendientes de implementar**. Base técnica auditada: `771134d165046b290b1f5ad3a1074a6357c2327f`. Este corte actualiza documentación; no ejecuta migraciones, despliegues, cambios IAM ni eliminación de recursos.
 
 ## Decisión vigente y alcance
@@ -195,3 +197,18 @@ El [avance vigente](avance_inicial_20261106.md#continuación-flujo-020405-recupe
 Continuación de implementación: el [contrato del Job aplicador](contrato_job_aplicacion_20261106.md) ya tiene modo release con preflight/aplicación/postcheck bajo un lock de sesión, SHA incorporado y verificación de ejecución; CI del código `0b7853a3c73a6d330022cbc2558d1b259a9708f6` pasó. Sigue en rama de tarea: falta orquestación completa (backup, lock global, provenance/reportes y catálogo IMG-01), provisionamiento/activación cloud y transición del trigger antes de integrar main o retirar bastión.
 
 Continuación FLUJO-05: captura y validación del catálogo IMG-01 desde Job privado **comprobadas en Cloud SQL** sin bastión, más gate de backup preparado y probado. [Evidencia y límites](avance_inicial_20261106.md#ensayo-cloud-del-catálogo-completado). El Job temporal fue retirado; el circuito activo de main sigue sin cambios. Pendiente enlazar toda la orquestación, persistir sus evidencias y transicionar el trigger antes de cerrar FLUJO-05–07.
+
+## Matriz final de esta etapa
+
+| Fase | Cierre técnico observado |
+| --- | --- |
+| FLUJO-00 | Alcance main/Cloud SQL actual, staging diferido y documentación vigentes |
+| FLUJO-01 | Inventarios destino/red/roles/backup/VM/dependencias verificados |
+| FLUJO-02 | CI mismo SHA, PostgreSQL25 resultados obligatorios, inventario/compatibilidad representativa y política por delta |
+| FLUJO-03 | Imágenes completas por digest/provenance; constructor/ejecutor/runtime separados |
+| FLUJO-04 | Acceso privado sin túnel y restore nativo aislado ensayados; recursos temporales retirados |
+| FLUJO-05 | Único trigger main y orquestador clasificado activos, evidencia por generación y recuperación preapply versionada |
+| FLUJO-06 | Primer release automático SUCCESS, V83/cero pendientes y tres servicios con tráfico verificado; QA online del usuario pendiente |
+| FLUJO-07 | VM/disco/reglas exclusivas ausentes; comprobación READ ONLY privada posterior al retiro PASS |
+
+Se cierra la evolución técnica inicial. La aceptación funcional del producto pertenece al usuario; antes de producción real se abre el corte futuro de staging, PITR/RPO/RTO y recuperación funcional. Cada migración futura mantiene sus controles de autoridad, revisión y compatibilidad.

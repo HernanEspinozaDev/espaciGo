@@ -150,3 +150,11 @@ Se conserva `espacigo_migrator_login`/`SET ROLE espacigo_schema_owner`, inventar
 Evidencia inmutable bajo `releases/<buildUUID>/` del bucket Cloud Build existente, con intenciones/IDs de ejecución y resultado antes/después. No volver a lanzar SQL si el padre se cancela o faltan logs. Lock fallido se diagnostica por build/ejecución; recuperación preapply versionada solo ante ausencia probada de intención/ejecución de aplicación. SQL confirmado no se revierte automáticamente; rollback de tráfico solo a revisiones compatibles.
 
 La captura manual IMG-01 quedó retirada en su script. Los reportes de recovery/PITR históricos mantienen su alcance; backup exitoso/SQL83/Ready no son aceptación de producto. QA online continúa a cargo del usuario. Staging queda diferido hasta preparar producción con usuarios reales.
+
+### Activación observada y retiro completado
+
+La ruta main/Jobs quedó activa mediante el build285b7700-7712-4512-ac8a-321c667caa39 SUCCESS del SHA293e906d4031a4ed871c1a56c4efdde18ac8a37b. Plan, backup y Job verificados; V83/cero pendientes, cero SQL aplicado, catálogo IMG-01 PASS. Tres servicios promovidos por digest/revisión conservando configuración; lock y Jobs temporales retirados.
+
+VM `espacigo-dms-bastion-v67`/ID5282317084229207114, boot disk10GB y sus dos reglas exclusivas SSH/túnel fueron eliminados y su ausencia verificada. Un Job READ ONLY posterior al borrado confirmó conectividad privada y ledger83 exacto sin túnel; también fue retirado. **La ruta SSH anterior es historia, no un requisito operativo ni fallback permanente.** [Evidencia de cierre](../flujo_entornos/evidence/cierre_tecnico_flujo_inicial.json), [guía actual](../flujo_entornos/operacion_main_sin_bastion.md).
+
+Backups automáticos7copias y PITR deshabilitado según captura del release; restore nativo aislado probado con límites de catálogo/ledger documentados. No hay QA online ni aceptación de producto por esta activación técnica.

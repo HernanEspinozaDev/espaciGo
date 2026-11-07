@@ -44,3 +44,7 @@ Se conserva la instancia de desarrollo actual. Sin SQL pendiente se admite backu
 Tras releases exitosos, la retención de ON_DEMAND propios se evalúa contra recibos inmutables y descripción exacta del build. Conserva siete más recientes y al menos siete días; protege el backup actual y no borra backups de fallos, ajenos o históricos. Un fallo de esa limpieza se registra y se difiere, sin revertir un despliegue correcto. La restauración nativa aislada ya ensayada tiene evidencia separada; antes de usuarios reales revisar PITR, retención, RPO/RTO y staging.
 
 Los Jobs efímeros se retiran tras completar/persistir sus resultados; los fallidos o inciertos se conservan para diagnóstico. Imágenes/logs/artefactos siguen su almacenamiento actual. El SQL compartido no se apaga al terminar pruebas.
+
+## Activación vigente
+
+Circuito activo y primer release automático comprobado: build285b7700-7712-4512-ac8a-321c667caa39, fuente293e906d4031a4ed871c1a56c4efdde18ac8a37b, V83/cero pendientes, tres revisiones con tráfico verificado. Bastión, boot disk y reglas exclusivas retirados; lectura privada posterior al borrado PASS. [Recibo operativo](evidence/cierre_tecnico_flujo_inicial.json). El diario contiene los intentos iniciales fallidos antes de SQL y las correcciones TLS/reintentos, sin ocultarlos ni confundirlos con una migración aplicada.
