@@ -159,7 +159,7 @@ La auditoría FLUJO-00 se conserva. Las fases pendientes FLUJO-01–07 se redefi
 | FLUJO-06 | Primer release directo del circuito, verificación y QA en el entorno actual | SHA/digests/ledger consistentes, tráfico correcto, resultado técnico y QA humano registrados; SQL real solo si existe delta revisado |
 | FLUJO-07 | Retirar bastión y cerrar operación sin dependencia manual | Nueva ruta y diagnóstico/recuperación sin túnel ensayados; dependencias identificadas resueltas; borrado exacto autorizado y verificado, costo residual y documentación registrados |
 
-Estados al iniciar ejecución: FLUJO-00 documental actualizado; FLUJO-01 inventario cloud leído con límites; FLUJO-02 y FLUJO-03 avanzan con código/pruebas locales, sin cierre integral; FLUJO-04–07 pendientes. Evidencia y resultados: [avance inicial](avance_inicial_20261106.md). Cada fase registra SHA, comandos realmente ejecutados, pruebas, límites y recursos propios usados. No se afirma CI remoto, backup actual, migración aplicada ni aceptación de producto sin su evidencia.
+Estados al iniciar ejecución: FLUJO-00 documental actualizado; FLUJO-01 inventario cloud y ledger READ ONLY comprobados, con límites de recuperación/costos; FLUJO-02 CI remoto y verificadores implementados, compatibilidad funcional/wiring pendientes; FLUJO-03 imagen y Job de plan publicados y probados, Job aplicador pendiente; FLUJO-04 preflight real iniciado, restore pendiente; FLUJO-05–07 pendientes. Evidencia y resultados: [avance inicial](avance_inicial_20261106.md). Cada fase registra SHA, comandos realmente ejecutados, pruebas, límites y recursos propios usados. No se afirma CI remoto, backup actual, migración aplicada ni aceptación de producto sin su evidencia.
 
 ## Retirada del bastión y operación posterior
 
