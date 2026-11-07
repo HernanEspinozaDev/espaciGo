@@ -385,10 +385,10 @@ export function ListingGallery(props: ListingGalleryProps) {
     <div className="space-y-6">
       <div
         role="note"
-        className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900"
+        className="rounded-lg border border-border bg-muted/40 p-4 text-xs text-muted-foreground"
       >
-        Entorno de ensayo de galería privada. Las fotografías de este entorno
-        son para ensayos locales.
+        Puedes agregar imágenes JPG, PNG o WebP. Cada archivo se valida en el
+        servidor antes de quedar disponible en la galería.
       </div>
       <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

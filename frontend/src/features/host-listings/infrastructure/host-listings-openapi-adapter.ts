@@ -16,6 +16,9 @@ import type {
   ListingDraftInput,
   ListingState,
   ListingSummary,
+  ManualAvailabilityBlock,
+  ManualAvailabilityBlockInput,
+  OpenApiManualBlock,
   OpenApiLocalWeeklyHours,
   OpenApiRate,
   OpenApiSpaceAttributeProfile,
@@ -140,6 +143,18 @@ function mapWeeklyHours(
       weekday: d.weekday,
       periods: d.periods.map((p) => ({ open: p.open, close: p.close })),
     })),
+  };
+}
+
+function mapManualBlock(block: OpenApiManualBlock): ManualAvailabilityBlock {
+  return {
+    id: block.id,
+    space_id: block.space_id,
+    start_at: block.start_at,
+    end_at: block.end_at,
+    time_zone: block.time_zone,
+    reason: block.reason,
+    created_at: block.created_at,
   };
 }
 
@@ -665,6 +680,67 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
     }
     const items = result.data?.items ?? [];
     return items.map(mapPhotoToGalleryPhoto);
+  }
+
+  async listManualBlocks(
+    listingId: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+  ): Promise<ManualAvailabilityBlock[]> {
+    const result = await apiClient.GET(
+      "/spaces/{spaceId}/availability/blocks",
+      {
+        params: {
+          path: { spaceId: listingId },
+          query: { from, to },
+        },
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data?.items) throw new ApiProtocolError();
+    return result.data.items.map(mapManualBlock);
+  }
+
+  async createManualBlock(
+    listingId: string,
+    input: ManualAvailabilityBlockInput,
+    signal?: AbortSignal,
+  ): Promise<ManualAvailabilityBlock> {
+    const result = await apiClient.POST(
+      "/spaces/{spaceId}/availability/blocks",
+      {
+        params: { path: { spaceId: listingId } },
+        body: input,
+        bodySerializer: serializeExactJson,
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
+    if (!result.data) throw new ApiProtocolError();
+    return mapManualBlock(result.data);
+  }
+
+  async deleteManualBlock(
+    listingId: string,
+    blockId: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const result = await apiClient.DELETE(
+      "/spaces/{spaceId}/availability/blocks/{blockId}",
+      {
+        params: { path: { spaceId: listingId, blockId } },
+        signal,
+      },
+    );
+    if (!result.response.ok) {
+      throw normalizeApiError(result.response, result.error);
+    }
   }
 
   async getPhotoUploadStatus(

@@ -171,7 +171,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
     ).toHaveCount(0);
     const timezone = page.getByLabel(/Zona horaria/i);
     await expect(timezone).toHaveValue("America/Santiago");
-    await timezone.fill("America/Punta_Arenas");
+    await timezone.selectOption("America/Punta_Arenas");
     await page.getByRole("button", { name: /Guardar zona horaria/i }).click();
     await expect(page.getByRole("main").getByRole("status")).toContainText(
       /zona horaria/i,

@@ -141,6 +141,22 @@ export interface ScheduleData {
   readonly etag: string;
 }
 
+export interface ManualAvailabilityBlock {
+  readonly id: string;
+  readonly space_id: string;
+  readonly start_at: string;
+  readonly end_at: string;
+  readonly time_zone: string;
+  readonly reason: string;
+  readonly created_at: string;
+}
+
+export interface ManualAvailabilityBlockInput {
+  readonly start_at: string;
+  readonly end_at: string;
+  readonly reason: string;
+}
+
 export interface GalleryPhotoVariant {
   readonly name: "thumbnail" | "display";
   readonly url: string;
@@ -196,3 +212,5 @@ export type OpenApiSpaceAttributeProfile =
   components["schemas"]["SpaceAttributeProfile"];
 export type OpenApiRate = components["schemas"]["Rate"];
 export type OpenApiLocalWeeklyHours = components["schemas"]["LocalWeeklyHours"];
+export type OpenApiManualBlock = components["schemas"]["ManualBlock"];
+export type OpenApiManualBlockList = components["schemas"]["ManualBlockList"];
