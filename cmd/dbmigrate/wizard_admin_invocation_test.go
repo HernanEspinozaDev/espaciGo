@@ -10,7 +10,8 @@ func TestReviewedWizardAdminInventoryMatchesSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := reviewedWizardAdminInventory(filepath.Join(root, "db", "migrations"))
+	fixture := wizardAdminTestFixture(t, root)
+	got, err := reviewedWizardAdminInventory(filepath.Join(fixture, "db", "migrations"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +66,9 @@ func TestWizardAdminIdentityAcceptsOnlyFixedLocalConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	passfile := filepath.Join(root, filepath.FromSlash(wizardAdminPassfile))
+	fixture := wizardAdminTestFixture(t, root)
+	passfile := filepath.Join(fixture, filepath.FromSlash(wizardAdminPassfile))
+	t.Setenv("PGPASSFILE", passfile)
 	err = validateWizardAdminIdentity(wizardAdminDatabaseURL, "direct", "", func(key string) string {
 		if key == "PGPASSFILE" {
 			return passfile
