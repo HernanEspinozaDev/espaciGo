@@ -29,14 +29,20 @@ func localPublicCatalogKey(path string) ([]byte, error) {
 }
 
 // Public reads can be exercised independently from booking/payment trials.
-// This flag authorizes only the same loopback synthetic worker-free target.
+// The explicit flag authorizes only an exact isolated local target.
 func localPublicCatalogEnabled(getenv func(string) string, profile runtimeProfileName) (bool, error) {
 	value := getenv("LOCAL_PUBLIC_CATALOG_TRIAL")
 	if value == "" {
 		return false, nil
 	}
-	if value != "1" || profile != runtimeProfileWorkerFree || getenv("LOCAL_AUTH_PROTOTYPE") != "1" || getenv("LOCAL_BOOKING_TRIAL") != "" || getenv("APP_PROFILE") != "" || !isAuthorizedF5Runtime(getenv, getenv("HTTP_ADDR")) {
-		return false, errors.New("standalone public catalog requires the exact local worker-free synthetic target")
+	if value != "1" || getenv("LOCAL_AUTH_PROTOTYPE") != "1" || getenv("LOCAL_BOOKING_TRIAL") != "" || getenv("APP_PROFILE") != "" {
+		return false, errors.New("standalone public catalog requires the exact isolated synthetic target")
+	}
+	httpAddr := getenv("HTTP_ADDR")
+	authorizedTarget := profile == runtimeProfileWorkerFree && isAuthorizedF5Runtime(getenv, httpAddr) ||
+		profile == runtimeProfileWizardLocal && isAuthorizedWizardRuntime(getenv, httpAddr)
+	if !authorizedTarget {
+		return false, errors.New("standalone public catalog requires the exact isolated synthetic target")
 	}
 	return true, nil
 }

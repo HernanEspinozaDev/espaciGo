@@ -10,10 +10,27 @@ const root = new URL(
 );
 const source = await readFile(root, "utf8");
 const javascript = ts.transpile(source, { module: ts.ModuleKind.CommonJS });
+const cataloguePath = new URL(
+  "../src/features/host-listings/domain/chile-dpa.ts",
+  import.meta.url,
+);
+const catalogueSource = await readFile(cataloguePath, "utf8");
+const catalogueJs = ts.transpile(catalogueSource, {
+  module: ts.ModuleKind.CommonJS,
+});
+const catalogueModule = { exports: {} };
+new Function("module", "exports", catalogueJs)(
+  catalogueModule,
+  catalogueModule.exports,
+);
 const loadedModule = { exports: {} };
-new Function("module", "exports", javascript)(
+new Function("module", "exports", "require", javascript)(
   loadedModule,
   loadedModule.exports,
+  (specifier) => {
+    assert.equal(specifier, "./chile-dpa");
+    return catalogueModule.exports;
+  },
 );
 const { validateWizardLocation } = loadedModule.exports;
 
@@ -36,7 +53,7 @@ test("rejects incomplete, malformed, and region-mismatched codes", () => {
   }
 });
 
-test("wizard copy asks for codes and does not promise draft idempotency", async () => {
+test("wizard uses accessible location selects and does not promise idempotency", async () => {
   const ui = await readFile(
     fileURLToPath(
       new URL(
@@ -46,7 +63,8 @@ test("wizard copy asks for codes and does not promise draft idempotency", async 
     ),
     "utf8",
   );
-  assert.match(ui, /Código de comuna \(5 dígitos\)/);
+  assert.match(ui, /id="wizard-region"/);
   assert.match(ui, /id="wizard-comuna"/);
+  assert.match(ui, /\{\.\.\.fieldFeedback\("comuna"\)\}/);
   assert.doesNotMatch(ui, /clave de idempotencia|idempotencia única UUIDv4/i);
 });

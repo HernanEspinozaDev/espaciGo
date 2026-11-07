@@ -205,8 +205,8 @@ test("@phase7 @native authorized synthetic accounts verify persisted listing CRU
   ).toBeVisible();
   await expect(page.locator("#attr-puestos_trabajo")).toBeVisible();
   await page.locator("#wizard-address").fill("Dirección sintética F3 123");
-  await page.locator("#wizard-comuna").fill("13123");
   await page.locator("#wizard-region").selectOption("13");
+  await page.locator("#wizard-comuna").selectOption("13123");
   await page.locator("#wizard-area").fill("35");
   await page.locator("#wizard-capacity").fill("6");
   await page.locator("#attr-puestos_trabajo").fill("6");

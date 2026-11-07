@@ -257,3 +257,33 @@ func TestLaunchWorkersRejectsUnknownProfileBeforeLaunching(t *testing.T) {
 		t.Fatalf("launched %d workers for invalid profile", launched)
 	}
 }
+
+func TestRuntimeProfilePinsWizardToExactNewLocalTarget(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]string{
+		"API_RUNTIME_PROFILE": "local-space-wizard", "LOCAL_AUTH_PROTOTYPE": "1",
+		"DATABASE_CONNECTION_MODE": "direct", "DATABASE_HOST": "127.0.0.1",
+		"DATABASE_PORT": "15436", "DATABASE_NAME": "espacigo_wizard_20261106",
+		"DATABASE_USER": "espacigo_api_login", "DATABASE_SET_ROLE": "espacigo_runtime",
+		"HTTP_ADDR": "127.0.0.1:18086", "M03_EVIDENCE_DIR": root,
+	}
+	profile, err := runtimeProfile(func(k string) string { return base[k] })
+	if err != nil || profile != runtimeProfileWizardLocal {
+		t.Fatalf("profile=%q err=%v", profile, err)
+	}
+	for key, value := range map[string]string{"DATABASE_PORT": "15434", "DATABASE_NAME": "espacigo_f5_gate_20261101", "DATABASE_USER": "postgres", "DATABASE_SET_ROLE": "postgres", "HTTP_ADDR": "127.0.0.1:18082", "DATABASE_HOST": "localhost"} {
+		t.Run(key, func(t *testing.T) {
+			changed := map[string]string{}
+			for k, v := range base {
+				changed[k] = v
+			}
+			changed[key] = value
+			if _, err := runtimeProfile(func(k string) string { return changed[k] }); err == nil {
+				t.Fatal("accepted non-target runtime configuration")
+			}
+		})
+	}
+}

@@ -19,8 +19,14 @@ func main() {
 	confirmF5AdminMigration := flag.String("confirm-f5-admin-migration", "", "allow the one-time versioned migration only on the isolated F5 target")
 	cloudOwner := flag.Bool("cloud-owner-migration", false, "run confirmed CloudSQL staging repair V76..V80")
 	confirmCloudOwner := flag.String("confirm-cloud-owner-pre81", "", "exact CloudSQL staging confirmation")
+	wizardAdminVersion := flag.Int64("wizard-admin-version", 0, "apply one authorized wizard migration version (60, 64, or 66) in the isolated ensayo")
+	confirmWizardAdmin := flag.String("confirm-wizard-admin", "", "must exactly equal espacigo_wizard_20261106")
 	flag.Parse()
 
+	if err := validateWizardAdminInvocation(*wizardAdminVersion, *confirmWizardAdmin, *planOnly, *applyRuntimeACL, *recoverRuntimeACL, *confirmRuntimeACL, *confirmF5AdminMigration, *cloudOwner, *confirmCloudOwner); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	runtimeACLMode, err := validateRuntimeACLInvocation(*applyRuntimeACL, *recoverRuntimeACL, *planOnly, *confirmRuntimeACL, *confirmF5AdminMigration)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -35,6 +41,26 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	if *wizardAdminVersion != 0 {
+		if err := validateWizardAdminIdentity(settings.databaseURL, settings.mode, settings.setRole, os.Getenv); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		expected, err := reviewedWizardAdminInventory(*migrationDir)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
+		defer cancel()
+		result, err := migrator.RunWizardAdministrativeMigration(ctx, settings.databaseURL, *migrationDir, *wizardAdminVersion, expected)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "wizard administrative migration failed (do not retry until commit outcome is read back): %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("wizard administrative migration applied V%06d\n", result.Applied[0])
+		return
 	}
 	if err := validateCloudOwnerInvocation(*cloudOwner, *planOnly, *applyRuntimeACL, *recoverRuntimeACL, *confirmCloudOwner, settings, os.Getenv); err != nil {
 		fmt.Fprintln(os.Stderr, err)

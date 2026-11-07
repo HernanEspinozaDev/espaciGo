@@ -39,7 +39,7 @@ type config struct {
 func loadConfig(getenv func(string) string) (config, error) { return loadConfigMode(getenv, false) }
 
 func loadRuntimeConfig(getenv func(string) string, profile runtimeProfileName) (config, error) {
-	local := profile == runtimeProfileWorkerFree || profile == runtimeProfileDocumentScanOnly
+	local := profile == runtimeProfileWorkerFree || profile == runtimeProfileDocumentScanOnly || profile == runtimeProfileWizardLocal
 	passfileValue := getenv("PGPASSFILE")
 	passfilePath := strings.TrimSpace(passfileValue)
 	if passfileValue != "" && passfilePath == "" {

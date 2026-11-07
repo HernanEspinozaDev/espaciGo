@@ -398,8 +398,8 @@ test("@f5 @native @local-http-worker-free owner can create a draft through the r
       await page
         .locator("#wizard-address")
         .fill("Dirección ficticia de ensayo F6");
-      await page.locator("#wizard-comuna").fill("13101");
       await page.locator("#wizard-region").selectOption("13");
+      await page.locator("#wizard-comuna").selectOption("13101");
       await page.locator("#wizard-area").fill("35");
       await page.locator("#wizard-capacity").fill("2");
       await page.getByRole("checkbox", { name: "Wi-Fi", exact: true }).check();

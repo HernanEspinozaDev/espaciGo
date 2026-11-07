@@ -366,14 +366,34 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 	return out, rows.Err()
 }
 
+const weeklyScheduleProjectionSQL = `(SELECT CASE WHEN t.modalidad='hora' AND e.zona_horaria IS NOT NULL THEN
+ jsonb_build_object('enabled',h.activo,'time_zone',e.zona_horaria,'days',(
+  SELECT jsonb_agg(jsonb_build_object('weekday',d.weekday,'periods',COALESCE((
+   SELECT jsonb_agg(jsonb_build_object('open',CASE WHEN s.apertura_minuto=1440 THEN '24:00' ELSE to_char(make_time(s.apertura_minuto/60,s.apertura_minuto%60,0),'HH24:MI') END,'close',CASE WHEN s.cierre_minuto=1440 THEN '24:00' ELSE to_char(make_time(s.cierre_minuto/60,s.cierre_minuto%60,0),'HH24:MI') END) ORDER BY s.orden)
+   FROM public.espacio_horario_semanal_tramo s WHERE s.espacio_id=e.id AND s.dia_iso=d.weekday
+  ),'[]'::jsonb)) ORDER BY d.weekday) FROM generate_series(1,7) d(weekday)
+ ) ) ELSE NULL END FROM public.espacio_horario_semanal h WHERE h.espacio_id=e.id)`
+
+func detailQuery() string {
+	return projection + `,e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified,` + weeklyScheduleProjectionSQL + ` AS weekly_schedule` + eligiblePublicSQL + ` AND e.id=$1`
+}
+
 func (r *Repository) Detail(ctx context.Context, id string) (publiccatalog.Space, error) {
 	var v publiccatalog.Space
-	err := r.pool.QueryRow(ctx, projection+`,e.reglas_uso,r.codigo,r.nombre,m.codigo,m.nombre,verification.identity_verified,verification.space_verified`+eligiblePublicSQL+` AND e.id=$1`, id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified)
-	if err == pgx.ErrNoRows {
-		return publiccatalog.Space{}, publiccatalog.ErrNotFound
-	}
+	var scheduleJSON []byte
+	err := r.pool.QueryRow(ctx, detailQuery(), id).Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &v.UsageRules, &v.RegionCode, &v.RegionName, &v.CommuneCode, &v.CommuneName, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified, &scheduleJSON)
 	if err != nil {
+		if err == pgx.ErrNoRows {
+			return publiccatalog.Space{}, publiccatalog.ErrNotFound
+		}
 		return v, err
+	}
+	if scheduleJSON != nil {
+		var schedule publiccatalog.PublicWeeklySchedule
+		if err := json.Unmarshal(scheduleJSON, &schedule); err != nil {
+			return v, err
+		}
+		v.WeeklySchedule = &schedule
 	}
 	v.Features = []publiccatalog.PublicFeature{}
 	v.Images = []publiccatalog.PublicImageRef{}

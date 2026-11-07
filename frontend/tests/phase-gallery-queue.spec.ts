@@ -164,7 +164,11 @@ async function install(
     .getByLabel("Contraseña", { exact: true })
     .fill("SyntheticOnly123!");
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
-  await expect(page.locator("h1")).toHaveText(detail.title);
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText(detail.title);
   await page.getByRole("tab", { name: /Fotografías/ }).click();
   return { photos };
 }

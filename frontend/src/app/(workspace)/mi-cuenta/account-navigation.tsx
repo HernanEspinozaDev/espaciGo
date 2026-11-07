@@ -56,16 +56,17 @@ export function AccountNavigation() {
   return (
     <aside
       aria-label="Navegación de cuenta"
-      className="w-full md:w-64 shrink-0 md:border-r md:border-border/60 md:pr-6"
+      className="w-full min-w-0 max-w-full md:w-64 md:shrink-0 md:border-r md:border-border/60 md:pr-6"
     >
       <nav
         aria-label="Secciones de mi cuenta"
-        className="flex flex-row md:flex-col gap-1.5 overflow-x-auto pb-2 md:pb-0"
+        className="flex min-w-0 max-w-full flex-row md:flex-col gap-1.5 overflow-x-auto pb-2 md:pb-0"
       >
         {items.map((item) => {
           const isActive =
             pathname === item.href ||
-            (item.href !== "/mi-cuenta" && Boolean(pathname?.startsWith(item.href)));
+            (item.href !== "/mi-cuenta" &&
+              Boolean(pathname?.startsWith(item.href)));
           const Icon = item.icon;
 
           return (

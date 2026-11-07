@@ -25,6 +25,34 @@ const source = await readFile(
   path.join(root, "src/features/host-listings/ui/listing-wizard.tsx"),
   "utf8",
 );
+const cleaningSource = await readFile(
+  path.join(root, "src/features/host-listings/domain/attribute-formatting.ts"),
+  "utf8",
+);
+
+function extractCleaner() {
+  const start = cleaningSource.indexOf(
+    "export function cleanAttributesForPayload(",
+  );
+  assert.notEqual(start, -1, "production attribute cleaner exists");
+  const open = cleaningSource.indexOf("{", start);
+  let depth = 0;
+  let end = -1;
+  for (let index = open; index < cleaningSource.length; index += 1) {
+    if (cleaningSource[index] === "{") depth += 1;
+    if (cleaningSource[index] === "}" && --depth === 0) {
+      end = index + 1;
+      break;
+    }
+  }
+  assert.notEqual(end, -1, "cleaner function body is balanced");
+  return ts.transpile(
+    cleaningSource.slice(start, end).replace("export function", "function"),
+    {
+      target: ts.ScriptTarget.ES2022,
+    },
+  );
+}
 
 function extractDraftPayload() {
   const start = source.indexOf("const draftPayload: ListingDraftInput = {");
@@ -60,6 +88,7 @@ test("draft payload uses only dynamic schema attributes and the loaded schema ve
     "comunaCode",
     "currentSchema",
     "dynamicAttributes",
+    "cleanAttributes",
     "cancellationPolicy",
     "depositCLP",
     extractDraftPayload(),
@@ -80,10 +109,20 @@ test("draft payload uses only dynamic schema attributes and the loaded schema ve
     "13114",
     schema,
     attributes,
+    new Function(`${extractCleaner()}; return cleanAttributesForPayload;`)()({
+      ...attributes,
+      opcional_vacio: undefined,
+      disponible: false,
+      minimo: 0,
+    }),
     "flexible",
     "",
   );
-  assert.deepEqual(payload.attributes, attributes);
+  assert.deepEqual(payload.attributes, {
+    ...attributes,
+    disponible: false,
+    minimo: 0,
+  });
   assert.equal(payload.attribute_schema_version, 7);
   assert.equal(
     payload.usage_rules,

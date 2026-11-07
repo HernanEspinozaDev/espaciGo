@@ -259,6 +259,78 @@ func VerifyRuntimePermissionCoreReadback(ctx context.Context, conn ScratchPermis
 	if err := requireRestrictedNoLoginRole(ctx, conn, "espacigo_runtime", true); err != nil {
 		return err
 	}
+	return verifyRuntimePermissionCorePrivileges(ctx, conn)
+}
+
+// RuntimeMembership is one exact PostgreSQL role membership edge.
+type RuntimeMembership struct {
+	Role, Member                          string
+	AdminOption, InheritOption, SetOption bool
+}
+
+// VerifyRuntimePermissionCoreReadbackWithMemberships verifies the same core
+// privileges as the strict legacy verifier, then requires exactly memberships.
+func VerifyRuntimePermissionCoreReadbackWithMemberships(ctx context.Context, conn ScratchPermissionDB, expected []RuntimeMembership) error {
+	if conn == nil {
+		return errors.New("runtime permission readback connection is required")
+	}
+	attrs, err := readRoleAttributes(ctx, conn, "espacigo_runtime")
+	if err != nil {
+		return err
+	}
+	if attrs.canLogin || attrs.superuser || attrs.createDB || attrs.createRole || attrs.replication || attrs.bypassRLS || attrs.inherit {
+		return errors.New("scratch group role has unsafe attributes")
+	}
+	if err := verifyRuntimePermissionCorePrivileges(ctx, conn); err != nil {
+		return err
+	}
+	return verifyRuntimeMemberships(ctx, conn, expected)
+}
+
+func verifyRuntimeMemberships(ctx context.Context, conn ScratchPermissionDB, expected []RuntimeMembership) error {
+	rows, err := conn.Query(ctx, `SELECT parent.rolname, member.rolname, m.admin_option, m.inherit_option, m.set_option
+		FROM pg_catalog.pg_auth_members m
+		JOIN pg_catalog.pg_roles parent ON parent.oid=m.roleid
+		JOIN pg_catalog.pg_roles member ON member.oid=m.member
+		WHERE parent.rolname='espacigo_runtime' OR member.rolname='espacigo_runtime'`)
+	if err != nil {
+		return fmt.Errorf("could not read runtime role memberships: %w", err)
+	}
+	defer rows.Close()
+	got := make([]RuntimeMembership, 0)
+	for rows.Next() {
+		var edge RuntimeMembership
+		if err := rows.Scan(&edge.Role, &edge.Member, &edge.AdminOption, &edge.InheritOption, &edge.SetOption); err != nil {
+			return fmt.Errorf("could not read runtime role memberships: %w", err)
+		}
+		got = append(got, edge)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("could not read runtime role memberships: %w", err)
+	}
+	if len(got) != len(expected) {
+		return errors.New("runtime role memberships differ from the expected edges")
+	}
+	seen := make(map[RuntimeMembership]bool, len(expected))
+	for _, edge := range expected {
+		if seen[edge] {
+			return errors.New("expected runtime memberships contain duplicates")
+		}
+		seen[edge] = true
+	}
+	for _, edge := range got {
+		if !seen[edge] {
+			return errors.New("runtime role memberships differ from the expected edges")
+		}
+		delete(seen, edge)
+	}
+	if len(seen) != 0 {
+		return errors.New("runtime role memberships differ from the expected edges")
+	}
+	return nil
+}
+
+func verifyRuntimePermissionCorePrivileges(ctx context.Context, conn ScratchPermissionDB) error {
 	var checks [43]bool
 	query := `SELECT
 		has_schema_privilege('espacigo_runtime', 'public', 'USAGE'),

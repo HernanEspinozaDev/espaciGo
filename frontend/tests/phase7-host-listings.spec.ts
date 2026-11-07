@@ -293,7 +293,11 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
   await loginAndNavigate(page, "/anfitrion/espacios");
 
   // Verificación de encabezado
-  await expect(page.locator("h1")).toHaveText("Mis Espacios");
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText("Mis Espacios");
 
   // 1. Verificación en pestaña Todos: 6 elementos en página 1
   await expect(page.getByText("Oficina Providencia A")).toBeVisible();
@@ -692,7 +696,11 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   });
 
   await loginAndNavigate(page, "/anfitrion/espacios/nuevo");
-  await expect(page.locator("h1")).toHaveText("Publicar un nuevo espacio");
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText("Publicar un nuevo espacio");
 
   // PASO 1: Tipo y Resumen
   await expect(page.locator("#wizard-category")).toBeVisible();
@@ -772,7 +780,8 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
     /.+/,
   );
   await page.locator("#wizard-address").fill("Av. Apoquindo 3000, Las Condes");
-  await page.locator("#wizard-comuna").fill("13114");
+  await page.locator("#wizard-region").selectOption("13");
+  await page.locator("#wizard-comuna").selectOption("13114");
   await page.locator("#wizard-area").fill("0");
   await page.locator("#wizard-capacity").fill("6");
   await page.locator("#wizard-address").fill("😀".repeat(501));
@@ -927,11 +936,13 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   ).toHaveCount(0);
 
   await page.locator("#schedule-enabled").check();
-  await page.getByRole("button", { name: "Eliminar tramo de Lunes" }).click();
-  await page.getByRole("button", { name: "Agregar tramo" }).first().click();
-  const mondayStart = page.getByLabel("Hora inicio Lunes").first();
-  const mondayEnd = page.getByLabel("Hora fin Lunes").first();
-  await mondayStart.fill("09:00");
+  const mondayEnd = page.getByLabel(
+    "Tramo 1: hora de cierre (24:00 permitido)",
+  );
+  const mondayStart = page.getByLabel("Tramo 1: hora de inicio");
+  await expect(mondayStart).toHaveValue("09:00");
+  await expect(mondayEnd).toHaveValue("18:00");
+  await mondayStart.fill("19:00");
   await mondayEnd.fill("08:00");
   await page.getByRole("button", { name: "Siguiente" }).click();
   await expect(
@@ -939,7 +950,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   ).toBeVisible();
   const scheduleError = page.locator("#wizard-schedule-error");
   await expect(scheduleError).toBeVisible();
-  await expect(scheduleError).toContainText(/lunes|09:00|08:00/i);
+  await expect(scheduleError).toContainText(/lunes|19:00|08:00/i);
   const scheduleGroup = page.locator("#wizard-schedule-group");
   await expect(scheduleGroup).toHaveAttribute(
     "aria-describedby",
@@ -953,6 +964,7 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   }
   await expect(scheduleGroup).toBeFocused();
   expect(createPostCount).toBe(0);
+  await mondayStart.fill("09:00");
   await mondayEnd.fill("17:00");
   await expect(scheduleError).toHaveCount(0);
   await expect(
@@ -990,7 +1002,11 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   await page.waitForURL((url) =>
     url.pathname.endsWith(`/espacios/${newSpaceId}/editar`),
   );
-  await expect(page.locator("h1")).toHaveText("Oficina Ejecutiva El Golf");
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText("Oficina Ejecutiva El Golf");
 
   // POST /spaces no admite Idempotency-Key; la galería sí lo conserva.
   expect(capturedIdempotencyKey).toBeNull();
@@ -1017,7 +1033,11 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   expect(createBody.attributes).not.toHaveProperty("security_deposit_clp");
 
   await page.reload();
-  await expect(page.locator("h1")).toHaveText("Oficina Ejecutiva El Golf");
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText("Oficina Ejecutiva El Golf");
   await expect(page.getByLabel("calefaccion", { exact: true })).toBeChecked();
   expect(createPostCount).toBe(1);
 });
@@ -1804,7 +1824,11 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   await loginAndNavigate(page, `/anfitrion/espacios/${spaceId}/editar`);
 
   // Verificación de carga y estado inicial
-  await expect(page.locator("h1")).toHaveText("Oficina Providencia Inicial");
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText("Oficina Providencia Inicial");
   await expect(page.getByText("Borrador").first()).toBeVisible();
 
   // 1. Pestaña Información: validación común antes de guardar contenido
@@ -2068,9 +2092,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   );
   await page.getByRole("button", { name: "Guardar horarios" }).click();
   await expect(
-    page.getByText(
-      "Disponibilidad semanal y zona horaria guardadas con éxito.",
-    ),
+    page.getByText("Horario semanal habitual y zona horaria guardados."),
   ).toBeVisible();
   expect(putAvailabilityBody!.time_zone).toBe("America/Santiago");
   const scheduleExpectedEtag = syntheticDraftEtag(
@@ -2830,9 +2852,10 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   await page.locator("#editor-title").fill("Contenido con conflicto");
   await contentSaveButton.click();
   await expect(
-    page
-      .getByRole("alert")
-      .filter({ hasText: "API request failed (412: precondition_failed)" }),
+    page.getByRole("alert").filter({
+      hasText:
+        "Este espacio cambió. Actualiza la información antes de volver a guardar.",
+    }),
   ).toBeVisible();
   expect(publishedContentSaveCount).toBe(3);
   expect(contentIfMatchHeaders).toHaveLength(3);
@@ -3173,12 +3196,52 @@ test("@phase7 @a11y auditoría de accesibilidad Axe y verificación estricta de 
     `/anfitrion/espacios/${spaceId}/editar`,
   ];
 
-  for (const route of targetRoutes) {
-    await page.goto(route);
-    await page.waitForLoadState("networkidle");
+  const pendingRequests = new Map<
+    string,
+    { method: string; pathname: string }
+  >();
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    pendingRequests.set(request.url(), {
+      method: request.method(),
+      pathname: url.pathname,
+    });
+  });
+  const finishRequest = (request: import("@playwright/test").Request) => {
+    pendingRequests.delete(request.url());
+  };
+  page.on("requestfinished", finishRequest);
+  page.on("requestfailed", finishRequest);
 
-    // Verificación de encabezado principal único h1
-    await expect(page.locator("h1")).toHaveCount(1);
+  for (const route of targetRoutes) {
+    await page.goto(route, { waitUntil: "domcontentloaded" });
+    const mainRegion = page.getByRole("region", {
+      name: "Contenido de la sección de cuenta",
+    });
+    const routeHeading =
+      route === "/anfitrion/espacios"
+        ? "Mis Espacios"
+        : route.endsWith("/nuevo")
+          ? "Publicar un nuevo espacio"
+          : "Espacio Accesible de Ensayo";
+    await expect(mainRegion.locator("h1")).toHaveText(routeHeading, {
+      timeout: 5_000,
+    });
+    if (route.endsWith("/nuevo")) {
+      await expect(page.locator("#wizard-category")).toBeVisible();
+    } else if (route.includes("/editar")) {
+      await expect(
+        page.getByRole("tab", { name: "Información" }),
+      ).toBeVisible();
+    } else {
+      await expect(
+        page.getByRole("link", { name: /Editar/ }).first(),
+      ).toBeVisible();
+    }
+
+    console.info(
+      `[a11y-readiness] ${route} pending=${JSON.stringify([...pendingRequests.values()])}`,
+    );
 
     for (const viewport of [
       { width: 1365, height: 900 },
@@ -3191,6 +3254,14 @@ test("@phase7 @a11y auditoría de accesibilidad Axe y verificación estricta de 
       }));
       // Verificación estricta de ausencia de desbordamiento horizontal
       expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.width);
+
+      const screenshotDir = process.env.A11Y_SCREENSHOT_DIR;
+      if (screenshotDir) {
+        await page.screenshot({
+          path: `${screenshotDir}/host-${route.includes("/nuevo") ? "nuevo" : route.includes("/editar") ? "editar" : "listado"}-${viewport.width}.png`,
+          fullPage: true,
+        });
+      }
 
       // Auditoría Axe estricta
       const results = await new AxeBuilder({ page }).analyze();
@@ -3273,7 +3344,11 @@ test("@phase7 @controlled session-boundary: el formulario de nuevo espacio aísl
   });
 
   await loginAndNavigate(page, "/anfitrion/espacios/nuevo");
-  await expect(page.locator("h1")).toHaveText("Publicar un nuevo espacio");
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText("Publicar un nuevo espacio");
 
   // Llenar campos en Paso 1 como Actor A sin crear el espacio
   await expect(page.locator("#wizard-title")).toBeVisible();
@@ -3962,7 +4037,8 @@ test("@phase7 @controlled cambiar categoría elimina atributos dinámicos anteri
   await page.getByRole("button", { name: "Siguiente" }).click();
   await expect(page.getByLabel(access!.label)).toBeVisible();
   await page.locator("#wizard-address").fill("Dirección sintética 123");
-  await page.locator("#wizard-comuna").fill("13114");
+  await page.locator("#wizard-region").selectOption("13");
+  await page.locator("#wizard-comuna").selectOption("13114");
   await page.getByRole("button", { name: "Siguiente" }).click();
   await expect(page.getByText("Paso 3: Tarifas")).toBeVisible();
   await page.getByRole("button", { name: "Siguiente" }).click();
@@ -4021,7 +4097,11 @@ test("@phase7 @controlled session-boundary: el formulario de nuevo espacio aísl
   });
 
   await loginAndNavigate(page, "/anfitrion/espacios/nuevo");
-  await expect(page.locator("h1")).toHaveText("Publicar un nuevo espacio");
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .locator("h1"),
+  ).toHaveText("Publicar un nuevo espacio");
 
   await expect(page.locator("#wizard-title")).toBeVisible();
   await page.locator("#wizard-title").fill("Borrador con permisos previos");
