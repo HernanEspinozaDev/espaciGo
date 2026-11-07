@@ -11,6 +11,11 @@ on:
       - 'go.sum'
       - 'Dockerfile.runtime-migrator'
       - 'cloudbuild-migrator-image.yaml'
+      - 'cloudbuild.yaml'
+      - 'scripts/validate_cloud_build_transition.py'
+      - 'scripts/test_cloud_build_quality_gate.py'
+      - '.github/workflows/application-quality.yml'
+      - '.github/workflows/frontend-quality.yml'
       - 'third_party/pdfcpu/go.mod'
       - 'third_party/pdfcpu/go.sum'
       - 'scripts/test-migration-runner-postgres.sh'
@@ -23,6 +28,10 @@ on:
       - 'scripts/gcp/test_migration_job_plan.py'
       - 'scripts/gcp/migration_release_manifest.py'
       - 'scripts/gcp/test_migration_release_manifest.py'
+      - 'scripts/gcp/quality_gate.py'
+      - 'scripts/gcp/test_quality_gate.py'
+      - 'scripts/gcp/restore_rehearsal_plan.py'
+      - 'scripts/gcp/test_restore_rehearsal_plan.py'
       - '.github/workflows/database-quality.yml'
   workflow_dispatch:
 
@@ -50,6 +59,8 @@ jobs:
           python3 -m unittest discover -s scripts/gcp -p 'test_verify_migration_inventory.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_migration_job_plan.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_migration_release_manifest.py' -v
+          python3 -m unittest discover -s scripts/gcp -p 'test_quality_gate.py' -v
+          python3 -m unittest discover -s scripts/gcp -p 'test_restore_rehearsal_plan.py' -v
       - name: Run mandatory isolated PostgreSQL migrations and failure recovery
         run: bash scripts/test-migration-runner-postgres.sh
       - name: Build and inspect the exact current migrator image locally

@@ -113,6 +113,9 @@ REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
 				if err != nil || len(result.Applied) != 0 {
 					t.Fatalf("reapply was not a no-op: %v", err)
 				}
+				t.Run("api-schema-contract", func(t *testing.T) {
+					assertRuntimeAPISchemaContract(t, ctx, databaseURL, admin)
+				})
 				var unsafe bool
 				if err := admin.QueryRow(ctx, `SELECT has_schema_privilege('espacigo_schema_owner','public','CREATE') OR has_schema_privilege('espacigo_runtime','public','CREATE') OR (SELECT count(*)<>0 FROM public.usuario)`).Scan(&unsafe); err != nil || unsafe {
 					t.Fatalf("unsafe final synthetic state: %v", err)

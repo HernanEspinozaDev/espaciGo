@@ -187,3 +187,7 @@ La decisión de continuar en main y omitir staging **ya está tomada para esta e
 - Se conserva la auditoría original; revisión 2 en historial y resumen futuro enlazado. No se ejecutaron lecturas SQL/GCP, migraciones, IAM, Terraform, despliegues ni pruebas online en esta revisión.
 - Validación documental: revisión completa del diff, enlaces locales/bloques Markdown y `git diff --check`. No corresponde ejecutar suites de aplicación por este cambio de planificación.
 - Publicar estos documentos en la rama de tarea no activa el pipeline propuesto ni modifica main. La implementación posterior seguirá la secuencia de activación de este plan.
+
+## Estado de ejecución posterior a FLUJO-04 — 2026-11-06
+
+El [avance vigente](avance_inicial_20261106.md#continuación-flujo-020405-recuperación-y-gate-de-calidad) registra recuperación cloud aislada verificada y recursos temporales retirados, contrato SQL de API local y gate de calidad del mismo SHA implementado en la rama. No se cierra el plan: siguen pendientes aplicación por Job, orquestación de release con exclusión/reportes/provenance, integración y activación en main y retirada del bastión. Staging permanece fuera de esta etapa.

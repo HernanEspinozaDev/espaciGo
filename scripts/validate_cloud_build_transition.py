@@ -15,6 +15,24 @@ except ImportError as exc:  # pragma: no cover - runner dependency diagnostic
 BUILTIN_SUBSTITUTIONS = {"BUILD_ID", "COMMIT_SHA", "PROJECT_ID"}
 
 
+def quality_gate_errors(config: dict) -> list[str]:
+    """No image, lock, IAM, migration or rollout step may bypass quality."""
+    steps = config.get("steps", [])
+    if not steps or steps[0].get("id") != "verify-source-quality":
+        return ["the first Cloud Build step must verify quality for the exact source SHA"]
+    gate = steps[0]
+    body = "\n".join(gate.get("args", []))
+    errors = []
+    if not re.fullmatch(r"gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:[a-f0-9]{64}", gate.get("name", "")):
+        errors.append("quality must run in the pinned SDK image")
+    if 'scripts/gcp/quality_gate.py --sha="$COMMIT_SHA" --scope="${_DEPLOY_SCOPE}" --wait-seconds=1200' not in body:
+        errors.append("quality must require the parent SHA and exact deployment scope")
+    for step in steps:
+        if step.get("waitFor") is not None or step.get("allowFailure") or step.get("allowExitCodes"):
+            errors.append("orchestration must preserve sequential fail-closed dependencies after quality")
+    return errors
+
+
 def unescaped_cloud_build_dollars(value: str, allowed: set[str]) -> list[str]:
     """Return shell expansions Cloud Build would parse before bash sees them."""
     found: list[str] = []
@@ -193,15 +211,16 @@ def main() -> int:
         "espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com"
     ):
         errors.append("expected the user-managed deployment service account")
-    if ids[:2] != ["web-only-rollout", "acquire-and-validate-deploy-lock"] or "--if-generation-match=0" not in script:
+    errors.extend(quality_gate_errors(config))
+    if ids[:3] != ["verify-source-quality", "web-only-rollout", "acquire-and-validate-deploy-lock"] or "--if-generation-match=0" not in script:
         errors.append("web/full builds must serialize on the shared GCS lock")
     if substitutions.get("_DEPLOY_SCOPE") != "web":
         errors.append("main must default to web-only with a verified unchanged backend")
-    for step in steps[1:]:
+    for step in steps[2:]:
         body = "\n".join(step.get("args", []))
         if 'if [[ "${_DEPLOY_SCOPE}" == web ]]' not in body or '[[ "${_DEPLOY_SCOPE}" == full ]]' not in body:
             errors.append(f"{step['id']} must only execute in explicit full mode")
-    web_step = "\n".join(steps[0].get("args", []))
+    web_step = "\n".join(steps[1].get("args", []))
     if 'scripts/gcp/rollout_web.py --execute --sha="$COMMIT_SHA" --build-id="$BUILD_ID"' not in web_step:
         errors.append("web rollout must be bound to the actual parent build/SHA")
     web_config = yaml.safe_load(Path("cloudbuild-web-images.yaml").read_text())

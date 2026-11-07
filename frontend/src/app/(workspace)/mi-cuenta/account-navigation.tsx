@@ -65,7 +65,8 @@ export function AccountNavigation() {
         {items.map((item) => {
           const isActive =
             pathname === item.href ||
-            (item.href !== "/mi-cuenta" && Boolean(pathname?.startsWith(item.href)));
+            (item.href !== "/mi-cuenta" &&
+              Boolean(pathname?.startsWith(item.href)));
           const Icon = item.icon;
 
           return (

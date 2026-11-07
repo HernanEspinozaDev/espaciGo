@@ -126,3 +126,9 @@ El usuario pidió iniciar las fases del [plan inicial sin staging](../flujo_ento
 - El bastión no fue iniciado, el trigger de main y los servicios de aplicación no se modificaron. Todavía faltan restore ensayado, contrato de release y activación controlada antes de retirarlo.
 
 Fuentes de este corte: [avance](../flujo_entornos/avance_inicial_20261106.md), [inventario](../flujo_entornos/evidence/flujo01_inventory_20261106.json) y [evidencia del Job](../flujo_entornos/evidence/flujo01_private_job_preflight_20261106.json). Las secciones anteriores conservan historia; no reutilizar excepciones administrativas F5/Cloud Owner ni el procedimiento DMS para esta evolución.
+
+## Recuperación aislada verificada — continuación 2026-11-06
+
+Backup gestionado `1793940180000` restaurado en instancia temporal privada `espacigo-flujo04-restore-20261106`, sin modificar el origen. Job plan READ ONLY verificó PostgreSQL18.6 y 83 entradas/nombres/checksums exactos, cero pendientes. No hubo lectura de negocio ni conmutación de aplicación. Instancia y Job temporales eliminados; binding Client temporal retirado, binding original del piloto conservado. Postcheck del origen `espacigo-db-plan-qc4qn` conserva V83/cero pendientes; bastión TERMINATED.
+
+[Evidencia de recuperación y limpieza](../flujo_entornos/evidence/flujo04_restore_20261106.json). El ensayo no activa PITR ni la ruta automática de escritura; no sustituye todavía el procedimiento normal por bastión. Gate de calidad y contrato API–esquema están preparados en la rama, pendientes de integrar y completar el circuito de aplicación del [avance](../flujo_entornos/avance_inicial_20261106.md).

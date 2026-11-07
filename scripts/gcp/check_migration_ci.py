@@ -19,6 +19,8 @@ REQUIRED = frozenset({
     'TestCurrentSchemaMigrationFromEmptyAndV75',
     'TestCurrentSchemaMigrationFromEmptyAndV75/empty',
     'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/api-schema-contract',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/api-schema-contract',
 })
 
 
