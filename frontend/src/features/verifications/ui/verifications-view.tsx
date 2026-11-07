@@ -321,18 +321,18 @@ export function VerificationsView() {
 
   return (
     <div className="space-y-6">
-      {/* Tarjeta de Elegibilidad KYC / KYB */}
+      {/* Tarjeta de Verificaciones de usuario y espacios */}
       <Card aria-labelledby="eligibility-title">
         <CardHeader>
           <div className="flex items-center gap-2">
             <ShieldCheck className="size-5 text-primary" aria-hidden="true" />
             <CardTitle id="eligibility-title">
-              Elegibilidad de Verificación (KYC / KYB)
+              Acreditación y verificación de espacios
             </CardTitle>
           </div>
           <CardDescription>
-            Estado de cumplimiento normativo exigido para operar y publicar
-            espacios.
+            Estado de validación de identidad y cumplimiento normativo para
+            publicar y operar espacios.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -361,12 +361,16 @@ export function VerificationsView() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h3 className="font-medium capitalize text-sm">
-                        Verificación {item.type.toUpperCase()}
+                      <h3 className="font-medium text-sm">
+                        {item.type === "kyc"
+                          ? "Verificación de usuario (Identidad)"
+                          : "Verificación de espacios"}
                       </h3>
                       <p className="text-xs text-muted-foreground mt-1">
                         {item.eligible
-                          ? "Cumples las condiciones para iniciar o mantener esta verificación."
+                          ? item.type === "kyc"
+                            ? "Cumples las condiciones para verificar o mantener tu identidad activa."
+                            : "Cumples las condiciones para acreditar y publicar tus espacios."
                           : item.revocation_reason_code ||
                             "No elegible temporalmente."}
                       </p>
@@ -406,7 +410,9 @@ export function VerificationsView() {
                       ) : (
                         <FileCheck2 className="mr-2 size-3.5" />
                       )}
-                      Iniciar {item.type.toUpperCase()}
+                      {item.type === "kyc"
+                        ? "Iniciar verificación de usuario"
+                        : "Iniciar verificación de espacios"}
                     </Button>
                   )}
                 </div>
@@ -489,8 +495,10 @@ export function VerificationsView() {
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold uppercase text-xs tracking-wider">
-                        {v.type}
+                      <span className="font-semibold text-xs tracking-wider">
+                        {v.type === "kyc"
+                          ? "Identidad de usuario"
+                          : "Acreditación de espacios"}
                       </span>
                       <span className="text-xs text-muted-foreground font-mono">
                         ID: {v.id.slice(0, 8)}...
@@ -539,7 +547,10 @@ export function VerificationsView() {
                   aria-hidden="true"
                 />
                 <CardTitle id="case-detail-title">
-                  Detalle de Verificación ({currentCase.type.toUpperCase()})
+                  Detalle de Verificación:{" "}
+                  {currentCase.type === "kyc"
+                    ? "Usuario (Identidad)"
+                    : "Espacios"}
                 </CardTitle>
               </div>
               {renderStateBadge(currentCase.state)}

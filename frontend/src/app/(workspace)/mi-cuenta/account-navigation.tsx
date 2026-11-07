@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, FileCheck, Lock, Shield, User } from "lucide-react";
+import {
+  Building2,
+  FileCheck,
+  Lock,
+  Shield,
+  ShieldCheck,
+  User,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const items = [
@@ -33,8 +40,8 @@ const items = [
   {
     title: "Verificaciones",
     href: "/mi-cuenta/verificaciones",
-    icon: FileCheck,
-    description: "Estado de identidad",
+    icon: ShieldCheck,
+    description: "Verificación de usuario y espacios",
   },
   {
     title: "Documentos",
