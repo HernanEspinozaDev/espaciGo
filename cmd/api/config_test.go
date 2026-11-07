@@ -62,6 +62,55 @@ func TestLocalProfilesAcceptPrivatePGPassfileWithoutEmbeddingPassword(t *testing
 	}
 }
 
+func TestWizardLocalProfileAcceptsPrivatePGPassfile(t *testing.T) {
+	dir := privatePassfileDir(t)
+	passfile := filepath.Join(dir, "pgpass")
+	if err := os.WriteFile(passfile, []byte("127.0.0.1:15434:test:login:synthetic\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values := map[string]string{
+		"HTTP_ADDR": "127.0.0.1:18082", "DATABASE_HOST": "127.0.0.1",
+		"DATABASE_PORT": "15434", "DATABASE_NAME": "test", "DATABASE_USER": "login",
+		"DATABASE_SET_ROLE": "espacigo_runtime", "PGPASSFILE": passfile,
+	}
+	getenv := func(key string) string { return values[key] }
+
+	cfg, err := loadRuntimeConfig(getenv, runtimeProfileWizardLocal)
+	if err != nil {
+		t.Fatalf("wizard-local profile rejected private PGPASSFILE: %v", err)
+	}
+	t.Cleanup(cfg.close)
+	parsed, err := url.Parse(cfg.databaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, hasPassword := parsed.User.Password(); hasPassword {
+		t.Fatal("DSN embeds password")
+	}
+	if cfg.dbSetRole != "espacigo_runtime" {
+		t.Fatalf("SET ROLE=%q", cfg.dbSetRole)
+	}
+
+	if _, err := loadRuntimeConfig(getenv, runtimeProfileStandard); err == nil {
+		t.Fatal("standard profile accepted PGPASSFILE")
+	}
+	values["DATABASE_CONNECTION_MODE"] = "cloudsql"
+	values["CLOUD_SQL_INSTANCE_CONNECTION_NAME"] = "test-project:test-region:test-instance"
+	if _, err := loadRuntimeConfig(getenv, runtimeProfileWizardLocal); err == nil {
+		t.Fatal("wizard-local profile accepted PGPASSFILE with Cloud SQL mode")
+	}
+	delete(values, "DATABASE_CONNECTION_MODE")
+	delete(values, "CLOUD_SQL_INSTANCE_CONNECTION_NAME")
+	passwordFile := filepath.Join(dir, "password")
+	if err := os.WriteFile(passwordFile, []byte("synthetic-password"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values["DATABASE_PASSWORD_FILE"] = passwordFile
+	if _, err := loadRuntimeConfig(getenv, runtimeProfileWizardLocal); err == nil {
+		t.Fatal("wizard-local profile accepted competing password sources")
+	}
+}
+
 func TestLocalProfilesBindPassfileToValidatedFileDescriptor(t *testing.T) {
 	for _, profile := range []runtimeProfileName{runtimeProfileWorkerFree, runtimeProfileDocumentScanOnly} {
 		t.Run(string(profile), func(t *testing.T) {

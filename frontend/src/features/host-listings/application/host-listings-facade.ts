@@ -443,16 +443,27 @@ export class HostListingsFacade {
     this.#setSnapshot({ loading: true, error: null });
     try {
       let galleryReadFailed = false;
+      const listingPromise = this.#port.getListing(listingId, signal);
+      const schedulePromise = listingPromise
+        .then((detail) => {
+          if (this.#epoch !== epoch || signal.aborted) {
+            throw new DOMException("Operación cancelada", "AbortError");
+          }
+          return detail?.rate_unit === "hora"
+            ? this.#port.getWeeklySchedule(listingId, signal)
+            : null;
+        })
+        .catch((err) => {
+          if (isAuthError(err)) throw err;
+          return null;
+        });
       const [detail, tariff, schedule, photos] = await Promise.all([
-        this.#port.getListing(listingId, signal),
+        listingPromise,
         this.#port.getPricing(listingId, signal).catch((err) => {
           if (isAuthError(err)) throw err;
           return null;
         }),
-        this.#port.getWeeklySchedule(listingId, signal).catch((err) => {
-          if (isAuthError(err)) throw err;
-          return null;
-        }),
+        schedulePromise,
         this.#port.listPhotos(listingId, signal).catch((err) => {
           if (isAuthError(err)) throw err;
           galleryReadFailed = true;

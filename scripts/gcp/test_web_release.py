@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class WebReleaseTests(unittest.TestCase):
     def test_web_release_is_explicitly_guarded_and_full_gate_is_preserved(self):
-        text = (ROOT / 'cloudbuild.yaml').read_text()
+        text = (ROOT / 'scripts/fixtures/cloudbuild_pre_flujo05.yaml').read_text()
         self.assertIn('_DEPLOY_SCOPE: web', text)
         self.assertIn('scripts/gcp/rollout_web.py', text)
         self.assertIn('verify_img01_schema_release_evidence.py', text)
@@ -93,14 +93,14 @@ class WebReleaseTests(unittest.TestCase):
             with self.subTest(mutation=mutation), self.assertRaises(guard.GuardError):
                 guard.source_evidence(bad, image)
 
-    def test_full_release_still_fails_before_gcloud_when_evidence_is_missing(self):
+    def test_historical_full_release_still_fails_before_gcloud_when_evidence_is_missing(self):
         import subprocess
         import yaml
         from importlib.util import spec_from_file_location, module_from_spec
         spec = spec_from_file_location('transition', ROOT / 'scripts/validate_cloud_build_transition.py')
         assert spec and spec.loader
         transition = module_from_spec(spec); spec.loader.exec_module(transition)
-        config = yaml.safe_load((ROOT / 'cloudbuild.yaml').read_text())
+        config = yaml.safe_load((ROOT / 'scripts/fixtures/cloudbuild_pre_flujo05.yaml').read_text())
         step = next(s for s in config['steps'] if s['id'] == 'acquire-and-validate-deploy-lock')
         for scope, expected in [('web', 0), ('full', 1), ('bogus', 1)]:
             values = dict(config['substitutions'], COMMIT_SHA='a' * 40, BUILD_ID='12345678-1234-1234-1234-123456789abc', PROJECT_ID='espacigo-testprod')

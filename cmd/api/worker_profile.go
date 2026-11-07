@@ -17,6 +17,7 @@ type runtimeProfileName string
 const (
 	runtimeProfileStandard         runtimeProfileName = "standard"
 	runtimeProfileWorkerFree       runtimeProfileName = "local-http-worker-free"
+	runtimeProfileWizardLocal      runtimeProfileName = "local-space-wizard"
 	runtimeProfileDocumentScanOnly runtimeProfileName = "local-document-scan-only"
 	documentScanAPIAddr                               = "127.0.0.1:18082"
 )
@@ -29,7 +30,7 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 	switch runtimeProfileName(p) {
 	case runtimeProfileStandard:
 		return runtimeProfileStandard, nil
-	case runtimeProfileWorkerFree, runtimeProfileDocumentScanOnly:
+	case runtimeProfileWorkerFree, runtimeProfileWizardLocal, runtimeProfileDocumentScanOnly:
 		if getenv("LOCAL_AUTH_PROTOTYPE") != "1" {
 			return "", errors.New("local-http-worker-free requires LOCAL_AUTH_PROTOTYPE=1")
 		}
@@ -69,7 +70,11 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 			return "", errors.New("local-http-worker-free requires an existing private evidence directory")
 		}
 		profile := runtimeProfileName(p)
-		if !isAuthorizedF5Runtime(getenv, httpAddr) {
+		if profile == runtimeProfileWizardLocal {
+			if !isAuthorizedWizardRuntime(getenv, httpAddr) {
+				return "", errors.New("local-space-wizard requires the exact isolated wizard target")
+			}
+		} else if !isAuthorizedF5Runtime(getenv, httpAddr) {
 			return "", errors.New("local worker profile requires the authorized F5 loopback API and least-privilege database target")
 		}
 		if profile == runtimeProfileDocumentScanOnly {
@@ -89,8 +94,12 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 		}
 		return profile, nil
 	default:
-		return "", errors.New("API_RUNTIME_PROFILE must be standard, local-http-worker-free, or local-document-scan-only")
+		return "", errors.New("API_RUNTIME_PROFILE must be standard, local-http-worker-free, local-space-wizard, or local-document-scan-only")
 	}
+}
+
+func isAuthorizedWizardRuntime(getenv func(string) string, httpAddr string) bool {
+	return getenv("DATABASE_HOST") == "127.0.0.1" && getenv("DATABASE_PORT") == "15436" && getenv("DATABASE_NAME") == "espacigo_wizard_20261106" && getenv("DATABASE_USER") == "espacigo_api_login" && getenv("DATABASE_SET_ROLE") == "espacigo_runtime" && httpAddr == "127.0.0.1:18086"
 }
 
 func isAuthorizedF5Runtime(getenv func(string) string, httpAddr string) bool {
@@ -173,7 +182,7 @@ type namedWorker struct {
 }
 
 func validateWorkerRegistry(profile runtimeProfileName, workers []namedWorker) error {
-	if profile != runtimeProfileStandard && profile != runtimeProfileWorkerFree && profile != runtimeProfileDocumentScanOnly {
+	if profile != runtimeProfileStandard && profile != runtimeProfileWorkerFree && profile != runtimeProfileWizardLocal && profile != runtimeProfileDocumentScanOnly {
 		return errors.New("invalid runtime profile for background workers")
 	}
 	documentScanWorkers := 0
@@ -202,7 +211,7 @@ func launchWorkers(profile runtimeProfileName, workers []namedWorker) error {
 	if err := validateWorkerRegistry(profile, workers); err != nil {
 		return err
 	}
-	if profile == runtimeProfileWorkerFree {
+	if profile == runtimeProfileWorkerFree || profile == runtimeProfileWizardLocal {
 		return nil
 	}
 	for _, worker := range workers {

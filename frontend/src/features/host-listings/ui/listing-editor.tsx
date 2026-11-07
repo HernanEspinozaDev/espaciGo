@@ -22,7 +22,6 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  Plus,
   History,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
@@ -39,6 +38,7 @@ import { Label } from "@/components/workspace/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { ApiError } from "@/lib/api/errors";
+import { listingErrorMessage } from "../domain/listing-error-message";
 import { useHostListings } from "./use-host-listings";
 import {
   hostListingsFacade,
@@ -59,6 +59,7 @@ import type {
 } from "../domain/types";
 import { ListingGallery } from "./listing-gallery";
 import { ListingReturnsPanel } from "./listing-returns-panel";
+import { WeeklyScheduleSlots } from "./weekly-schedule-slots";
 
 interface ListingEditorProps {
   readonly listingId: string;
@@ -158,16 +159,6 @@ function mapDraftServerFieldErrors(
     Object.entries(messages).filter(([, message]) => message),
   );
 }
-
-const DAYS_MAP = [
-  { day: 1, name: "Lunes" },
-  { day: 2, name: "Martes" },
-  { day: 3, name: "Miércoles" },
-  { day: 4, name: "Jueves" },
-  { day: 5, name: "Viernes" },
-  { day: 6, name: "Sábado" },
-  { day: 7, name: "Domingo" },
-];
 
 export function ListingEditor({ listingId }: ListingEditorProps) {
   const router = useRouter();
@@ -297,9 +288,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         setInitialLoaded(true);
       })
       .catch((err) => {
-        const msg =
-          err instanceof Error ? err.message : "Error al cargar espacio";
-        setFeedbackError(msg);
+        setFeedbackError(listingErrorMessage(err));
       });
 
     loadPricingHistory(accessToken, listingId).catch(() => {});
@@ -456,9 +445,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           );
           return;
         }
-        const msg =
-          err instanceof Error ? err.message : "Error al actualizar contenido";
-        setFeedbackError(msg);
+        setFeedbackError(listingErrorMessage(err));
       }
     });
   };
@@ -507,9 +494,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         await loadPricingHistory(accessToken, listingId);
         setFeedbackSuccess("Tarifa actualizada y registrada en el historial.");
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Error al actualizar tarifas";
-        setFeedbackError(msg);
+        setFeedbackError(listingErrorMessage(err));
       }
     });
   };
@@ -528,7 +513,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
       return;
     }
 
-    if (scheduleEnabled && scheduleSlots.length > 0) {
+    const hourlySchedule = currentListing?.rate_unit === "hora";
+
+    if (hourlySchedule && scheduleEnabled && scheduleSlots.length > 0) {
       const val = validateScheduleSlots(scheduleSlots);
       if (!val.valid) {
         setFeedbackError(
@@ -552,23 +539,27 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           timeZone,
           listingEtag,
         );
-        await updateWeeklySchedule(
-          accessToken,
-          listingId,
-          {
-            timezone: timeZone,
-            enabled: scheduleEnabled,
-            weekly_slots: scheduleSlots,
-          },
-          configured.etag,
-        );
-        setFeedbackSuccess(
-          "Disponibilidad semanal y zona horaria guardadas con éxito.",
-        );
+        if (hourlySchedule) {
+          await updateWeeklySchedule(
+            accessToken,
+            listingId,
+            {
+              timezone: timeZone,
+              enabled: scheduleEnabled,
+              weekly_slots: scheduleSlots,
+            },
+            configured.etag,
+          );
+          setFeedbackSuccess(
+            "Horario semanal habitual y zona horaria guardados.",
+          );
+        } else {
+          setFeedbackSuccess(
+            "Zona horaria guardada. El horario semanal no aplica a esta tarifa.",
+          );
+        }
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Error al guardar horarios";
-        setFeedbackError(msg);
+        setFeedbackError(listingErrorMessage(err));
       }
     });
   };
@@ -594,9 +585,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           "¡El espacio ha sido publicado exitosamente y está activo en el catálogo!",
         );
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Error al publicar espacio";
-        setFeedbackError(msg);
+        setFeedbackError(listingErrorMessage(err));
       }
     });
   };
@@ -610,9 +599,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           "El espacio ha sido archivado (oculto del catálogo público).",
         );
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Error al archivar espacio";
-        setFeedbackError(msg);
+        setFeedbackError(listingErrorMessage(err));
       }
     });
   };
@@ -629,9 +616,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         await deleteListing(accessToken, listingId);
         router.push("/anfitrion/espacios");
       } catch (err) {
-        const msg =
-          err instanceof Error ? err.message : "Error al eliminar borrador";
-        setFeedbackError(msg);
+        setFeedbackError(listingErrorMessage(err));
       }
     });
   };
@@ -1702,34 +1687,49 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                   Disponibilidad semanal
                 </CardTitle>
                 <CardDescription>
-                  Define los tramos en los que el espacio está abierto para
-                  reservas directas.
+                  Define el horario semanal habitual del espacio.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border">
-                  <div>
-                    <Label
-                      htmlFor="editor-sched-enable"
-                      className="text-sm font-semibold text-foreground cursor-pointer"
-                    >
-                      Calendario habilitado
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Permite a los usuarios seleccionar turnos según este
-                      horario.
-                    </p>
-                  </div>
-                  <input
-                    type="checkbox"
-                    id="editor-sched-enable"
-                    aria-label="Calendario habilitado"
-                    checked={scheduleEnabled}
-                    onChange={(e) => setScheduleEnabled(e.target.checked)}
-                    className="size-5 rounded text-primary focus:ring-primary"
-                  />
-                </div>
-
+                {currentListing?.rate_unit === "hora" && (
+                  <>
+                    <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border">
+                      <div>
+                        <Label
+                          htmlFor="editor-sched-enable"
+                          className="text-sm font-semibold text-foreground cursor-pointer"
+                        >
+                          Calendario habilitado
+                        </Label>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Permite a los usuarios seleccionar turnos según este
+                          horario habitual.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        id="editor-sched-enable"
+                        aria-label="Calendario habilitado"
+                        checked={scheduleEnabled}
+                        onChange={(e) => setScheduleEnabled(e.target.checked)}
+                        className="size-5 rounded text-primary focus:ring-primary"
+                      />
+                    </div>
+                    <WeeklyScheduleSlots
+                      slots={scheduleSlots}
+                      onChange={setScheduleSlots}
+                      disabled={
+                        isPending ||
+                        returnsBusy ||
+                        returnsUncertainBusy ||
+                        galleryBusy ||
+                        !accessToken ||
+                        !currentListing
+                      }
+                      timeZone={timeZone}
+                    />
+                  </>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="editor-timezone">Zona horaria IANA *</Label>
                   <Input
@@ -1738,126 +1738,27 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                     onChange={(e) => setTimeZone(e.target.value)}
                     placeholder="America/Santiago"
                     required
+                    disabled={
+                      isPending ||
+                      returnsBusy ||
+                      returnsUncertainBusy ||
+                      galleryBusy ||
+                      !accessToken ||
+                      !currentListing
+                    }
                   />
                   <p className="text-xs text-muted-foreground">
                     Requerido para activar la publicación. Ejemplo:{" "}
                     <code>America/Santiago</code>.
                   </p>
                 </div>
-
-                <div className="space-y-3 pt-2">
-                  <h2 className="text-sm font-semibold text-foreground">
-                    Horarios por día
-                  </h2>
-
-                  <div className="space-y-3">
-                    {DAYS_MAP.map((day) => {
-                      const daySlots = scheduleSlots
-                        .map((s, idx) => ({ ...s, originalIndex: idx }))
-                        .filter((s) => s.day_of_week === day.day);
-
-                      return (
-                        <div
-                          key={day.day}
-                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-background"
-                        >
-                          <div className="w-28 font-medium text-sm text-foreground">
-                            {day.name}
-                          </div>
-
-                          <div className="flex-1 flex flex-col gap-2">
-                            {daySlots.length === 0 ? (
-                              <span className="text-xs text-muted-foreground italic">
-                                Cerrado
-                              </span>
-                            ) : (
-                              daySlots.map((slot) => (
-                                <div
-                                  key={slot.originalIndex}
-                                  className="flex items-center gap-2 flex-wrap text-xs"
-                                >
-                                  <input
-                                    type="time"
-                                    value={slot.start_time}
-                                    onChange={(e) =>
-                                      setScheduleSlots((prev) =>
-                                        prev.map((s, i) =>
-                                          i === slot.originalIndex
-                                            ? {
-                                                ...s,
-                                                start_time: e.target.value,
-                                              }
-                                            : s,
-                                        ),
-                                      )
-                                    }
-                                    aria-label={`Hora apertura ${day.name}`}
-                                    className="rounded border border-input px-2 py-1 bg-background text-xs"
-                                  />
-                                  <span>a</span>
-                                  <input
-                                    type="time"
-                                    value={slot.end_time}
-                                    onChange={(e) =>
-                                      setScheduleSlots((prev) =>
-                                        prev.map((s, i) =>
-                                          i === slot.originalIndex
-                                            ? { ...s, end_time: e.target.value }
-                                            : s,
-                                        ),
-                                      )
-                                    }
-                                    aria-label={`Hora cierre ${day.name}`}
-                                    className="rounded border border-input px-2 py-1 bg-background text-xs"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setScheduleSlots((prev) =>
-                                        prev.filter(
-                                          (_, i) => i !== slot.originalIndex,
-                                        ),
-                                      )
-                                    }
-                                    className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                                    aria-label={`Eliminar tramo ${day.name}`}
-                                  >
-                                    <Trash2
-                                      className="size-3.5"
-                                      aria-hidden="true"
-                                    />
-                                  </button>
-                                </div>
-                              ))
-                            )}
-                          </div>
-
-                          {daySlots.length < 2 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setScheduleSlots((prev) => [
-                                  ...prev,
-                                  {
-                                    day_of_week: day.day,
-                                    start_time: "09:00",
-                                    end_time: "18:00",
-                                  },
-                                ]);
-                              }}
-                              className="gap-1 text-xs self-start sm:self-auto"
-                            >
-                              <Plus className="size-3.5" aria-hidden="true" />
-                              Agregar tramo
-                            </Button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                {currentListing?.rate_unit !== "hora" && (
+                  <p className="text-sm text-muted-foreground" role="note">
+                    El horario semanal solo aplica a tarifas por hora. Puedes
+                    guardar la zona horaria sin modificar los horarios
+                    existentes.
+                  </p>
+                )}
               </CardContent>
               <CardFooter className="border-t pt-4 flex justify-end">
                 <Button type="submit" disabled={isPending} className="gap-2">
@@ -1869,7 +1770,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                   ) : (
                     <Save className="size-4" aria-hidden="true" />
                   )}
-                  Guardar horarios
+                  {currentListing?.rate_unit === "hora"
+                    ? "Guardar horarios"
+                    : "Guardar zona horaria"}
                 </Button>
               </CardFooter>
             </Card>

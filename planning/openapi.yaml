@@ -7908,8 +7908,39 @@ components:
             type: array,
             items: { $ref: "#/components/schemas/PublicSpaceImageRef" },
           }
+        weekly_schedule:
+          { $ref: "#/components/schemas/PublicWeeklySchedule" }
         verification:
           { $ref: "#/components/schemas/PublicDocumentVerification" }
+    PublicWeeklySchedule:
+      type: object
+      additionalProperties: false
+      required: [enabled, time_zone, days]
+      properties:
+        enabled: { type: boolean }
+        time_zone: { type: string }
+        days:
+          type: array
+          minItems: 7
+          maxItems: 7
+          items: { $ref: "#/components/schemas/PublicWeeklyDay" }
+    PublicWeeklyDay:
+      type: object
+      additionalProperties: false
+      required: [weekday, periods]
+      properties:
+        weekday: { type: integer, minimum: 1, maximum: 7 }
+        periods:
+          type: array
+          maxItems: 2
+          items: { $ref: "#/components/schemas/PublicWeeklyPeriod" }
+    PublicWeeklyPeriod:
+      type: object
+      additionalProperties: false
+      required: [open, close]
+      properties:
+        open: { type: string, pattern: "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$" }
+        close: { type: string, pattern: "^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$" }
     PublicSpaceDetailEnvelope:
       type: object
       additionalProperties: false

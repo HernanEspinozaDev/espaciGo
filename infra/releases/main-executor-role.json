@@ -1,0 +1,19 @@
+{
+  "title": "EspaciGo main release executor",
+  "description": "Launch/observe/delete pinned Jobs; inspect/create managed backups. No Job mutation, overrides, SQL secret access or instance updates.",
+  "stage": "GA",
+  "includedPermissions": [
+    "run.jobs.run",
+    "run.jobs.get",
+    "run.jobs.delete",
+    "run.executions.get",
+    "run.executions.list",
+    "run.operations.get",
+    "cloudsql.instances.get",
+    "cloudsql.backupRuns.get",
+    "cloudsql.backupRuns.list",
+    "cloudsql.backupRuns.create",
+    "cloudsql.backupRuns.delete",
+    "logging.logEntries.list"
+  ]
+}

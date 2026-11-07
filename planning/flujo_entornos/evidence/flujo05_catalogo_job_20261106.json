@@ -1,0 +1,59 @@
+{
+  "format": "espacigo.private-catalog-pilot.v1",
+  "date_local": "2026-11-06",
+  "timezone": "America/Santiago",
+  "source_sha": "a5cd62549a47baca91e5d7cde8cabc05306876e3",
+  "ci": {
+    "id": 42323120571,
+    "conclusion": "success",
+    "url": "https://github.com/HernanEspinozaDev/espaciGo/actions/runs/42323120571"
+  },
+  "build_id": "8bffdba9-62e2-432a-8317-d8b0fc724279",
+  "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-db-migrator@sha256:79826c2f91014ddc6af0c532614f5484a72c1313d57cb91576c75a3de347d812",
+  "provenance_verified": true,
+  "archive_sha256_matches_cloud_source": true,
+  "source_archive_sha256": "2aeade88c36f4f3d65e8e2e0f5d5b36cdb0a474f148cad8b0a91696a47bb7222",
+  "resolved_source": {
+    "bucket": "espacigo-testprod-cloud-build-447373903153",
+    "generation": "1794014180968775",
+    "object": "source/1794014180.092318-0d9d2b78789848a58957656c25a095c2.gz"
+  },
+  "job": "espacigo-schema-plan-a5cd62549a47",
+  "job_uid": "c6e34f1b-a8ab-4848-937b-1608c4d52fb9",
+  "execution": "espacigo-schema-plan-a5cd62549a47-xk6vf",
+  "completed_at": "2026-11-07T01:21:12.788869Z",
+  "mode": "schema-evidence-only",
+  "identity": {
+    "session_user": "espacigo_migrator_login",
+    "current_user": "espacigo_schema_owner"
+  },
+  "catalog": {
+    "format": "espacigo.img01.schema-evidence.v1",
+    "query_sha256": "9a8a6d0a020128918aadabfd3adb78ccc340991bffe4cc1aed2cc28e783d3697",
+    "captured_at": "2026-11-07T01:21:09.14079+00:00",
+    "database": "espacigo_dms_stage_20261020",
+    "transaction_read_only": "on",
+    "ledger_entries": 83,
+    "all_existing_img01_checks_passed": true,
+    "report_sha256": "653482fa2e90db88ad90ad384ce6394fc890bfd0e4dea828eee151014056adc0"
+  },
+  "cleanup": {
+    "temporary_job_deleted": true,
+    "deleted_at": "2026-11-07T01:22:06.737813+00:00",
+    "archive_local_removed": true
+  },
+  "bastion_state_after": "TERMINATED",
+  "trigger_unchanged": true,
+  "applied_sql": false,
+  "new_iam_grants": false,
+  "application_deployed": false,
+  "retained_resources": [
+    "published migrator image; source artifact and build/log records in existing locations",
+    "original read-only plan Job and dedicated identity from the preceding pilot"
+  ],
+  "limits": [
+    "Catalog is collected via authenticated control-plane/log reads, not a signed Cloud SQL attestation",
+    "Does not activate the main release circuit or prove DDL authority for a future delta",
+    "No product walkthrough, data cutover, PITR activation or application acceptance"
+  ]
+}

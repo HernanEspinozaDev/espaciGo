@@ -1,0 +1,18 @@
+serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-release-job-builder@espacigo-testprod.iam.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: MUST_MATCH
+timeout: 600s
+substitutions:
+  _REQUEST_URI: ""
+  _REQUEST_GENERATION: ""
+  _REQUEST_SHA256: ""
+steps:
+  - id: provision-reviewed-job
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:1855ee6031f03bb7d4b251cfd0e5b88a18fd9a2552a742cf86d269810832c80b
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        job_python=$$(gcloud info --format='value(basic.python_location)')
+        "$$job_python" scripts/gcp/provision_release_job.py --request-uri="${_REQUEST_URI}" --request-generation="${_REQUEST_GENERATION}" --request-sha256="${_REQUEST_SHA256}"

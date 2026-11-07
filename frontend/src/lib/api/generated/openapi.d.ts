@@ -3295,7 +3295,21 @@ export interface components {
       usage_rules: string;
       features: components["schemas"]["PublicSpaceFeature"][];
       images: components["schemas"]["PublicSpaceImageRef"][];
+      weekly_schedule?: components["schemas"]["PublicWeeklySchedule"];
       verification?: components["schemas"]["PublicDocumentVerification"];
+    };
+    PublicWeeklySchedule: {
+      enabled: boolean;
+      time_zone: string;
+      days: components["schemas"]["PublicWeeklyDay"][];
+    };
+    PublicWeeklyDay: {
+      weekday: number;
+      periods: components["schemas"]["PublicWeeklyPeriod"][];
+    };
+    PublicWeeklyPeriod: {
+      open: string;
+      close: string;
     };
     PublicSpaceDetailEnvelope: {
       data: components["schemas"]["PublicSpaceDetail"];

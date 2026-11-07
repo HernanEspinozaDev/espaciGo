@@ -1,0 +1,136 @@
+{
+  "format": "espacigo.wizard.technical-delivery.v1",
+  "verified_at": "2026-11-07T04:42:54.645452+00:00",
+  "source_sha": "642649ee3b68d54745fa6aad2ae8377c55794e1c",
+  "build_id": "73aded90-6d97-4a64-b71f-8adcdc6947be",
+  "build_status": "SUCCESS",
+  "image_build_id": "1e984c58-f0d2-44b0-ac3f-5c64754c3875",
+  "migration_image_build_id": "8f034587-2738-4a85-aa35-384cf75b8b4e",
+  "images": {
+    "api": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:06b1487a7f1d31b28d9aa2afbe46f691607539323c260eaa419ee82e56db3bc3",
+    "migrator": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-db-migrator@sha256:71726806166f4ad7bf864a2e44ff82f49761cdaec2f52f0f783fe12f33442480",
+    "web": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:822eead5ba93e47ddd1b4c9e498e9117126ff9891ea7a889235848a03a60584d"
+  },
+  "image_provenance": "parent independently verified exact digest and SLSA invocation for all three images",
+  "services": [
+    {
+      "service": "espacigo-test-api",
+      "revision": "espacigo-test-api-b73aded906d974a64b71f8adc",
+      "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:06b1487a7f1d31b28d9aa2afbe46f691607539323c260eaa419ee82e56db3bc3",
+      "ready": true,
+      "traffic_percent": 100,
+      "source_sha": "642649ee3b68d54745fa6aad2ae8377c55794e1c",
+      "build_id": "73aded90-6d97-4a64-b71f-8adcdc6947be"
+    },
+    {
+      "service": "espacigo-test-private",
+      "revision": "espacigo-test-private-b73aded906d974a64b71f8adc",
+      "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:822eead5ba93e47ddd1b4c9e498e9117126ff9891ea7a889235848a03a60584d",
+      "ready": true,
+      "traffic_percent": 100,
+      "source_sha": "642649ee3b68d54745fa6aad2ae8377c55794e1c",
+      "build_id": "73aded90-6d97-4a64-b71f-8adcdc6947be"
+    },
+    {
+      "service": "espacigo-test-public",
+      "revision": "espacigo-test-public-b73aded906d974a64b71f8adc",
+      "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:822eead5ba93e47ddd1b4c9e498e9117126ff9891ea7a889235848a03a60584d",
+      "ready": true,
+      "traffic_percent": 100,
+      "source_sha": "642649ee3b68d54745fa6aad2ae8377c55794e1c",
+      "build_id": "73aded90-6d97-4a64-b71f-8adcdc6947be"
+    }
+  ],
+  "schema": {
+    "ledger_entries_before": 83,
+    "ledger_entries_after": 83,
+    "newly_applied": [],
+    "pending": 0,
+    "inventory_sha256": "2bf266d73e8838b16087a7ffce27604d2aece2904faec71054dd98a77b9dc26f",
+    "catalog_validation": "PASS",
+    "catalog_query_sha256": "9a8a6d0a020128918aadabfd3adb78ccc340991bffe4cc1aed2cc28e783d3697",
+    "catalog_captured_at": "2026-11-07T04:36:17.690648+00:00",
+    "target": {
+      "current_user": "espacigo_schema_owner",
+      "database": "espacigo_dms_stage_20261020",
+      "database_owner": "postgres",
+      "instance_connection_name": "espacigo-testprod:southamerica-west1:espacigo-testprod-db",
+      "project_id": "espacigo-testprod",
+      "public_schema_owner": "pg_database_owner",
+      "schema_migrations_kind": "r",
+      "schema_migrations_owner": "postgres",
+      "server_version_num": 180006,
+      "session_user": "espacigo_migrator_login",
+      "transaction_read_only": "on"
+    }
+  },
+  "backup": {
+    "backup_end": "2026-11-06T06:07:24.449Z",
+    "backup_id": "1793940180000",
+    "backup_start": "2026-11-06T06:06:03.318Z",
+    "backup_type": "AUTOMATED",
+    "captured_at": "2026-11-07T04:35:13.661762+00:00",
+    "checked_at": "2026-11-07T04:35:13.661782+00:00",
+    "format": "espacigo.backup-readiness.v1",
+    "instance": "espacigo-testprod-db",
+    "limits": [
+      "Metadata validation does not prove capture authenticity or business RPO/RTO",
+      "Native backup restore rehearsal is recorded separately; PITR recovery is not inferred"
+    ],
+    "pending_sql": false,
+    "pitr_enabled": false,
+    "policy": "initial-development-24h-seven-copies; pending SQL requires locked on-demand backup",
+    "project": "espacigo-testprod",
+    "retained_copies": 7
+  },
+  "backup_retention": {
+    "deleted_ids": [],
+    "policy": "seven newest successful owned backups and at least seven days"
+  },
+  "immutable_objects": {
+    "success": {
+      "uri": "gs://espacigo-testprod-cloud-build-447373903153/releases/73aded90-6d97-4a64-b71f-8adcdc6947be/success.json",
+      "generation": "1794026322918906",
+      "sha256": "0d27a4d88c8f6472ce62c88f9496380fd0349ef198a2ae08b59941af444f1245"
+    },
+    "watermark": {
+      "uri": "gs://espacigo-testprod-cloud-build-447373903153/last-successful-main.json",
+      "generation": "1794026337352504",
+      "sha256": "dc81625db0043a7f34ae2a65ce15d0f73959fc6022f8a19a473db2a94c4e568d"
+    },
+    "postcheck": {
+      "uri": "gs://espacigo-testprod-cloud-build-447373903153/releases/73aded90-6d97-4a64-b71f-8adcdc6947be/postcheck.json",
+      "generation": "1794026205019522",
+      "sha256": "7f827080d3c5a1c63c950dbebaab96574c3e7e8761d0b66d61dc522349f43fc6"
+    },
+    "migration_verified": {
+      "uri": "gs://espacigo-testprod-cloud-build-447373903153/releases/73aded90-6d97-4a64-b71f-8adcdc6947be/migration-verified.json",
+      "generation": "1794026200062158",
+      "sha256": "f6d8ae64617013fb8171b241c6d0f4b14451cebf9ddd9fbe9574827dd779b466"
+    }
+  },
+  "quality_runs": [
+    {
+      "id": 42337996758,
+      "name": "Database migration quality",
+      "conclusion": "success"
+    },
+    {
+      "id": 42337996739,
+      "name": "Frontend architecture and quality",
+      "conclusion": "success"
+    },
+    {
+      "id": 42337996740,
+      "name": "Application quality",
+      "conclusion": "success"
+    }
+  ],
+  "limits": [
+    "Technical deployment only; online product QA and acceptance reserved for user.",
+    "No product URL, user browser, real account or business rows were accessed for this verification.",
+    "No new SQL migrations applied; ledger remains V1 through V83.",
+    "No bastion, SSH tunnel, SQL password reset or manual release sequence.",
+    "Local synthetic demo retained for pending review; no new accounts or repeated publication."
+  ]
+}

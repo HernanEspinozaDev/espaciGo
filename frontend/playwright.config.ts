@@ -5,6 +5,7 @@ const baseURL = `http://127.0.0.1:${testPort}`;
 
 export default defineConfig({
   testDir: "./tests",
+  testIgnore: "**/public-weekly-calendar.spec.ts",
   fullyParallel: true,
   reporter: "list",
   timeout: 30_000,

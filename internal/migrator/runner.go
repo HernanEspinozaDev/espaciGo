@@ -131,6 +131,10 @@ func planWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir, s
 		return PlanResult{}, errors.New("connect to migration database")
 	}
 	defer conn.Close(context.Background())
+	return planWithConn(ctx, conn, migrations, setRole)
+}
+
+func planWithConn(ctx context.Context, conn *pgx.Conn, migrations []Migration, setRole string) (PlanResult, error) {
 	if setRole != "" {
 		if !validDatabaseRoleName(setRole) {
 			return PlanResult{}, errors.New("configured database role name is invalid")
@@ -226,6 +230,10 @@ func runWithConnOptions(ctx context.Context, conn *pgx.Conn, migrationDir string
 	if err != nil {
 		return Result{}, err
 	}
+	return runDiscoveredWithConnOptions(ctx, conn, migrations, bounded)
+}
+
+func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migrations []Migration, bounded *migrationRange) (Result, error) {
 	runnerDigest, err := executableChecksum()
 	if err != nil {
 		return Result{}, fmt.Errorf("checksum migrator executable: %w", err)

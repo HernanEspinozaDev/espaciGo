@@ -58,10 +58,7 @@ func TestPublicCatalogStandaloneRequiresExactWorkerFreeTarget(t *testing.T) {
 		check(base, profile, false)
 	}
 	for key, value := range map[string]string{"LOCAL_PUBLIC_CATALOG_TRIAL": "true", "LOCAL_AUTH_PROTOTYPE": "", "HTTP_ADDR": "0.0.0.0:18082", "DATABASE_HOST": "172.28.0.2", "DATABASE_PORT": "5432", "DATABASE_NAME": "espacigo_local", "DATABASE_USER": "postgres", "DATABASE_SET_ROLE": "postgres", "LOCAL_BOOKING_TRIAL": "1", "APP_PROFILE": "cloud-test"} {
-		env := map[string]string{}
-		for k, v := range base {
-			env[k] = v
-		}
+		env := cloneCatalogTestEnv(base)
 		env[key] = value
 		check(env, runtimeProfileWorkerFree, false)
 	}
@@ -69,4 +66,59 @@ func TestPublicCatalogStandaloneRequiresExactWorkerFreeTarget(t *testing.T) {
 	if got || err != nil {
 		t.Fatal("standalone catalog enabled without explicit flag")
 	}
+}
+
+func TestPublicCatalogWizardRequiresExactIsolatedTarget(t *testing.T) {
+	base := map[string]string{"LOCAL_PUBLIC_CATALOG_TRIAL": "1", "LOCAL_AUTH_PROTOTYPE": "1", "HTTP_ADDR": "127.0.0.1:18086", "DATABASE_HOST": "127.0.0.1", "DATABASE_PORT": "15436", "DATABASE_NAME": "espacigo_wizard_20261106", "DATABASE_USER": "espacigo_api_login", "DATABASE_SET_ROLE": "espacigo_runtime"}
+	check := func(env map[string]string, profile runtimeProfileName, want bool) {
+		t.Helper()
+		got, err := localPublicCatalogEnabled(func(k string) string { return env[k] }, profile)
+		if got != want || (want && err != nil) {
+			t.Fatalf("wizard catalog scope mismatch: enabled=%t error=%t", got, err != nil)
+		}
+	}
+	check(base, runtimeProfileWizardLocal, true)
+	for _, profile := range []runtimeProfileName{runtimeProfileStandard, runtimeProfileDocumentScanOnly, runtimeProfileWorkerFree} {
+		check(base, profile, false)
+	}
+	for key, value := range map[string]string{"HTTP_ADDR": "0.0.0.0:18086", "DATABASE_HOST": "172.28.0.2", "DATABASE_PORT": "15434", "DATABASE_NAME": "espacigo_f5_gate_20261101", "DATABASE_USER": "postgres", "DATABASE_SET_ROLE": "postgres"} {
+		env := cloneCatalogTestEnv(base)
+		env[key] = value
+		check(env, runtimeProfileWizardLocal, false)
+	}
+	for _, field := range []struct{ key, value string }{
+		{"LOCAL_PUBLIC_CATALOG_TRIAL", "true"},
+		{"LOCAL_AUTH_PROTOTYPE", ""},
+		{"LOCAL_AUTH_PROTOTYPE", "0"},
+		{"LOCAL_BOOKING_TRIAL", "1"},
+		{"APP_PROFILE", "cloud-test"},
+	} {
+		env := cloneCatalogTestEnv(base)
+		env[field.key] = field.value
+		check(env, runtimeProfileWizardLocal, false)
+	}
+	for key, value := range map[string]string{"HTTP_ADDR": "127.0.0.1:18082", "DATABASE_PORT": "15434", "DATABASE_NAME": "espacigo_f5_gate_20261101"} {
+		env := cloneCatalogTestEnv(base)
+		env[key] = value
+		check(env, runtimeProfileWizardLocal, false)
+	}
+	workerFreeWizardData := cloneCatalogTestEnv(base)
+	check(workerFreeWizardData, runtimeProfileWorkerFree, false)
+	wizardWithF5Data := cloneCatalogTestEnv(base)
+	wizardWithF5Data["HTTP_ADDR"] = "127.0.0.1:18082"
+	wizardWithF5Data["DATABASE_PORT"] = "15434"
+	wizardWithF5Data["DATABASE_NAME"] = "espacigo_f5_gate_20261101"
+	check(wizardWithF5Data, runtimeProfileWizardLocal, false)
+	got, err := localPublicCatalogEnabled(func(string) string { return "" }, runtimeProfileWizardLocal)
+	if got || err != nil {
+		t.Fatal("wizard catalog enabled without explicit flag")
+	}
+}
+
+func cloneCatalogTestEnv(env map[string]string) map[string]string {
+	clone := make(map[string]string, len(env))
+	for key, value := range env {
+		clone[key] = value
+	}
+	return clone
 }

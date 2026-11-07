@@ -15,8 +15,6 @@ import {
   Loader2,
   AlertCircle,
   Info,
-  Plus,
-  Trash2,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -32,8 +30,20 @@ import { Label } from "@/components/workspace/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { authFacade } from "@/features/auth/auth-runtime";
+import { listingErrorMessage } from "../domain/listing-error-message";
+import {
+  CHILE_COMUNAS,
+  CHILE_REGIONS,
+  getComunasByRegion,
+} from "../domain/chile-dpa";
 import { validateWizardLocation } from "../domain/wizard-location";
+import {
+  cleanAttributesForPayload,
+  formatAttributeLabel,
+  formatAttributeValue,
+} from "../domain/attribute-formatting";
 import { useHostListings } from "./use-host-listings";
+import { WeeklyScheduleSlots } from "./weekly-schedule-slots";
 import {
   validateCategoryAttributes,
   validateListingDraftInput,
@@ -57,16 +67,6 @@ const STEPS = [
   { number: 5, title: "Confirmación", icon: Eye },
 ];
 
-const DAYS_MAP = [
-  { day: 1, name: "Lunes" },
-  { day: 2, name: "Martes" },
-  { day: 3, name: "Miércoles" },
-  { day: 4, name: "Jueves" },
-  { day: 5, name: "Viernes" },
-  { day: 6, name: "Sábado" },
-  { day: 7, name: "Domingo" },
-];
-
 export function ListingWizard() {
   const router = useRouter();
   const {
@@ -85,6 +85,7 @@ export function ListingWizard() {
   } = useHostListings();
 
   const [currentStep, setCurrentStep] = useState<number>(1);
+  const [maxVisitedStep, setMaxVisitedStep] = useState<number>(1);
   const [stepError, setStepError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -98,7 +99,7 @@ export function ListingWizard() {
   // Paso 2: Ubicación, dimensiones y atributos dinámicos
   const [address, setAddress] = useState<string>("");
   const [comunaCode, setComunaCode] = useState<string>("");
-  const [regionCode, setRegionCode] = useState<string>("13"); // Metropolitana por defecto
+  const [regionCode, setRegionCode] = useState<string>("");
   const [areaM2, setAreaM2] = useState<number>(25);
   const [capacity, setCapacity] = useState<number>(4);
   const [dynamicAttributes, setDynamicAttributes] = useState<
@@ -201,35 +202,6 @@ export function ListingWizard() {
     }
   };
 
-  const handleAddSlot = (dayOfWeek: number) => {
-    clearScheduleError();
-    const currentDaySlots = slots.filter((s) => s.day_of_week === dayOfWeek);
-    if (currentDaySlots.length >= 2) {
-      setStepError("Máximo 2 tramos horarios por día permitido.");
-      return;
-    }
-    setSlots((prev) => [
-      ...prev,
-      { day_of_week: dayOfWeek, start_time: "09:00", end_time: "18:00" },
-    ]);
-  };
-
-  const handleRemoveSlot = (index: number) => {
-    clearScheduleError();
-    setSlots((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSlotChange = (
-    index: number,
-    field: "start_time" | "end_time",
-    val: string,
-  ) => {
-    clearScheduleError();
-    setSlots((prev) =>
-      prev.map((slot, i) => (i === index ? { ...slot, [field]: val } : slot)),
-    );
-  };
-
   const validateStep = (step: number): boolean => {
     setStepError(null);
     setFieldErrors({});
@@ -256,7 +228,7 @@ export function ListingWizard() {
         errors.capacity = "La capacidad debe ser un entero positivo.";
       if (currentSchema) {
         const attrValidation = validateCategoryAttributes(
-          dynamicAttributes,
+          cleanAttributesForPayload(dynamicAttributes),
           currentSchema,
           Number(areaM2),
         );
@@ -299,7 +271,7 @@ export function ListingWizard() {
         message =
           "La zona horaria debe ser un identificador IANA válido (ej: America/Santiago).";
         errors.timezone = message;
-      } else if (scheduleEnabled && slots.length > 0) {
+      } else if (scheduleEnabled && rateUnit === "hora" && slots.length > 0) {
         const v = validateScheduleSlots(slots);
         if (!v.valid) {
           message = v.errors[0] ?? "Horarios con tramos inválidos.";
@@ -369,7 +341,9 @@ export function ListingWizard() {
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
-      setCurrentStep((prev) => Math.min(5, prev + 1));
+      const next = Math.min(5, currentStep + 1);
+      setCurrentStep(next);
+      setMaxVisitedStep((prev) => Math.max(prev, next));
     }
   };
 
@@ -379,14 +353,17 @@ export function ListingWizard() {
   };
 
   const handleCreateDraft = async () => {
+    if (isSubmitting) return;
     if (authSnapshot.status !== "authenticated" || !accessToken) {
       setStepError("Sesión no disponible. Inicia sesión nuevamente.");
       return;
     }
 
-    if (!currentSchema) {
-      setStepError("Espera a que cargue el perfil de la categoría.");
-      return;
+    for (let step = 1; step <= 4; step += 1) {
+      if (!validateStep(step)) {
+        setCurrentStep(step);
+        return;
+      }
     }
     const location = validateWizardLocation(regionCode, comunaCode);
     if (!location.valid) {
@@ -395,6 +372,11 @@ export function ListingWizard() {
     }
 
     // Validación final completa
+    if (!currentSchema) {
+      setStepError("Espera a que cargue el perfil de la categoría.");
+      return;
+    }
+    const cleanAttributes = cleanAttributesForPayload(dynamicAttributes);
     const draftPayload: ListingDraftInput = {
       category_code: categoryCode,
       title: title.trim(),
@@ -408,7 +390,7 @@ export function ListingWizard() {
       region_code: regionCode || undefined,
       comuna_code: comunaCode.trim() || undefined,
       attribute_schema_version: currentSchema.schema_version,
-      attributes: dynamicAttributes,
+      attributes: cleanAttributes,
     };
 
     const overallVal = validateListingDraftInput(draftPayload);
@@ -449,7 +431,7 @@ export function ListingWizard() {
         timeZone,
         createdEtag,
       );
-      if (scheduleEnabled && slots.length > 0) {
+      if (scheduleEnabled && rateUnit === "hora" && slots.length > 0) {
         await updateWeeklySchedule(
           currentScope,
           created.id,
@@ -464,12 +446,10 @@ export function ListingWizard() {
 
       // Redirigir al editor tras el alta dentro de mi cuenta
       startTransition(() => {
-        router.push(`/mi-cuenta/espacios/${created.id}/editar`);
+        router.push(`/anfitrion/espacios/${created.id}/editar`);
       });
     } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "No fue posible crear el borrador";
-      setStepError(message);
+      setStepError(listingErrorMessage(err));
       setIsSubmitting(false);
     }
   };
@@ -490,12 +470,12 @@ export function ListingWizard() {
             Completa los 5 pasos para dar de alta tu propiedad en EspaciGo.
           </p>
         </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/mi-cuenta/espacios" className="gap-1.5">
-              <ArrowLeft className="size-4" aria-hidden="true" />
-              Mis espacios
-            </Link>
-          </Button>
+        <Button asChild variant="outline" size="sm">
+          <Link href="/anfitrion/espacios" className="gap-1.5">
+            <ArrowLeft className="size-4" aria-hidden="true" />
+            Mis espacios
+          </Link>
+        </Button>
       </div>
 
       {/* Indicador de progreso de 5 pasos accesibles */}
@@ -504,6 +484,7 @@ export function ListingWizard() {
           {STEPS.map((s) => {
             const isCompleted = s.number < currentStep;
             const isCurrent = s.number === currentStep;
+            const canVisit = s.number <= maxVisitedStep && !isSubmitting;
             const StepIcon = s.icon;
 
             return (
@@ -518,22 +499,46 @@ export function ListingWizard() {
                       : "border-transparent bg-muted/20 text-muted-foreground"
                 }`}
               >
-                <div
-                  className={`flex size-6 items-center justify-center rounded-full text-xs font-bold ${
-                    isCurrent
-                      ? "bg-primary text-primary-foreground"
-                      : isCompleted
-                        ? "bg-emerald-600 text-white"
-                        : "bg-muted text-muted-foreground"
-                  }`}
+                <button
+                  type="button"
+                  disabled={!canVisit}
+                  aria-label={`${s.title}${isCurrent ? ", paso actual" : ""}`}
+                  onClick={() => {
+                    if (s.number < currentStep) {
+                      setStepError(null);
+                      setCurrentStep(s.number);
+                      return;
+                    }
+                    if (s.number > currentStep) {
+                      for (let step = 1; step < s.number; step += 1) {
+                        if (!validateStep(step)) {
+                          setCurrentStep(step);
+                          return;
+                        }
+                      }
+                      setCurrentStep(s.number);
+                      setMaxVisitedStep((prev) => Math.max(prev, s.number));
+                    }
+                  }}
+                  className="flex w-full items-center gap-2 text-left disabled:cursor-not-allowed"
                 >
-                  {isCompleted ? (
-                    <Check className="size-3.5" aria-hidden="true" />
-                  ) : (
-                    <StepIcon className="size-3.5" aria-hidden="true" />
-                  )}
-                </div>
-                <span className="truncate">{s.title}</span>
+                  <div
+                    className={`flex size-6 items-center justify-center rounded-full text-xs font-bold ${
+                      isCurrent
+                        ? "bg-primary text-primary-foreground"
+                        : isCompleted
+                          ? "bg-emerald-600 text-white"
+                          : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {isCompleted ? (
+                      <Check className="size-3.5" aria-hidden="true" />
+                    ) : (
+                      <StepIcon className="size-3.5" aria-hidden="true" />
+                    )}
+                  </div>
+                  <span className="truncate">{s.title}</span>
+                </button>
               </li>
             );
           })}
@@ -579,6 +584,7 @@ export function ListingWizard() {
                   onChange={(e) => {
                     setCategoryCode(e.target.value);
                     setDynamicAttributes({});
+                    setMaxVisitedStep(1);
                     setFieldErrors((previous) =>
                       Object.fromEntries(
                         Object.entries(previous).filter(
@@ -720,19 +726,74 @@ export function ListingWizard() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="wizard-comuna" className="font-semibold">
-                    Código de comuna (5 dígitos)
+                  <Label htmlFor="wizard-region" className="font-semibold">
+                    Región
                   </Label>
-                  <Input
+                  <select
+                    id="wizard-region"
+                    value={regionCode}
+                    onChange={(e) => {
+                      setRegionCode(e.target.value);
+                      setComunaCode("");
+                      clearFieldError("region");
+                      clearFieldError("comuna");
+                    }}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <option value="">Selecciona una región</option>
+                    {CHILE_REGIONS.map(({ code, name }) => (
+                      <option key={code} value={code}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="wizard-comuna" className="font-semibold">
+                    Comuna
+                  </Label>
+                  <select
                     id="wizard-comuna"
                     {...fieldFeedback("comuna")}
                     value={comunaCode}
+                    disabled={!regionCode}
                     onChange={(e) => {
                       setComunaCode(e.target.value);
                       clearFieldError("comuna");
                     }}
-                    placeholder="Ej: 13114"
-                  />
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-describedby={
+                      [
+                        fieldErrors.comuna ? "wizard-comuna-error" : undefined,
+                        regionCode === "12" ? "wizard-comuna-limit" : undefined,
+                      ]
+                        .filter(Boolean)
+                        .join(" ") || undefined
+                    }
+                  >
+                    <option value="">Selecciona una comuna</option>
+                    {getComunasByRegion(regionCode).map(({ code, name }) => (
+                      <option
+                        key={code}
+                        value={code}
+                        disabled={code === "12202"}
+                      >
+                        {code === "12202"
+                          ? "Antártica — aún no disponible"
+                          : name}
+                      </option>
+                    ))}
+                  </select>
+                  {regionCode === "12" && (
+                    <p
+                      id="wizard-comuna-limit"
+                      className="text-sm text-muted-foreground"
+                    >
+                      Antártica figura en el catálogo, pero el backend actual no
+                      admite esa comuna.
+                    </p>
+                  )}
                   {fieldErrors.comuna && (
                     <p
                       id="wizard-comuna-error"
@@ -741,35 +802,6 @@ export function ListingWizard() {
                       {fieldErrors.comuna}
                     </p>
                   )}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="wizard-region" className="font-semibold">
-                    Región (código)
-                  </Label>
-                  <select
-                    id="wizard-region"
-                    value={regionCode}
-                    onChange={(e) => setRegionCode(e.target.value)}
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  >
-                    <option value="13">Región Metropolitana (13)</option>
-                    <option value="05">Valparaíso (05)</option>
-                    <option value="08">Biobío (08)</option>
-                    <option value="04">Coquimbo (04)</option>
-                    <option value="09">La Araucanía (09)</option>
-                    <option value="10">Los Lagos (10)</option>
-                    <option value="06">O&apos;Higgins (06)</option>
-                    <option value="07">Maule (07)</option>
-                    <option value="01">Tarapacá (01)</option>
-                    <option value="02">Antofagasta (02)</option>
-                    <option value="03">Atacama (03)</option>
-                    <option value="14">Los Ríos (14)</option>
-                    <option value="15">Arica y Parinacota (15)</option>
-                    <option value="16">Ñuble (16)</option>
-                    <option value="11">Aysén (11)</option>
-                    <option value="12">Magallanes (12)</option>
-                  </select>
                 </div>
 
                 <div className="space-y-2">
@@ -1104,6 +1136,14 @@ export function ListingWizard() {
                                 </option>
                               ))}
                             </select>
+                            {fieldErrors[`attribute:${def.code}`] && (
+                              <p
+                                id={`wizard-attribute-${def.code}-error`}
+                                className="text-sm text-red-800"
+                              >
+                                {fieldErrors[`attribute:${def.code}`]}
+                              </p>
+                            )}
                           </div>
                         );
                       }
@@ -1277,33 +1317,35 @@ export function ListingWizard() {
                 Paso 4: Disponibilidad semanal y zona horaria
               </CardTitle>
               <CardDescription>
-                Configura los días y horarios en los que tu espacio puede ser
-                reservado.
+                El horario semanal describe el funcionamiento habitual del
+                espacio; no confirma disponibilidad ni garantiza una reserva.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border">
-                <div>
-                  <Label
-                    htmlFor="schedule-enabled"
-                    className="text-sm font-semibold text-foreground cursor-pointer"
-                  >
-                    Habilitar calendario de reservas semanal
-                  </Label>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Si está deshabilitado, el espacio requerirá coordinación
-                    manual de disponibilidad.
-                  </p>
+              {rateUnit === "hora" && (
+                <div className="flex items-center justify-between p-4 rounded-xl bg-muted/40 border">
+                  <div>
+                    <Label
+                      htmlFor="schedule-enabled"
+                      className="text-sm font-semibold text-foreground cursor-pointer"
+                    >
+                      Habilitar calendario de reservas semanal
+                    </Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Si está deshabilitado, el espacio requerirá coordinación
+                      manual de disponibilidad.
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    id="schedule-enabled"
+                    aria-label="Habilitar calendario de reservas semanal"
+                    checked={scheduleEnabled}
+                    onChange={(e) => setScheduleEnabled(e.target.checked)}
+                    className="size-5 rounded text-primary focus:ring-primary"
+                  />
                 </div>
-                <input
-                  type="checkbox"
-                  id="schedule-enabled"
-                  aria-label="Habilitar calendario de reservas semanal"
-                  checked={scheduleEnabled}
-                  onChange={(e) => setScheduleEnabled(e.target.checked)}
-                  className="size-5 rounded text-primary focus:ring-primary"
-                />
-              </div>
+              )}
 
               <div className="space-y-2">
                 <Label htmlFor="wizard-timezone" className="font-semibold">
@@ -1334,7 +1376,7 @@ export function ListingWizard() {
                 </p>
               </div>
 
-              {scheduleEnabled && (
+              {scheduleEnabled && rateUnit === "hora" && (
                 <div className="space-y-4 pt-2">
                   <h2
                     id="wizard-schedule-label"
@@ -1360,111 +1402,34 @@ export function ListingWizard() {
                         {fieldErrors.schedule}
                       </p>
                     )}
-                    <div className="space-y-3">
-                      {DAYS_MAP.map((day) => {
-                        const daySlots = slots
-                          .map((s, idx) => ({ ...s, originalIndex: idx }))
-                          .filter((s) => s.day_of_week === day.day);
-
-                        return (
-                          <div
-                            key={day.day}
-                            className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-lg border bg-background"
-                          >
-                            <div className="w-28 font-medium text-sm text-foreground">
-                              {day.name}
-                            </div>
-
-                            <div className="flex-1 flex flex-col gap-2">
-                              {daySlots.length === 0 ? (
-                                <span className="text-xs text-muted-foreground italic py-1">
-                                  Cerrado
-                                </span>
-                              ) : (
-                                daySlots.map((slot) => (
-                                  <div
-                                    key={slot.originalIndex}
-                                    className="flex items-center gap-2 flex-wrap text-xs"
-                                  >
-                                    <input
-                                      type="time"
-                                      value={slot.start_time}
-                                      onChange={(e) =>
-                                        handleSlotChange(
-                                          slot.originalIndex,
-                                          "start_time",
-                                          e.target.value,
-                                        )
-                                      }
-                                      aria-label={`Hora inicio ${day.name}`}
-                                      aria-invalid={
-                                        fieldErrors.schedule ? true : undefined
-                                      }
-                                      aria-describedby={
-                                        fieldErrors.schedule
-                                          ? "wizard-schedule-error"
-                                          : undefined
-                                      }
-                                      className="rounded border border-input px-2 py-1 bg-background text-xs"
-                                    />
-                                    <span>a</span>
-                                    <input
-                                      type="time"
-                                      value={slot.end_time}
-                                      onChange={(e) =>
-                                        handleSlotChange(
-                                          slot.originalIndex,
-                                          "end_time",
-                                          e.target.value,
-                                        )
-                                      }
-                                      aria-label={`Hora fin ${day.name}`}
-                                      aria-invalid={
-                                        fieldErrors.schedule ? true : undefined
-                                      }
-                                      aria-describedby={
-                                        fieldErrors.schedule
-                                          ? "wizard-schedule-error"
-                                          : undefined
-                                      }
-                                      className="rounded border border-input px-2 py-1 bg-background text-xs"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleRemoveSlot(slot.originalIndex)
-                                      }
-                                      className="text-destructive hover:bg-destructive/10 p-1 rounded"
-                                      aria-label={`Eliminar tramo de ${day.name}`}
-                                    >
-                                      <Trash2
-                                        className="size-3.5"
-                                        aria-hidden="true"
-                                      />
-                                    </button>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-
-                            {daySlots.length < 2 && (
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleAddSlot(day.day)}
-                                className="gap-1 text-xs self-start sm:self-auto"
-                              >
-                                <Plus className="size-3.5" aria-hidden="true" />
-                                Agregar tramo
-                              </Button>
-                            )}
-                          </div>
-                        );
-                      })}
+                    <div
+                      aria-invalid={fieldErrors.schedule ? true : undefined}
+                      aria-describedby={
+                        fieldErrors.schedule
+                          ? "wizard-schedule-error"
+                          : undefined
+                      }
+                    >
+                      <WeeklyScheduleSlots
+                        slots={slots}
+                        timeZone={timeZone}
+                        disabled={isSubmitting || !scheduleEnabled}
+                        invalid={Boolean(fieldErrors.schedule)}
+                        errorId="wizard-schedule-error"
+                        onChange={(nextSlots) => {
+                          setSlots(nextSlots);
+                          clearScheduleError();
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
+              )}
+              {rateUnit !== "hora" && (
+                <p className="text-sm text-muted-foreground" role="note">
+                  Horario semanal no aplicable a tarifas por día o mes; se
+                  guardará la zona horaria.
+                </p>
               )}
             </CardContent>
           </>
@@ -1514,7 +1479,11 @@ export function ListingWizard() {
                       Ubicación:
                     </span>
                     <p className="text-foreground mt-0.5">
-                      {address}, {comunaCode || "Chile"} (Región {regionCode})
+                      {address},{" "}
+                      {CHILE_COMUNAS.find(({ code }) => code === comunaCode)
+                        ?.name || "Chile"}
+                      {regionCode &&
+                        `, ${CHILE_REGIONS.find(({ code }) => code === regionCode)?.name ?? ""}`}
                     </p>
                   </div>
                   <div>
@@ -1538,9 +1507,11 @@ export function ListingWizard() {
                       Disponibilidad:
                     </span>
                     <p className="text-foreground mt-0.5">
-                      {scheduleEnabled
-                        ? `${slots.length} tramos semanales`
-                        : "Sin horario activo"}{" "}
+                      {rateUnit !== "hora"
+                        ? "Horario semanal no aplicable a tarifas por día o mes"
+                        : scheduleEnabled
+                          ? `${slots.length} tramos semanales`
+                          : "Sin horario activo"}{" "}
                       ({timeZone})
                     </p>
                   </div>
@@ -1552,11 +1523,25 @@ export function ListingWizard() {
                       Atributos configurados:
                     </span>
                     <ul className="mt-1 grid grid-cols-2 gap-2 text-foreground">
-                      {Object.entries(dynamicAttributes).map(([k, v]) => (
-                        <li key={k} className="truncate">
-                          <span className="font-medium">{k}:</span> {String(v)}
-                        </li>
-                      ))}
+                      {Object.entries(
+                        cleanAttributesForPayload(dynamicAttributes),
+                      ).map(([k, v]) => {
+                        const definition = currentSchema?.attributes.find(
+                          (attribute) => attribute.code === k,
+                        );
+                        return (
+                          <li key={k} className="truncate">
+                            <span className="font-medium">
+                              {formatAttributeLabel(
+                                k,
+                                currentSchema ?? undefined,
+                              )}
+                              :
+                            </span>{" "}
+                            {formatAttributeValue(v, definition)}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </div>
                 )}

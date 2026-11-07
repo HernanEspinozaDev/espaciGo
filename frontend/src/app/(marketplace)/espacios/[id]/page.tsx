@@ -15,6 +15,7 @@ import {
 import { publicCatalog } from "@/features/public-catalog/infrastructure/catalog-runtime";
 import { CatalogUnavailable } from "@/features/public-catalog/ui/catalog-states";
 import { PublicVerificationBadges } from "@/features/public-catalog/ui/public-verification-badges";
+import { PublicWeeklySchedule } from "@/features/public-catalog/ui/public-weekly-schedule";
 
 export const dynamic = "force-dynamic";
 type PageProps = { params: Promise<{ id: string }> };
@@ -177,6 +178,7 @@ export default async function PublicSpacePage({ params }: PageProps) {
               </p>
             </section>
           ) : null}
+          <PublicWeeklySchedule schedule={space.weekly_schedule} />
           <p className="border-t border-border pt-5 text-xs leading-relaxed text-muted-foreground">
             La ficha muestra únicamente información pública minimizada. No
             incluye dirección exacta, datos del propietario, contacto privado,

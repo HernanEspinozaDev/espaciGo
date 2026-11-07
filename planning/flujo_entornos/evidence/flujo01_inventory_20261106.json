@@ -1,0 +1,167 @@
+{
+  "format": "espacigo.flujo01.cloud-inventory.v1",
+  "captured_at_utc": "2026-11-06T23:45:34.874403+00:00",
+  "source_base_sha": "771134d165046b290b1f5ad3a1074a6357c2327f",
+  "scope": "GCP metadata read-only; no SQL, secret payloads, IAM mutations or resource changes",
+  "sql": {
+    "connectionName": "espacigo-testprod:southamerica-west1:espacigo-testprod-db",
+    "databaseVersion": "POSTGRES_18",
+    "ipAddresses": [
+      {
+        "ipAddress": "10.189.0.15",
+        "type": "PRIVATE"
+      }
+    ],
+    "name": "espacigo-testprod-db",
+    "region": "southamerica-west1",
+    "settings": {
+      "activationPolicy": "ALWAYS",
+      "availabilityType": "ZONAL",
+      "backupConfiguration": {
+        "backupRetentionSettings": {
+          "retainedBackups": 7,
+          "retentionUnit": "COUNT"
+        },
+        "backupTier": "STANDARD",
+        "enabled": true,
+        "kind": "sql#backupConfiguration",
+        "pointInTimeRecoveryEnabled": false,
+        "replicationLogArchivingEnabled": false,
+        "startTime": "04:43",
+        "transactionLogRetentionDays": 7,
+        "transactionalLogStorageState": "TRANSACTIONAL_LOG_STORAGE_STATE_UNSPECIFIED"
+      },
+      "dataDiskSizeGb": "10",
+      "dataDiskType": "PD_SSD",
+      "edition": "ENTERPRISE",
+      "ipConfiguration": {
+        "ipv4Enabled": false,
+        "privateNetwork": "projects/espacigo-testprod/global/networks/espacigo-testprod",
+        "requireSsl": false,
+        "serverCaMode": "GOOGLE_MANAGED_INTERNAL_CA",
+        "serverCertificateRotationMode": "SERVER_CERTIFICATE_ROTATION_MODE_UNSPECIFIED",
+        "sslMode": "ALLOW_UNENCRYPTED_AND_ENCRYPTED"
+      },
+      "storageAutoResize": false,
+      "tier": "db-g1-small"
+    },
+    "state": "RUNNABLE"
+  },
+  "latest_backups": [
+    {
+      "endTime": "2026-11-06T06:07:24.449Z",
+      "id": "1793940180000",
+      "location": "us",
+      "startTime": "2026-11-06T06:06:03.318Z",
+      "status": "SUCCESSFUL",
+      "type": "AUTOMATED",
+      "windowStartTime": "2026-11-06T04:43:00Z"
+    },
+    {
+      "endTime": "2026-11-05T17:19:45.211Z",
+      "id": "1793899104062",
+      "location": "us",
+      "startTime": "2026-11-05T17:18:24.069Z",
+      "status": "SUCCESSFUL",
+      "type": "ON_DEMAND",
+      "windowStartTime": "2026-11-05T17:18:24.062Z"
+    },
+    {
+      "endTime": "2026-11-05T05:44:24.091Z",
+      "id": "1793853780000",
+      "location": "us",
+      "startTime": "2026-11-05T05:43:03.018Z",
+      "status": "SUCCESSFUL",
+      "type": "AUTOMATED",
+      "windowStartTime": "2026-11-05T04:43:00Z"
+    },
+    {
+      "endTime": "2026-11-04T05:32:12.157Z",
+      "id": "1793767380000",
+      "location": "us",
+      "startTime": "2026-11-04T05:30:51.079Z",
+      "status": "SUCCESSFUL",
+      "type": "AUTOMATED",
+      "windowStartTime": "2026-11-04T04:43:00Z"
+    }
+  ],
+  "subnet": {
+    "ipCidrRange": "10.81.0.0/26",
+    "name": "espacigo-testprod-api-serverless",
+    "network": "https://www.googleapis.com/compute/v1/projects/espacigo-testprod/global/networks/espacigo-testprod",
+    "privateIpGoogleAccess": true,
+    "stackType": "IPV4_ONLY"
+  },
+  "job_names": [],
+  "dms_migration_jobs_region": [],
+  "trigger": {
+    "approvalConfig": {},
+    "filename": "cloudbuild.yaml",
+    "name": "espacigo-main-rollout",
+    "repositoryEventConfig": {
+      "push": {
+        "branch": "^main$"
+      },
+      "repository": "projects/espacigo-testprod/locations/southamerica-west1/connections/espacigo-github/repositories/espacigo",
+      "repositoryType": "GITHUB"
+    },
+    "serviceAccount": "projects/espacigo-testprod/serviceAccounts/espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com"
+  },
+  "api_observed_network": {
+    "autoscaling.knative.dev/maxScale": "10",
+    "run.googleapis.com/cpu-throttling": "false",
+    "run.googleapis.com/network-interfaces": "[{\"network\":\"espacigo-testprod\",\"subnetwork\":\"espacigo-testprod-api-serverless\"}]",
+    "run.googleapis.com/vpc-access-egress": "private-ranges-only"
+  },
+  "api_observed_service_scaling": {
+    "run.googleapis.com/maxScale": "1",
+    "run.googleapis.com/minScale": "1"
+  },
+  "bastion": {
+    "name": "espacigo-dms-bastion-v67",
+    "id": "5282317084229207114",
+    "status": "TERMINATED",
+    "machine_type": "e2-micro",
+    "boot_disks": [
+      {
+        "name": "espacigo-dms-bastion-v67",
+        "size_gb": "10",
+        "auto_delete": true
+      }
+    ]
+  },
+  "bastion_snapshots": [],
+  "bastion_reserved_addresses": [],
+  "deployer_included_permissions": [
+    "cloudbuild.builds.create",
+    "cloudbuild.builds.get",
+    "containeranalysis.occurrences.list",
+    "run.operations.get",
+    "run.revisions.get",
+    "run.revisions.list",
+    "run.services.create",
+    "run.services.get",
+    "run.services.getIamPolicy",
+    "run.services.list",
+    "run.services.setIamPolicy",
+    "run.services.update",
+    "serviceusage.services.use"
+  ],
+  "migration_secret": {
+    "name": "espacigo-testprod-cloudsql-migrator-password",
+    "versions": [
+      {
+        "version": "1",
+        "state": "ENABLED"
+      }
+    ]
+  },
+  "billing_enabled": true,
+  "unverified": [
+    "current SQL ledger/ACL/DDL authority (no SQL connection opened)",
+    "restore rehearsal and actual recoverable PITR window",
+    "actual billed monthly costs (Billing export not read)",
+    "effective inherited secret access and Job identities/grants not provisioned",
+    "other sessions or local forwards using bastion; VM not accessed"
+  ]
+}

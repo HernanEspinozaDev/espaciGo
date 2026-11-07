@@ -324,9 +324,15 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         rate_unit: input.rate_unit,
         base_price_clp: input.base_price_clp,
         address: input.address,
-        region_code: input.region_code,
-        comuna_code: input.comuna_code,
-        attribute_schema_version: input.attribute_schema_version,
+        ...(input.region_code === undefined
+          ? {}
+          : { region_code: input.region_code }),
+        ...(input.comuna_code === undefined
+          ? {}
+          : { comuna_code: input.comuna_code }),
+        ...(input.attribute_schema_version === undefined
+          ? {}
+          : { attribute_schema_version: input.attribute_schema_version }),
         attributes: (input.attributes ?? {}) as Record<string, never>,
       },
       bodySerializer: serializeExactJson,
@@ -363,9 +369,15 @@ export class OpenApiHostListingsAdapter implements HostListingsPort {
         rate_unit: input.rate_unit,
         base_price_clp: input.base_price_clp,
         address: input.address,
-        region_code: input.region_code,
-        comuna_code: input.comuna_code,
-        attribute_schema_version: input.attribute_schema_version,
+        ...(input.region_code === undefined
+          ? {}
+          : { region_code: input.region_code }),
+        ...(input.comuna_code === undefined
+          ? {}
+          : { comuna_code: input.comuna_code }),
+        ...(input.attribute_schema_version === undefined
+          ? {}
+          : { attribute_schema_version: input.attribute_schema_version }),
         attributes: (input.attributes ?? {}) as Record<string, never>,
       },
       bodySerializer: serializeExactJson,
