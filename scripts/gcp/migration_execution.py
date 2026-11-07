@@ -24,7 +24,7 @@ def proposal(manifest,preflight,build_id,secret_version):
     if not isinstance(build_id,str) or not re.fullmatch(UUID,build_id):raise ValueError('exact parent Cloud Build UUID required')
     pinned=contract(manifest,preflight)
     base=plan_proposal(manifest['images']['migrator'],manifest['source_sha'],secret_version)
-    job='espacigo-db-release-'+build_id
+    job='espacigo-db-r-'+build_id.replace('-','')
     argv=base['proposed_job_create_argv'].copy();argv[4]=job
     args=['-dir','/app/db/migrations','-release','-release-source-sha',pinned['source_sha'],'-release-inventory-sha256',pinned['inventory_sha256'],'-release-expected-applied',str(pinned['expected_applied'])]
     argv=[('--args='+','.join(args) if x.startswith('--args=') else '--labels=source-commit='+manifest['source_sha']+',cloud-build-id='+build_id+',purpose=flujo-migration-release' if x.startswith('--labels=') else x) for x in argv]

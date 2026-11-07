@@ -1,0 +1,13 @@
+{
+  "title": "EspaciGo release Job provisioner",
+  "description": "Create and observe a pinned Job from the live parent build; cannot execute or update Jobs or access SQL secrets.",
+  "stage": "GA",
+  "includedPermissions": [
+    "run.jobs.create",
+    "run.jobs.get",
+    "run.operations.get",
+    "cloudbuild.builds.get",
+    "serviceusage.services.use",
+    "storage.buckets.get"
+  ]
+}

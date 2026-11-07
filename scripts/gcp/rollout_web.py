@@ -38,10 +38,10 @@ def deploy_args(service, image, sha, build_id, api_url):
             f'--update-labels=source-commit={sha},cloud-build-id={build_id}',
             f'--update-env-vars={env}']
 
-def parent_identity(build, sha, build_id):
+def parent_identity(build, sha, build_id, allow_full_parent=False):
     require(build.get('id') == build_id and build.get('buildTriggerId') == TRIGGER and build.get('serviceAccount') == SA, 'not the canonical trigger build/deployment identity')
     subs = build.get('substitutions', {})
-    require(subs.get('COMMIT_SHA') == sha and subs.get('_DEPLOY_SCOPE') == 'web', 'parent SHA/scope does not match requested web release')
+    require(subs.get('COMMIT_SHA') == sha and subs.get('_DEPLOY_SCOPE') in (('web','full') if allow_full_parent else ('web',)), 'parent SHA/scope does not match requested web release')
     require(subs.get('REPO_FULL_NAME') == 'HernanEspinozaDev/espaciGo', 'unexpected source repository')
     require(build.get('status') == 'WORKING', 'parent build is not actively executing')
     return int(datetime.fromisoformat(build['createTime'].replace('Z', '+00:00')).timestamp())
@@ -96,10 +96,10 @@ def web_image(cloud, root, sha):
     require(any(s.get('predicateType') == 'https://slsa.dev/provenance/v1' and s.get('predicate', {}).get('runDetails', {}).get('metadata', {}).get('invocationId') == invocation and any(t.get('digest', {}).get('sha256') == digest.removeprefix('sha256:') for t in s.get('subject', [])) for s in statements), 'matching child SLSA v1 web provenance missing')
     return image, child_id
 
-def execute(cloud, root, sha, build_id):
+def execute(cloud, root, sha, build_id, source_inventory=None, allow_full_parent=False):
     require(re.fullmatch(r'[a-f0-9]{40}', sha) is not None and re.fullmatch(UUID, build_id) is not None, 'full source SHA/build ID required')
     parent = cloud.json('builds', 'describe', build_id)
-    epoch = parent_identity(parent, sha, build_id)
+    epoch = parent_identity(parent, sha, build_id, allow_full_parent)
     api = verify_backend(cloud, root)  # failure here does not create a lock
     verify_private(cloud)
     with tempfile.TemporaryDirectory(prefix='espacigo-web-release-', dir=os.environ.get('TMPDIR') or str(root)) as temp:
@@ -139,6 +139,7 @@ def execute(cloud, root, sha, build_id):
         verify_private(cloud)
         require(active_api(cloud)['image'] == api['image'], 'API changed during web release')
         report = {'source_sha': sha, 'created_epoch': epoch, 'build_id': build_id, 'image_build_id': child, 'web_image': image, 'api_image_unchanged': api['image'], 'revisions': revisions}
+        if source_inventory is not None: report['source_inventory']=source_inventory
         path.write_text(json.dumps(report, sort_keys=True) + '\n')
         cloud.run('storage', 'cp', path, WATERMARK, f'--if-generation-match={prior_generation}')
         require(json.loads(cloud.run('storage', 'cat', WATERMARK)) == report, 'successful release watermark readback mismatch')

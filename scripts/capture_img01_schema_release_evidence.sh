@@ -2,6 +2,9 @@
 # Captures an operator-attested read-only report. Hashing the result and
 # storing it in GCS later protects integrity/freshness, not DB provenance.
 set -euo pipefail
+# Retired by the user-authorized main/Job evolution. Body below is historical.
+echo "Manual capture retired: use the private Job/release evidence documented in planning/flujo_entornos/operacion_main_sin_bastion.md." >&2
+exit 2
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 QUERY_FILE="$ROOT_DIR/db/query/img01_schema_release_evidence.sql"

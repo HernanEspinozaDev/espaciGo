@@ -12,14 +12,11 @@ sys.path.insert(0,'scripts')
 from test_img01_schema_release_evidence import valid_report
 p=pathlib.Path(sys.argv[1])
 config=yaml.safe_load(pathlib.Path('cloudbuild.yaml').read_text())
-step=next(s for s in config['steps'] if s['id']=='acquire-and-validate-deploy-lock')
+step=config['steps'][0]
 image=step['name']
 assert re.fullmatch(r'gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:[a-f0-9]{64}',image), image
 (p/'image').write_text(image)
-script=step['args'][-1]
-start=script.index('schema_python=')
-end=script.index('\n',script.index('scripts/verify_img01_schema_release_evidence.py',start))
-command=script[start:end].replace('$$','$').replace('/workspace/img01-schema-evidence.json','/fixtures/report.json')
+command='schema_python=$(gcloud info --format="value(basic.python_location)")\n"$schema_python" scripts/verify_img01_schema_release_evidence.py /fixtures/report.json --migrations db/migrations --query db/query/img01_schema_release_evidence.sql'
 (p/'gate.sh').write_text(command+'\n')
 report=valid_report()
 (p/'valid.json').write_text(json.dumps(report))

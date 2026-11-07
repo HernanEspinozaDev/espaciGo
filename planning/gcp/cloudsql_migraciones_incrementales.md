@@ -138,3 +138,15 @@ Backup gestionado `1793940180000` restaurado en instancia temporal privada `espa
 Se verificó la captura del catálogo completo sin túnel: Job temporal `espacigo-schema-plan-a5cd62549a47`, ejecución `espacigo-schema-plan-a5cd62549a47-xk6vf`, finUTC `2026-11-07T01:21:12.788869Z`. Login existente `espacigo_migrator_login`/SET ROLE `espacigo_schema_owner`, conector privado y consulta IMG-01 original empaquetada sin cambios; hash `9a8a6d0a020128918aadabfd3adb78ccc340991bffe4cc1aed2cc28e783d3697`. Catálogo/ledger V83 pasa todas las reglas vigentes. No se ejecutaron migraciones ni se concedió autoridad SQL/IAM nueva.
 
 El Job temporal está eliminado; imagen por digest retenida para el circuito de evolución y trigger sin cambios. La regla de escritura no se sustituye por este ensayo de lectura. Fuente/build/limpieza: [evidencia del piloto](../flujo_entornos/evidence/flujo05_catalogo_job_20261106.json). El comentario histórico de transporte dentro del SQL original no se reescribió: la consulta y su hash se conservaron, cambió solo el ejecutor del piloto.
+
+## Sustitución operativa por main/Jobs — corte FLUJO-05–07
+
+Este encargo humano sustituye la ruta habitual de SSH descrita en las secciones históricas. Implementación canónica: `cloudbuild.yaml` → `scripts/gcp/release_main.py`; guía: [operación main sin bastión](../flujo_entornos/operacion_main_sin_bastion.md). La activación observada se registra al completar su primera ejecución; publicar una rama no acredita ese estado.
+
+El único trigger main espera calidad del mismo SHA y clasifica docs/web/full. Full mantiene lock global por generación, imágenes API/web/migrador con provenance, plan privado, backup válido, política expand revisada y Job aplicador independiente. El catálogo IMG-01 conserva todas sus reglas. Solo tras postcheck se crean todas las revisiones sin tráfico; se conserva configuración efectiva y se promueve por revisión/digest. Runtime API nunca migra.
+
+Se conserva `espacigo_migrator_login`/`SET ROLE espacigo_schema_owner`, inventario exacto y SQL aplicado inmutable. No se concede CREATE/ownership adicional por inferencia: deltas futuros deben verificar autoridad específica; falta de permisos bloquea el release y requiere un bootstrap administrativo separado/revisado dentro de VPC, no reabrir bastión ni elevar runtime.
+
+Evidencia inmutable bajo `releases/<buildUUID>/` del bucket Cloud Build existente, con intenciones/IDs de ejecución y resultado antes/después. No volver a lanzar SQL si el padre se cancela o faltan logs. Lock fallido se diagnostica por build/ejecución; recuperación preapply versionada solo ante ausencia probada de intención/ejecución de aplicación. SQL confirmado no se revierte automáticamente; rollback de tráfico solo a revisiones compatibles.
+
+La captura manual IMG-01 quedó retirada en su script. Los reportes de recovery/PITR históricos mantienen su alcance; backup exitoso/SQL83/Ready no son aceptación de producto. QA online continúa a cargo del usuario. Staging queda diferido hasta preparar producción con usuarios reales.

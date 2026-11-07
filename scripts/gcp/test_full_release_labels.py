@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Contract and executable guard tests verifying Cloud Build full release deploy labels."""
+"""Historical executable regression for the pre-FLUJO-05 YAML guards; active Python rollout is tested in test_main_release.py."""
 import json
 import os
 import shutil
@@ -26,7 +26,7 @@ FULL_DEPLOY_STEPS = (
 
 class FullReleaseLabelsContractTest(unittest.TestCase):
     def setUp(self):
-        cb_path = ROOT / 'cloudbuild.yaml'
+        cb_path = ROOT / 'scripts/fixtures/cloudbuild_pre_flujo05.yaml'
         self.assertTrue(cb_path.is_file(), 'cloudbuild.yaml not found')
         self.config = yaml.safe_load(cb_path.read_text(encoding='utf-8'))
         self.steps_by_id = {s.get('id'): s for s in self.config.get('steps', []) if 'id' in s}
@@ -114,7 +114,7 @@ class FullReleaseLabelsContractTest(unittest.TestCase):
 
 class FullReleaseGuardExecutableTest(unittest.TestCase):
     def setUp(self):
-        cb_path = ROOT / 'cloudbuild.yaml'
+        cb_path = ROOT / 'scripts/fixtures/cloudbuild_pre_flujo05.yaml'
         self.assertTrue(cb_path.is_file(), 'cloudbuild.yaml not found')
         self.config = yaml.safe_load(cb_path.read_text(encoding='utf-8'))
         self.steps_by_id = {s.get('id'): s for s in self.config.get('steps', []) if 'id' in s}
