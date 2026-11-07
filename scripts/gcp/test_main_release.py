@@ -91,7 +91,7 @@ class MainReleaseTests(unittest.TestCase):
         with self.patches():report=release.execute(self.cloud,self.root,SHA,BUILD)
         self.assertNotIn(LOCK,self.cloud.objects)
         self.assertLess(self.events.index('backup'),self.events.index('job-apply'))
-        self.assertEqual(report['schema_migrations'],83)
+        self.assertEqual(report['schema_migrations'],len(list((self.root/'db/migrations').glob('V*.sql'))))
         for call in self.cloud.calls:
             if call[:2]==('run','deploy'):
                 self.assertIn('--no-traffic',call);self.assertIn('--update-labels=source-commit='+SHA+',cloud-build-id='+BUILD,call)

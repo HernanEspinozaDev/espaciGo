@@ -25,7 +25,7 @@ def fixture():
     catalog['target'].update(session_user='espacigo_migrator_login',current_user='espacigo_schema_owner')
     fingerprint=hashlib.sha256(''.join(f"{m['checksum']}  {m['name']}\n" for m in entries).encode()).hexdigest()
     manifest={'format':FORMAT,'source_sha':'a'*40,'target':TARGET.copy(),'images':{n:REGISTRY+'/'+r+'@sha256:'+'b'*64 for n,r in IMAGES.items()},'migration_inventory':{'format':'espacigo.migrations.inventory.v1','inventory_sha256':fingerprint,'migrations':entries}}
-    before={'database':TARGET['database'],'server_version':'18.6','read_only':True,'history_exists':True,'applied':entries[:83],'pending':entries[83:]}
+    before={'database':TARGET['database'],'server_version':'18.6','read_only':True,'history_exists':True,'applied':list(entries),'pending':[]}
     p=proposal(manifest,before,BUILD,'1');job=p['job'];name=job+'-abc12'
     env_flag=next(x for x in p['create_argv'] if x.startswith('--set-env-vars='))
     env=[{'name':k,'value':v} for k,v in [item.split('=',1) for item in env_flag.removeprefix('--set-env-vars=^|^').split('|')]]
@@ -69,7 +69,8 @@ class MigrationExecutionTests(unittest.TestCase):
         backup['backup']['status']='FAILED'
         with self.assertRaises(ValueError):prepare_application(m,b,BUILD,'1',backup,NOW)
         backup=backup_snapshot()
-        extra={'version':84,'name':'V000084__synthetic.sql','checksum':'c'*64}
+        next_v=len(m['migration_inventory']['migrations'])+1
+        extra={'version':next_v,'name':f"V{next_v:06d}__synthetic.sql",'checksum':'c'*64}
         m['migration_inventory']['migrations'].append(extra)
         m['migration_inventory']['inventory_sha256']=hashlib.sha256(''.join(f"{r['checksum']}  {r['name']}\n" for r in m['migration_inventory']['migrations']).encode()).hexdigest()
         b['pending']=[extra]
