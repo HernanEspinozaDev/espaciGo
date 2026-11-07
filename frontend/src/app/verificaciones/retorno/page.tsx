@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -9,7 +9,7 @@ import {
 } from "@/features/verifications/verification-api";
 import { VerificationBadge } from "@/features/verifications/verification-badge";
 
-export default function VerificationReturnPage() {
+function VerificationReturnContent() {
   const params = useSearchParams();
   const [result, setResult] = useState<DiditStatusResponse | null>(null);
   const [error, setError] = useState(false);
@@ -102,5 +102,20 @@ export default function VerificationReturnPage() {
         </Link>
       </div>
     </section>
+  );
+}
+
+export default function VerificationReturnPage() {
+  return (
+    <Suspense
+      fallback={
+        <section className="mx-auto max-w-xl space-y-5">
+          <h1 className="text-2xl font-semibold">Resultado de identidad</h1>
+          <p role="status">Estamos comprobando el resultado de forma segura…</p>
+        </section>
+      }
+    >
+      <VerificationReturnContent />
+    </Suspense>
   );
 }
