@@ -39,6 +39,63 @@ export type Writable<T> =
             }
           : T;
 export interface paths {
+  "/verifications/didit/intent": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Crear una intención de verificación de identidad Didit
+     * @description Requiere consentimiento explícito. La cuenta se deriva de la sesión autenticada; RUN/RUT y datos declarados no se incluyen en la URL.
+     */
+    post: operations["createDiditIntent"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/verifications/didit/intent/{id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Consultar el estado propio de una intención Didit */
+    get: operations["getDiditIntent"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/webhooks/didit": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Recibir y encolar un evento firmado de Didit
+     * @description Endpoint público de proveedor; valida firma y frescura, deduplica y persiste el evento antes de confirmar recepción. No confía en el estado del cuerpo como decisión final.
+     */
+    post: operations["receiveDiditWebhook"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/admin/global/me": {
     parameters: {
       query?: never;
@@ -3104,6 +3161,84 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    DiditIntentRequest: {
+      /** @description Nombres declarados tal como aparecen en la cédula. */
+      first_name: string;
+      /** @description Apellidos declarados tal como aparecen en la cédula. */
+      last_name: string;
+      /**
+       * Format: date
+       * @description Fecha civil YYYY-MM-DD.
+       */
+      date_of_birth: string;
+      /** @description RUN/RUT con dígito verificador; nunca número de serie documental. */
+      rut: string;
+      /** @constant */
+      id_country?: "CHL";
+      /** @constant */
+      document_type?: "ID";
+      /**
+       * @description Consentimiento afirmativo
+       * @constant
+       */
+      consent_given: true;
+      consent_version: string;
+    };
+    DiditIntentResponse: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      status:
+        | "CREATED"
+        | "PENDING_USER_INPUT"
+        | "PROCESSING"
+        | "APPROVED"
+        | "IN_REVIEW"
+        | "REJECTED"
+        | "EXPIRED"
+        | "FAILED";
+      /**
+       * Format: uri
+       * @description URL temporal; no registrar ni persistir en almacenamiento del navegador.
+       */
+      redirect_url: string;
+      /** Format: date-time */
+      created_at: string;
+    };
+    DiditIntentStatusResponse: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      status:
+        | "CREATED"
+        | "PENDING_USER_INPUT"
+        | "PROCESSING"
+        | "APPROVED"
+        | "IN_REVIEW"
+        | "REJECTED"
+        | "EXPIRED"
+        | "FAILED";
+      /**
+       * Format: uri
+       * @description URL temporal disponible solo si el intento puede reanudarse.
+       */
+      redirect_url?: string | null;
+      /** @enum {string} */
+      badge_result: "NOT_VERIFIED" | "IN_REVIEW" | "VERIFIED" | "REJECTED";
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
+    };
+    /** @description Sobre del evento Didit; firma y frescura se validan mediante encabezados HTTP. Nunca es por sí solo autoridad para aprobar. */
+    DiditWebhookPayload: {
+      event_id: string;
+      session_id: string;
+      /** @description Por ejemplo status.updated o data.updated. */
+      event_type: string;
+    } & {
+      [key: string]: unknown;
+    };
     /** @enum {string} */
     AdminCapability:
       | "legacy.administration"
@@ -5437,6 +5572,108 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  createDiditIntent: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description Clave opaca que identifica una misma operación para reintentos seguros. */
+        "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DiditIntentRequest"];
+      };
+    };
+    responses: {
+      /** @description Intención creada; URL temporal para continuar en Didit. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DiditIntentResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      422: components["responses"]["UnprocessableEntity"];
+      429: components["responses"]["TooManyRequests"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  getDiditIntent: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Estado y resultado de insignia calculado por el servidor. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DiditIntentStatusResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  receiveDiditWebhook: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DiditWebhookPayload"];
+      };
+    };
+    responses: {
+      /** @description Evento autenticado y aceptado para procesamiento. */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Payload inválido. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Firma inválida o vencida. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Payload demasiado grande. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      415: components["responses"]["UnsupportedMediaType"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
   getGlobalAdminMe: {
     parameters: {
       query?: never;
