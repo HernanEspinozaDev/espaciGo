@@ -97,12 +97,14 @@ GRANT UPDATE(id) ON public.document_verification_reviewer_grant TO espacigo_sche
 REVOKE UPDATE(id) ON public.document_verification_reviewer_grant FROM espacigo_schema_owner CASCADE;
 GRANT UPDATE(id) ON public.document_verification_reviewer_grant TO espacigo_runtime;
 REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
-				// V84 expands identity verification schema; requires CREATE on public schema.
-				mustExec(`GRANT CREATE ON SCHEMA public TO espacigo_schema_owner;`)
+				// V84 expands identity verification schema; requires CREATE on public schema and REFERENCES on usuario.
+				mustExec(`GRANT CREATE ON SCHEMA public TO espacigo_schema_owner;
+GRANT REFERENCES ON public.usuario TO espacigo_schema_owner;`)
 				if _, err := RunWithRole(ctx, migrationURL.String(), prefix(84), "espacigo_schema_owner"); err != nil {
 					t.Fatal(err)
 				}
-				mustExec(`REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
+				mustExec(`REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;
+REVOKE REFERENCES ON public.usuario FROM espacigo_schema_owner;`)
 				plan, err := Plan(ctx, migrationURL.String(), prefix(84), "espacigo_schema_owner")
 				if err != nil {
 					t.Fatal(err)
