@@ -1,5 +1,7 @@
 # Integración de espacios y preparación de release — 2026-11-05
 
+> **Transporte histórico retirado (2026-11-06).** Las instrucciones SSH/forward, inicio/apagado del bastión y ejecución manual cloud de este registro quedan sustituidas por `planning/gcp/cloudsql_migraciones_incrementales.md` y `planning/flujo_entornos/operacion_main_sin_bastion.md`. El bastión ya fue eliminado; no recrearlo. Conservar este diagnóstico como evidencia del corte, no como procedimiento operativo actual.
+
 ## Continuación vigente — 2026-11-06
 
 Frontend/backend reconciliados por merge normal `d2487324084cc5840388991ab028fbd68756065e`; rama DB incorporada por merge normal `cd517412432a78b2702c0066dc41e95858a2cabe`, conservando como segundo padre `61ecc92b51eceaf22fd7275c1bd3f8c209e075ab`. Revisiones funcional/seguridad adjudicadas sin bloqueantes demostrables en el alcance inspeccionado; seis candidatos estáticos de ejecución dinámica son harness de tooling. La discrepancia de hashes del revisor se reprodujo y resolvió como contexto/binary distintos del mismo índice. Gates vigentes:449unitPASS/139E2EPASS/54nativosSKIP; API197/tipos/formato/buildPASS, lint0errores/3warnings; Go completo repetido tras merge DB PASS. Frontend/OpenAPI sin delta posterior al gate; migraciones V1–V83 inmutables.

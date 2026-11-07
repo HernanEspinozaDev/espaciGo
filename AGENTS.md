@@ -2,6 +2,15 @@
 
 Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS.md`, las decisiones arquitectónicas y el plan vigente. Las instrucciones expresas del usuario prevalecen. No presentar decisiones/documentos propuestos como capacidades implementadas.
 
+## Regla general de entrega — vigente desde 2026-11-06
+
+- El flujo main → Cloud Build → Cloud Run Jobs → Cloud SQL/Cloud Run está activo y es el procedimiento obligatorio para las entregas de EspaciGo. Consultar `planning/flujo_entornos/operacion_main_sin_bastion.md` y `planning/gcp/cloudsql_migraciones_incrementales.md` antes de preparar una entrega o intervenir una migración.
+- Aplicar la skill versionada `.agents/skills/espacigo-release-flow/SKILL.md` para cambios de esquema, preparación de releases, integración a main y diagnóstico del pipeline. Su copia local puede invocarse como `$espacigo-release-flow`; el repositorio conserva la fuente mantenida.
+- `main` continúa como única rama permanente; completar y revisar el corte en una rama temporal antes de integrarlo normalmente. Sin develop ni staging en esta etapa. Respetar restricciones específicas pendientes, incluida la autorización expresa para integrar el rediseño frontend.
+- El bastión fue eliminado. Quedan sustituidas las instrucciones antiguas de iniciarlo, abrir túneles/forwards SSH, ejecutar migraciones cloud desde el portátil o detener la VM al terminar. No recrearlo ni usar esa ruta como fallback. Los documentos históricos acreditan hechos pasados, no autorizan operaciones presentes.
+- La configuración del pipeline, la política de migraciones y sus verificadores versionados son la implementación; no reconstruir una secuencia manual equivalente ni ejecutar DDL al arrancar la API. Un push a la rama de tarea no despliega; integrar/publicar main activa el trigger según docs/web/full.
+- Esta regla define cómo ejecutar trabajo autorizado; no amplía el alcance de una tarea ni convierte Ready/CI en aceptación funcional. La QA online del producto sigue reservada al usuario.
+
 ## Reconstrucción local del frontend — límite humano vigente (2026-10-24)
 
 - El usuario reservó **todas las comprobaciones de la aplicación online para él mismo**. En los cortes del rediseño, desarrollo y revisión implementan código y prueban únicamente en entornos locales aislados con datos sintéticos autorizados. Esta restricción incluye leer pantallas, sesión/roles, capturas y navegación sin envío: no solo formularios o POST.
@@ -44,7 +53,7 @@ Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS
 ## Migraciones incrementales a Cloud SQL — flujo inicial sin bastión
 
 - Procedimiento canónico: `planning/gcp/cloudsql_migraciones_incrementales.md`; evolución/activación y recibos en `planning/flujo_entornos/avance_inicial_20261106.md`. Distinguir código preparado de activación cloud verificada.
-- Encargo humano vigente: main es el único destino del desarrollo; sin staging hasta producción final/primeros usuarios. El circuito nuevo usa `scripts/gcp/release_main.py`: calidad del mismo SHA → clasificación docs/web/full → lock de release por generación → imágenes con provenance → plan privado → backup válido → Job migrador → catálogo/postcheck → revisiones sin tráfico → promoción verificada. No usar bastión/SSH/DMS ni exportar la base local como ruta habitual tras activar el corte.
+- Encargo humano vigente: main es el único destino del desarrollo; sin staging hasta producción final/primeros usuarios. El circuito nuevo usa `scripts/gcp/release_main.py`: calidad del mismo SHA → clasificación docs/web/full → lock de release por generación → imágenes con provenance → plan privado → backup válido → Job migrador → catálogo/postcheck → revisiones sin tráfico → promoción verificada. No usar bastión/SSH/DMS ni exportar la base local como ruta de actualización; el circuito ya está activo.
 - El migrador versionado `cmd/dbmigrate` aplica únicamente SQL pendiente del SHA/inventario revisado, con login dedicado y SET ROLE, lock y transacciones. Runtime API no ejecuta DDL. Cloud Build no recibe passwords SQL ni usa overrides; la configuración del Job se delega a identidad separada. Esa delegación tiene autoridad efectiva DDL y se trata como cambio de infraestructura revisado.
 - Conservar cada migración aplicada byte a byte; no editar ledger ni saltar guards por drift. Un delta futuro exige política exacta nombre/checksum `strategy=expand` en `db/release-policy.json`, pruebas de compatibilidad y autoridad del owner revisada; repairs/destrucción requieren corte específico. No elevar runtime ni transferir todos los owners para forzar un deploy.
 - Backup para esta etapa: automáticos con ≥7copias COUNT, metadata5min/backup24h; SQL pendiente exige ON_DEMAND posterior al lock global. Retener ≥7 backups propios y ≥7d; limpieza solo con recibos de release exitoso, nunca backups ajenos/históricos. PITR y recuperación funcional no se infieren del catálogo.
