@@ -1,7 +1,9 @@
 import copy
 from datetime import datetime,timezone
 import unittest
-from quality_gate import BASE_PATHS,DATABASE_PATH,REPOSITORY,REPOSITORY_ID,PendingQuality,evaluate,verify_main_ref
+import urllib.error
+import ssl
+from quality_gate import BASE_PATHS,DATABASE_PATH,REPOSITORY,REPOSITORY_ID,PendingQuality,evaluate,verify_main_ref,retryable_transport
 
 NOW=datetime(2026,11,7,0,0,tzinfo=timezone.utc)
 SHA='a'*40
@@ -34,6 +36,13 @@ class ReleaseQualityTests(unittest.TestCase):
         with self.assertRaises(ValueError):evaluate(fixture+[latest],SHA,now=NOW)
         latest.update(status='in_progress',conclusion=None)
         with self.assertRaises(PendingQuality):evaluate(fixture+[latest],SHA,now=NOW)
+
+    def test_transport_retries_do_not_relax_authentication_tls_or_quality_failures(self):
+        for code in [408,429,500,502,503,504]:self.assertTrue(retryable_transport(urllib.error.HTTPError('https://api.github.com',code,'temporary',{},None)))
+        for code in [400,401,403,404]:self.assertFalse(retryable_transport(urllib.error.HTTPError('https://api.github.com',code,'refused',{},None)))
+        self.assertTrue(retryable_transport(urllib.error.URLError(TimeoutError())))
+        self.assertFalse(retryable_transport(urllib.error.URLError(ssl.SSLCertVerificationError())))
+        self.assertFalse(retryable_transport(ValueError('quality failed')))
 
     def test_rejects_obsolete_candidate_even_if_its_tests_were_green(self):
         verify_main_ref({'ref':'refs/heads/main','object':{'type':'commit','sha':SHA}},SHA)

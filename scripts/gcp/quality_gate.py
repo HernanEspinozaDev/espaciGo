@@ -4,6 +4,7 @@ import argparse
 from datetime import datetime,timezone
 import json
 import re
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -76,6 +77,12 @@ def verify_main_ref(ref,sha):
         raise ValueError('candidate no longer matches the current remote main head')
 
 
+def retryable_transport(error):
+    if isinstance(error,urllib.error.HTTPError):return error.code in {408,429,500,502,503,504}
+    if isinstance(error,urllib.error.URLError):return not isinstance(error.reason,ssl.SSLCertVerificationError)
+    return isinstance(error,TimeoutError)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--sha',required=True)
@@ -97,6 +104,10 @@ def main():
             # One request per 45s limits anonymous public-API rate consumption.
             time.sleep(min(45,max(0,deadline-time.monotonic())))
         except (ValueError,OSError,urllib.error.URLError) as error:
+            if retryable_transport(error) and time.monotonic()<deadline:
+                print('Temporary quality API transport failure; retrying within the existing deadline: '+str(error),flush=True)
+                time.sleep(min(30,max(0,deadline-time.monotonic())))
+                continue
             parser.exit(1,'quality gate rejected: '+str(error)+'\n')
 
 
