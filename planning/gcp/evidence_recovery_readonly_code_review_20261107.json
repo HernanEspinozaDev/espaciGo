@@ -2,6 +2,8 @@
   "format": "espacigo.recovery-inspection-code-review.v1",
   "date": "2026-11-07",
   "base_sha": "5830c9ce2dc61d4df13a4139da984b4cafd6d9ba",
+  "reviewed_source_commit": "09d3430f424241d17c2a264b3f305859377117c0",
+  "task_branch": "codex/database/fix/recovery-01-readonly-inspection",
   "delegation_id": "deleg_0a1dba5b",
   "reviewed_production_sha256": {
     "scripts/gcp/recovery_inspection.py": "39f793ac43a92cb67937a11acedf7da2f69c7d5070cd91fc1d96aaeebf5e78de",
@@ -32,6 +34,8 @@
     "go_test_all_packages": "PASS; optional integration gates are separate",
     "go_vet_focused": "PASS",
     "real_postgres_json_python_bridge": "PASS without skips in own networkless disposable container; cleanup absence verified",
+    "versioned_only_staged_tree": "192e10f34ab476499b389fbfbb76095bc292ddda: focused Go and all 97 Python tests PASS without ignored/private files",
+    "runtime_image_local_test": "PASS at reviewed_source_commit: 84 exact migrations, embedded source SHA and target/mode rejection; own image tag absence verified",
     "diff_check": "PASS"
   },
   "publication_scope": "Task branch only; no main integration, ordinary release trigger or application deployment",
