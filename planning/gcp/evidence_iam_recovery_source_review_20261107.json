@@ -1,0 +1,44 @@
+{
+  "format": "espacigo.recovery-iam-source-review.v1",
+  "date": "2026-11-07",
+  "authorization": "Temporary exact-resource read IAM with revocation/readback; never SQL, secrets, apply, unlock or app rollout",
+  "production_sha256": {
+    "scripts/gcp/recovery_inspection.py": "48e299f7e344142ce8680d16cac58d4847c1493b9a405bf35cc3e8864dddd6c4",
+    "scripts/gcp/provision_recovery_inspection.py": "9e9fb77c060fa06fcf1974ffb2ede1e9af7706bbff53ba5de4671207fc0245d6",
+    "scripts/gcp/recovery_observation_v2.py": "450af6b5e9b375d6beb40faba512733bd25ddc68c731953581919c486f367a6b",
+    "scripts/gcp/recovery_iam_gate.py": "3c440c34e3baab31a00e01250c676ffb81dec5c298edb883637e2c13e42e58d0",
+    "scripts/gcp/recovery_iam_policy.py": "0bca1f22713cab75cae711ecefdc7133bafc23e6c500faf7ce503ae46e38c693",
+    "scripts/gcp/recovery_iam_operator.py": "fc39b9b22c1725cf7e9eead3110b67b3614321bfbaf6550507c6686438df68f7",
+    "cloudbuild-db-recovery-inspect.yaml": "16a32c1ac42640ead747e4da533863690e28f130625a39548c4b1feff13785a9",
+    "cloudbuild-db-recovery-provision.yaml": "deb1b539d307b41d5cd20ef3e753ec4cf533631473b6ef112f0bb1305632d1bb",
+    "internal/migrator/recovery_inspection.go": "185762bfb3fdbc5faa40fd211eafb571256e5c35f88211d27a450b9aeb8bf7f5",
+    "cmd/dbmigrate/recovery_inspection.go": "0bde7b82a55050c480feac19ef2c18f525548ffa84572f0d88528f76d9ee5ef8",
+    "cmd/dbmigrate/main.go": "b35dcb2a8f328344f27702c18dec3563880d6f8aadcffcc9b743759aebdf4281"
+  },
+  "source_reviews": {
+    "reader_gate_wiring": {
+      "delegation": "deleg_ba1dc30a",
+      "passed": true
+    },
+    "operator_policy_cycle1": {
+      "delegation": "deleg_1ecd0bdd",
+      "passed": true
+    }
+  },
+  "parent_verification": {
+    "python_tests": 127,
+    "portable_staged_tree": "aa0092acec452eb06e5c69db5db563bcdf775149",
+    "portable_go_focused": "PASS",
+    "portable_python": "PASS",
+    "live_operator_policy_validation": "33 intact version-3 bindings; no mutation",
+    "operator_required_permissions": "7 confirmed by testIamPermissions",
+    "sql_migrations_changed": false
+  },
+  "operational_state_at_review": {
+    "iam_granted": false,
+    "custom_role_created": false,
+    "inspection_build_started": false,
+    "cloud_sql_ledger_read": false
+  },
+  "remaining_gate": "Actual temporary IAM grant/readback, one private read-only inspection and explicit withdrawal/readback"
+}

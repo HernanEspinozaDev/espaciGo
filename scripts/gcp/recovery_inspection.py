@@ -17,6 +17,9 @@ import time
 from migration_job_plan import proposal as plan_proposal
 from verify_web_backend import PROJECT, REGION, BUCKET, SA as DEPLOYER, UUID, HEX64
 from rollout_web import LOCK, TRIGGER
+from recovery_observation_v2 import HistoricalExecutionReader, ObservationError
+from recovery_iam_gate import wait_for_iam_ready
+from recovery_iam_policy import build_binding
 
 PROJECT_NUMBER = '447373903153'
 PROVISIONER = f'projects/{PROJECT}/serviceAccounts/espacigo-release-job-builder@{PROJECT}.iam.gserviceaccount.com'
@@ -102,6 +105,18 @@ class Cloud:
 
     def json(self, *args):
         return json.loads(self.run(*args, '--format=json'))
+
+    def historical_list(self):
+        try:
+            return HistoricalExecutionReader(self.account).list()
+        except ObservationError as error:
+            raise RecoveryError(str(error)) from None
+
+    def historical_get(self):
+        try:
+            return HistoricalExecutionReader(self.account).get()
+        except ObservationError as error:
+            raise RecoveryError(str(error)) from None
 
 
 def validate_child_command(a):
@@ -219,11 +234,17 @@ def inspect_failed_release(cloud):
     intent_meta = cloud.json('storage', 'objects', 'describe', intent_uri)
     intent = json.loads(cloud.run('storage', 'cat', intent_uri + '#' + str(intent_meta['generation'])))
     require(intent.get('job') == job and intent.get('uid') == uid and intent.get('request', {}).get('mode') == 'apply', 'recorded applying intent differs')
-    es = cloud.json('run', 'jobs', 'executions', 'list', '--job=' + job)
-    require(len(es) == 1 and es[0].get('metadata', {}).get('name') == job + '-v62zb', 'unexpected additional applying executions; inspect before continuing')
-    e = cloud.json('run', 'jobs', 'executions', 'describe', job + '-v62zb')
-    s = e.get('status', {}); c = [x for x in s.get('conditions', []) if x.get('type') == 'Completed']
-    require(e.get('metadata', {}).get('labels', {}).get('run.googleapis.com/jobUid') == uid and len(c) == 1 and c[0].get('status') == 'False' and s.get('failedCount') == 1 and s.get('runningCount', 0) == 0, 'applying execution not expected terminal failure')
+    listed = cloud.historical_list()
+    es = listed.get('executions', [])
+    name = f'projects/{PROJECT}/locations/{REGION}/jobs/{job}/executions/{job}-v62zb'
+    require(not listed.get('nextPageToken') and len(es) == 1 and es[0].get('name') == name and es[0].get('job') == job,
+            'unexpected additional applying executions; inspect before continuing')
+    e = cloud.historical_get()
+    c = [x for x in e.get('conditions', []) if x.get('type') == 'Completed']
+    require(e.get('name') == name and e.get('job') == job and re.fullmatch(UUID, e.get('uid', ''))
+            and e.get('uid') == es[0].get('uid') and len(c) == 1 and c[0].get('state') == 'CONDITION_FAILED'
+            and e.get('failedCount') == 1 and e.get('runningCount', 0) == 0,
+            'applying execution not expected terminal failure')
     assert_lock(cloud, PINNED_GENERATION, text)
     return {'build_id': PINNED_BUILD_ID, 'source_sha': PINNED_SOURCE_SHA, 'lock_generation': PINNED_GENERATION, 'lock_text': text, 'failed_execution': job + '-v62zb'}
 
@@ -350,6 +371,14 @@ def verify_task(task, req):
 
 def provision_job(cloud, root, req, record):
     receipt = record('job-request', req)
+    lock = inspect_failed_release(cloud)
+    def verify_binding(binding, value):
+        expected = build_binding(req['build_id'], binding.get('role'), value['expires_at'])
+        require(binding == expected, 'IAM readiness binding differs from exact authorized resources')
+    proof = wait_for_iam_ready(cloud, req, receipt, verify_binding,
+                              lambda: assert_lock(cloud, lock['lock_generation'], lock['lock_text']))
+    record('iam-ready-verified', proof)
+    inspect_failed_release(cloud)
     sub = ','.join(['_PARENT_BUILD_ID=' + req['build_id'], '_SOURCE_ARCHIVE_SHA256=' + req['source_archive_sha256'], '_REQUEST_URI=' + receipt['uri'], '_REQUEST_GENERATION=' + receipt['generation'], '_REQUEST_SHA256=' + receipt['sha256']])
     submit_child(cloud, root, req['source_uri'], req['source_archive_sha256'], 'cloudbuild-db-recovery-provision.yaml', PROVISIONER, sub, record)
     job = cloud.json('run', 'jobs', 'describe', job_name(req['build_id'])); verify_job(job, req)
@@ -480,7 +509,7 @@ def main(argv=None):
         execute(Cloud(), Path('/workspace'), a.sha, a.build_id, a.source_archive_sha256)
         print('READ ONLY RECOVERY INSPECTION VERIFIED; release lock retained')
         return 0
-    except (RecoveryError, OSError, KeyError, TypeError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+    except (ValueError, OSError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
         print('read-only recovery inspection failed; preserve resources: ' + str(error), file=sys.stderr)
         return 1
 

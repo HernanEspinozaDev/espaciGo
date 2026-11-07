@@ -27,6 +27,14 @@ Vigente desde 2026-11-06 por decisión del usuario. Ruta activa: main → Cloud 
 - PITR sigue deshabilitado según el recibo de activación. Restauración nativa aislada fue ensayada con alcance documentado; no inferir RPO/RTO ni recuperación funcional de producción. Revisar PITR, retención, recuperación y staging al preparar los primeros usuarios.
 - Sin develop ni staging durante esta etapa. QA funcional online y aceptación corresponden al usuario; metadata/Ready no las sustituyen.
 
+## Excepción manual: inspección privada de recuperación READ ONLY
+
+El corte [recovery READ ONLY](plan_recovery_readonly_20261107.md) es una ruta manual separada del trigger de main: fuente de rama publicada, archive con generación/hash fijados, imagen con provenance y Job nuevo únicamente con `-recovery-inspection-only`. No ejecuta apply, backup, reparaciones de permisos SQL, unlock ni despliegue. No se presenta como lectura Cloud SQL ya completada mientras no exista reporte actual de ejecución exitosa.
+
+El usuario autorizó después un delta IAM **temporal solo de lectura**, acotado al lock retenido, request exacto de esta inspección y metadata del Job fallido, con revocación/readback obligatorios. Su [plan de alcance y retirada](plan_iam_recovery_readonly_20261107.md) exige conocer primero el parent ID real y su request inmutable, detener el parent antes del provisioner y permitir continuar solo tras recibo de readback operador. No conceder un prefijo general ni editar roles privilegiados existentes. Usar listado/get V2 con parent/nombre de Job/ejecución exactos, no el listado v1 por namespace con filtro de etiquetas.
+
+La herramienta de operador `scripts/gcp/recovery_iam_operator.py` mantiene política/etags y estado de lease privados bajo `.local/recovery-iam/`; `grant` comprueba fuente/parent/lock, crea rol propio de tres permisos y publica readiness solo tras readback, y `revoke` retira exclusivamente el binding propio con etag actual y comprueba su ausencia/retirada del rol. Esta publicación de código y sus tests no equivale a un grant ejecutado ni a efectividad demostrada. Ante error/resultado incierto, leer primero el estado de la lease y políticas; no reejecutar grants ni restaurar una política vieja, y no volver a lanzar el Job.
+
 ## Historia retirada de operación
 
 El [archivo anterior a Jobs](cloudsql_migraciones_historial_pre_jobs_20261106.md) conserva diagnósticos, comandos y autorizaciones pasadas para trazabilidad. Quedan sustituidas sus reglas de subir/encender el bastión, abrir un forward SSH, migrar desde local y detener la VM al finalizar. No recrear ese transporte ante un error del pipeline. Los runbooks anteriores de DMS, scratch e importación tampoco sustituyen este procedimiento.

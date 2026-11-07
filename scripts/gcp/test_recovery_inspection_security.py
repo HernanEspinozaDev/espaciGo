@@ -14,6 +14,23 @@ from test_recovery_inspection import SHA, BID, DIGEST, IMAGE, parent, report
 
 
 class RecoverySecurityTests(unittest.TestCase):
+    def test_provision_waits_for_exact_iam_receipt_before_child(self):
+        req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
+        job = r.desired_job(req, uid='22222222-3333-4444-8555-666666666666')
+        events = []
+        c = type('C', (), {'json': lambda self, *a: job})()
+        lock = {'lock_generation': r.PINNED_GENERATION, 'lock_text': '{}'}
+        def record(name, value):
+            events.append(name)
+            return {'uri': f'gs://{r.BUCKET}/recovery-inspections/{BID}/{name}.json', 'generation': '17', 'sha256': DIGEST}
+        with patch.object(r, 'inspect_failed_release', return_value=lock), \
+                patch.object(r, 'wait_for_iam_ready', create=True, side_effect=lambda *a, **k: events.append('iam-gate')) as gate, \
+                patch.object(r, 'submit_child', side_effect=lambda *a: events.append('submit')):
+            r.provision_job(c, Path('/workspace'), req, record)
+        gate.assert_called_once()
+        self.assertLess(events.index('job-request'), events.index('iam-gate'))
+        self.assertLess(events.index('iam-gate'), events.index('submit'))
+
     def test_execution_task_configuration_and_report_timestamp_fail_closed(self):
         req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
         job = r.desired_job(req, uid='22222222-3333-4444-8555-666666666666')
@@ -121,12 +138,14 @@ class RecoverySecurityTests(unittest.TestCase):
                     return {'id': r.PINNED_BUILD_ID, 'status': 'FAILURE', 'buildTriggerId': r.TRIGGER, 'serviceAccount': r.DEPLOYER,
                             'substitutions': {'COMMIT_SHA': r.PINNED_SOURCE_SHA}}
                 if a[:3] == ('run', 'jobs', 'describe'): return {'metadata': {'uid': uid}}
-                if a[:4] == ('run', 'jobs', 'executions', 'list'):
-                    return [{'metadata': {'name': name + '-v62zb'}}] + ([{'metadata': {'name': 'extra'}}] if self.extra else [])
-                if a[:4] == ('run', 'jobs', 'executions', 'describe'):
-                    return {'metadata': {'labels': {'run.googleapis.com/jobUid': uid}}, 'status': {'failedCount': 1,
-                            'conditions': [{'type': 'Completed', 'status': 'False'}]}}
                 raise AssertionError(a)
+            def historical_list(self):
+                value = self.historical_get()
+                return {'executions': [value] + ([{'name': 'extra'}] if self.extra else [])}
+            def historical_get(self):
+                return {'name': f'projects/{r.PROJECT}/locations/{r.REGION}/jobs/{name}/executions/{name}-v62zb',
+                        'job': name, 'uid': '33333333-4444-4555-8666-777777777777', 'failedCount': 1,
+                        'conditions': [{'type': 'Completed', 'state': 'CONDITION_FAILED'}]}
         c = Cloud(); r.inspect_failed_release(c)
         self.assertFalse(any('rm' in a or 'execute' in a or 'delete' in a for a in c.calls))
         c = Cloud(); c.extra = True
