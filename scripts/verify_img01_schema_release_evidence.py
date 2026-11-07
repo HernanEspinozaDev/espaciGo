@@ -112,6 +112,10 @@ def validate(path: Path, migrations_dir: Path, query_path: Path, now: datetime |
         evidence = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise EvidenceError("schema evidence is not readable JSON") from exc
+    return validate_payload(evidence, migrations_dir, query_path, now)
+
+
+def validate_payload(evidence: object, migrations_dir: Path, query_path: Path, now: datetime | None = None) -> dict[str, object]:
     require(isinstance(evidence, dict), "schema evidence root must be an object")
     required_keys = {
         "format", "captured_at", "target", "query_sha256", "migration_ledger",

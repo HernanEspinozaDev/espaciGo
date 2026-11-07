@@ -45,3 +45,11 @@ Los identificadores son placeholders; las rutas deben contener metadata revisada
 Para cerrar FLUJO-05 falta conectar estos componentes al orquestador activo: adquisición/liberación por generación del lock global, comprobación de backup, construcción/provenance del conjunto de imágenes, provisionamiento separado del Job y captura persistente de su ejecución. También falta producir y verificar desde el Job el catálogo completo exigido por IMG-01; el reporte de ledger nuevo **no reemplaza ese gate existente**. Luego se hará la transición controlada del único trigger a main. No se activa staging en esta etapa.
 
 Referencia oficial consultada: [ejecutar Jobs y esperar finalización](https://docs.cloud.google.com/run/docs/execute/jobs), [consultar la ejecución exacta](https://docs.cloud.google.com/run/docs/managing/job-executions). El patrón aplicado distingue lanzamiento aceptado y ejecución realmente completada.
+
+## Ampliación: catálogo y preparación con backup
+
+El contrato de salida vigente pasa a `espacigo.migration-execution.v2`: añade `schema_evidence` completo y el verificador aplica las mismas reglas de IMG-01. La CLI anterior de ese gate conserva su funcionamiento. La imagen incluye la consulta fuente original; `-schema-evidence-only` permite ensayar la captura privada sin ejecutar el runner de aplicación. Falta conectar el resultado a la cadena activa, no implementarlo a costa de retirar el gate.
+
+La propuesta de aplicación ahora requiere también `--backup-snapshot /ruta/privada/backup.json`, una captura nativa con `captured_at`, `instance` y `backup`. Para SQL pendiente incluye `release_lock_acquired_at`; exige un backup ON_DEMAND posterior a ese lock. El snapshot es metadata revisada, no un payload de secretos. Validez inicial: metadata5min, backup24h, al menos7copias automáticas; PITR observado pero no inferido/habilitado. El orquestador futuro debe consultar los datos en vivo y obtener/esperar el backup correspondiente, no reutilizar un recibo histórico ni asumir autenticidad por pasar un verificador offline.
+
+Referencia oficial: [gestión de backups estándar](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/manage-standard-backups). La selección de umbrales anterior es política de este desarrollo, no un SLA de Google ni garantía de recuperación funcional.

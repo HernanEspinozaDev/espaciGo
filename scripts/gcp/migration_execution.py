@@ -5,6 +5,8 @@ from datetime import datetime,timedelta,timezone
 import json
 from pathlib import Path
 import re
+from backup_readiness import check as check_backup
+from schema_release_gate import validate_catalog
 from migration_job_plan import PROJECT,REGION,SECRET,SERVICE_ACCOUNT,proposal as plan_proposal
 from migration_release_manifest import TARGET,check_plan,validate
 
@@ -26,7 +28,13 @@ def proposal(manifest,preflight,build_id,secret_version):
     argv=base['proposed_job_create_argv'].copy();argv[4]=job
     args=['-dir','/app/db/migrations','-release','-release-source-sha',pinned['source_sha'],'-release-inventory-sha256',pinned['inventory_sha256'],'-release-expected-applied',str(pinned['expected_applied'])]
     argv=[('--args='+','.join(args) if x.startswith('--args=') else '--labels=source-commit='+manifest['source_sha']+',cloud-build-id='+build_id+',purpose=flujo-migration-release' if x.startswith('--labels=') else x) for x in argv]
-    return {'format':'espacigo.migration-application-proposal.v1','executed':False,'job':job,'contract':pinned,'create_argv':argv,'args':args,'execute_argv':['gcloud','run','jobs','execute',job,f'--project={PROJECT}',f'--region={REGION}','--wait','--format=json'],'prerequisites':['Release-wide generation-owned lock held until postcheck and application rollout','Same-SHA quality and API/web/migrator build provenance verified','Successful recent backup and recovery policy checked before application','Review DDL authority and backwards compatibility for every pending migration','Job name absent, dedicated provisioner separate from no-override execution identity','After submission retain execution ID; do not retry/cancel blindly if parent fails'],'limits':['Not wired into the active trigger','No IAM grants or resources created by this renderer','Structured execution evidence supplements existing IMG-01 catalog evidence; does not replace it']}
+    return {'format':'espacigo.migration-application-proposal.v1','executed':False,'job':job,'contract':pinned,'create_argv':argv,'args':args,'execute_argv':['gcloud','run','jobs','execute',job,f'--project={PROJECT}',f'--region={REGION}','--wait','--format=json'],'prerequisites':['Release-wide generation-owned lock held until postcheck and application rollout','Same-SHA quality and API/web/migrator build provenance verified','Successful recent backup and recovery policy checked before application','Review DDL authority and backwards compatibility for every pending migration','Job name absent, dedicated provisioner separate from no-override execution identity','After submission retain execution ID; do not retry/cancel blindly if parent fails'],'limits':['Not wired into the active trigger','No IAM grants or resources created by this renderer','Structured execution evidence includes catalog validated by the existing IMG-01 gate']}
+
+
+def prepare_application(manifest,preflight,build_id,secret_version,backup_snapshot,now=None):
+    result=proposal(manifest,preflight,build_id,secret_version)
+    result['backup_readiness']=check_backup(backup_snapshot,bool(preflight['pending']),now)
+    return result
 
 
 def parse_time(value):
@@ -67,17 +75,21 @@ def verify_execution(manifest,preflight,build_id,secret_version,job_uid,executio
     reports=[]
     for entry in logs:
         report=entry.get('jsonPayload')
-        if not isinstance(report,dict) or report.get('format')!='espacigo.migration-execution.v1':continue
+        if not isinstance(report,dict) or report.get('format')!='espacigo.migration-execution.v2':continue
         resource=entry.get('resource',{})
         if resource.get('type')!='cloud_run_job' or resource.get('labels')!={'project_id':PROJECT,'location':REGION,'job_name':expected['job']} or entry.get('labels',{}).get('run.googleapis.com/execution_name')!=execution_name or entry.get('logName')!=f'projects/{PROJECT}/logs/run.googleapis.com%2Fstdout':raise ValueError('release report comes from a different execution/log stream')
         if not start<=parse_time(entry.get('timestamp'))<=end+timedelta(seconds=120):raise ValueError('release log timestamp differs from execution')
         reports.append(report)
     if len(reports)!=1:raise ValueError('exactly one structured success report required; wait for logs without rerunning SQL')
     report=reports[0]
-    if set(report)!={'format','contract','before','after','applied'} or report['contract']!=expected['contract'] or report['before']!=preflight:raise ValueError('release report differs from reviewed preflight/contract')
+    if set(report)!={'format','contract','before','after','applied','schema_evidence'} or report['contract']!=expected['contract'] or report['before']!=preflight:raise ValueError('release report differs from reviewed preflight/contract')
     check_plan(manifest,report['after'],True)
     if report['applied']!=[m['version'] for m in preflight['pending']]:raise ValueError('release applied set differs from reviewed pending suffix')
-    return {'format':'espacigo.verified-migration-execution.v1','source_sha':manifest['source_sha'],'build_id':build_id,'job':expected['job'],'job_uid':job_uid,'execution':execution_name,'image':manifest['images']['migrator'],'completed_at':status['completionTime'],'inventory_sha256':expected['contract']['inventory_sha256'],'applied':report['applied'],'pending':0}
+    catalog=report['schema_evidence']
+    validate_catalog(catalog,now)
+    if catalog['migration_ledger']['entries']!=manifest['migration_inventory']['migrations'] or catalog['target']['session_user']!='espacigo_migrator_login' or catalog['target']['current_user']!='espacigo_schema_owner' or not start<=parse_time(catalog['captured_at'])<=end:
+        raise ValueError('catalog does not belong to the reviewed migration execution')
+    return {'format':'espacigo.verified-migration-execution.v2','source_sha':manifest['source_sha'],'build_id':build_id,'job':expected['job'],'job_uid':job_uid,'execution':execution_name,'image':manifest['images']['migrator'],'completed_at':status['completionTime'],'inventory_sha256':expected['contract']['inventory_sha256'],'applied':report['applied'],'pending':0}
 
 
 def main():
@@ -86,11 +98,14 @@ def main():
     for name in ['manifest','preflight']:p.add_argument('--'+name,type=Path,required=True)
     for name in ['build-id','secret-version']:p.add_argument('--'+name,required=True)
     for name in ['execution','logs']:p.add_argument('--'+name,type=Path)
+    p.add_argument('--backup-snapshot',type=Path)
     p.add_argument('--execution-name');p.add_argument('--job-uid')
     a=p.parse_args()
     try:
         m=json.loads(a.manifest.read_text());before=json.loads(a.preflight.read_text())
-        if a.action=='propose':result=proposal(m,before,a.build_id,a.secret_version)
+        if a.action=='propose':
+            if a.backup_snapshot is None:raise ValueError('fresh native backup snapshot required before proposing an applying Job')
+            result=prepare_application(m,before,a.build_id,a.secret_version,json.loads(a.backup_snapshot.read_text()))
         else:
             if any(x is None for x in [a.execution,a.logs,a.execution_name,a.job_uid]):raise ValueError('verification requires execution/log files, exact name and created Job UID')
             result=verify_execution(m,before,a.build_id,a.secret_version,a.job_uid,a.execution_name,json.loads(a.execution.read_text()),json.loads(a.logs.read_text()))

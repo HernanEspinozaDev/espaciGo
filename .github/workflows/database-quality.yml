@@ -11,6 +11,12 @@ on:
       - 'go.sum'
       - 'Dockerfile.runtime-migrator'
       - 'cloudbuild-migrator-image.yaml'
+      - 'db/query/img01_schema_release_evidence.sql'
+      - 'scripts/verify_img01_schema_release_evidence.py'
+      - 'scripts/test_img01_schema_release_evidence.py'
+      - 'scripts/gcp/schema_release_gate.py'
+      - 'scripts/gcp/backup_readiness.py'
+      - 'scripts/gcp/test_backup_readiness.py'
       - 'cloudbuild.yaml'
       - 'scripts/validate_cloud_build_transition.py'
       - 'scripts/test_cloud_build_quality_gate.py'
@@ -62,6 +68,8 @@ jobs:
           python3 -m unittest discover -s scripts/gcp -p 'test_migration_job_plan.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_migration_release_manifest.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_migration_execution.py' -v
+          python3 -m unittest discover -s scripts/gcp -p 'test_backup_readiness.py' -v
+          python3 -m unittest discover -s scripts -p 'test_img01_schema_release_evidence.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_quality_gate.py' -v
           python3 -m unittest discover -s scripts/gcp -p 'test_restore_rehearsal_plan.py' -v
       - name: Run mandatory isolated PostgreSQL migrations and failure recovery

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -21,11 +22,12 @@ type ReleaseContract struct {
 }
 
 type ReleaseResult struct {
-	Format   string          `json:"format"`
-	Contract ReleaseContract `json:"contract"`
-	Before   PlanResult      `json:"before"`
-	After    PlanResult      `json:"after"`
-	Applied  []int64         `json:"applied"`
+	Format         string          `json:"format"`
+	Contract       ReleaseContract `json:"contract"`
+	Before         PlanResult      `json:"before"`
+	After          PlanResult      `json:"after"`
+	Applied        []int64         `json:"applied"`
+	SchemaEvidence json.RawMessage `json:"schema_evidence,omitempty"`
 }
 
 func inventoryFingerprint(migrations []Migration) string {
@@ -67,7 +69,10 @@ func validateReleaseContract(contract ReleaseContract, migrations []Migration) e
 
 // RunReleaseCloudSQL keeps preflight, application and postcheck on one session,
 // under the same advisory lock. No administrative repair mode is supported.
-func RunReleaseCloudSQL(ctx context.Context, databaseURL, password, migrationDir, instance string, privateIP bool, setRole string, contract ReleaseContract) (ReleaseResult, error) {
+func RunReleaseCloudSQL(ctx context.Context, databaseURL, password, migrationDir, instance string, privateIP bool, setRole string, contract ReleaseContract, schemaQuery []byte) (ReleaseResult, error) {
+	if _, err := schemaEvidenceStatement(schemaQuery); err != nil {
+		return ReleaseResult{}, err
+	}
 	config, err := cloudsql.NewPGXConfig(databaseURL, password)
 	if err != nil {
 		return ReleaseResult{}, err
@@ -82,10 +87,10 @@ func RunReleaseCloudSQL(ctx context.Context, databaseURL, password, migrationDir
 		return ReleaseResult{}, errors.New("connect release database")
 	}
 	defer conn.Close(context.Background())
-	return runReleaseWithConn(ctx, conn, migrationDir, setRole, contract)
+	return runReleaseWithConn(ctx, conn, migrationDir, setRole, contract, schemaQuery)
 }
 
-func runReleaseWithConn(ctx context.Context, conn *pgx.Conn, migrationDir, setRole string, contract ReleaseContract) (ReleaseResult, error) {
+func runReleaseWithConn(ctx context.Context, conn *pgx.Conn, migrationDir, setRole string, contract ReleaseContract, schemaQuery ...[]byte) (ReleaseResult, error) {
 	// Discover once: the exact in-memory SQL checked here is what the runner uses.
 	migrations, err := DiscoverMigrations(migrationDir)
 	if err != nil {
@@ -93,6 +98,14 @@ func runReleaseWithConn(ctx context.Context, conn *pgx.Conn, migrationDir, setRo
 	}
 	if err := validateReleaseContract(contract, migrations); err != nil {
 		return ReleaseResult{}, err
+	}
+	if len(schemaQuery) > 1 {
+		return ReleaseResult{}, errors.New("one schema evidence query required")
+	}
+	if len(schemaQuery) == 1 {
+		if _, err := schemaEvidenceStatement(schemaQuery[0]); err != nil {
+			return ReleaseResult{}, err
+		}
 	}
 	if setRole != "" {
 		if !validDatabaseRoleName(setRole) {
@@ -130,5 +143,12 @@ func runReleaseWithConn(ctx context.Context, conn *pgx.Conn, migrationDir, setRo
 	if result.Applied == nil {
 		result.Applied = []int64{}
 	}
-	return ReleaseResult{Format: "espacigo.migration-execution.v1", Contract: contract, Before: before, After: after, Applied: result.Applied}, nil
+	var evidence json.RawMessage
+	if len(schemaQuery) == 1 {
+		evidence, err = collectSchemaEvidence(ctx, conn, schemaQuery[0])
+		if err != nil {
+			return ReleaseResult{}, err
+		}
+	}
+	return ReleaseResult{Format: "espacigo.migration-execution.v2", Contract: contract, Before: before, After: after, Applied: result.Applied, SchemaEvidence: evidence}, nil
 }

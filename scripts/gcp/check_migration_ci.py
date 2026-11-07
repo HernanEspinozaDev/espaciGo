@@ -5,6 +5,10 @@ import json
 from pathlib import Path
 
 REQUIRED = frozenset({
+    'TestRunnerSchemaEvidenceReadonlyBlocksWritingSelect',
+    'TestRunnerReleaseCatalogFailureDoesNotReportSuccessAfterDDL',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/catalog-read',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/catalog-read',
     'TestRunnerReleasePinsInventoryAndReviewedPrefix',
     'TestRunnerReleaseFailureDoesNotProduceSuccessOrReplayCommittedPrefix',
     'TestRunnerReleaseSerializesCompetingReviewedPrefixes',

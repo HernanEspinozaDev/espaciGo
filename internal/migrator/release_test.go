@@ -134,3 +134,22 @@ func TestRunnerReleaseSerializesCompetingReviewedPrefixes(t *testing.T) {
 		}
 	})
 }
+
+func TestRunnerReleaseCatalogFailureDoesNotReportSuccessAfterDDL(t *testing.T) {
+	withTestDatabase(t, func(ctx context.Context, databaseURL string) {
+		conn, dir, contract := releaseFixture(t, ctx, databaseURL)
+		defer conn.Close(context.Background())
+		query := []byte("BEGIN READ ONLY;\nSELECT jsonb_build_object('format','wrong-format')::text;\nCOMMIT;\n")
+		report, err := runReleaseWithConn(ctx, conn, dir, "", contract, query)
+		if err == nil || report.Format != "" {
+			t.Fatal("catalog failure reported release success")
+		}
+		var count int
+		if err := conn.QueryRow(ctx, "SELECT count(*) FROM public.schema_migrations").Scan(&count); err != nil || count != 2 {
+			t.Fatalf("committed DDL ledger missing: %d %v", count, err)
+		}
+		if _, err := runReleaseWithConn(ctx, conn, dir, "", contract, query); err == nil || !strings.Contains(err.Error(), "prefix changed") {
+			t.Fatalf("catalog failure allowed blind SQL retry: %v", err)
+		}
+	})
+}

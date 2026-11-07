@@ -13,6 +13,7 @@ import (
 func main() {
 	migrationDir := flag.String("dir", "db/migrations", "directory containing V<version>__<description>.sql files")
 	inventoryOnly := flag.Bool("inventory-only", false, "print the offline migration inventory without reading connection settings or contacting a database")
+	schemaOnly := flag.Bool("schema-evidence-only", false, "print the packaged IMG-01 catalog evidence in a read-only transaction")
 	planOnly := flag.Bool("plan-only", false, "print the read-only applied/pending migration inventory without executing SQL")
 	releaseMode := flag.Bool("release", false, "apply a pinned private Cloud SQL release and print its checked result")
 	releaseSHA := flag.String("release-source-sha", "", "full source SHA embedded in the release image")
@@ -25,6 +26,10 @@ func main() {
 	cloudOwner := flag.Bool("cloud-owner-migration", false, "run confirmed CloudSQL staging repair V76..V80")
 	confirmCloudOwner := flag.String("confirm-cloud-owner-pre81", "", "exact CloudSQL staging confirmation")
 	flag.Parse()
+	if *schemaOnly && (*inventoryOnly || *planOnly || *releaseMode || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *confirmCloudOwner != "" || *releaseSHA != "" || *releaseInventory != "" || *releaseExpected != 0 || flag.NArg() != 0) {
+		fmt.Fprintln(os.Stderr, "-schema-evidence-only cannot combine with other modes or release options")
+		os.Exit(2)
+	}
 	if err := validateReleaseInvocation(*releaseMode, *inventoryOnly || *planOnly || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *confirmCloudOwner != "" || flag.NArg() != 0, *releaseSHA, *releaseInventory, *releaseExpected); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
@@ -58,6 +63,13 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
 	defer cancel()
+	if *schemaOnly {
+		if err := printSchemaEvidence(ctx, os.Stdout, settings, *migrationDir); err != nil {
+			fmt.Fprintf(os.Stderr, "schema evidence failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if *releaseMode {
 		if err := runCloudRelease(ctx, os.Stdout, settings, *migrationDir, *releaseSHA, *releaseInventory, *releaseExpected); err != nil {
 			fmt.Fprintf(os.Stderr, "release failed; inspect ledger before retry: %v\n", err)

@@ -123,6 +123,7 @@ REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
 						t.Fatalf("restricted V83 release no-op failed: %v", err)
 					}
 				})
+				t.Run("catalog-read", func(t *testing.T) { assertPackagedCatalogRead(t, ctx, migrationURL.String()) })
 				t.Run("api-schema-contract", func(t *testing.T) {
 					assertRuntimeAPISchemaContract(t, ctx, databaseURL, admin)
 				})

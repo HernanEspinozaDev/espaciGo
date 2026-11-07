@@ -15,6 +15,7 @@ COPY internal/database/cloudsql ./internal/database/cloudsql
 COPY internal/dbbootstrap ./internal/dbbootstrap
 COPY internal/migrator ./internal/migrator
 COPY db/migrations/ /out/migrations/
+COPY db/query/img01_schema_release_evidence.sql /out/query/img01_schema_release_evidence.sql
 RUN if [ -n "$SOURCE_SHA" ]; then [ "${#SOURCE_SHA}" -eq 40 ] && printf '%s' "$SOURCE_SHA" | grep -Eq '^[a-f0-9]{40}$'; fi && \
     go build -trimpath -buildvcs=false -ldflags="-s -w -X main.releaseSourceSHA=$SOURCE_SHA" -o /out/dbmigrate ./cmd/dbmigrate
 # Validate the entire current inventory during the build, without a database.
@@ -24,6 +25,7 @@ FROM scratch
 WORKDIR /app
 COPY --from=build /out/dbmigrate /app/dbmigrate
 COPY --from=build /out/migrations /app/db/migrations
+COPY --from=build /out/query /app/db/query
 COPY --from=build /out/migration-inventory.json /app/migration-inventory.json
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 USER 65532:65532
