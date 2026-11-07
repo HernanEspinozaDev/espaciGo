@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { VerificationFlow } from "@/features/verifications/verification-flow";
 import { VerificationsView } from "@/features/verifications/ui/verifications-view";
 
 export const metadata: Metadata = {
@@ -12,5 +13,5 @@ export const metadata: Metadata = {
 };
 
 export default function VerificacionesPage() {
-  return <VerificationsView />;
+  return <><VerificationFlow /><VerificationsView /></>;
 }

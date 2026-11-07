@@ -9,6 +9,68 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /verifications/didit/intent:
+    post:
+      operationId: createDiditIntent
+      tags: [Identity verification]
+      summary: Crear una intención de verificación de identidad Didit
+      description: Requiere consentimiento explícito. La cuenta se deriva de la sesión autenticada; RUN/RUT y datos declarados no se incluyen en la URL.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiditIntentRequest" }
+      responses:
+        "201":
+          description: Intención creada; URL temporal para continuar en Didit.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DiditIntentResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /verifications/didit/intent/{id}:
+    get:
+      operationId: getDiditIntent
+      tags: [Identity verification]
+      summary: Consultar el estado propio de una intención Didit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Estado y resultado de insignia calculado por el servidor.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DiditIntentStatusResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /webhooks/didit:
+    post:
+      operationId: receiveDiditWebhook
+      tags: [Identity verification]
+      summary: Recibir y encolar un evento firmado de Didit
+      description: Endpoint público de proveedor; valida firma y frescura, deduplica y persiste el evento antes de confirmar recepción. No confía en el estado del cuerpo como decisión final.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DiditWebhookPayload" }
+      responses:
+        "202": { description: Evento autenticado y aceptado para procesamiento. }
+        "400": { description: Payload inválido. }
+        "401": { description: Firma inválida o vencida. }
+        "413": { description: Payload demasiado grande. }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
   /admin/global/me:
     get:
       operationId: getGlobalAdminMe
@@ -7465,6 +7527,48 @@ components:
         type: string
         minLength: 1
   schemas:
+    DiditIntentRequest:
+      type: object
+      additionalProperties: false
+      required: [first_name, last_name, date_of_birth, rut, consent_given, consent_version]
+      properties:
+        first_name: { type: string, minLength: 1, maxLength: 150, description: Nombres declarados tal como aparecen en la cédula. }
+        last_name: { type: string, minLength: 1, maxLength: 150, description: Apellidos declarados tal como aparecen en la cédula. }
+        date_of_birth: { type: string, format: date, description: Fecha civil YYYY-MM-DD. }
+        rut: { type: string, minLength: 8, maxLength: 20, description: RUN/RUT con dígito verificador; nunca número de serie documental. }
+        id_country: { type: string, const: CHL }
+        document_type: { type: string, const: ID }
+        consent_given: { type: boolean, const: true, description: Consentimiento afirmativo, no preseleccionado. }
+        consent_version: { type: string, minLength: 1, maxLength: 20 }
+    DiditIntentResponse:
+      type: object
+      additionalProperties: false
+      required: [id, status, redirect_url, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [CREATED, PENDING_USER_INPUT, PROCESSING, APPROVED, IN_REVIEW, REJECTED, EXPIRED, FAILED] }
+        redirect_url: { type: string, format: uri, description: URL temporal; no registrar ni persistir en almacenamiento del navegador. }
+        created_at: { type: string, format: date-time }
+    DiditIntentStatusResponse:
+      type: object
+      additionalProperties: false
+      required: [id, status, badge_result, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [CREATED, PENDING_USER_INPUT, PROCESSING, APPROVED, IN_REVIEW, REJECTED, EXPIRED, FAILED] }
+        redirect_url: { type: [string, "null"], format: uri, description: URL temporal disponible solo si el intento puede reanudarse. }
+        badge_result: { type: string, enum: [NOT_VERIFIED, IN_REVIEW, VERIFIED, REJECTED] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DiditWebhookPayload:
+      type: object
+      description: Sobre del evento Didit; firma y frescura se validan mediante encabezados HTTP. Nunca es por sí solo autoridad para aprobar.
+      additionalProperties: true
+      required: [event_id, session_id, event_type]
+      properties:
+        event_id: { type: string, minLength: 1, maxLength: 120 }
+        session_id: { type: string, minLength: 1, maxLength: 100 }
+        event_type: { type: string, minLength: 1, maxLength: 80, description: Por ejemplo status.updated o data.updated. }
     AdminCapability:
       type: string
       enum:

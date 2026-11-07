@@ -70,6 +70,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
+	if (path == "/api/v1/verifications/didit/webhook" || path == "/api/v1/webhooks/didit") && r.Method == http.MethodPost {
+		h.handleDiditWebhook(w, r)
+		return
+	}
 	admin := strings.HasPrefix(path, "/api/v1/admin/verifications")
 	principal, err := h.authorize(r, admin)
 	if err != nil {
@@ -79,6 +83,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("WWW-Authenticate", "Bearer")
 			writeError(w, 401, "unauthenticated", "Credencial ausente, incorrecta o expirada.")
 		}
+		return
+	}
+	if path == "/api/v1/verifications/didit/intent" && r.Method == http.MethodPost {
+		h.handleCreateDiditIntent(w, r)
+		return
+	}
+	if strings.HasPrefix(path, "/api/v1/verifications/didit/intent/") && r.Method == http.MethodGet {
+		id := strings.TrimPrefix(path, "/api/v1/verifications/didit/intent/")
+		h.handleGetDiditIntentWithID(w, r, id)
 		return
 	}
 	if h.evidence != nil {
