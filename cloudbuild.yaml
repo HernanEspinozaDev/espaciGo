@@ -16,6 +16,8 @@ steps:
       - -ceu
       - |
         [[ "${_DEPLOY_SCOPE}" == full ]]
+        [[ -s /usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem ]]
+        export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem
         quality_python=$$(gcloud info --format='value(basic.python_location)')
         "$$quality_python" scripts/gcp/quality_gate.py --sha="$COMMIT_SHA" --scope="${_DEPLOY_SCOPE}" --wait-seconds=1200
   - id: release-main

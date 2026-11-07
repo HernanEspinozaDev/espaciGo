@@ -27,6 +27,8 @@ def quality_gate_errors(config: dict) -> list[str]:
         errors.append("quality must run in the pinned SDK image")
     if 'scripts/gcp/quality_gate.py --sha="$COMMIT_SHA" --scope="${_DEPLOY_SCOPE}" --wait-seconds=1200' not in body:
         errors.append("quality must require the parent SHA and exact deployment scope")
+    if "export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem" not in body:
+        errors.append("bundled SDK Python must use the trusted SDK CA bundle")
     for step in steps:
         if step.get("waitFor") is not None or step.get("allowFailure") or step.get("allowExitCodes"):
             errors.append("orchestration must preserve sequential fail-closed dependencies after quality")

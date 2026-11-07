@@ -20,6 +20,10 @@ class BuildQualityDependencyTests(unittest.TestCase):
             config=copy.deepcopy(self.config);config['steps'][1].update(update)
             self.assertTrue(quality_gate_errors(config))
 
+    def test_rejects_missing_sdk_ca_bundle_in_quality_step(self):
+        self.config['steps'][0]['args']=[x.replace('export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem','') for x in self.config['steps'][0]['args']]
+        self.assertTrue(quality_gate_errors(self.config))
+
     def test_rejects_mutable_builder_and_unrelated_sha(self):
         for key,value in [('name','gcr.io/google.com/cloudsdktool/google-cloud-cli:stable'),('args',['--sha=main'])]:
             config=copy.deepcopy(self.config);config['steps'][0][key]=value

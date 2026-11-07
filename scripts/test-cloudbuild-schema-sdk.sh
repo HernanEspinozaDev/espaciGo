@@ -16,7 +16,7 @@ step=config['steps'][0]
 image=step['name']
 assert re.fullmatch(r'gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:[a-f0-9]{64}',image), image
 (p/'image').write_text(image)
-command='schema_python=$(gcloud info --format="value(basic.python_location)")\n"$schema_python" scripts/verify_img01_schema_release_evidence.py /fixtures/report.json --migrations db/migrations --query db/query/img01_schema_release_evidence.sql'
+command='export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem\nschema_python=$(gcloud info --format="value(basic.python_location)")\n"$schema_python" scripts/verify_img01_schema_release_evidence.py /fixtures/report.json --migrations db/migrations --query db/query/img01_schema_release_evidence.sql'
 (p/'gate.sh').write_text(command+'\n')
 report=valid_report()
 (p/'valid.json').write_text(json.dumps(report))
