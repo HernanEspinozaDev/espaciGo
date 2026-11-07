@@ -1,0 +1,21 @@
+{
+  "format": "espacigo.backup-readiness.v1",
+  "checked_at": "2026-11-07T01:13:07.337866+00:00",
+  "captured_at": "2026-11-07T01:13:07.269281+00:00",
+  "project": "espacigo-testprod",
+  "instance": "espacigo-testprod-db",
+  "backup_id": "1793940180000",
+  "backup_start": "2026-11-06T06:06:03.318Z",
+  "backup_end": "2026-11-06T06:07:24.449Z",
+  "backup_type": "AUTOMATED",
+  "retained_copies": 7,
+  "pitr_enabled": false,
+  "pending_sql": false,
+  "policy": "initial-development-24h-seven-copies; pending SQL requires locked on-demand backup",
+  "limits": [
+    "Metadata validation does not prove capture authenticity or business RPO/RTO",
+    "Native backup restore rehearsal is recorded separately; PITR recovery is not inferred"
+  ],
+  "observation_only": true,
+  "do_not_reuse_for_release": "Capture fresh metadata and rerun the gate at release time"
+}
