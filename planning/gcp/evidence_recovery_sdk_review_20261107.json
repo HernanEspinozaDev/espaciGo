@@ -1,0 +1,26 @@
+{
+  "format": "espacigo.recovery-sdk-source-review.v1",
+  "date": "2026-11-07",
+  "base_sha": "44a4a205c572df0c96a1027a6a3bb62e0497c018",
+  "files": {
+    "cloudbuild-db-recovery-inspect.yaml": "1f1048c18b647ca14f4339386ba7e2cae93910daf9ec804757bc77fa8f856e82",
+    "cloudbuild-db-recovery-provision.yaml": "de3fe7d3e14bf01ea962a306a298d8a4d724f608975568a3d88b53c4ef91625c",
+    "scripts/gcp/recovery_inspection.py": "5ee131c39341557af6e4964291ec7fbf2ffe712b30c1199643448b24a75d41d5",
+    "scripts/test-recovery-sdk-image.py": "38d3e829837d722e07d1035c3dfc5c7b5aa2b5165afe39153e1a117748cbeb93"
+  },
+  "review": "deleg_30dc34ef",
+  "passed": true,
+  "security_concerns": [],
+  "logic_errors": [],
+  "independent_real_offline_sdk_smoke": true,
+  "command": "TMPDIR=/home/nandev/.hermes/cache/scratch PYTHONDONTWRITEBYTECODE=1 /usr/bin/python3 scripts/test-recovery-sdk-image.py",
+  "python_yaml_version": "6.0.3",
+  "both_bootstrap_imports_passed": true,
+  "own_containers_removed": true,
+  "python_regression_tests_passed": 127,
+  "previous_review_environment_gap": "deleg_f49e63b9 used an interpreter without PyYAML; unchanged source independently verified with specified interpreter",
+  "iam_operator_policy_changed": false,
+  "iam_grant_executed": false,
+  "new_cloud_ledger_read": false,
+  "normal_release_or_main_integration": false
+}

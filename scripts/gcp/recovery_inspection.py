@@ -49,7 +49,11 @@ def job_name(bid):
 def parent_step(sha, bid, digest):
     script = (f'[[ "true" == "true" ]]\n'
               f'export PYTHONDONTWRITEBYTECODE=1\n'
-              f'python3 scripts/gcp/recovery_inspection.py --sha="{sha}" --build-id="{bid}" --source-archive-sha256="{digest}"\n')
+              '[[ -s /usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem ]]\n'
+              'export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem\n'
+              "inspection_python=$(gcloud info --format='value(basic.python_location)')\n"
+              '[[ "$inspection_python" == /* && -x "$inspection_python" ]]\n'
+              f'"$inspection_python" scripts/gcp/recovery_inspection.py --sha="{sha}" --build-id="{bid}" --source-archive-sha256="{digest}"\n')
     return {'id': 'read-only-recovery-inspection', 'name': SDK_IMAGE, 'entrypoint': 'bash', 'args': ['-ceu', script]}
 
 

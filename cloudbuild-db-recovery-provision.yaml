@@ -24,7 +24,11 @@ steps:
         [[ "${_REQUEST_SHA256}" =~ ^[a-f0-9]{64}$ ]]
         [[ "${_REQUEST_URI}" == gs://espacigo-testprod-cloud-build-447373903153/recovery-inspections/*/job-request.json ]]
         export PYTHONDONTWRITEBYTECODE=1
-        python3 scripts/gcp/provision_recovery_inspection.py \
+        [[ -s /usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem ]]
+        export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem
+        inspection_python=$$(gcloud info --format='value(basic.python_location)')
+        [[ "$$inspection_python" == /* && -x "$$inspection_python" ]]
+        "$$inspection_python" scripts/gcp/provision_recovery_inspection.py \
           --build-id="${BUILD_ID}" \
           --parent-build-id="${_PARENT_BUILD_ID}" \
           --source-archive-sha256="${_SOURCE_ARCHIVE_SHA256}" \

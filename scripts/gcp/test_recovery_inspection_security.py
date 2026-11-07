@@ -96,6 +96,7 @@ class RecoverySecurityTests(unittest.TestCase):
         step = d['steps'][0]
         for key, value in {'${_RECOVERY_INSPECTION_ONLY}': 'true', '${_COMMIT_SHA}': SHA, '${BUILD_ID}': BID, '${_SOURCE_ARCHIVE_SHA256}': DIGEST}.items():
             step['args'] = [a.replace(key, value) for a in step['args']]
+        step['args'] = [a.replace('$$', '$') for a in step['args']]
         self.assertEqual(step, r.parent_step(SHA, BID, DIGEST))
 
     def test_evidence_create_only_generation_readback_and_mismatch_rejected(self):

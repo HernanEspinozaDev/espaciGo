@@ -18,4 +18,8 @@ steps:
       - |
         [[ "${_RECOVERY_INSPECTION_ONLY}" == "true" ]]
         export PYTHONDONTWRITEBYTECODE=1
-        python3 scripts/gcp/recovery_inspection.py --sha="${_COMMIT_SHA}" --build-id="${BUILD_ID}" --source-archive-sha256="${_SOURCE_ARCHIVE_SHA256}"
+        [[ -s /usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem ]]
+        export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem
+        inspection_python=$$(gcloud info --format='value(basic.python_location)')
+        [[ "$$inspection_python" == /* && -x "$$inspection_python" ]]
+        "$$inspection_python" scripts/gcp/recovery_inspection.py --sha="${_COMMIT_SHA}" --build-id="${BUILD_ID}" --source-archive-sha256="${_SOURCE_ARCHIVE_SHA256}"
