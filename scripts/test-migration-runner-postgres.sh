@@ -31,14 +31,14 @@ OWNED_CONTAINER_ID="$(docker create --name "$NAME" --network none \
 docker start "$OWNED_CONTAINER_ID" >/dev/null
 ready=false
 for _ in $(seq 1 160); do
-  ready_count="$(docker logs "$NAME" 2>&1 | rg -c 'database system is ready to accept connections' || true)"
+  ready_count="$(docker logs "$NAME" 2>&1 | grep -cF 'database system is ready to accept connections' || true)"
   if [[ "${ready_count:-0}" -ge 2 ]] && [[ -S "$SOCKET_DIR/.s.PGSQL.5432" ]] && docker exec "$NAME" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
     ready=true
     break
   fi
   sleep 0.25
 done
-[[ "$ready" == true ]] || { echo 'disposable PostgreSQL did not become ready' >&2; exit 1; }
+[[ "$ready" == true ]] || { docker logs --tail=30 "$NAME" >&2; echo 'disposable PostgreSQL did not become ready' >&2; exit 1; }
 : > "$SOCKET_DIR/.espacigo-migration-ci"
 chmod 0600 "$SOCKET_DIR/.espacigo-migration-ci"
 # Assert the resolved resource boundaries before any test can create/drop DBs.

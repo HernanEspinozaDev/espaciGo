@@ -33,5 +33,5 @@ if docker run --rm --network none --read-only --cap-drop ALL \
   echo 'offline inventory accepted a conflicting SQL mode' >&2
   exit 1
 fi
-rg -q -- '-inventory-only cannot combine' "$TMP_DIR/negative.log"
+grep -Fq -- '-inventory-only cannot combine' "$TMP_DIR/negative.log"
 echo 'PASS: runtime image inventory and conflicting-mode rejection tested without database access.'
