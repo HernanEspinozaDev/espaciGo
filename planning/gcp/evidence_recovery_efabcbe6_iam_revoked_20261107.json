@@ -1,0 +1,83 @@
+{
+  "format": "espacigo.recovery-iam-operational-attempt.v1",
+  "date": "2026-11-07",
+  "source_sha": "5b40aa3a0b83a3beedac2ec711ea5d37fb914a86",
+  "quality_run": 42424616644,
+  "quality_result": "SUCCESS",
+  "source_tree_tested": "07317ba83a9d99d9759ecfe1e5b1df54d033ed1e",
+  "versioned_only_python_tests": 127,
+  "versioned_only_sdk_bootstraps": 2,
+  "versioned_only_go_packages_passed": [
+    "cmd/dbmigrate",
+    "internal/migrator",
+    "internal/database/cloudsql"
+  ],
+  "parent_build": "efabcbe6-8b9f-48f6-9fe4-f38d1ac7aea8",
+  "parent_status": "FAILURE",
+  "image_build": "52f1b6cb-e9a5-424a-82ec-a13b4e1e68ec",
+  "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-db-migrator@sha256:c0ffa19fba8ee08900b389a6f57a088fe415e7f7994a48de337732edc31d7077",
+  "source_archive_sha256": "3eb9dbe14c3c576e05a1c28eebda07562680db4ed8310d6289220a0877eac61b",
+  "source_files": 2901,
+  "request": {
+    "generation": "1794094002635978",
+    "sha256": "4629cc2b30fa314cb8a2b15d6206e574aadfdc4da4f62856064ddc9345bfe9a7",
+    "uri": "gs://espacigo-testprod-cloud-build-447373903153/recovery-inspections/efabcbe6-8b9f-48f6-9fe4-f38d1ac7aea8/job-request.json"
+  },
+  "provision_child": "20d693b5-8a05-43d8-ba21-81aa578eb539",
+  "provision_status": "FAILURE",
+  "observed_error": "recovery provision refused: read-only observation request failed",
+  "http_status_from_failed_attempt": "NOT_RECORDED; do not assert 403 or conflate transport/authentication/permission errors",
+  "failed_stage": "historical execution HTTP observation inside child inspect_failed_release, before Job CREATE",
+  "temporary_role": "projects/espacigo-testprod/roles/espacigoRecoveryRead2026110733585240",
+  "temporary_permissions": [
+    "run.executions.get",
+    "run.executions.list",
+    "storage.objects.get"
+  ],
+  "selector_count": 6,
+  "expires_at": "2026-11-08T00:28:27.957369Z",
+  "grant_readback_verified": true,
+  "binding_counts": {
+    "before": 33,
+    "granted": 34,
+    "revoked": 33
+  },
+  "revocation": {
+    "baseline_preserved": true,
+    "binding_absent": true,
+    "concurrent_policy_changed": false,
+    "limits": "Confirms own binding/role withdrawal, not absence of unrelated inherited authority",
+    "parent_build_id": "efabcbe6-8b9f-48f6-9fe4-f38d1ac7aea8",
+    "policy_readback_etag": "BwZfuCkNamE=",
+    "policy_readback_sha256": "121bb0b80d8f60191b72a430f3c88125bdd1eb3b2770d15b555f90c5c0ac2a85",
+    "role": "projects/espacigo-testprod/roles/espacigoRecoveryRead2026110733585240",
+    "role_absent": false,
+    "role_deleted": true
+  },
+  "revocation_object": {
+    "uri": "gs://espacigo-testprod-cloud-build-447373903153/recovery-inspections/efabcbe6-8b9f-48f6-9fe4-f38d1ac7aea8/iam-revoked-9031d86d.json",
+    "generation": "1794094437166803",
+    "sha256": "02662f9f6d2f18a8df8cd6715b5cb53d183232f2f07bc4b5472c8c9d8a57ec29"
+  },
+  "independent_fresh_revocation_readback": true,
+  "own_inspection_job_absent": true,
+  "inspection_execution_created": false,
+  "sql_connection_opened": false,
+  "new_cloud_ledger_read": false,
+  "sql_applied": false,
+  "release_lock_generation": "1794036269394395",
+  "release_lock_unchanged": true,
+  "unlock": false,
+  "application_rollout": false,
+  "design_issue": {
+    "resource_name_support": "Official IAM resource.name service/type tables do not include Cloud Run; unavailable attributes do not grant access",
+    "not_an_exact_http_diagnosis": true,
+    "references": [
+      "https://docs.cloud.google.com/iam/docs/conditions-attribute-reference",
+      "https://docs.cloud.google.com/iam/docs/conditions-resource-attributes",
+      "https://docs.cloud.google.com/run/docs/securing/managing-access"
+    ]
+  },
+  "operational_gate": "BLOCKED; no wider or unconditional Cloud Run grant, no impersonation/API enablement, no blind retry",
+  "next_design_review": "deleg_121e54cc: assess storage-only exact temporary grant plus existing parent historical read authority; no source/live changes authorized by review itself"
+}
