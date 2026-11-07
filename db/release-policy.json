@@ -1,0 +1,6 @@
+{
+  "format": "espacigo.initial-migration-policy.v1",
+  "baseline": 83,
+  "automatic_migrations": {},
+  "notes": "Future SQL requires an exact name/checksum entry with strategy=expand, corresponding compatibility tests and review in Git. Applied SQL stays immutable. Destructive repairs are separate operations."
+}

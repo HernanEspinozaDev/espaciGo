@@ -59,6 +59,21 @@ func validateWizardAdminInvocation(version int64, confirmation string, planOnly,
 	return nil
 }
 
+// validateWizardModeConflicts runs before any mode's early dispatch or settings load.
+func validateWizardModeConflicts(version int64, confirmation string, inventoryOnly, schemaOnly, releaseMode bool, releaseSHA, releaseInventory string, releaseExpected int) error {
+	present := version != 0 || confirmation != ""
+	if !present {
+		return nil
+	}
+	if err := validateWizardAdminInvocation(version, confirmation, false, false, false, "", "", false, ""); err != nil {
+		return err
+	}
+	if inventoryOnly || schemaOnly || releaseMode || releaseSHA != "" || releaseInventory != "" || releaseExpected != 0 {
+		return errors.New("wizard administrative migration requires a separate invocation from inventory, schema, or release modes/options")
+	}
+	return nil
+}
+
 const wizardAdminDatabaseURL = "postgres://postgres@127.0.0.1:15436/espacigo_wizard_20261106?sslmode=disable"
 
 func validateWizardAdminIdentity(databaseURL, mode, setRole string, getenv func(string) string) error {

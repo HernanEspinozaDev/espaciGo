@@ -354,22 +354,13 @@ El **27-10-2026** se verificó el target nativo con `SELECT current_database(), 
 
 ### 9.2. Migraciones incrementales
 
-Seguir `planning/gcp/cloudsql_migraciones_incrementales.md`, distinguiendo su estado histórico de la evidencia actual. El código actual **sí** tiene `-plan-only`; no existe `-dsn`.
+Seguir el [procedimiento vigente main/Jobs](../gcp/cloudsql_migraciones_incrementales.md) y la [guía de operación](../flujo_entornos/operacion_main_sin_bastion.md). El bastión fue eliminado: se retiran de este plan la sesión SSH, el forward local y la ejecución manual cloud desde el checkout.
 
-```sh
-# Conexión/identidad mediante configuración privada soportada; sin secretos en args.
-go run ./cmd/dbmigrate -dir db/migrations -plan-only
-```
-
-Secuencia para una ejecución posterior aprobada:
-
-1. Probar migración nueva desde baseline y actualización; aplicar primero en la local seleccionada, no copiar sus datos a cloud.
-2. Revalidar instancia `espacigo-testprod-db`, base `espacigo_dms_stage_20261020`, bastión/host key y transporte TLS; forward propio a loopback `15432` libre.
-3. Entrar primero READ ONLY y comparar DB, ledger, checksums, constraints, permisos y perfiles. Backup recuperable y autoridad DDL acreditados antes de escribir. El lector `espacigo_migrator_login` no debe suponerse owner de todas las tablas ni recibir grants amplios para forzarlo.
-4. Revisar el plan del SHA aprobado y aplicar **solo SQL incremental versionado** mediante `cmd/dbmigrate` por el túnel. No restaurar un dump local encima de Cloud SQL, reiniciar DMS, editar ledger ni ejecutar archivos históricos con un bucle manual.
-5. Postcheck: sin migraciones pendientes, constraints/trigger con 30 coherentes, CAS y permisos; ninguna pérdida de datos. Capturar evidencia real de esquema de menos de seis horas para full.
-6. Desplegar Go/frontend compatibles mediante el trigger existente, por digest/revisión exacta; no publicar frontend contra un Go que siga limitando a 10.
-7. Verificar parent/child/proveniencia, tres servicios Ready y tráfico correcto; cerrar únicamente forward/credenciales/procesos propios. No ensayos con cuentas o documentos reales del usuario.
+1. Probar el delta versionado desde base vacía y actualización en PostgreSQL aislado. Conservar SQL aplicado e incorporar la política exacta nombre/checksum `strategy=expand`; verificar autoridad DDL y compatibilidad con el backend activo. No copiar datos locales a Cloud SQL.
+2. Completar los gates locales del corte e integrar/publicar normalmente main cuando lo autorice su alcance. El trigger valida calidad del mismo SHA, imágenes/provenance y toma lock global para full.
+3. El pipeline valida destino/identidades, plan privado, ledger/checksums/catálogo y backup; ejecuta solo pendientes mediante el Job migrador privado. No grants amplios, dumps sobre Cloud SQL, DMS ni edición del ledger.
+4. El postcheck debe acreditar los constraints/trigger, CAS y permisos exigidos por el delta. Solo después el circuito despliega Go/frontend compatibles por digest/revisión exacta; no publicar frontend contra un Go que siga limitando a 10.
+5. Registrar resultado real de parent/child, esquema y tres servicios Ready/tráfico; el pipeline limpia solo recursos propios confirmados. Fallos o resultado incierto requieren diagnóstico antes de reintentar, sin borrar locks ni revertir SQL automáticamente. QA funcional online permanece a cargo del usuario.
 
 ### 9.3. Rollback consciente
 

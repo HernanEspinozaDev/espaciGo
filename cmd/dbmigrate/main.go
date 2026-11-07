@@ -12,7 +12,13 @@ import (
 
 func main() {
 	migrationDir := flag.String("dir", "db/migrations", "directory containing V<version>__<description>.sql files")
+	inventoryOnly := flag.Bool("inventory-only", false, "print the offline migration inventory without reading connection settings or contacting a database")
+	schemaOnly := flag.Bool("schema-evidence-only", false, "print the packaged IMG-01 catalog evidence in a read-only transaction")
 	planOnly := flag.Bool("plan-only", false, "print the read-only applied/pending migration inventory without executing SQL")
+	releaseMode := flag.Bool("release", false, "apply a pinned private Cloud SQL release and print its checked result")
+	releaseSHA := flag.String("release-source-sha", "", "full source SHA embedded in the release image")
+	releaseInventory := flag.String("release-inventory-sha256", "", "reviewed migration inventory fingerprint")
+	releaseExpected := flag.Int("release-expected-applied", 0, "exact reviewed ledger prefix before this execution")
 	applyRuntimeACL := flag.Bool("apply-runtime-acl", false, "apply the reviewed runtime ACL as administrator after migrations")
 	recoverRuntimeACL := flag.Bool("recover-runtime-acl", false, "read back the exact F5 ACL contract first, then forward-reconcile only if needed")
 	confirmRuntimeACL := flag.String("confirm-runtime-acl", "", "must exactly equal the isolated F5 target name")
@@ -22,6 +28,29 @@ func main() {
 	wizardAdminVersion := flag.Int64("wizard-admin-version", 0, "apply one authorized wizard migration version (60, 64, or 66) in the isolated ensayo")
 	confirmWizardAdmin := flag.String("confirm-wizard-admin", "", "must exactly equal espacigo_wizard_20261106")
 	flag.Parse()
+	if flag.NArg() != 0 {
+		fmt.Fprintln(os.Stderr, "positional arguments are not supported")
+		os.Exit(2)
+	}
+	if err := validateWizardModeConflicts(*wizardAdminVersion, *confirmWizardAdmin, *inventoryOnly, *schemaOnly, *releaseMode, *releaseSHA, *releaseInventory, *releaseExpected); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if *schemaOnly && (*inventoryOnly || *planOnly || *releaseMode || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *confirmCloudOwner != "" || *releaseSHA != "" || *releaseInventory != "" || *releaseExpected != 0 || flag.NArg() != 0) {
+		fmt.Fprintln(os.Stderr, "-schema-evidence-only cannot combine with other modes or release options")
+		os.Exit(2)
+	}
+	if err := validateReleaseInvocation(*releaseMode, *inventoryOnly || *planOnly || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *confirmCloudOwner != "" || flag.NArg() != 0, *releaseSHA, *releaseInventory, *releaseExpected); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	if *inventoryOnly {
+		if err := printOfflineInventory(os.Stdout, *migrationDir, *planOnly || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *confirmCloudOwner != "" || flag.NArg() != 0); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		return
+	}
 
 	if err := validateWizardAdminInvocation(*wizardAdminVersion, *confirmWizardAdmin, *planOnly, *applyRuntimeACL, *recoverRuntimeACL, *confirmRuntimeACL, *confirmF5AdminMigration, *cloudOwner, *confirmCloudOwner); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -68,6 +97,20 @@ func main() {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
 	defer cancel()
+	if *schemaOnly {
+		if err := printSchemaEvidence(ctx, os.Stdout, settings, *migrationDir); err != nil {
+			fmt.Fprintf(os.Stderr, "schema evidence failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *releaseMode {
+		if err := runCloudRelease(ctx, os.Stdout, settings, *migrationDir, *releaseSHA, *releaseInventory, *releaseExpected); err != nil {
+			fmt.Fprintf(os.Stderr, "release failed; inspect ledger before retry: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if runtimeACLMode != runtimeACLInvocationNone {
 		if err := validateRuntimeACLAdminIdentity(settings.databaseURL, settings.mode, settings.setRole); err != nil {
 			fmt.Fprintln(os.Stderr, err)

@@ -1,0 +1,132 @@
+{
+  "format": "espacigo.initial-flow-technical-closure.v1",
+  "closed_at_utc": "2026-11-07T02:46:05.904791+00:00",
+  "local_date": "2026-11-06",
+  "target": "initial development, single main and existing Cloud SQL; staging deferred",
+  "runtime_source_sha": "293e906d4031a4ed871c1a56c4efdde18ac8a37b",
+  "release_build": {
+    "id": "285b7700-7712-4512-ac8a-321c667caa39",
+    "status": "SUCCESS",
+    "uri": "https://console.cloud.google.com/cloud-build/builds;region=southamerica-west1/285b7700-7712-4512-ac8a-321c667caa39?project=447373903153"
+  },
+  "main_ci": [
+    {
+      "conclusion": "success",
+      "databaseId": 42328197504,
+      "status": "completed",
+      "url": "https://github.com/HernanEspinozaDev/espaciGo/actions/runs/42328197504",
+      "workflowName": "Frontend architecture and quality"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 42328197552,
+      "status": "completed",
+      "url": "https://github.com/HernanEspinozaDev/espaciGo/actions/runs/42328197552",
+      "workflowName": "Database migration quality"
+    },
+    {
+      "conclusion": "success",
+      "databaseId": 42328197398,
+      "status": "completed",
+      "url": "https://github.com/HernanEspinozaDev/espaciGo/actions/runs/42328197398",
+      "workflowName": "Application quality"
+    }
+  ],
+  "images": {
+    "api": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-api@sha256:d74706a6c552f243a4772a7c9aabee5741ab35d6c8ff7af550a201f54d4fd883",
+    "migrator": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-db-migrator@sha256:bb799df16f7660f2712ca15a3e9a385a718368de88b0784c0db7e30c31e5e901",
+    "web": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-web@sha256:14f7977f0ab7f109593140f68933854128b79afe6bd30385af9c5efed0c67940"
+  },
+  "image_builds": {
+    "api_web": "b6380091-5200-4bce-a379-f01041486536",
+    "migrator": "98b6e78a-441a-4ac9-b375-f8714433f307"
+  },
+  "revisions_at_100_percent": {
+    "espacigo-test-api": "espacigo-test-api-b285b770077124512ac8a321c",
+    "espacigo-test-private": "espacigo-test-private-b285b770077124512ac8a321c",
+    "espacigo-test-public": "espacigo-test-public-b285b770077124512ac8a321c"
+  },
+  "runtime_configuration_preserved": true,
+  "database": {
+    "instance": "espacigo-testprod-db",
+    "name": "espacigo_dms_stage_20261020",
+    "server_version": "18.6",
+    "ledger_entries": 83,
+    "pending": 0,
+    "versions_applied": [],
+    "schema_catalog_passed": true,
+    "query_sha256": "9a8a6d0a020128918aadabfd3adb78ccc340991bffe4cc1aed2cc28e783d3697"
+  },
+  "backup": {
+    "backup_end": "2026-11-06T06:07:24.449Z",
+    "backup_id": "1793940180000",
+    "backup_start": "2026-11-06T06:06:03.318Z",
+    "backup_type": "AUTOMATED",
+    "captured_at": "2026-11-07T02:30:14.052761+00:00",
+    "checked_at": "2026-11-07T02:30:14.052777+00:00",
+    "format": "espacigo.backup-readiness.v1",
+    "instance": "espacigo-testprod-db",
+    "limits": [
+      "Metadata validation does not prove capture authenticity or business RPO/RTO",
+      "Native backup restore rehearsal is recorded separately; PITR recovery is not inferred"
+    ],
+    "pending_sql": false,
+    "pitr_enabled": false,
+    "policy": "initial-development-24h-seven-copies; pending SQL requires locked on-demand backup",
+    "project": "espacigo-testprod",
+    "retained_copies": 7
+  },
+  "retention": {
+    "deleted_ids": [],
+    "policy": "seven newest successful owned backups and at least seven days"
+  },
+  "retirement": {
+    "authorized": "user requested complete bastion removal",
+    "release_build_id": "285b7700-7712-4512-ac8a-321c667caa39",
+    "source_sha": "293e906d4031a4ed871c1a56c4efdde18ac8a37b",
+    "vm_name": "espacigo-dms-bastion-v67",
+    "vm_id": "5282317084229207114",
+    "disk_name": "espacigo-dms-bastion-v67",
+    "disk_id": "5546141914311787593",
+    "firewall_names": [
+      "espacigo-dms-bastion-ssh",
+      "espacigo-dms-bastion-tunnel"
+    ],
+    "started_at": "2026-11-07T02:40:15.397424+00:00",
+    "status": "removed-and-absence-verified",
+    "completed_at": "2026-11-07T02:40:44.336967+00:00",
+    "vm_absent": true,
+    "boot_disk_absent": true,
+    "exclusive_firewalls_absent": true
+  },
+  "post_retirement_diagnostic": {
+    "job": "espacigo-post-retirement-293e906",
+    "uid": "23d6e521-50d7-48c4-9bf3-e3bba6b72be4",
+    "source_sha": "293e906d4031a4ed871c1a56c4efdde18ac8a37b",
+    "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-db-migrator@sha256:bb799df16f7660f2712ca15a3e9a385a718368de88b0784c0db7e30c31e5e901",
+    "cleanup_required": false,
+    "execution": "espacigo-post-retirement-293e906-hcd25",
+    "verified": true,
+    "job_absent": true,
+    "completed_at": "2026-11-07T02:42:10.462635Z",
+    "checked_at": "2026-11-07T02:43:41.909131+00:00"
+  },
+  "cleanup": {
+    "release_lock_absent": true,
+    "ephemeral_release_jobs_absent": true,
+    "post_removal_probe_job_absent": true
+  },
+  "audit_prefix": "gs://espacigo-testprod-cloud-build-447373903153/releases/285b7700-7712-4512-ac8a-321c667caa39/",
+  "trigger": {
+    "id": "548b8eff-e489-4307-a77f-455b56aa4e57",
+    "branch": "^main$",
+    "enabled": true,
+    "single_route": "cloudbuild.yaml -> scripts/gcp/release_main.py"
+  },
+  "limits": [
+    "Technical release verified through control-plane readiness/traffic, SQL catalog and ledger; product QA remains with user",
+    "No SQL delta was pending; future delta requires immutable migration, exact expand policy, compatibility tests and reviewed SQL authority",
+    "Automatic backups remain enabled with seven COUNT copies; PITR remains disabled, requiring a separate pre-production decision",
+    "No new staging environment, real account activation, real provider test or functional acceptance is inferred"
+  ]
+}

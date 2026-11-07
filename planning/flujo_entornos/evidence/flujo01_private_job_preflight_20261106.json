@@ -1,0 +1,53 @@
+{
+  "format": "espacigo.flujo01.private-job-preflight.v1",
+  "source_image_sha": "3d4b7ec6bed4df2dbfb45fca78dc7a0d476d9592",
+  "ci_corrected_sha": "32d43f29336168ce54aed6e55747f2554cc9fcc6",
+  "cloud_build_id": "d855a82d-9910-4335-9e6a-be9d0a0803d2",
+  "cloud_build_status": "SUCCESS",
+  "cloud_build_provenance_verified": true,
+  "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-db-migrator@sha256:4091c049987a28f989523f9c4993dbcc43e42468d39fddab775c06a69555f1aa",
+  "job": "espacigo-db-plan",
+  "job_generation": 1,
+  "execution": "espacigo-db-plan-hxnv9",
+  "completion_time_utc": "2026-11-07T00:03:38.988108Z",
+  "completed": true,
+  "read_only": true,
+  "server_version": "18.6",
+  "database": "espacigo_dms_stage_20261020",
+  "applied_count": 83,
+  "pending_count": 0,
+  "exact_inventory_sha256": "2bf266d73e8838b16087a7ffce27604d2aece2904faec71054dd98a77b9dc26f",
+  "all_ledger_names_checksums_equal_source": true,
+  "new_service_account": "espacigo-db-migrator@espacigo-testprod.iam.gserviceaccount.com",
+  "new_grants": {
+    "cloudsql_client_condition": "resource.name == 'projects/espacigo-testprod/instances/espacigo-testprod-db' && resource.type == 'sqladmin.googleapis.com/Instance'",
+    "secret_accessor_resource": "projects/espacigo-testprod/secrets/espacigo-testprod-cloudsql-migrator-password"
+  },
+  "remote_ci": {
+    "run_id": 42315712474,
+    "conclusion": "success",
+    "url": "https://github.com/HernanEspinozaDev/espaciGo/actions/runs/42315712474",
+    "supersedes_failed_run": 42315321541,
+    "failure_fixed": "runner lacked rg; harnesses now use standard grep"
+  },
+  "changes_not_performed": [
+    "SQL DDL/DML or ledger writes",
+    "SQL backup/PITR configuration changes",
+    "main integration or application rollout",
+    "trigger changes",
+    "bastion start/deletion",
+    "Cloud SQL restore instance creation"
+  ],
+  "retained_pilot_resources": {
+    "job": "plan-only, no running executions after success",
+    "service_account": "dedicated preflight/migration identity",
+    "image": "immutable source-tagged artifact in existing registry",
+    "owner": "current FLUJO task/operator; retained for FLUJO-04/05 verification"
+  },
+  "limits": [
+    "No proof of arbitrary next-delta DDL authority or full catalog ownership",
+    "No backup restore rehearsal performed",
+    "Offline manifest checker not yet wired into deployment; prior/new API functional compatibility still pending",
+    "No online product walkthrough performed"
+  ]
+}

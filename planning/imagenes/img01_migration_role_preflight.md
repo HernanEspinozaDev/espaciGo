@@ -1,5 +1,7 @@
 # IMG-01 — preflight de identidad migradora
 
+> **Transporte histórico retirado (2026-11-06).** Las instrucciones SSH/forward, inicio/apagado del bastión y ejecución manual cloud de este registro quedan sustituidas por `planning/gcp/cloudsql_migraciones_incrementales.md` y `planning/flujo_entornos/operacion_main_sin_bastion.md`. El bastión ya fue eliminado; no recrearlo. Conservar este diagnóstico como evidencia del corte, no como procedimiento operativo actual.
+
 Estado: no se han aplicado V68–V74 ni la reconciliación V64. Según el operador revisor, se autorizó y ejecutó un reset del password de `postgres`; los nuevos secretos `espacigo-testprod-cloudsql-postgres-admin-password:1` y `espacigo-testprod-cloudsql-migrator-password:1` guardan credenciales sin incluirlas aquí. La conexión del login nuevo de migración pasó, pero solo con permisos read-only. Los datos siguientes son reporte del operador, no ejecución de esta tarea.
 
 ## Procedimiento único
