@@ -131,6 +131,8 @@ class RecoveryInspectionHardeningTests(unittest.TestCase):
                 if args == ('builds', 'describe', BID):
                     return parent()
                 if args[:3] == ('run', 'jobs', 'describe'):
+                    if any(event[0] == 'run' and event[1][:3] == ('run', 'jobs', 'delete') for event in self.events):
+                        raise r.RecoveryError(f'gcloud run jobs failed: ERROR: (gcloud.run.jobs.describe) Cannot find job [{args[3]}].')
                     return canonical_job()
                 if args[:3] == ('run', 'jobs', 'list'):
                     return []

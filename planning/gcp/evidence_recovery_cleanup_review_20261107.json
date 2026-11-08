@@ -1,0 +1,28 @@
+{
+  "format": "espacigo.recovery-cleanup-source-review.v1",
+  "date": "2026-11-07",
+  "base_sha": "0e62c4ed64a7446c3334ce6bb561aedd0b996426",
+  "independent_review": "deleg_f21e42b8",
+  "passed": true,
+  "files": {
+    "scripts/gcp/recovery_inspection.py": "0895dc673a72b4e0c3a5f3435adb46b596950437d5610108df1b191a228eb616",
+    "scripts/gcp/test_recovery_cleanup_get.py": "ef53902fca0880c3d61a07cf7ce55f45c5c7227f437288cd4968bffdbf2c9bd8",
+    "scripts/gcp/test_recovery_inspection.py": "0863eb01432eb650a25f45109b06dd39a5827d762a5a039cd34876ca88277e88",
+    "scripts/gcp/test_recovery_inspection_hardening.py": "ecfeb031d7d1afffee2259c8057f10ae35bcee5bdcfd26e1cf81e67224c3ca44",
+    "planning/gcp/evidence_cloudsql_readonly_report_20261107.json": "a0a58e437e9dcbaffd80ce6c6f6a69e9867b32c3b772101611e842b18ff7d275",
+    "planning/gcp/evidence_recovery_storage_operational_20261107.json": "cb3619a0a385a47a1e1a665af05772932904e89b91315841af139bd71355c0f4"
+  },
+  "independent_offline_tests_passed": 17,
+  "parent_python_tests_passed": 145,
+  "production_cleanup_helper_exact_live_get_passed": true,
+  "new_delete_or_execution": false,
+  "parent_real_status": "FAILURE",
+  "sql_inspection_real_status": "SUCCESS",
+  "ledger_applied": 83,
+  "ledger_pending": [
+    84
+  ],
+  "temporary_iam_revoked": true,
+  "new_iam_required": false,
+  "normal_rollout_or_unlock": false
+}

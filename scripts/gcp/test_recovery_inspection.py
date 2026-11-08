@@ -101,6 +101,8 @@ class RecoveryInspectionTests(unittest.TestCase):
                 self.calls.append(args)
                 if args == ('builds', 'describe', BID): return parent()
                 if args[:3] == ('run', 'jobs', 'describe'):
+                    if any(a[:3] == ('run', 'jobs', 'delete') for a in self.calls):
+                        raise r.RecoveryError(f'gcloud run jobs failed: ERROR: (gcloud.run.jobs.describe) Cannot find job [{args[3]}].')
                     return r.desired_job(req, uid='22222222-3333-4444-8555-666666666666')
                 if args[:3] == ('run', 'jobs', 'list'):
                     return []

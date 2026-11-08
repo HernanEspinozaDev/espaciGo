@@ -39,6 +39,24 @@ La herramienta de operador `scripts/gcp/recovery_iam_operator.py` mantiene polí
 
 **Candidato sustituto revisado, todavía sin efectividad real (2026-11-07):** request v2 incluye prueba inmutable del parent, fuente, Job/ejecución UID, intent y lock; el parent usa su autoridad existente para observar antes/después de provisionar y aborta antes de ejecutar ante cambio. El provisioner solo crea el inspector, valida prueba de hasta 600 s y lock antes/después, sin lecturas históricas V2. Nuevos grants se limitan a `storage.objects.get` sobre lock/request exactos; el formato anterior solo se admite para retirar una lease propia. Revisión de fuente y 142 pruebas Python/SDK offline documentados en [recibo](evidence_recovery_storage_proof_source_20261107.json). Publicar solo rama y usar parent manual del SHA revisado; retirar/readback el grant incluso con fallo. No activar el viejo delta de tres permisos ni usar esta revisión como aceptación de ledger actual.
 
-## Historia retirada de operación
+## Registro fechado de destinos — lectura de recuperación completada
+
+Fuente comparada **0e62c4ed64a7446c3334ce6bb561aedd0b996426**, inventario V001–V084 inmutable. No confundir la versión del motor con la versión del ledger ni extrapolar una lectura a otro destino.
+
+| Destino | Fecha y fuerza de evidencia | Motor | Ledger/nombres/checksums | Pendientes frente a esa fuente | Gate |
+| --- | --- | --- | --- | --- | --- |
+| Cloud SQL `espacigo-testprod:southamerica-west1:espacigo-testprod-db`, DB `espacigo_dms_stage_20261020` | **Verificado**, ejecución READ ONLY completada 2026-11-07 **21:15:54 -03** (2026-11-08 **00:15:54Z**) | 18.6 | **83**, prefijo V001–V083 contiguo, nombres/checksums exactos | **V084** | Lectura real cerrada; apply/autoridad DDL **no autorizados ni cerrados** |
+| PostgreSQL nativo socket local `5432`, misma denominación histórica de DB | **Último snapshot reportado**, 2026-11-07 17:36:08 -03; no se reconectó en este corte | 18.6 | **76**, V001–V076 exactos al comparar el recibo conservado | V077–V084; V085 candidata pertenece al otro corte, no a esta fuente | Transición runtime LOGIN/configuración y autoridad pendientes |
+| Ensayos aislados | Evidencia de pruebas, no destino persistente | Según cada harness | No sustituyen ninguno de los ledgers anteriores | No aplicable | No prueban unificación |
+
+Recibos Cloud: [reporte íntegro de catálogo/ledger](evidence_cloudsql_readonly_report_20261107.json), [ejecución, permisos y retirada](evidence_recovery_storage_operational_20261107.json). `session_user=espacigo_migrator_login`, `current_user=espacigo_schema_owner`, `REPEATABLE READ READ ONLY`. Se observaron **CREATE sobre public=false** y **REFERENCES(usuario.id)=false**; no se modificaron. Estos hechos no bastan para afirmar que sean los únicos bloqueos ni autorizan repararlos.
+
+Parent **8367075d-88d7-492b-8049-c7f006c48120** terminó **FAILURE en comprobación de limpieza**: el inspector completó exitosamente una sola ejecución y publicó reporte validado, pero el listado final requería `run.jobs.list`, no concedido al deployer. **No ampliar IAM ni repetir SQL/Job.** El operador comprobó por GET de nombre exacto que el Job propio ya no existe; recibo remoto `operator-cleanup-readback.json` fijado por generación en la evidencia. La lease storage-only quedó retirada, rol `deleted=true`, baseline semántico de **33 bindings** intacto. Lock histórico generación **1794036269394395** conservado. No presentar el parent como verde ni la corrección local posterior como otro release probado.
+
+Corrección local de limpieza: sustituir listado por GET exacto y aceptar solo el mensaje NotFound de ese nombre del SDK fijado; denied/timeout/otro nombre/Job presente no prueban ausencia. Tres regresiones RED→GREEN, suite **145 Python PASS** y helper real ejecutado contra el Job ya retirado, sin DELETE/list ni nueva ejecución. Revisión pendiente **deleg_f21e42b8** antes de publicar esa corrección. No se aplicó V084, no se alteraron ACL SQL ni se desbloqueó/desplegó aplicación.
+
+Resultado posterior: **deleg_f21e42b8 PASS**, 17 tests independientes y validación del reporte/fuente. [Recibo de revisión](evidence_recovery_cleanup_review_20261107.json). La limpieza exacta y la revocación están cerradas por sus readbacks; el parent histórico conserva FAILURE. No repetir la inspección ni ampliar IAM para cambiar ese estado. El siguiente gate persistente necesita propuesta/autoridad específica para el delta V084 y no queda autorizado por este registro.
+
+## Historia retirada de operación (referencia)
 
 El [archivo anterior a Jobs](cloudsql_migraciones_historial_pre_jobs_20261106.md) conserva diagnósticos, comandos y autorizaciones pasadas para trazabilidad. Quedan sustituidas sus reglas de subir/encender el bastión, abrir un forward SSH, migrar desde local y detener la VM al finalizar. No recrear ese transporte ante un error del pipeline. Los runbooks anteriores de DMS, scratch e importación tampoco sustituyen este procedimiento.

@@ -225,6 +225,20 @@ def assert_lock(cloud, generation, text):
     require(str(m.get('generation')) == generation and cloud.run('storage', 'cat', LOCK + '#' + generation) == text, 'failed release lock changed; preserve resources')
 
 
+def assert_inspection_job_absent(cloud, name):
+    require(isinstance(name, str) and re.fullmatch(r'espacigo-db-i-[a-f0-9]{32}', name), 'invalid own inspection Job name')
+    try:
+        cloud.json('run', 'jobs', 'describe', name)
+    except RecoveryError as error:
+        # Exact response from the pinned SDK. Permission/transport errors or a
+        # different target never establish absence. No listing or DELETE retry.
+        absent = f'gcloud run jobs failed: ERROR: (gcloud.run.jobs.describe) Cannot find job [{name}].'
+        if str(error) == absent:
+            return
+        raise
+    raise RecoveryError('inspection Job still present; preserve cleanup evidence')
+
+
 def inspect_failed_release(cloud):
     m = cloud.json('storage', 'objects', 'describe', LOCK)
     require(str(m.get('generation')) == PINNED_GENERATION, 'pinned failed lock generation differs')
@@ -533,7 +547,7 @@ def execute(cloud, root, sha, bid, archive_sha):
         record('cleanup-intent', {'job': job['metadata']['name'], 'uid': job['metadata']['uid'], 'action': 'delete-own-inspection-job'})
         assert_lock(cloud, lock['lock_generation'], lock['lock_text'])
         cloud.run('run', 'jobs', 'delete', job['metadata']['name'])
-        require(cloud.json('run', 'jobs', 'list', '--filter=metadata.name=' + job['metadata']['name']) == [], 'inspection Job absence not confirmed; do not re-delete')
+        assert_inspection_job_absent(cloud, job['metadata']['name'])
         record('cleanup-verified', {'job': job['metadata']['name'], 'uid': job['metadata']['uid'], 'absent': True})
         assert_lock(cloud, lock['lock_generation'], lock['lock_text'])
         return result

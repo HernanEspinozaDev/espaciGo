@@ -1,0 +1,102 @@
+{
+  "format": "espacigo.recovery-storage-proof-operational.v1",
+  "observed_at": "2026-11-08T00:21:14.095899+00:00",
+  "source_sha": "0e62c4ed64a7446c3334ce6bb561aedd0b996426",
+  "tested_source_tree": "1ac077ab5eac3551aacd32302553919b5a034c25",
+  "quality_run": 42427796820,
+  "quality_result": "SUCCESS",
+  "parent_build_id": "8367075d-88d7-492b-8049-c7f006c48120",
+  "parent_status": "FAILURE",
+  "parent_failure_scope": "cleanup absence check only; inspection and completed receipt succeeded",
+  "parent_error": "gcloud run jobs failed: ERROR: (gcloud.run.jobs.list) [espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com] does not have permission to access namespaces instance [espacigo-testprod] (or it may not exist): Permission 'run.jobs.list' denied on resource 'namespaces/espacigo-testprod/jobs' (or resource may not exist). This command is authenticated as espacigo-cloud-build-deployer@espacigo-testprod.iam.gserviceaccount.com which is the active account specified by the [core/account] property.",
+  "image_child": "a7fd91e3-e156-4934-8c4a-6be7bb76169a",
+  "provision_child": "b24119de-4493-47d0-bdca-5d3dc6a1dc23",
+  "provision_status": "SUCCESS",
+  "image": "southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod/espacigo-db-migrator@sha256:4aee923a7171ea569c92114426487c71b9d0a481d73be0bb476cb2420f441b12",
+  "source_uri": "gs://espacigo-testprod-cloud-build-447373903153/source/1794096182.961555-cd755388717b4385bca151faea541f9b.gz#1794096183601421",
+  "source_archive_sha256": "515d73b6d8bd32fa6fb6d79cbcae174c2f1d0b3adc8188d89e788cdf3ffa5f6c",
+  "request": {
+    "generation": "1794096582006270",
+    "sha256": "99632fee0c72c7a48ea4b2ccd5a166af3d380578b10250bf3511546d6884c65f",
+    "uri": "gs://espacigo-testprod-cloud-build-447373903153/recovery-inspections/8367075d-88d7-492b-8049-c7f006c48120/job-request.json"
+  },
+  "proof_sha256": "d530f00c272191ffc7116f2cdd334d7d1b2afa0ba05be776842e6c437f376c61",
+  "proof_observed_at": "2026-11-08T00:09:29.176871+00:00",
+  "execution": {
+    "name": "espacigo-db-i-8367075d88d7492b8049c7f006c48120-jrczq",
+    "uid": "f108a20b-027a-4cd0-809e-e5ef2f67a847",
+    "job_uid": "cdb725fd-8a47-4763-85b3-7f6a8ea71ce1",
+    "start_time": "2026-11-08T00:15:47.734190Z",
+    "completion_time": "2026-11-08T00:15:54.444981Z",
+    "succeeded_count": 1,
+    "retries": 0
+  },
+  "report_receipt": {
+    "uri": "gs://espacigo-testprod-cloud-build-447373903153/recovery-inspections/8367075d-88d7-492b-8049-c7f006c48120/inspection-report.json",
+    "generation": "1794097011081568",
+    "sha256": "3de7a3db329652a6cace4f21afc4b715901333b7a919695813f717f2114355d4"
+  },
+  "report_local": "planning/gcp/evidence_cloudsql_readonly_report_20261107.json",
+  "ledger": {
+    "engine": "18.6",
+    "applied_count": 83,
+    "contiguous_versions": [
+      1,
+      83
+    ],
+    "pending_versions": [
+      84
+    ],
+    "all_names_checksums_match_exact_source": true
+  },
+  "temporary_iam": {
+    "role": "projects/espacigo-testprod/roles/espacigoRecoveryRead202611073dfe202f",
+    "permissions": [
+      "storage.objects.get"
+    ],
+    "selectors": 2,
+    "expires_at": "2026-11-08T01:10:13.524585Z",
+    "binding_count_before": 33,
+    "binding_count_grant": 34,
+    "binding_count_final": 33,
+    "live_provisioner_effective": true,
+    "revocation": {
+      "baseline_preserved": true,
+      "binding_absent": true,
+      "concurrent_policy_changed": false,
+      "limits": "Confirms own binding/role withdrawal, not absence of unrelated inherited authority",
+      "parent_build_id": "8367075d-88d7-492b-8049-c7f006c48120",
+      "policy_readback_etag": "BwZfuMrMUCk=",
+      "policy_readback_sha256": "a010de141e704184a9db8bd31a922e336b5c5f4199c3665d1aab77d17bf3c3cf",
+      "role": "projects/espacigo-testprod/roles/espacigoRecoveryRead202611073dfe202f",
+      "role_absent": false,
+      "role_deleted": true
+    },
+    "revocation_receipt": {
+      "uri": "gs://espacigo-testprod-cloud-build-447373903153/recovery-inspections/8367075d-88d7-492b-8049-c7f006c48120/iam-revoked-bb6ed677.json",
+      "generation": "1794097150730877",
+      "sha256": "926cd686a0e27495c9fd0fd56ec3d44d9405979ac9a4ffd77ccfc501b0705633"
+    },
+    "separate_operator_readback": true
+  },
+  "cleanup_operator_receipt": {
+    "uri": "gs://espacigo-testprod-cloud-build-447373903153/recovery-inspections/8367075d-88d7-492b-8049-c7f006c48120/operator-cleanup-readback.json",
+    "generation": "1794097231382170",
+    "sha256": "f6cb65a42db188d0c691be4f171e3c0881705cd1c4f968c9584efb64aa7e7273"
+  },
+  "own_job_absent": true,
+  "release_lock_unchanged": true,
+  "release_lock_generation": "1794036269394395",
+  "sql_read_only": true,
+  "transaction_isolation": "repeatable read",
+  "sql_applied": false,
+  "unlock": false,
+  "application_rollout": false,
+  "limits": [
+    "Parent was not SUCCESS: do not present as end-to-end orchestration green",
+    "Parent cleanup used run.jobs.list absent from existing deployer; do not widen IAM",
+    "Operator exact-name GET independently confirmed own Job absent; no second DELETE",
+    "No runtime ACL repair, migrations V84/V85, native transition, main integration or application deployment authorized/performed",
+    "Current ledger is a dated observation, not global semantic audit acceptance"
+  ]
+}
