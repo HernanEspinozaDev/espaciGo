@@ -9,17 +9,18 @@ from pathlib import Path
 from unittest.mock import patch
 
 import recovery_inspection as r
+from test_recovery_parent_proof import request_fixture
 import provision_recovery_inspection as provision
 from test_recovery_inspection import SHA, BID, DIGEST, IMAGE, parent, report
 
 
 class RecoverySecurityTests(unittest.TestCase):
     def test_provision_waits_for_exact_iam_receipt_before_child(self):
-        req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
+        req = request_fixture(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
         job = r.desired_job(req, uid='22222222-3333-4444-8555-666666666666')
         events = []
         c = type('C', (), {'json': lambda self, *a: job})()
-        lock = {'lock_generation': r.PINNED_GENERATION, 'lock_text': '{}'}
+        lock = dict(req['failed_release_proof']['failed_release'], observed_at=req['failed_release_proof']['observed_at'])
         def record(name, value):
             events.append(name)
             return {'uri': f'gs://{r.BUCKET}/recovery-inspections/{BID}/{name}.json', 'generation': '17', 'sha256': DIGEST}
@@ -32,7 +33,7 @@ class RecoverySecurityTests(unittest.TestCase):
         self.assertLess(events.index('iam-gate'), events.index('submit'))
 
     def test_execution_task_configuration_and_report_timestamp_fail_closed(self):
-        req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
+        req = request_fixture(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
         job = r.desired_job(req, uid='22222222-3333-4444-8555-666666666666')
         execution = r.job_name(BID) + '-abcde'
         finished = {'metadata': {'name': execution, 'namespace': r.PROJECT_NUMBER,
@@ -66,7 +67,7 @@ class RecoverySecurityTests(unittest.TestCase):
             self.assertEqual(c.executions, 1)
 
     def test_command_scope_rejects_mutated_create_and_child_build(self):
-        req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
+        req = request_fixture(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
         create = tuple(a for a in r.create_args(req)[1:] if not a.startswith(('--project=', '--region=')))
         build = ('builds', 'submit', '/private/source.tar.gz', '--config=/workspace/cloudbuild-migrator-image.yaml',
                  '--gcs-source-staging-dir=gs://' + r.BUCKET + '/source', '--service-account=' + r.DEPLOYER,
@@ -168,7 +169,7 @@ class RecoverySecurityTests(unittest.TestCase):
 
     def test_provisioner_creates_only_exact_readonly_request_after_source_and_lock(self):
         me = '77777777-8888-4999-8aaa-bbbbbbbbbbbb'
-        req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
+        req = request_fixture(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
         text = json.dumps(req); checksum = hashlib.sha256(text.encode()).hexdigest()
         uri = f'gs://{r.BUCKET}/recovery-inspections/{BID}/job-request.json'
         class Cloud:
@@ -188,11 +189,12 @@ class RecoverySecurityTests(unittest.TestCase):
                     return p
                 raise AssertionError(a)
         c = Cloud()
-        lock_value = {'lock_generation': r.PINNED_GENERATION, 'lock_text': '{}'}
-        with patch.object(provision, 'verify_archive') as verify, patch.object(provision, 'inspect_failed_release', return_value=lock_value) as lock, \
+        lock_value = req['failed_release_proof']['failed_release']
+        with patch.object(provision, 'verify_archive') as verify, \
                 patch.object(provision, 'assert_lock', create=True) as check:
             provision.execute(c, Path('/workspace'), me, BID, DIGEST, uri, '1', checksum)
-        verify.assert_called_once(); lock.assert_called_once()
+        verify.assert_called_once()
+        check.assert_called_with(c, lock_value['lock_generation'], lock_value['lock_text'])
         self.assertEqual(check.call_count, 2)
         writes = [a for a in c.calls if a[:3] == ('run', 'jobs', 'create')]
         self.assertEqual(len(writes), 1)

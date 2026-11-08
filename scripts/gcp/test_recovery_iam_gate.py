@@ -7,6 +7,7 @@ import unittest
 
 from test_recovery_inspection import SHA, BID, DIGEST, IMAGE
 import recovery_inspection as recovery
+from test_recovery_parent_proof import request_fixture
 import recovery_iam_gate as gate
 
 NOW = datetime(2026, 11, 7, 22, 0, tzinfo=timezone.utc)
@@ -39,7 +40,7 @@ class Cloud:
 
 class RecoveryIAMGateTests(unittest.TestCase):
     def setUp(self):
-        self.req = recovery.make_request(SHA, BID, DIGEST, IMAGE,
+        self.req = request_fixture(SHA, BID, DIGEST, IMAGE,
                                         f'gs://{recovery.BUCKET}/source/recovery.tgz#17')
         self.ticks = 0; self.locks = 0; self.bindings = []
     def clock(self): return self.ticks

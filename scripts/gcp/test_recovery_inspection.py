@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import recovery_inspection as r
+from test_recovery_parent_proof import request_fixture
 
 SHA = 'a' * 40
 BID = '11111111-2222-4333-8444-555555555555'
@@ -69,7 +70,7 @@ class RecoveryInspectionTests(unittest.TestCase):
             with self.assertRaises(ValueError): r.validate_report(bad, [])
 
     def test_job_is_inspection_only_and_effective_configuration_exact(self):
-        req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
+        req = request_fixture(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
         args = r.create_args(req)
         self.assertIn('--args=-dir,/app/db/migrations,-recovery-inspection-only', args)
         self.assertNotIn('-release', ','.join(args))
@@ -125,9 +126,9 @@ class RecoveryInspectionTests(unittest.TestCase):
                 if args[:3] != ('run', 'jobs', 'delete'): raise AssertionError(args)
                 assert 'cleanup-intent' in self.saved
                 return ''
-        req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
+        req = request_fixture(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
         cloud = Fake()
-        lock = {'lock_generation': r.PINNED_GENERATION, 'lock_text': '{}'}
+        lock = dict(req['failed_release_proof']['failed_release'], observed_at=req['failed_release_proof']['observed_at'])
         def record(c, root, bid, name, value):
             cloud.saved[name] = copy.deepcopy(value)
             return {'uri': 'gs://evidence/' + name, 'generation': '1', 'sha256': DIGEST}
@@ -146,7 +147,7 @@ class RecoveryInspectionTests(unittest.TestCase):
 
     def test_uncertain_submission_is_never_retried_or_cleaned(self):
         c = type('C', (), {'json': lambda self, *a: (_ for _ in ()).throw(TimeoutError('uncertain'))})()
-        req = r.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
+        req = request_fixture(SHA, BID, DIGEST, IMAGE, f'gs://{r.BUCKET}/source/recovery.tgz#17')
         job = r.desired_job(req, uid='22222222-3333-4444-8555-666666666666')
         calls = []
         with self.assertRaises(TimeoutError):

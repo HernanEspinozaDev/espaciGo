@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import recovery_iam_operator as operator
 import recovery_inspection as recovery
+from test_recovery_parent_proof import request_fixture
 from test_recovery_inspection import SHA, BID, DIGEST, IMAGE, parent
 
 NOW = datetime(2026, 11, 7, 22, 0, tzinfo=timezone.utc)
@@ -41,7 +42,7 @@ class FakeIAM:
 
 class FakeCloud:
     def __init__(self):
-        self.req = recovery.make_request(SHA, BID, DIGEST, IMAGE, f'gs://{recovery.BUCKET}/source/recovery.tgz#17')
+        self.req = request_fixture(SHA, BID, DIGEST, IMAGE, f'gs://{recovery.BUCKET}/source/recovery.tgz#17')
     def json(self, *args):
         if args[:2] == ('builds', 'describe'): return parent()
         if args[:3] == ('storage', 'objects', 'describe'): return {'generation': '17'}
@@ -133,7 +134,7 @@ class OperatorTests(unittest.TestCase):
             self.assertEqual(evidence.call_args.args[3], 'iam-ready')
             self.assertEqual(evidence.call_args.args[4]['binding'], result['binding'])
             assert iam.role is not None
-            self.assertEqual(set(iam.role['includedPermissions']), {'storage.objects.get', 'run.executions.get', 'run.executions.list'})
+            self.assertEqual(set(iam.role['includedPermissions']), {'storage.objects.get'})
             revoked = operator.revoke(cloud, iam, Path(root), lease)
             self.assertTrue(revoked['binding_absent'])
             self.assertTrue(revoked['role_deleted'])

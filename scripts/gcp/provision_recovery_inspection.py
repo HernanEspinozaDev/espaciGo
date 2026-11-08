@@ -9,7 +9,7 @@ import sys
 
 from recovery_inspection import (Cloud, BUCKET, PROVISIONER, UUID, HEX, RecoveryError,
                                  require, parent_identity, verify_archive, source_uri,
-                                 validate_request, create_args, inspect_failed_release, assert_lock)
+                                 validate_request, create_args, assert_lock)
 
 
 def execute(cloud, root, bid, parent_bid, digest, request_uri, generation, request_sha):
@@ -30,8 +30,10 @@ def execute(cloud, root, bid, parent_bid, digest, request_uri, generation, reque
                 '_REQUEST_URI': request_uri, '_REQUEST_GENERATION': generation, '_REQUEST_SHA256': request_sha}
     require(all(subs.get(k) == v for k, v in expected.items()), 'child request substitutions differ')
     verify_archive(cloud, source_uri(me), digest, root)
-    # No CREATE if original failed release is active/replaced or lock changed.
-    lock = inspect_failed_release(cloud)
+    # Historical metadata is observed by the existing parent authority. The
+    # immutable request binds that observation; this identity reads only the
+    # exact request and lock, and can create but never execute the inspector.
+    lock = req['failed_release_proof']['failed_release']
     args = create_args(req)
     assert_lock(cloud, lock['lock_generation'], lock['lock_text'])
     cloud.run(*(a for a in args[1:] if not a.startswith(('--project=', '--region='))))
@@ -46,7 +48,7 @@ def main(argv=None):
     a = p.parse_args(sys.argv[1:] if argv is None else argv)
     try:
         execute(Cloud(), Path('/workspace'), a.build_id, a.parent_build_id, a.source_archive_sha256, a.request_uri, a.request_generation, a.request_sha256)
-    except (RecoveryError, OSError, KeyError, TypeError, json.JSONDecodeError) as error:
+    except (ValueError, OSError, KeyError, TypeError) as error:
         print('recovery provision refused: ' + str(error), file=sys.stderr)
         return 1
     return 0

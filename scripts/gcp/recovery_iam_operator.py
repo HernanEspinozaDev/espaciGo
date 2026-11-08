@@ -90,14 +90,17 @@ class IAM:
             raise ValueError('owned role deletion uncertain; read back before retry') from None
 
 
-def verify_role(value, role):
-    require(value.get('name') == role and set(value.get('includedPermissions', [])) == policy.PERMISSIONS
+def verify_role(value, role, permissions=None):
+    expected = policy.PERMISSIONS if permissions is None else permissions
+    require(value.get('name') == role and set(value.get('includedPermissions', [])) == expected
             and value.get('stage') == 'GA' and not value.get('deleted', False)
             and isinstance(value.get('etag'), str) and value['etag'], 'temporary role readback differs')
 
 
 def verify_owned_role(current, created):
-    verify_role(created, created['name']); verify_role(current, created['name'])
+    permissions = set(created.get('includedPermissions', []))
+    require(permissions in (policy.PERMISSIONS, policy.LEGACY_PERMISSIONS), 'stored role definition is unsupported')
+    verify_role(created, created['name'], permissions); verify_role(current, created['name'], permissions)
     require(all(current.get(k) == created.get(k) for k in ('name', 'etag', 'title', 'description', 'stage')),
             'own role revision changed; refuse deleting an unowned revision')
 
@@ -189,8 +192,14 @@ def grant(cloud, iam, root, lease, parent_bid, sha, now=None):
 
 def revoke(cloud, iam, root, lease):
     state = load(lease, 'state.json'); baseline = load(lease, 'before.json')
-    binding = policy.build_binding(state['parent_build_id'], state['role'], state['expires_at'],
-                                   now=datetime.fromisoformat(state['grant_time']))
+    created_path = lease / 'role-created.json'
+    created = load(lease, 'role-created.json') if created_path.is_file() else None
+    legacy = bool(created and set(created.get('includedPermissions', [])) == policy.LEGACY_PERMISSIONS)
+    require(created is not None and set(created.get('includedPermissions', [])) in (policy.PERMISSIONS, policy.LEGACY_PERMISSIONS),
+            'stored role definition does not prove an owned supported role')
+    binding = (policy._binding(state['parent_build_id'], state['role'], state['expires_at'], legacy=True)
+               if legacy else policy.build_binding(state['parent_build_id'], state['role'], state['expires_at'],
+                                                   now=datetime.fromisoformat(state['grant_time'])))
     require(binding == state['binding'], 'lease binding altered; refuse unrelated IAM mutation')
     current = iam.policy_get()
     attempt = uuid.uuid4().hex[:8]

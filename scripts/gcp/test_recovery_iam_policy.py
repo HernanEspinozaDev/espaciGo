@@ -12,6 +12,26 @@ MEMBER = "serviceAccount:espacigo-release-job-builder@espacigo-testprod.iam.gser
 
 
 class RecoveryIamPolicyTests(unittest.TestCase):
+    def test_legacy_six_resource_binding_can_only_be_revoked_not_granted(self):
+        legacy = m._binding(BID, ROLE, EXP, legacy=True)
+        baseline = {'version': 3, 'etag': 'synthetic-etag', 'bindings': [
+            {'role': 'roles/viewer', 'members': ['user:synthetic-%s@example.test' % i]}
+            for i in range(33)]}
+        with self.assertRaisesRegex(ValueError, 'canonical resource allowlist'):
+            m.grant_policy(baseline, legacy, now=NOW)
+        previous = copy.deepcopy(baseline); previous['bindings'].append(legacy)
+        withdrawn = m.revoke_policy(previous, legacy)
+        self.assertEqual(m.semantic_policy(withdrawn), m.semantic_policy(baseline))
+
+    def test_storage_only_delta_preserves_all_33_existing_bindings(self):
+        baseline = {'version': 3, 'etag': 'synthetic-etag', 'bindings': [
+            {'role': 'roles/viewer', 'members': ['user:synthetic-%s@example.test' % i]}
+            for i in range(33)]}
+        self.assertEqual(m.PERMISSIONS, {'storage.objects.get'})
+        updated = m.grant_policy(baseline, self.binding(), now=NOW)
+        self.assertEqual(updated['bindings'][:-1], baseline['bindings'])
+        self.assertEqual(m.semantic_policy(m.revoke_policy(updated, self.binding())), m.semantic_policy(baseline))
+
     def test_rejects_malformed_or_unexpanded_existing_binding(self):
         invalid = [None, {'role': 7, 'members': ['user:x']}, {'role': 'roles/viewer', 'members': 'user:x'},
                    {'role': 'roles/viewer_withcond_abc', 'members': ['user:x']},
@@ -36,12 +56,14 @@ class RecoveryIamPolicyTests(unittest.TestCase):
         expr = c["expression"]
         self.assertIn("request.time < timestamp(", expr)
         self.assertIn("resource.name ==", expr)
-        self.assertEqual(expr.count("resource.name =="), 6)
+        self.assertEqual(expr.count("resource.name =="), 2)
+        self.assertEqual(expr.count(' || '), 1)
+        self.assertNotIn('run.executions.', expr)
         self.assertNotIn("*", expr)
         self.assertIn('resource.name == "projects/_/buckets/', expr)
         self.assertNotIn('//storage.googleapis.com/', expr)
         self.assertNotIn('//run.googleapis.com/', expr)
-        self.assertEqual(expr.count(' || '), 5)
+        self.assertEqual(expr.count(' || '), 1)
         self.assertNotIn(' or ', expr)
 
     def test_policy_rejects_cel_injection_after_exact_selectors(self):

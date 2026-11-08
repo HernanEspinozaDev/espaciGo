@@ -18,6 +18,7 @@ from migration_job_plan import proposal as plan_proposal
 from verify_web_backend import PROJECT, REGION, BUCKET, SA as DEPLOYER, UUID, HEX64
 from rollout_web import LOCK, TRIGGER
 from recovery_observation_v2 import HistoricalExecutionReader, ObservationError
+from recovery_parent_proof import (make_failed_release_proof as _make_parent_proof, validate_request_proof, canonical_proof_sha256)
 from recovery_iam_gate import wait_for_iam_ready
 from recovery_iam_policy import build_binding
 
@@ -236,7 +237,8 @@ def inspect_failed_release(cloud):
     require(re.fullmatch(UUID, uid or '') is not None, 'failed Job UID missing')
     intent_uri = f'gs://{BUCKET}/releases/{PINNED_BUILD_ID}/job-intent-apply.json'
     intent_meta = cloud.json('storage', 'objects', 'describe', intent_uri)
-    intent = json.loads(cloud.run('storage', 'cat', intent_uri + '#' + str(intent_meta['generation'])))
+    intent_text = cloud.run('storage', 'cat', intent_uri + '#' + str(intent_meta['generation']))
+    intent = json.loads(intent_text)
     require(intent.get('job') == job and intent.get('uid') == uid and intent.get('request', {}).get('mode') == 'apply', 'recorded applying intent differs')
     listed = cloud.historical_list()
     es = listed.get('executions', [])
@@ -247,11 +249,35 @@ def inspect_failed_release(cloud):
     c = [x for x in e.get('conditions', []) if x.get('type') == 'Completed']
     require(e.get('name') == name and e.get('job') == job and re.fullmatch(UUID, e.get('uid', ''))
             and e.get('uid') == es[0].get('uid') and len(c) == 1 and c[0].get('state') == 'CONDITION_FAILED'
-            and e.get('failedCount') == 1 and e.get('runningCount', 0) == 0,
+            and type(e.get('failedCount')) is int and e['failedCount'] == 1
+            and type(e.get('runningCount', 0)) is int and e.get('runningCount', 0) == 0
+            and type(e.get('succeededCount', 0)) is int and e.get('succeededCount', 0) == 0,
             'applying execution not expected terminal failure')
     assert_lock(cloud, PINNED_GENERATION, text)
-    return {'build_id': PINNED_BUILD_ID, 'source_sha': PINNED_SOURCE_SHA, 'lock_generation': PINNED_GENERATION, 'lock_text': text, 'failed_execution': job + '-v62zb'}
+    return {'observed_at': datetime.now().astimezone().isoformat(),
+            'build_id': b['id'], 'source_sha': PINNED_SOURCE_SHA,
+            'lock_uri': LOCK, 'lock_generation': str(m['generation']), 'lock_text': text,
+            'job_name': job, 'job_uid': uid, 'execution_name': e['name'], 'execution_uid': e['uid'],
+            'execution_state': c[0]['state'], 'failed_count': e['failedCount'],
+            'running_count': e.get('runningCount', 0), 'succeeded_count': e.get('succeededCount', 0),
+            'list_count': len(es), 'next_page': listed.get('nextPageToken', ''),
+            'intent_uri': intent_uri, 'intent_generation': str(intent_meta['generation']),
+            'intent_sha256': hashlib.sha256(intent_text.encode()).hexdigest(),
+            'failed_execution': job + '-v62zb'}
 
+
+def make_failed_release_proof(observation, parent_bid, source_sha, source_uri_value, archive_sha):
+    return _make_parent_proof(observation, parent_bid, source_sha, source_uri_value, archive_sha)
+
+def validate_failed_release_proof(proof, now=None):
+    return validate_request_proof(proof, proof.get('parent_build_id') if isinstance(proof, dict) else None,
+                                  proof.get('parent_source_sha') if isinstance(proof, dict) else None,
+                                  proof.get('parent_source_uri') if isinstance(proof, dict) else None,
+                                  proof.get('parent_archive_sha256') if isinstance(proof, dict) else None, now)
+
+def compare_failed_release_proof(expected, actual):
+    validate_failed_release_proof(expected); validate_failed_release_proof(actual)
+    require(all(expected[k] == actual[k] for k in expected if k != 'observed_at'), 'failed-release proof changed')
 
 def record_evidence(cloud, root, bid, name, value):
     require(re.fullmatch('[a-z][a-z0-9-]*', name) and re.fullmatch(UUID, bid), 'invalid evidence identity')
@@ -310,18 +336,19 @@ def build_image(cloud, root, uri, digest, sha, record):
     return image
 
 
-def make_request(sha, bid, digest, image, uri):
-    req = {'format': 'espacigo.recovery-job-request.v1', 'mode': 'inspection-only', 'source_sha': sha, 'build_id': bid, 'source_archive_sha256': digest, 'source_uri': uri, 'image': image}
+def make_request(sha, bid, digest, image, uri, failed_release_proof):
+    validate_request_proof(failed_release_proof, bid, sha, uri, digest)
+    req = {'format': 'espacigo.recovery-job-request.v2', 'mode': 'inspection-only', 'source_sha': sha, 'build_id': bid, 'source_archive_sha256': digest, 'source_uri': uri, 'image': image, 'failed_release_proof': failed_release_proof, 'failed_release_proof_sha256': canonical_proof_sha256(failed_release_proof)}
     validate_request(req)
     return req
 
-
 def validate_request(req):
-    require(set(req) == {'format', 'mode', 'source_sha', 'build_id', 'source_archive_sha256', 'source_uri', 'image'} and req['format'] == 'espacigo.recovery-job-request.v1' and req['mode'] == 'inspection-only', 'only inspection request supported')
+    require(isinstance(req, dict) and set(req) == {'format', 'mode', 'source_sha', 'build_id', 'source_archive_sha256', 'source_uri', 'image', 'failed_release_proof', 'failed_release_proof_sha256'} and req['format'] == 'espacigo.recovery-job-request.v2' and req['mode'] == 'inspection-only', 'only inspection request v2 supported')
     require(re.fullmatch('[a-f0-9]{40}', req['source_sha']) and re.fullmatch(UUID, req['build_id']) and re.fullmatch(HEX, req['source_archive_sha256']), 'invalid request identity')
     require(re.fullmatch(re.escape('gs://' + BUCKET + '/') + r'[^#]+#[1-9][0-9]*', req['source_uri']), 'invalid pinned request source URI')
     plan_proposal(req['image'], req['source_sha'], '1')
-
+    validate_request_proof(req['failed_release_proof'], req['build_id'], req['source_sha'], req['source_uri'], req['source_archive_sha256'])
+    require(req['failed_release_proof_sha256'] == canonical_proof_sha256(req['failed_release_proof']), 'proof digest differs')
 
 def create_args(req):
     validate_request(req)
@@ -374,17 +401,25 @@ def verify_task(task, req):
 
 
 def provision_job(cloud, root, req, record):
+    validate_request(req)
     receipt = record('job-request', req)
-    lock = inspect_failed_release(cloud)
+    lock = req['failed_release_proof']['failed_release']
     def verify_binding(binding, value):
         expected = build_binding(req['build_id'], binding.get('role'), value['expires_at'])
         require(binding == expected, 'IAM readiness binding differs from exact authorized resources')
     proof = wait_for_iam_ready(cloud, req, receipt, verify_binding,
                               lambda: assert_lock(cloud, lock['lock_generation'], lock['lock_text']))
     record('iam-ready-verified', proof)
-    inspect_failed_release(cloud)
     sub = ','.join(['_PARENT_BUILD_ID=' + req['build_id'], '_SOURCE_ARCHIVE_SHA256=' + req['source_archive_sha256'], '_REQUEST_URI=' + receipt['uri'], '_REQUEST_GENERATION=' + receipt['generation'], '_REQUEST_SHA256=' + receipt['sha256']])
+    before = make_failed_release_proof(inspect_failed_release(cloud), req['build_id'],
+                                       req['source_sha'], req['source_uri'], req['source_archive_sha256'])
+    compare_failed_release_proof(req['failed_release_proof'], before)
+    record('parent-pre-provision-proof', before)
     submit_child(cloud, root, req['source_uri'], req['source_archive_sha256'], 'cloudbuild-db-recovery-provision.yaml', PROVISIONER, sub, record)
+    after = make_failed_release_proof(inspect_failed_release(cloud), req['build_id'],
+                                      req['source_sha'], req['source_uri'], req['source_archive_sha256'])
+    compare_failed_release_proof(req['failed_release_proof'], after)
+    record('parent-post-provision-proof', after)
     job = cloud.json('run', 'jobs', 'describe', job_name(req['build_id'])); verify_job(job, req)
     return job
 
@@ -486,7 +521,10 @@ def execute(cloud, root, sha, bid, archive_sha):
     try:
         image = build_image(cloud, root, uri, archive_sha, sha, record)
         assert_lock(cloud, lock['lock_generation'], lock['lock_text'])
-        req = make_request(sha, bid, archive_sha, image, uri)
+        observation = inspect_failed_release(cloud)
+        require(observation['lock_generation'] == lock['lock_generation'] and observation['lock_text'] == lock['lock_text'], 'failed release lock changed after image build')
+        proof = make_failed_release_proof(observation, bid, sha, uri, archive_sha)
+        req = make_request(sha, bid, archive_sha, image, uri, proof)
         job = provision_job(cloud, root, req, record)
         result = inspect_job(cloud, job, req, record, local_migrations(root))
         record('completed', {'read_only': True, 'source_sha': sha, 'report': result, 'evidence': receipts.copy(), 'release_lock_unchanged': True, 'sql_applied': False, 'rollout': False})

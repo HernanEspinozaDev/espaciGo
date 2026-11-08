@@ -1,0 +1,36 @@
+{
+  "format": "espacigo.recovery-storage-proof-source-review.v1",
+  "date": "2026-11-07",
+  "base_sha": "3e2fadad152825dcb58f9abbd227d10075c97e0a",
+  "files": {
+    "scripts/gcp/recovery_inspection.py": "0bde26f5aa72d9945f7f853565e0c93a781e5a0106f5ed97d2185255b8fe31f7",
+    "scripts/gcp/provision_recovery_inspection.py": "7619e9b3d78f075a0e4654b8df8e6df8f4f68d0fe4f67c609e2a07f6b1a8f5ee",
+    "scripts/gcp/recovery_parent_proof.py": "981c7fe81226c353bc8b8b6a98e95c01c9c6189d2a840bd51758f93351feb9d2",
+    "scripts/gcp/recovery_iam_policy.py": "9eae650e86c31f8bf9e55b55598361a30279c5fece617fcc5f5015a35e5002de",
+    "scripts/gcp/recovery_iam_operator.py": "f4d4da55e15cdbbd7de03ce9e2d013dc35afc61dcd024e4a34e669a96cf640af",
+    "scripts/gcp/test_recovery_proof_boundary.py": "3d40056de9cb677fa47c18f5d6c0365640daa2cc37e73699fdb29176e031b4ca",
+    "scripts/gcp/test_recovery_parent_proof.py": "03eae5bfde9c4afb5391dec1cf0de73da003516119e03c8cf7648c5ed48fac8c",
+    "scripts/gcp/test_recovery_observed_facts.py": "b415d90855a50f5db526f0118ac61df3ec41403d91f2ea649b0175d908f2198e",
+    "scripts/gcp/test_recovery_iam_policy.py": "aae41642f2601bf20a7dfdb8569c5a44a7c6e24a691abc8d316fa736e103a7fa",
+    "scripts/gcp/test_recovery_iam_operator.py": "998748674aaaf9e93b06879a50d128f24d4b2c7208b0db7f38a71fd760299f67"
+  },
+  "independent_review": "deleg_e53365b0",
+  "proof_boundary_review": {
+    "passed": true,
+    "focused_offline_tests": 13
+  },
+  "iam_review": {
+    "passed": true,
+    "focused_offline_tests": 18
+  },
+  "parent_python_tests_passed": 142,
+  "exact_sdk_offline_bootstraps_passed": 2,
+  "new_grant_permissions": [
+    "storage.objects.get"
+  ],
+  "new_grant_exact_object_selectors": 2,
+  "proof_in_existing_request": true,
+  "live_storage_only_iam_effectiveness": "PENDING",
+  "cloud_ledger_read": "PENDING",
+  "no_main_integration": true
+}

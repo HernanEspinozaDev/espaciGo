@@ -12,7 +12,8 @@ BUCKET = "espacigo-testprod-cloud-build-447373903153"
 REGION = "southamerica-west1"
 JOB = "espacigo-db-r-2dc002a95831471780646432b98d3e01"
 EXECUTION = JOB + "-v62zb"
-PERMISSIONS = frozenset({"storage.objects.get", "run.executions.get", "run.executions.list"})
+PERMISSIONS = frozenset({"storage.objects.get"})
+LEGACY_PERMISSIONS = frozenset({"storage.objects.get", "run.executions.get", "run.executions.list"})
 UUID = re.compile(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")
 ROLE = re.compile(r"projects/espacigo-testprod/roles/espacigoRecoveryRead20261107[a-f0-9]{8}")
 
@@ -28,15 +29,26 @@ def _aware_utc(value, label):
     return value.astimezone(dt.timezone.utc)
 
 
-def _resources(parent_bid):
-    return (
+def _resources(parent_bid, legacy=False):
+    storage = (
         f"projects/_/buckets/{BUCKET}/objects/cloudrun-main.lock",
         f"projects/_/buckets/{BUCKET}/objects/recovery-inspections/{parent_bid}/job-request.json",
+    )
+    if not legacy:
+        return storage
+    return storage + (
         f"projects/{PROJECT}/locations/{REGION}/jobs/{JOB}",
         f"projects/{PROJECT_NUMBER}/locations/{REGION}/jobs/{JOB}",
         f"projects/{PROJECT}/locations/{REGION}/jobs/{JOB}/executions/{EXECUTION}",
         f"projects/{PROJECT_NUMBER}/locations/{REGION}/jobs/{JOB}/executions/{EXECUTION}",
     )
+
+
+def _binding(parent_bid, role_name, expires_at, legacy=False):
+    expiry = _aware_utc(expires_at, "expires_at")
+    selectors = " || ".join(f"resource.name == {json.dumps(name)}" for name in _resources(parent_bid, legacy))
+    expression = f"request.time < timestamp({json.dumps(expiry.isoformat().replace('+00:00', 'Z'))}) && ({selectors})"
+    return {"role": role_name, "members": [MEMBER], "condition": {"title": "recovery-readonly-" + parent_bid, "description": "Temporary exact-resource recovery read access", "expression": expression}}
 
 
 def build_binding(parent_bid, role_name, expires_at, now=None):
@@ -48,9 +60,7 @@ def build_binding(parent_bid, role_name, expires_at, now=None):
     current = _aware_utc(now if now is not None else dt.datetime.now(dt.timezone.utc), "now")
     if expiry <= current or expiry > current + dt.timedelta(hours=2):
         raise ValueError("expiry must be in the future and no more than two hours away")
-    selectors = " || ".join(f"resource.name == {json.dumps(name)}" for name in _resources(parent_bid))
-    expression = f"request.time < timestamp({json.dumps(expiry.isoformat().replace('+00:00', 'Z'))}) && ({selectors})"
-    return {"role": role_name, "members": [MEMBER], "condition": {"title": "recovery-readonly-" + parent_bid, "description": "Temporary exact-resource recovery read access", "expression": expression}}
+    return _binding(parent_bid, role_name, expiry)
 
 
 def _validate_policy(policy):
@@ -74,7 +84,7 @@ def _validate_policy(policy):
                 raise ValueError('existing condition fields are malformed')
 
 
-def _validate_binding(binding):
+def _validate_binding(binding, allow_legacy=False):
     if not isinstance(binding, dict) or set(binding) != {"role", "members", "condition"}:
         raise ValueError("binding has unexpected fields")
     if not isinstance(binding["role"], str) or ROLE.fullmatch(binding["role"]) is None:
@@ -98,6 +108,8 @@ def _validate_binding(binding):
     # Reconstruct the WHOLE expression. Counting permitted fragments would
     # accept appended `|| true` and grant outside the exact resource set.
     expected = build_binding(bid, binding['role'], expiry, now=expiry - dt.timedelta(hours=1))
+    if binding != expected and allow_legacy:
+        expected = _binding(bid, binding['role'], expiry, legacy=True)
     if binding != expected:
         raise ValueError("condition must exactly equal the canonical resource allowlist")
     return bid, expiry
@@ -120,7 +132,7 @@ def grant_policy(policy, binding, now=None):
 
 def revoke_policy(policy, binding):
     _validate_policy(policy)
-    _validate_binding(binding)
+    _validate_binding(binding, allow_legacy=True)
     result = copy.deepcopy(policy)
     bindings = result.setdefault("bindings", [])
     matches = [i for i, item in enumerate(bindings) if item == binding]

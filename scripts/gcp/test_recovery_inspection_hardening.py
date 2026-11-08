@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import recovery_inspection as r
+from test_recovery_parent_proof import request_fixture
 from test_recovery_inspection import SHA, BID, DIGEST, IMAGE, parent, report
 
 
@@ -12,7 +13,7 @@ UID = '22222222-3333-4444-8555-666666666666'
 
 
 def request():
-    return r.make_request(SHA, BID, DIGEST, IMAGE,
+    return request_fixture(SHA, BID, DIGEST, IMAGE,
                           f'gs://{r.BUCKET}/source/recovery.tgz#17')
 
 
@@ -147,8 +148,8 @@ class RecoveryInspectionHardeningTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d, \
              patch.object(r, 'verify_archive', return_value={}), \
-             patch.object(r, 'inspect_failed_release', return_value={
-                 'lock_generation': r.PINNED_GENERATION, 'lock_text': '{}'}), \
+             patch.object(r, 'inspect_failed_release', return_value=dict(request()['failed_release_proof']['failed_release'],
+                 observed_at=request()['failed_release_proof']['observed_at'])), \
              patch.object(r, 'assert_lock'), \
              patch.object(r, 'build_image', return_value=IMAGE), \
              patch.object(r, 'provision_job', return_value=canonical_job()), \
