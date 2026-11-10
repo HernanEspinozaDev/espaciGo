@@ -90,6 +90,10 @@ export function ListingWizard() {
   const [stepError, setStepError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [partialDraft, setPartialDraft] = useState<{
+    id: string;
+    accountId: string | null;
+  } | null>(null);
   const [, startTransition] = useTransition();
 
   // Paso 1: Tipo y resumen
@@ -354,7 +358,7 @@ export function ListingWizard() {
   };
 
   const handleCreateDraft = async () => {
-    if (isSubmitting) return;
+    if (isSubmitting || partialDraft) return;
     if (authSnapshot.status !== "authenticated" || !accessToken) {
       setStepError("Sesión no disponible. Inicia sesión nuevamente.");
       return;
@@ -406,8 +410,10 @@ export function ListingWizard() {
     setIsSubmitting(true);
     setStepError(null);
 
+    let createdDraftId: string | null = null;
     try {
       const created = await createDraft(accessToken, draftPayload);
+      createdDraftId = created.id;
 
       if (!authSnapshot.roles.includes("arrendador")) {
         await checkSession().catch(() => false);
@@ -450,7 +456,15 @@ export function ListingWizard() {
         router.push(`/anfitrion/espacios/${created.id}/editar`);
       });
     } catch (err) {
-      setStepError(listingErrorMessage(err));
+      if (createdDraftId) {
+        setPartialDraft({
+          id: createdDraftId,
+          accountId: authSnapshot.accountId,
+        });
+        setStepError(null);
+      } else {
+        setStepError(listingErrorMessage(err));
+      }
       setIsSubmitting(false);
     }
   };
@@ -458,6 +472,9 @@ export function ListingWizard() {
   const selectedCatObj = snapshot.categories.find(
     (c: Category) => c.code === categoryCode,
   );
+  const canRecoverPartialDraft =
+    Boolean(partialDraft && getAccessToken()) &&
+    authFacade.getSnapshot().accountId === partialDraft?.accountId;
 
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -547,13 +564,35 @@ export function ListingWizard() {
       </nav>
 
       {/* Mensaje de alerta / error */}
-      {stepError && (
+      {(stepError || partialDraft) && (
         <div
           role="alert"
           className="rounded-lg border border-destructive/20 bg-destructive/10 p-4 text-sm text-destructive flex items-start gap-3"
         >
           <AlertCircle className="size-5 shrink-0 mt-0.5" aria-hidden="true" />
-          <div className="flex-1">{stepError}</div>
+          <div className="flex-1">
+            {partialDraft ? (
+              <>
+                El borrador fue creado, pero no se pudo completar su
+                configuración inicial. Continúa desde el borrador guardado antes
+                de crear otro.{" "}
+                <Link
+                  className="font-semibold underline"
+                  href={
+                    canRecoverPartialDraft
+                      ? `/anfitrion/espacios/${partialDraft.id}/editar`
+                      : "/anfitrion/espacios"
+                  }
+                >
+                  {canRecoverPartialDraft
+                    ? "Ir al editor del borrador"
+                    : "Ir a Mis espacios"}
+                </Link>
+              </>
+            ) : (
+              stepError
+            )}
+          </div>
         </div>
       )}
 
@@ -1603,7 +1642,7 @@ export function ListingWizard() {
             <Button
               type="button"
               onClick={handleCreateDraft}
-              disabled={isSubmitting}
+              disabled={isSubmitting || Boolean(partialDraft)}
               className="gap-2 font-bold bg-primary text-primary-foreground shadow-sm"
             >
               {isSubmitting ? (
