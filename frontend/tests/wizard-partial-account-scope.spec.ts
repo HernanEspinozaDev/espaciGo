@@ -179,6 +179,7 @@ test("@phase7 @controlled no enlaza el borrador parcial al editor tras cambiar d
     .click();
 
   await expect.poll(() => sessionReadsAfterCreate).toBeGreaterThan(0);
+  await expect(page).toHaveURL(/\/anfitrion\/espacios\/nuevo$/);
   await expect(
     page
       .getByRole("region", { name: "Contenido de la sección de cuenta" })
