@@ -3,6 +3,7 @@ import Link from "next/link";
 import { AuthLegalFooter } from "@/features/auth/ui/auth-legal-footer";
 import { PrivateSessionBoundary } from "@/features/auth/ui/private-session-boundary";
 import { SessionControls } from "@/features/auth/ui/session-controls";
+import { PartialDraftRecoveryRouteReset } from "@/features/host-listings/ui/partial-draft-recovery-route-reset";
 
 function Header() {
   return (
@@ -43,6 +44,7 @@ export default function WorkspaceLayout({
   return (
     <div className="flex flex-col min-h-screen bg-white">
       <Header />
+      <PartialDraftRecoveryRouteReset />
       <div id="main-content" className="flex-1" tabIndex={-1}>
         <PrivateSessionBoundary>{children}</PrivateSessionBoundary>
       </div>

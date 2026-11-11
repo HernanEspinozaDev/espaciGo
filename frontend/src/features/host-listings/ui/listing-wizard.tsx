@@ -44,6 +44,11 @@ import {
   formatAttributeValue,
 } from "../domain/attribute-formatting";
 import { useHostListings } from "./use-host-listings";
+import {
+  clearPartialDraftRecoveryPending,
+  hasPendingPartialDraftRecovery,
+  markPartialDraftRecoveryPending,
+} from "./partial-draft-recovery-state";
 import { WeeklyScheduleSlots } from "./weekly-schedule-slots";
 import {
   validateCategoryAttributes,
@@ -91,9 +96,11 @@ export function ListingWizard() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [partialDraft, setPartialDraft] = useState<{
-    id: string;
+    id: string | null;
     accountId: string | null;
-  } | null>(null);
+  } | null>(() =>
+    hasPendingPartialDraftRecovery() ? { id: null, accountId: null } : null,
+  );
   const [, startTransition] = useTransition();
 
   // Paso 1: Tipo y resumen
@@ -414,6 +421,7 @@ export function ListingWizard() {
     try {
       const created = await createDraft(accessToken, draftPayload);
       createdDraftId = created.id;
+      markPartialDraftRecoveryPending();
 
       if (!authSnapshot.roles.includes("arrendador")) {
         await checkSession().catch(() => false);
@@ -452,6 +460,7 @@ export function ListingWizard() {
       }
 
       // Redirigir al editor tras el alta dentro de mi cuenta
+      clearPartialDraftRecoveryPending();
       startTransition(() => {
         router.push(`/anfitrion/espacios/${created.id}/editar`);
       });
@@ -473,7 +482,7 @@ export function ListingWizard() {
     (c: Category) => c.code === categoryCode,
   );
   const canRecoverPartialDraft =
-    Boolean(partialDraft && getAccessToken()) &&
+    Boolean(partialDraft?.id && getAccessToken()) &&
     authFacade.getSnapshot().accountId === partialDraft?.accountId;
 
   return (
@@ -573,11 +582,14 @@ export function ListingWizard() {
           <div className="flex-1">
             {partialDraft ? (
               <>
-                El borrador fue creado, pero no se pudo completar su
-                configuración inicial. Continúa desde el borrador guardado antes
-                de crear otro.{" "}
+                {partialDraft.id
+                  ? "El borrador fue creado, pero no se pudo completar su configuración inicial. Continúa desde el borrador guardado antes de crear otro."
+                  : "La sesión cambió después de iniciar el alta. Revisa Mis espacios antes de volver a intentarlo."}{" "}
                 <Link
                   className="font-semibold underline"
+                  onClick={() => {
+                    clearPartialDraftRecoveryPending();
+                  }}
                   href={
                     canRecoverPartialDraft
                       ? `/anfitrion/espacios/${partialDraft.id}/editar`

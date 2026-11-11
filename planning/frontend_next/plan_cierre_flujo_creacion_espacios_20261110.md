@@ -30,7 +30,9 @@ Secuencia: `0 → 1 → 2 → 3 → 4 → 5`; la entrega/aceptación permanece s
 
 `a5aea39bac4341b415a642297e3c4d375bacd27b` recuerda el ID recibido de `POST /spaces` si falla configuración posterior, ofrece alerta accesible y recuperación al editor (o a Mis espacios si cambió el ámbito de cuenta), y bloquea un segundo POST en esa instancia del wizard. Añade una regresión que fuerza 503 en `PUT /weekly-hours` después de crear.
 
-Verificación local recogida en `evidence/space-create-partial-recovery-20261110.md`: RED/GREEN controlada; archivo Playwright 2 PASS; build, typecheck, lint sin errores, unitarias y formato PASS; 1 skip opt-in en unitarias. No demuestra Go/PostgreSQL, storage ni comportamiento online. La pérdida de respuesta del POST de alta continúa sin reconciliación contractual; no se añadió `Idempotency-Key` no soportado.
+Verificación local recogida en `evidence/space-create-partial-recovery-20261110.md`: RED/GREEN controlada; el archivo original tuvo 2 PASS y la corrida combinada con la nueva regresión de cambio de cuenta tuvo 3 PASS; build, typecheck, formato y unitarias PASS; lint sin errores y 4 warnings ajenos al cambio; 1 skip opt-in en unitarias. No demuestra Go/PostgreSQL, storage ni comportamiento online. La pérdida de respuesta del POST de alta continúa sin reconciliación contractual; no se añadió `Idempotency-Key` no soportado.
+
+El seguimiento de aislamiento conserva fuera de `PrivateSessionBoundary` solo una marca booleana en memoria, nunca el ID del borrador. Tras un cambio de cuenta/scope, el wizard remountado muestra un aviso genérico con destino a Mis espacios y sigue bloqueando el POST. Un coordinador en el layout compartido limpia la marca al salir de `/anfitrion/espacios/nuevo`; la regresión controlada verifica navegación efectiva, ausencia de enlace al editor anterior y limpieza al volver después de salir del flujo. No implica persistencia tras recarga ni cierra el orden 1.
 
 El SHA `a5aea39bac4341b415a642297e3c4d375bacd27b` fue verificado en la rama remota `codex/frontend/fix/space-01-create-postcommit-recovery`. El hook permaneció habilitado. No se creó PR, no se empujó `main` ni se declaró rollout.
 
