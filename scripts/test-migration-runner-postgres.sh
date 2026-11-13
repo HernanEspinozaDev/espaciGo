@@ -59,4 +59,4 @@ env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTION
     exit 1
   }
 python3 scripts/gcp/check_migration_ci.py "$TMP_DIR/results.jsonl"
-echo 'PASS: disposable PostgreSQL runner, fresh V1-V83, V75 upgrade, read-only plan, no-op, failure recovery, checksum and concurrency tests; own resources removed on exit.'
+echo 'PASS: disposable PostgreSQL runner, fresh V1-V84, V75 upgrade, V84 authority recovery/finalization, read-only plan, no-op, failure recovery, checksum and concurrency tests; own resources removed on exit.'

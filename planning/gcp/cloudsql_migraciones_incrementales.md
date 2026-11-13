@@ -27,6 +27,16 @@ Vigente desde 2026-11-06 por decisión del usuario. Ruta activa: main → Cloud 
 - PITR sigue deshabilitado según el recibo de activación. Restauración nativa aislada fue ensayada con alcance documentado; no inferir RPO/RTO ni recuperación funcional de producción. Revisar PITR, retención, recuperación y staging al preparar los primeros usuarios.
 - Sin develop ni staging durante esta etapa. QA funcional online y aceptación corresponden al usuario; metadata/Ready no las sustituyen.
 
+## Registro verificado de esquema — inspección del 2026-11-13
+
+Destino cloud `espacigo-testprod-db/espacigo_dms_stage_20261020`: PostgreSQL18.6, ledger V1–V83 (83 entradas contiguas), nombres/checksums coincidentes con las84 migraciones del SHA `3b39174fef5b173ef5f5c52d1bbaa8d9ed382371`; V84 Didit pendiente. Observación por Job privado REPEATABLE READ READ ONLY, parent `b07742c6-9a5d-4eaa-8b95-1ceec6e47241` SUCCESS; informe generación `1794608791725029`, SHA256 `3de7a3db329652a6cace4f21afc4b715901333b7a919695813f717f2114355d4`. El rol efectivo `espacigo_schema_owner` no tiene CREATE sobre public ni REFERENCES sobre usuario(id). No se concedieron esos privilegios ni se aplicó V84. IAM temporal de lectura retirado/readback; Job inspector ausente; lock fallido conservado. Evidencia operacional: `../frontend_next/evidence/espacios-image-deployment-sync.md`.
+
+La base persistente local y los ensayos aislados no se inspeccionaron en esta operación; no se equiparan con este estado cloud. La inspección no acredita sincronización del despliegue ni autoriza permisos SQL/desbloqueo.
+
+### Excepción acotada de recuperación V84 autorizada después de la inspección
+
+El usuario autorizó separadamente backup válido, CREATE sobre public y REFERENCES sobre usuario(id) temporales sin grant option para schema_owner, aplicación V84 original por Job privado, retirada/readback y recuperación del lock `1794600804441535`. Autorizó además secretAccessor temporal solo en el secreto administrativo existente para `espacigo-test-migrator`, versión1 montada dentro del Job, sin payload local ni acceso a API/builder. El [registro del corte V84](v84_recovery_operation.md) documenta backup `1794610719706` SUCCESSFUL, fuente candidata/revisión, límites y futuras evidencias; no sustituye este procedimiento canónico ni amplía futuras migraciones. El esquema observado sigue V83 hasta readback posterior a la ejecución. Tras la recuperación debe usarse el release normal `release_main.py`, no reconstruir manualmente el despliegue ni omitir sus gates. La base local queda fuera.
+
 ## Historia retirada de operación
 
 El [archivo anterior a Jobs](cloudsql_migraciones_historial_pre_jobs_20261106.md) conserva diagnósticos, comandos y autorizaciones pasadas para trazabilidad. Quedan sustituidas sus reglas de subir/encender el bastión, abrir un forward SSH, migrar desde local y detener la VM al finalizar. No recrear ese transporte ante un error del pipeline. Los runbooks anteriores de DMS, scratch e importación tampoco sustituyen este procedimiento.

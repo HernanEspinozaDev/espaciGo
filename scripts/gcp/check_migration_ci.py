@@ -30,6 +30,9 @@ REQUIRED = frozenset({
     'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/api-schema-contract',
     'TestCurrentSchemaMigrationFromEmptyAndV75/empty/release-noop',
     'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/release-noop',
+    'TestRunnerV84AuthorityRecoveryPostgres',
+    'TestRunnerV84AuthorityRecoveryPostgres/failure_cleanup',
+    'TestRunnerV84AuthorityRecoveryPostgres/apply_and_finalize',
 })
 
 
