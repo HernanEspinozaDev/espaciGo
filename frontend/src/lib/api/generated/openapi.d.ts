@@ -607,7 +607,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Revalida elegibilidad pública del espacio, visibilidad explícita de la foto y estado ready. Solo display/thumbnail WebP; responde con caché de 60 segundos para limitar la ventana de revocación y no revela claves internas. */
+    /** @description Revalida elegibilidad pública del espacio, visibilidad explícita de la foto y estado ready en cada solicitud. Solo display/thumbnail WebP con Cache-Control no-store; no revela claves internas. */
     get: operations["getPublishedSpaceMediaVariant"];
     put?: never;
     post?: never;
@@ -4775,7 +4775,7 @@ export interface components {
     };
     SpaceMediaVariant: {
       /** @enum {string} */
-      name: "display" | "thumbnail" | "avatar";
+      name: "display" | "thumbnail";
       /** Format: uri-reference */
       url: string;
       /** @constant */
@@ -9312,6 +9312,15 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      /** @description La imagen o el cuerpo multipart supera el tamaño permitido; la operación no se reserva. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
       422: components["responses"]["UnprocessableEntity"];
       /** @description Storage privado temporalmente no disponible. */
       503: {

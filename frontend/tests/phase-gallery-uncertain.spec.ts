@@ -7,11 +7,14 @@ const photoIds = [
 ];
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
-test("unconfirmed cover blocks every mutation until an explicit successful authoritative refresh", async ({
+test("unconfirmed gallery and stale delete block mutations until authoritative refresh", async ({
   page,
 }) => {
   let authenticated = false;
   let coverRequests = 0;
+  let deleteRequests = 0;
+  const deleteIfMatches: string[] = [];
+  let currentEtag = '"1"';
   let failReadback = false;
   let failInitialGallery = true;
   let cover = photoIds[0];
@@ -47,13 +50,37 @@ test("unconfirmed cover blocks every mutation until an explicit successful autho
     photoIds.map((id, index) => ({
       id,
       space_id: spaceId,
+      alt_text: "Foto sintética de incertidumbre",
+      visible: true,
+      created_at: "2026-11-11T12:00:00Z",
       state: "ready",
       position: index + 1,
       cover: id === cover,
       mime_type: "image/webp",
       size_bytes: 42,
-      variants: [],
+      variants: [
+        {
+          name: "thumbnail",
+          url: `/api/v1/spaces/${spaceId}/gallery/${id}/variants/thumbnail`,
+          mime_type: "image/webp",
+          size_bytes: 42,
+          sha256: "a".repeat(64),
+          width: 10,
+          height: 10,
+        },
+      ],
     }));
+  await page.addInitScript(() => {
+    const revokedUrls: string[] = [];
+    Object.defineProperty(window, "__privateBlobRevocations", {
+      value: revokedUrls,
+    });
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = (url) => {
+      revokedUrls.push(url);
+      revoke(url);
+    };
+  });
   await page.route("**/api/backend/**", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
@@ -62,7 +89,7 @@ test("unconfirmed cover blocks every mutation until an explicit successful autho
         status,
         contentType: "application/json",
         headers: {
-          etag: coverRequests ? '"2"' : '"1"',
+          etag: currentEtag,
           "cache-control": "no-store",
         },
         body: JSON.stringify(body),
@@ -76,13 +103,31 @@ test("unconfirmed cover blocks every mutation until an explicit successful autho
         authenticated ? session : { error: { code: "unauthenticated" } },
         authenticated ? 200 : 401,
       );
+    if (pathname.endsWith("/auth/logout") && request.method() === "POST") {
+      authenticated = false;
+      return route.fulfill({ status: 204, body: "" });
+    }
     expect(request.headers().authorization).toBeUndefined();
     if (pathname === `/api/backend/spaces/${spaceId}/cover`) {
       coverRequests++;
       expect(request.headers()["if-match"]).toBe('"1"');
+      currentEtag = '"2"';
       cover = photoIds[1];
       failReadback = true;
       return route.abort("failed");
+    }
+    if (
+      pathname.startsWith(`/api/backend/spaces/${spaceId}/gallery/`) &&
+      request.method() === "DELETE"
+    ) {
+      deleteRequests++;
+      const ifMatch = request.headers()["if-match"] ?? "";
+      deleteIfMatches.push(ifMatch);
+      if (deleteRequests === 1) currentEtag = '"3"';
+      if (ifMatch !== currentEtag)
+        return reply({ error: { code: "precondition_failed" } }, 412);
+      currentEtag = '"4"';
+      return route.fulfill({ status: 204, headers: { etag: currentEtag } });
     }
     if (pathname === `/api/backend/spaces/${spaceId}`)
       return reply(
@@ -179,4 +224,121 @@ test("unconfirmed cover blocks every mutation until an explicit successful autho
     page.getByRole("button", { name: "Marcar portada", exact: true }),
   ).toBeEnabled();
   expect(coverRequests).toBe(1);
+
+  const firstPhoto = page.getByTestId("gallery-photo").first();
+  const firstPhotoId = await firstPhoto.getAttribute("data-photo-id");
+  await page.once("dialog", (dialog) => dialog.accept());
+  await firstPhoto.getByRole("button", { name: "Eliminar foto" }).click();
+  await expect(page.getByTestId("gallery-photo")).toHaveCount(2);
+  await expect(
+    page.locator(
+      `[data-testid="gallery-photo"][data-photo-id="${firstPhotoId}"]`,
+    ),
+  ).toBeVisible();
+  expect(deleteRequests).toBe(1);
+  await expect(page.getByText(/actualiza la galería/i)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Eliminar foto", exact: true }).first(),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Marcar portada", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByLabel("Subir fotografías", { exact: true }),
+  ).toBeDisabled();
+  for (const label of [
+    "Mover foto antes",
+    "Mover foto después",
+    "Reemplazar fotografía",
+    "Eliminar foto",
+  ]) {
+    const controls =
+      label === "Reemplazar fotografía"
+        ? page.getByLabel(label, { exact: true })
+        : page.getByRole("button", { name: label, exact: true });
+    expect(await controls.count()).toBe(2);
+    for (const control of await controls.all())
+      await expect(control).toBeDisabled();
+  }
+  await expect(
+    page
+      .getByRole("button", { name: "Actualizar galería", exact: true })
+      .first(),
+  ).toBeEnabled();
+
+  await page
+    .getByRole("button", { name: "Actualizar galería", exact: true })
+    .first()
+    .click();
+  await expect(page.getByText(/actualiza la galería/i)).toHaveCount(0);
+  await expect(page.getByTestId("gallery-photo")).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: "Eliminar foto", exact: true }).first(),
+  ).toBeEnabled();
+  await expect(
+    page.getByLabel("Subir fotografías", { exact: true }),
+  ).toBeEnabled();
+  const moveBefore = page.getByRole("button", {
+    name: "Mover foto antes",
+    exact: true,
+  });
+  await expect(moveBefore.nth(0)).toBeDisabled();
+  await expect(moveBefore.nth(1)).toBeEnabled();
+  const moveAfter = page.getByRole("button", {
+    name: "Mover foto después",
+    exact: true,
+  });
+  await expect(moveAfter.nth(0)).toBeEnabled();
+  await expect(moveAfter.nth(1)).toBeDisabled();
+  for (const control of await page
+    .getByLabel("Reemplazar fotografía", { exact: true })
+    .all())
+    await expect(control).toBeEnabled();
+  for (const control of await page
+    .getByRole("button", { name: "Eliminar foto", exact: true })
+    .all())
+    await expect(control).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Marcar portada", exact: true }),
+  ).toBeEnabled();
+  expect(deleteRequests).toBe(1);
+  expect(deleteIfMatches).toEqual(['"2"']);
+
+  const refreshedPhoto = page.getByTestId("gallery-photo").first();
+  await page.once("dialog", (dialog) => dialog.accept());
+  await refreshedPhoto.getByRole("button", { name: "Eliminar foto" }).click();
+  await expect(page.getByTestId("gallery-photo")).toHaveCount(1);
+  await expect(
+    page.getByText("Fotografía eliminada.", { exact: true }),
+  ).toBeVisible();
+  expect(deleteRequests).toBe(2);
+  expect(deleteIfMatches).toEqual(['"2"', '"3"']);
+
+  const privateBlobUrls = await page
+    .getByTestId("gallery-photo")
+    .locator("img")
+    .evaluateAll((images) =>
+      images
+        .map((image) => (image as HTMLImageElement).src)
+        .filter((src) => src.startsWith("blob:")),
+    );
+  expect(privateBlobUrls).toHaveLength(1);
+  await page
+    .getByRole("button", { name: "Cerrar sesión", exact: true })
+    .click();
+  await page.waitForURL((url) => url.pathname === "/acceso");
+  await expect(page.getByTestId("gallery-photo")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Galería de incertidumbre sintética" }),
+  ).toHaveCount(0);
+  const revokedUrls = () =>
+    page.evaluate(
+      () =>
+        Object.getOwnPropertyDescriptor(window, "__privateBlobRevocations")
+          ?.value as string[],
+    );
+  await expect
+    .poll(revokedUrls)
+    .toEqual(expect.arrayContaining(privateBlobUrls));
+  expect(deleteRequests).toBe(2);
 });

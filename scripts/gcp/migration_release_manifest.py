@@ -10,6 +10,10 @@ FORMAT='espacigo.database-release.v1'
 TARGET={'project':'espacigo-testprod','region':'southamerica-west1','instance':'espacigo-testprod-db','database':'espacigo_dms_stage_20261020'}
 REGISTRY='southamerica-west1-docker.pkg.dev/espacigo-testprod/espacigo-testprod'
 IMAGES={'api':'espacigo-api','web':'espacigo-web','migrator':'espacigo-db-migrator'}
+PLAN_KEYS={'database','server_version','read_only','history_exists','applied','pending'}
+PLAN_IDENTITY_KEYS={'session_user','current_user'}
+PLAN_SESSION_USER='espacigo_migrator_login'
+PLAN_CURRENT_USER='espacigo_schema_owner'
 
 
 def validate(manifest):
@@ -29,10 +33,24 @@ def validate(manifest):
     return manifest
 
 
+def is_plan_report_shape(report):
+    """Recognize legacy/new plan payloads so the log reader passes them to validation."""
+    if not isinstance(report,dict):
+        return False
+    keys=set(report)
+    return PLAN_KEYS.issubset(keys)
+
+
+def validate_plan_contract(plan):
+    if not isinstance(plan,dict) or set(plan) not in (PLAN_KEYS,PLAN_KEYS|PLAN_IDENTITY_KEYS):
+        raise ValueError('invalid migration plan contract')
+    if PLAN_IDENTITY_KEYS.issubset(plan) and (plan['session_user']!=PLAN_SESSION_USER or plan['current_user']!=PLAN_CURRENT_USER):
+        raise ValueError('plan database identities differ from the reviewed migrator contract')
+
+
 def check_plan(manifest,plan,postcheck=False):
     validate(manifest)
-    if not isinstance(plan,dict) or set(plan)!={'database','server_version','read_only','history_exists','applied','pending'}:
-        raise ValueError('invalid migration plan contract')
+    validate_plan_contract(plan)
     if plan['database']!=TARGET['database'] or plan['read_only'] is not True or plan['history_exists'] is not True:
         raise ValueError('plan must identify the existing target and a read-only ledger')
     if not isinstance(plan['server_version'],str) or not re.fullmatch(r'18(?:\.\d+)?(?:\s.*)?',plan['server_version']):

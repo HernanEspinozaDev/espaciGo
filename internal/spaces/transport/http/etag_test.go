@@ -50,6 +50,9 @@ func TestExportedParseIfMatchPreconditionErrors(t *testing.T) {
 
 func TestParseIfMatchPreconditionErrors(t *testing.T) {
 	valid := draftETag(spaces.Draft{ID: "space-123", UpdatedAt: time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)})
+	encodedTag := func(payload string) string {
+		return `"` + base64.RawURLEncoding.EncodeToString([]byte(payload)) + `"`
+	}
 	cases := []struct {
 		name     string
 		values   []string
@@ -63,6 +66,10 @@ func TestParseIfMatchPreconditionErrors(t *testing.T) {
 		{"wildcard", []string{"*"}, "space-123", errInvalidPrecondition},
 		{"unquoted", []string{strings.Trim(valid, `"`)}, "space-123", errInvalidPrecondition},
 		{"bad base64", []string{`"%%%"`}, "space-123", errInvalidPrecondition},
+		{"missing timestamp separator", []string{encodedTag("space-123")}, "space-123", errInvalidPrecondition},
+		{"invalid timestamp", []string{encodedTag("space-123\x00not-a-timestamp")}, "space-123", errInvalidPrecondition},
+		{"non-UTC timestamp", []string{encodedTag("space-123\x002026-10-27T09:00:00-03:00")}, "space-123", errInvalidPrecondition},
+		{"non-canonical fractional timestamp", []string{encodedTag("space-123\x002026-10-27T12:00:00.000000000Z")}, "space-123", errInvalidPrecondition},
 		{"mismatch", []string{draftETag(spaces.Draft{ID: "other", UpdatedAt: time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)})}, "space-123", errStalePrecondition},
 	}
 	for _, tc := range cases {

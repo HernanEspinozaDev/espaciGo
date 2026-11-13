@@ -248,13 +248,17 @@ func TestLaunchWorkersRunsAllRegisteredCallbacksWhenEnabled(t *testing.T) {
 	}
 }
 func TestLaunchWorkersRejectsUnknownProfileBeforeLaunching(t *testing.T) {
-	launched := 0
-	workers := []namedWorker{{"alpha", func() { launched++ }}}
-	if err := launchWorkers(runtimeProfileName("unknown"), workers); err == nil {
-		t.Fatal("expected unknown profile rejection")
-	}
-	if launched != 0 {
-		t.Fatalf("launched %d workers for invalid profile", launched)
+	for _, profile := range []runtimeProfileName{"unknown", "local-spaces-order6"} {
+		t.Run(string(profile), func(t *testing.T) {
+			launched := 0
+			workers := []namedWorker{{"alpha", func() { launched++ }}}
+			if err := launchWorkers(profile, workers); err == nil {
+				t.Fatal("expected unregistered profile rejection")
+			}
+			if launched != 0 {
+				t.Fatalf("launched %d workers for invalid profile", launched)
+			}
+		})
 	}
 }
 
@@ -275,6 +279,57 @@ func TestRuntimeProfilePinsWizardToExactNewLocalTarget(t *testing.T) {
 		t.Fatalf("profile=%q err=%v", profile, err)
 	}
 	for key, value := range map[string]string{"DATABASE_PORT": "15434", "DATABASE_NAME": "espacigo_f5_gate_20261101", "DATABASE_USER": "postgres", "DATABASE_SET_ROLE": "postgres", "HTTP_ADDR": "127.0.0.1:18082", "DATABASE_HOST": "localhost"} {
+		t.Run(key, func(t *testing.T) {
+			changed := map[string]string{}
+			for k, v := range base {
+				changed[k] = v
+			}
+			changed[key] = value
+			if _, err := runtimeProfile(func(k string) string { return changed[k] }); err == nil {
+				t.Fatal("accepted non-target runtime configuration")
+			}
+		})
+	}
+}
+
+func TestRuntimeProfileRejectsUnregisteredSpacesOrder6BeforeReadingTarget(t *testing.T) {
+	reads := []string{}
+	getenv := func(key string) string {
+		reads = append(reads, key)
+		if key == "API_RUNTIME_PROFILE" {
+			return "local-spaces-order6"
+		}
+		return ""
+	}
+	if _, err := runtimeProfile(getenv); err == nil {
+		t.Fatal("accepted an unregistered order 6 runtime profile")
+	}
+	if len(reads) != 1 || reads[0] != "API_RUNTIME_PROFILE" {
+		t.Fatalf("read environment keys %v before rejecting the unregistered profile", reads)
+	}
+}
+
+func TestRuntimeProfilePinsSpacesOrder2ToApprovedLocalTarget(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := map[string]string{
+		"API_RUNTIME_PROFILE": "local-spaces-order2", "LOCAL_AUTH_PROTOTYPE": "1",
+		"DATABASE_CONNECTION_MODE": "direct", "DATABASE_HOST": "127.0.0.1",
+		"DATABASE_PORT": "15440", "DATABASE_NAME": "espacigo_spaces_order2_20261113",
+		"DATABASE_USER": "espacigo_api_login", "DATABASE_SET_ROLE": "espacigo_runtime",
+		"HTTP_ADDR": "127.0.0.1:18088", "M03_EVIDENCE_DIR": root,
+	}
+	profile, err := runtimeProfile(func(k string) string { return base[k] })
+	if err != nil || string(profile) != "local-spaces-order2" {
+		t.Fatalf("profile=%q err=%v", profile, err)
+	}
+	for key, value := range map[string]string{
+		"DATABASE_PORT": "15439", "DATABASE_NAME": "espacigo_wizard_20261112_order6",
+		"DATABASE_USER": "postgres", "DATABASE_SET_ROLE": "postgres",
+		"HTTP_ADDR": "127.0.0.1:18089", "DATABASE_HOST": "localhost",
+	} {
 		t.Run(key, func(t *testing.T) {
 			changed := map[string]string{}
 			for k, v := range base {

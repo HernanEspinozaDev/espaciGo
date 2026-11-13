@@ -7,7 +7,7 @@ const account = "770e8400-e29b-41d4-a716-446655440000";
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
 for (const rateUnit of ["dia", "mes"] as const) {
-  test(`@phase7 @controlled editor ${rateUnit}: conserva zona horaria y no lee ni guarda horario semanal`, async ({
+  test(`@phase7 @controlled editor ${rateUnit}: rehidrata zona horaria sin leer ni guardar horario semanal`, async ({
     page,
   }) => {
     const bff = createBffFixtureState();
@@ -18,6 +18,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
       ifMatch: string | null;
     }> = [];
     let listingEtag = '"nonhourly-listing-v1"';
+    let configuredTimeZone = "America/Santiago";
 
     await page.route("**/api/backend/**", async (route: Route) => {
       const request = route.request();
@@ -68,7 +69,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
             base_price_clp: 10000,
             address: "Av. Prueba 123",
             state: "borrador",
-            time_zone: "America/Santiago",
+            time_zone: configuredTimeZone,
             region_code: "13",
             comuna_code: "13101",
             attribute_schema_version: 1,
@@ -117,11 +118,12 @@ for (const rateUnit of ["dia", "mes"] as const) {
           body: (request.postDataJSON?.() ?? {}) as Record<string, unknown>,
           ifMatch: request.headers()["if-match"] ?? null,
         });
+        configuredTimeZone = String(writes.at(-1)?.body.time_zone);
         listingEtag = '"nonhourly-listing-v2"';
         response = {
           status: 200,
           headers: { etag: listingEtag },
-          body: { space_id: id, time_zone: "America/Santiago" },
+          body: { space_id: id, time_zone: configuredTimeZone },
         };
       } else {
         response = {
@@ -185,5 +187,18 @@ for (const rateUnit of ["dia", "mes"] as const) {
     expect(requests.some(({ path }) => path.endsWith("/weekly-hours"))).toBe(
       false,
     );
+
+    await page.reload();
+    await expect(
+      page.getByRole("heading", { name: "Espacio de prueba" }),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: /horarios/i }).click();
+    await expect(page.getByLabel(/Zona horaria/i)).toHaveValue(
+      "America/Punta_Arenas",
+    );
+    expect(requests.some(({ path }) => path.endsWith("/weekly-hours"))).toBe(
+      false,
+    );
+    expect(writes).toHaveLength(1);
   });
 }

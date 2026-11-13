@@ -7,7 +7,7 @@ import re
 import time
 from migration_job_plan import proposal as plan_proposal,SERVICE_ACCOUNT
 from migration_execution import proposal as apply_proposal,verify_execution
-from migration_release_manifest import check_plan
+from migration_release_manifest import check_plan,is_plan_report_shape
 from verify_web_backend import PROJECT,REGION,SA,UUID,require
 
 PROVISIONER=f'projects/{PROJECT}/serviceAccounts/espacigo-release-job-builder@{PROJECT}.iam.gserviceaccount.com'
@@ -87,7 +87,7 @@ def execute_job(cloud,job,r,record):
     deadline=time.monotonic()+90
     while True:
         logs=cloud.json('logging','read',query,'--limit=100')
-        reports=[x for x in logs if isinstance(x.get('jsonPayload'),dict) and (x['jsonPayload'].get('format')==wanted if wanted else set(x['jsonPayload'])=={'database','server_version','read_only','history_exists','applied','pending'})]
+        reports=[x for x in logs if isinstance(x.get('jsonPayload'),dict) and (x['jsonPayload'].get('format')==wanted if wanted else is_plan_report_shape(x['jsonPayload']))]
         if reports:break
         require(time.monotonic()<deadline,'execution succeeded but log is missing; do not replay SQL')
         time.sleep(5)

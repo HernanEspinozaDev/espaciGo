@@ -723,10 +723,7 @@ func run() error {
 	if err := validateWorkerRegistry(runtimeProfileValue, workers); err != nil {
 		return errors.New("background worker registry is invalid")
 	}
-	apiHandler := http.Handler(mux)
-	if runtimeProfileValue == runtimeProfileDocumentScanOnly {
-		apiHandler = restrictDocumentVerificationRoutes(apiHandler)
-	}
+	apiHandler := handlerForRuntimeProfile(runtimeProfileValue, mux)
 	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(localIdentityService, apiHandler, cfg.allowedOrigins...))
 	serverErrors := make(chan error, 1)
 	go func() {

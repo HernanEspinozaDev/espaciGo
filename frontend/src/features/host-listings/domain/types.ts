@@ -173,7 +173,7 @@ export interface GalleryPhoto {
   readonly mime_type: string;
   readonly sha256: string;
   readonly size_bytes: number;
-  readonly created_at: string;
+  readonly created_at?: string;
   readonly is_synthetic: boolean;
   readonly is_cover: boolean;
   readonly visible: boolean;

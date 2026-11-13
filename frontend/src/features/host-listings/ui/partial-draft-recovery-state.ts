@@ -1,13 +1,15 @@
-let pending = false;
+let pendingScope: string | null = null;
 
-export function markPartialDraftRecoveryPending(): void {
-  pending = true;
+export function markPartialDraftRecoveryPending(scope: string): void {
+  pendingScope = scope;
 }
 
-export function hasPendingPartialDraftRecovery(): boolean {
-  return pending;
+export function hasPendingPartialDraftRecovery(scope: string | null): boolean {
+  return Boolean(scope && pendingScope === scope);
 }
 
-export function clearPartialDraftRecoveryPending(): void {
-  pending = false;
+export function clearPartialDraftRecoveryPending(scope?: string): void {
+  if (scope === undefined || pendingScope === scope) {
+    pendingScope = null;
+  }
 }

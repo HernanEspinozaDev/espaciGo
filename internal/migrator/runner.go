@@ -41,6 +41,8 @@ type MigrationSummary struct {
 
 type PlanResult struct {
 	Database      string             `json:"database"`
+	SessionUser   string             `json:"session_user"`
+	CurrentUser   string             `json:"current_user"`
 	ServerVersion string             `json:"server_version"`
 	ReadOnly      bool               `json:"read_only"`
 	HistoryExists bool               `json:"history_exists"`
@@ -151,7 +153,7 @@ func planWithConn(ctx context.Context, conn *pgx.Conn, migrations []Migration, s
 		}
 	}
 	var report PlanResult
-	if err := tx.QueryRow(ctx, `SELECT current_database(), current_setting('server_version'), current_setting('transaction_read_only') = 'on'`).Scan(&report.Database, &report.ServerVersion, &report.ReadOnly); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT current_database(), session_user, current_user, current_setting('server_version'), current_setting('transaction_read_only') = 'on'`).Scan(&report.Database, &report.SessionUser, &report.CurrentUser, &report.ServerVersion, &report.ReadOnly); err != nil {
 		return PlanResult{}, errors.New("read migration plan target identity")
 	}
 	if !report.ReadOnly {

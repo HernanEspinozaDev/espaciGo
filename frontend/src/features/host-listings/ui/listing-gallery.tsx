@@ -155,11 +155,16 @@ export function ListingGallery(props: ListingGalleryProps) {
     for (const photo of photos) {
       const controller = new AbortController();
       controllers.set(photo.id, controller);
+      const variant = photo.variants?.some((item) => item.name === "thumbnail")
+        ? "thumbnail"
+        : photo.variants?.some((item) => item.name === "display")
+          ? "display"
+          : "thumbnail";
       void loadPhotoVariant(
         token,
         listingId,
         photo.id,
-        "thumbnail",
+        variant,
         controller.signal,
       )
         .then((blob) => {

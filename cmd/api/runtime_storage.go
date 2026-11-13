@@ -136,6 +136,9 @@ func newRuntimeMediaStore(ctx context.Context, getenv func(string) string, evide
 		}
 		return mediafs.New(filepath.Join(evidenceRoot, "private-media"))
 	case "gcs":
+		if mediaBucket := strings.TrimSpace(getenv("CLOUD_STORAGE_MEDIA_BUCKET")); mediaBucket != "" {
+			bucket = mediaBucket
+		}
 		return cloudstorage.NewMediaStore(ctx, bucket)
 	default:
 		return nil, errors.New("media storage configuration is invalid")

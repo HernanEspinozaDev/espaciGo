@@ -50,6 +50,7 @@ const labels: Record<QueueItem["state"], string> = {
   ready: "Completada",
   failed:
     "Carga sin confirmar; consulta el resultado o reintenta explícitamente",
+  rejected: "Imagen rechazada. Selecciona otro archivo.",
   cancelled: "Cancelada antes del envío",
 };
 
@@ -67,13 +68,19 @@ export function GalleryUploadBatch({
   allowInitialCover,
 }: GalleryUploadBatchProps) {
   const queue = useRef<GalleryUploadQueue | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<readonly QueueItem[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
   const initialCoverTask = useRef<string | null>(null);
   const coverAttempted = useRef(false);
   const unresolved = items.some(
-    (item) => item.state !== "ready" && item.state !== "cancelled",
+    (item) =>
+      item.state !== "ready" &&
+      item.state !== "rejected" &&
+      item.state !== "cancelled",
   );
+  const queueDisabled = disabled || unresolved || photoCount >= 30;
   const completed = items.filter((item) => item.state === "ready").length;
   useEffect(() => {
     let alive = true;
@@ -108,7 +115,10 @@ export function GalleryUploadBatch({
         setItems(snapshot);
         onBusyChange(
           snapshot.some(
-            (item) => item.state !== "ready" && item.state !== "cancelled",
+            (item) =>
+              item.state !== "ready" &&
+              item.state !== "rejected" &&
+              item.state !== "cancelled",
           ),
         );
       },
@@ -131,59 +141,113 @@ export function GalleryUploadBatch({
     onCoverUncertain,
   ]);
 
+  function enqueueFiles(files: readonly File[]): void {
+    const currentQueue = queue.current;
+    if (queueDisabled || !currentQueue || files.length === 0) return;
+    setError(null);
+    if (photoCount + files.length > 30) {
+      setError(
+        "La galería admite hasta 30 fotografías, incluidas las cargas en curso.",
+      );
+      return;
+    }
+    if (
+      files.some(
+        (file) =>
+          PHOTO_MIME_BY_EXTENSION[
+            file.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? ""
+          ] !== file.type || file.size > 10 * 1024 * 1024,
+      )
+    ) {
+      setError("Usa imágenes JPG, PNG o WebP de hasta 10 MiB.");
+      return;
+    }
+    currentQueue.enqueue(
+      files.map((file, index) => {
+        const task = {
+          id: crypto.randomUUID(),
+          file,
+          key: crypto.randomUUID(),
+        };
+        if (allowInitialCover && index === 0) {
+          initialCoverTask.current = task.id;
+          coverAttempted.current = false;
+        }
+        return task;
+      }),
+    );
+  }
+
   return (
     <section aria-label="Cola de carga de fotografías" className="space-y-3">
       <label className="text-sm font-medium">
         Subir fotografías
         <input
+          ref={fileInput}
           id="gallery-photo-upload"
           aria-label="Subir fotografías"
           aria-describedby="gallery-upload-help"
           type="file"
           multiple
           accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-          disabled={disabled || unresolved || photoCount >= 30}
+          disabled={queueDisabled}
           className="mt-2 block min-h-11 max-w-full text-sm"
           onChange={(event) => {
             const files = Array.from(event.currentTarget.files ?? []);
             event.currentTarget.value = "";
-            setError(null);
-            if (disabled || unresolved || !queue.current) return;
-            if (photoCount + files.length > 30) {
-              setError(
-                "La galería admite hasta 30 fotografías, incluidas las cargas en curso.",
-              );
-              return;
-            }
-            if (
-              files.some(
-                (file) =>
-                  PHOTO_MIME_BY_EXTENSION[
-                    file.name.match(/\.[^.]+$/)?.[0].toLowerCase() ?? ""
-                  ] !== file.type || file.size > 10 * 1024 * 1024,
-              )
-            ) {
-              setError("Usa imágenes JPG, PNG o WebP de hasta 10 MiB.");
-              return;
-            }
-            queue.current.enqueue(
-              files
-                .map((file) => ({
-                  id: crypto.randomUUID(),
-                  file,
-                  key: crypto.randomUUID(),
-                }))
-                .map((task, index) => {
-                  if (allowInitialCover && index === 0) {
-                    initialCoverTask.current = task.id;
-                    coverAttempted.current = false;
-                  }
-                  return task;
-                }),
-            );
+            enqueueFiles(files);
           }}
         />
       </label>
+      <div
+        data-testid="gallery-dropzone-surface"
+        className="w-full"
+        onDragEnter={(event) => {
+          if (
+            Array.from(event.dataTransfer.types).includes("Files") &&
+            !queueDisabled
+          )
+            setDragActive(true);
+        }}
+        onDragOver={(event) => {
+          if (!Array.from(event.dataTransfer.types).includes("Files")) {
+            setDragActive(false);
+            return;
+          }
+          event.preventDefault();
+          if (queueDisabled) {
+            event.dataTransfer.dropEffect = "none";
+            setDragActive(false);
+            return;
+          }
+          event.dataTransfer.dropEffect = "copy";
+          setDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+            setDragActive(false);
+        }}
+        onDrop={(event) => {
+          setDragActive(false);
+          // Prevent dropped content from navigating away, including non-files.
+          event.preventDefault();
+          if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+          enqueueFiles(Array.from(event.dataTransfer.files));
+        }}
+      >
+        <button
+          type="button"
+          data-testid="gallery-dropzone"
+          data-drag-active={dragActive}
+          aria-describedby="gallery-upload-help"
+          aria-controls="gallery-photo-upload"
+          disabled={queueDisabled}
+          onClick={() => fileInput.current?.click()}
+          className={`block w-full rounded-lg border-2 border-dashed p-4 text-center text-sm text-muted-foreground ${queueDisabled ? "pointer-events-none" : ""} ${dragActive ? "border-primary bg-primary/5" : "border-border"}`}
+        >
+          Arrastra fotografías aquí o utiliza el selector de archivos.
+        </button>
+      </div>
       <p id="gallery-upload-help" className="text-xs text-muted-foreground">
         La galería admite hasta 30 fotografías. JPG, PNG o WebP; hasta 10 MiB
         por imagen.
@@ -256,7 +320,9 @@ export function GalleryUploadBatch({
                     className="min-h-11"
                     onClick={() => queue.current?.discard(item.id)}
                   >
-                    Descartar carga fallida
+                    {item.state === "rejected"
+                      ? "Quitar archivo rechazado"
+                      : "Descartar carga fallida"}
                   </Button>
                 )}
               </li>

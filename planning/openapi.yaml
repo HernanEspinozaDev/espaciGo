@@ -1366,7 +1366,7 @@ paths:
       operationId: getPublishedSpaceMediaVariant
       security: []
       tags: [Public catalog]
-      description: Revalida elegibilidad pública del espacio, visibilidad explícita de la foto y estado ready. Solo display/thumbnail WebP; responde con caché de 60 segundos para limitar la ventana de revocación y no revela claves internas.
+      description: Revalida elegibilidad pública del espacio, visibilidad explícita de la foto y estado ready en cada solicitud. Solo display/thumbnail WebP con Cache-Control no-store; no revela claves internas.
       parameters:
         - {
             in: path,
@@ -3856,6 +3856,15 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
+        "413":
+          {
+            description: La imagen o el cuerpo multipart supera el tamaño permitido; la operación no se reserva.,
+            content:
+              {
+                application/json:
+                  { schema: { $ref: "#/components/schemas/Error" } },
+              },
+          }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
         "503":
           {
@@ -10048,7 +10057,7 @@ components:
       additionalProperties: false
       required: [name, url, mime_type, size_bytes, sha256, width, height]
       properties:
-        name: { type: string, enum: [display, thumbnail, avatar] }
+        name: { type: string, enum: [display, thumbnail] }
         url: { type: string, format: uri-reference }
         mime_type: { type: string, const: image/webp }
         size_bytes: { type: integer, minimum: 1, maximum: 10485760 }

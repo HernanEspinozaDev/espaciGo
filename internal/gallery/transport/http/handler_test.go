@@ -398,6 +398,122 @@ func TestAssembledRouterKeepsSpaceRoutesAndChecksGalleryErrors(t *testing.T) {
 	}
 }
 
+type galleryListMediaRepoStub struct {
+	media.Repository
+	owner  string
+	space  string
+	photos []media.Photo
+	err    error
+}
+
+func (r *galleryListMediaRepoStub) ListSpace(_ context.Context, owner, spaceID string) ([]media.Photo, error) {
+	r.owner = owner
+	r.space = spaceID
+	return append([]media.Photo(nil), r.photos...), r.err
+}
+
+func TestGalleryListMergesSyntheticAndRealMediaInPositionOrder(t *testing.T) {
+	const realPhotoID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
+
+	spaceRepo := &repoStub{
+		items:       []gallery.Photo{{ID: testPhoto, Position: 2}},
+		idempotency: map[string]gallery.Photo{},
+	}
+	spaceService, err := gallery.NewService(spaceRepo, &filesStub{items: map[string][]byte{}}, idsStub{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaRepo := &galleryListMediaRepoStub{photos: []media.Photo{{
+		ID:       realPhotoID,
+		SpaceID:  testSpace,
+		Position: 1,
+		State:    "ready",
+		Variants: []media.Variant{{Name: media.VariantDisplay}},
+	}}}
+	mediaService, err := media.NewService(mediaRepo, &replacementObjectStoreStub{}, replacementIDsStub{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandlerWithMedia(authStub{}, spaceService, mediaService, nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+testSpace+"/gallery", nil)
+	request.Header.Set("Authorization", "Bearer synthetic-test-token")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	var body struct {
+		Items []struct {
+			ID       string          `json:"id"`
+			Position int             `json:"position"`
+			Variants []media.Variant `json:"variants"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode list response: %v; body=%s", err, response.Body.String())
+	}
+	if response.Code != http.StatusOK || len(body.Items) != 2 {
+		t.Fatalf("status=%d items=%+v body=%s", response.Code, body.Items, response.Body.String())
+	}
+	if mediaRepo.owner != testOwner || mediaRepo.space != testSpace {
+		t.Fatalf("media list scope owner=%q space=%q; want %q/%q", mediaRepo.owner, mediaRepo.space, testOwner, testSpace)
+	}
+	if body.Items[0].ID != realPhotoID || body.Items[0].Position != 1 || body.Items[1].ID != testPhoto || body.Items[1].Position != 2 {
+		t.Fatalf("gallery order=%+v; want real photo at 1 then synthetic photo at 2", body.Items)
+	}
+	if len(body.Items[0].Variants) != 1 || body.Items[0].Variants[0].URL != "/api/v1/spaces/"+testSpace+"/gallery/"+realPhotoID+"/variants/display" {
+		t.Fatalf("real media variant URL=%+v", body.Items[0].Variants)
+	}
+}
+
+func TestGalleryListFailsClosedWhenRealMediaListingFails(t *testing.T) {
+	const realPhotoID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+	now := func() time.Time { return time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC) }
+
+	spaceService, err := gallery.NewService(&repoStub{
+		items:       []gallery.Photo{{ID: testPhoto, Position: 1}},
+		idempotency: map[string]gallery.Photo{},
+	}, &filesStub{items: map[string][]byte{}}, idsStub{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaRepo := &galleryListMediaRepoStub{
+		photos: []media.Photo{{ID: realPhotoID, SpaceID: testSpace, Position: 2, State: "ready"}},
+		err:    context.DeadlineExceeded,
+	}
+	mediaService, err := media.NewService(mediaRepo, &replacementObjectStoreStub{}, replacementIDsStub{}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandlerWithMedia(authStub{}, spaceService, mediaService, nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+testSpace+"/gallery", nil)
+	request.Header.Set("Authorization", "Bearer synthetic-test-token")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	var body struct {
+		Error struct {
+			Code      string `json:"code"`
+			Message   string `json:"message"`
+			RequestID string `json:"request_id"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode error response: %v; body=%s", err, response.Body.String())
+	}
+	if response.Code != http.StatusServiceUnavailable || body.Error.Code != "media_unavailable" {
+		t.Fatalf("status=%d code=%q body=%s; want 503 media_unavailable", response.Code, body.Error.Code, response.Body.String())
+	}
+	if body.Error.RequestID == "" || body.Error.RequestID != response.Header().Get("X-Request-ID") {
+		t.Fatalf("request id body=%q header=%q", body.Error.RequestID, response.Header().Get("X-Request-ID"))
+	}
+	if strings.Contains(response.Body.String(), testPhoto) || strings.Contains(response.Body.String(), realPhotoID) || strings.Contains(response.Body.String(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("partial gallery or internal error leaked in response: %s", response.Body.String())
+	}
+	if mediaRepo.owner != testOwner || mediaRepo.space != testSpace {
+		t.Fatalf("media list scope owner=%q space=%q; want %q/%q", mediaRepo.owner, mediaRepo.space, testOwner, testSpace)
+	}
+}
+
 const replacementAssetID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 
 type replacementIDsStub struct{}
@@ -586,6 +702,99 @@ func TestUploadDuplicatePendingReturnsAcceptedState(t *testing.T) {
 	}
 	if response.Code != http.StatusAccepted || response.Header().Get("Retry-After") != "2" || !result.Reused || result.Photo.State != "pending" {
 		t.Fatalf("pending upload status=%d retry-after=%q body=%s", response.Code, response.Header().Get("Retry-After"), response.Body.String())
+	}
+}
+
+func TestUploadSpaceCreatesReadyPhotoThroughHTTPHandler(t *testing.T) {
+	imageBytes, err := verification.SyntheticPNG()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	handler, repo, objectStore := newReplacementHandlerForTest(t, now)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("image", "synthetic.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(imageBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/spaces/"+testSpace+"/gallery", &body)
+	request.Header.Set("Authorization", "Bearer synthetic-test-token")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Idempotency-Key", "synthetic-initial-upload-01")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	var result struct {
+		Photo  media.Photo `json:"photo"`
+		Reused bool        `json:"reused"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode upload response: %v body=%s", err, response.Body.String())
+	}
+	if response.Code != http.StatusCreated || response.Header().Get("Cache-Control") != "no-store" || result.Reused || result.Photo.ID != replacementAssetID || result.Photo.SpaceID != testSpace || result.Photo.State != "ready" || len(result.Photo.Variants) != 2 {
+		t.Fatalf("upload status=%d cache=%q reused=%t photo=%+v body=%s", response.Code, response.Header().Get("Cache-Control"), result.Reused, result.Photo, response.Body.String())
+	}
+	if repo.reserveCalls != 1 || repo.key != "synthetic-initial-upload-01" || repo.purpose != media.PurposeSpace || repo.targetID != "" || repo.reserveRevision != "" || repo.planCalls != 2 || repo.finalizeCalls != 1 || len(repo.recordedVariants) != 2 || objectStore.putCalls != 2 {
+		t.Fatalf("upload interactions reserve=%d key=%q purpose=%q target=%q revision=%q plan=%d finalize=%d record=%d puts=%d", repo.reserveCalls, repo.key, repo.purpose, repo.targetID, repo.reserveRevision, repo.planCalls, repo.finalizeCalls, len(repo.recordedVariants), objectStore.putCalls)
+	}
+	for index, name := range []media.VariantName{media.VariantDisplay, media.VariantThumbnail} {
+		variant := result.Photo.Variants[index]
+		wantURL := "/api/v1/spaces/" + testSpace + "/gallery/" + replacementAssetID + "/variants/" + string(name)
+		if variant.Name != name || variant.MIME != "image/webp" || variant.URL != wantURL {
+			t.Errorf("response variant[%d]=%+v, want name=%s MIME=image/webp URL=%s", index, variant, name, wantURL)
+		}
+	}
+}
+
+func TestUploadSpaceMapsGalleryLimitBeforeWritingObjects(t *testing.T) {
+	imageBytes, err := verification.SyntheticPNG()
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	handler, repo, objectStore := newReplacementHandlerForTest(t, now)
+	repo.reserveErr = media.ErrLimit
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("image", "synthetic.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(imageBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/spaces/"+testSpace+"/gallery", &body)
+	request.Header.Set("Authorization", "Bearer synthetic-test-token")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Idempotency-Key", "synthetic-gallery-limit-01")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	var result struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode limit response: %v body=%s", err, response.Body.String())
+	}
+	if response.Code != http.StatusConflict || result.Error.Code != "gallery_limit" {
+		t.Fatalf("status=%d code=%q body=%s; want 409 gallery_limit", response.Code, result.Error.Code, response.Body.String())
+	}
+	if repo.reserveCalls != 1 || repo.planCalls != 0 || repo.finalizeCalls != 0 || objectStore.putCalls != 0 {
+		t.Fatalf("limit path reserve=%d plan=%d finalize=%d puts=%d; want reserve only", repo.reserveCalls, repo.planCalls, repo.finalizeCalls, objectStore.putCalls)
 	}
 }
 
@@ -949,5 +1158,125 @@ func TestReplacementRequiresStrongIfMatchBeforeReadingUpload(t *testing.T) {
 				t.Fatalf("status=%d code=%q body=%s; want status=%d code=%q", w.Code, body.Error.Code, w.Body.String(), tc.wantStatus, tc.wantCode)
 			}
 		})
+	}
+}
+
+type variantReadRepositoryStub struct {
+	media.Repository
+	photo          media.Photo
+	variant        media.Variant
+	getSpaceErr    error
+	getVariantErr  error
+	getSpaceArgs   []string
+	getVariantArgs []string
+}
+
+func (r *variantReadRepositoryStub) GetSpace(_ context.Context, owner, spaceID, photoID string) (media.Photo, error) {
+	r.getSpaceArgs = []string{owner, spaceID, photoID}
+	return r.photo, r.getSpaceErr
+}
+
+func (r *variantReadRepositoryStub) GetVariant(_ context.Context, owner, photoID, name string) (media.Variant, error) {
+	r.getVariantArgs = []string{owner, photoID, name}
+	return r.variant, r.getVariantErr
+}
+
+type variantReadObjectStoreStub struct {
+	media.ObjectStore
+	body       []byte
+	objectKey  string
+	generation int64
+	getCalls   int
+}
+
+func (s *variantReadObjectStoreStub) Get(_ context.Context, objectKey string, generation int64) ([]byte, error) {
+	s.getCalls++
+	s.objectKey = objectKey
+	s.generation = generation
+	return append([]byte(nil), s.body...), nil
+}
+
+func TestVariantRouteServesPrivateMediaVariantAndRejectsUnsupportedName(t *testing.T) {
+	body := []byte("synthetic webp variant bytes")
+	digest := sha256.Sum256(body)
+	checksum := hex.EncodeToString(digest[:])
+	const objectKey = "private/synthetic/thumbnail.webp"
+	const generation = int64(7)
+	mediaRepo := &variantReadRepositoryStub{
+		photo: media.Photo{ID: testPhoto, SpaceID: testSpace, OwnerID: testOwner, State: "ready"},
+		variant: media.Variant{
+			Name: media.VariantThumbnail, MIME: "image/webp", Size: int64(len(body)),
+			SHA256: checksum, ObjectKey: objectKey, Generation: generation,
+		},
+	}
+	store := &variantReadObjectStoreStub{body: body}
+	mediaService, err := media.NewService(mediaRepo, store, replacementIDsStub{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	galleryService, err := gallery.NewService(&repoStub{idempotency: map[string]gallery.Photo{}}, &filesStub{items: map[string][]byte{}}, idsStub{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandlerWithMedia(authStub{}, galleryService, mediaService, nil)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+testSpace+"/gallery/"+testPhoto+"/variants/thumbnail", nil)
+	request.Header.Set("Authorization", "Bearer synthetic-test-token")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != string(body) {
+		t.Fatalf("variant response status=%d body=%q", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Content-Type") != "image/webp" || response.Header().Get("Cache-Control") != "private, no-store" || response.Header().Get("X-Content-Type-Options") != "nosniff" || response.Header().Get("X-Content-SHA256") != checksum {
+		t.Fatalf("variant response headers=%v", response.Header())
+	}
+	if len(mediaRepo.getSpaceArgs) != 3 || mediaRepo.getSpaceArgs[0] != testOwner || mediaRepo.getSpaceArgs[1] != testSpace || mediaRepo.getSpaceArgs[2] != testPhoto {
+		t.Fatalf("space repository scope=%v", mediaRepo.getSpaceArgs)
+	}
+	if len(mediaRepo.getVariantArgs) != 3 || mediaRepo.getVariantArgs[0] != testOwner || mediaRepo.getVariantArgs[1] != testPhoto || mediaRepo.getVariantArgs[2] != string(media.VariantThumbnail) {
+		t.Fatalf("variant repository scope=%v", mediaRepo.getVariantArgs)
+	}
+	if store.getCalls != 1 || store.objectKey != objectKey || store.generation != generation {
+		t.Fatalf("object read calls=%d key=%q generation=%d", store.getCalls, store.objectKey, store.generation)
+	}
+
+	unsupported := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+testSpace+"/gallery/"+testPhoto+"/variants/avatar", nil)
+	unsupported.Header.Set("Authorization", "Bearer synthetic-test-token")
+	unsupportedResponse := httptest.NewRecorder()
+	handler.ServeHTTP(unsupportedResponse, unsupported)
+	if unsupportedResponse.Code != http.StatusNotFound || store.getCalls != 1 {
+		t.Fatalf("unsupported variant status=%d object reads=%d", unsupportedResponse.Code, store.getCalls)
+	}
+}
+
+func TestVariantRouteDoesNotReadObjectWhenSpaceScopedPhotoIsUnavailable(t *testing.T) {
+	const objectBody = "private bytes must not be fetched"
+	mediaRepo := &variantReadRepositoryStub{getSpaceErr: media.ErrNotFound}
+	store := &variantReadObjectStoreStub{body: []byte(objectBody)}
+	mediaService, err := media.NewService(mediaRepo, store, replacementIDsStub{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	galleryService, err := gallery.NewService(&repoStub{idempotency: map[string]gallery.Photo{}}, &filesStub{items: map[string][]byte{}}, idsStub{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandlerWithMedia(authStub{}, galleryService, mediaService, nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+testSpace+"/gallery/"+testPhoto+"/variants/thumbnail", nil)
+	request.Header.Set("Authorization", "Bearer synthetic-test-token")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"code":"not_found"`) {
+		t.Fatalf("status=%d body=%s; want 404 not_found", response.Code, response.Body.String())
+	}
+	if len(mediaRepo.getSpaceArgs) != 3 || mediaRepo.getSpaceArgs[0] != testOwner || mediaRepo.getSpaceArgs[1] != testSpace || mediaRepo.getSpaceArgs[2] != testPhoto {
+		t.Fatalf("space repository scope=%v", mediaRepo.getSpaceArgs)
+	}
+	if len(mediaRepo.getVariantArgs) != 0 || store.getCalls != 0 {
+		t.Fatalf("variant lookup args=%v object reads=%d; want neither after scoped photo miss", mediaRepo.getVariantArgs, store.getCalls)
+	}
+	if strings.Contains(response.Body.String(), objectBody) {
+		t.Fatalf("private object bytes leaked in error response: %s", response.Body.String())
 	}
 }

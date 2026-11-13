@@ -18,6 +18,7 @@ const (
 	runtimeProfileStandard         runtimeProfileName = "standard"
 	runtimeProfileWorkerFree       runtimeProfileName = "local-http-worker-free"
 	runtimeProfileWizardLocal      runtimeProfileName = "local-space-wizard"
+	runtimeProfileSpacesOrder2     runtimeProfileName = "local-spaces-order2"
 	runtimeProfileDocumentScanOnly runtimeProfileName = "local-document-scan-only"
 	documentScanAPIAddr                               = "127.0.0.1:18082"
 )
@@ -30,7 +31,7 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 	switch runtimeProfileName(p) {
 	case runtimeProfileStandard:
 		return runtimeProfileStandard, nil
-	case runtimeProfileWorkerFree, runtimeProfileWizardLocal, runtimeProfileDocumentScanOnly:
+	case runtimeProfileWorkerFree, runtimeProfileWizardLocal, runtimeProfileSpacesOrder2, runtimeProfileDocumentScanOnly:
 		if getenv("LOCAL_AUTH_PROTOTYPE") != "1" {
 			return "", errors.New("local-http-worker-free requires LOCAL_AUTH_PROTOTYPE=1")
 		}
@@ -74,6 +75,10 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 			if !isAuthorizedWizardRuntime(getenv, httpAddr) {
 				return "", errors.New("local-space-wizard requires the exact isolated wizard target")
 			}
+		} else if profile == runtimeProfileSpacesOrder2 {
+			if !isAuthorizedSpacesOrder2Runtime(getenv, httpAddr) {
+				return "", errors.New("local-spaces-order2 requires the exact approved isolated target")
+			}
 		} else if !isAuthorizedF5Runtime(getenv, httpAddr) {
 			return "", errors.New("local worker profile requires the authorized F5 loopback API and least-privilege database target")
 		}
@@ -94,12 +99,16 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 		}
 		return profile, nil
 	default:
-		return "", errors.New("API_RUNTIME_PROFILE must be standard, local-http-worker-free, local-space-wizard, or local-document-scan-only")
+		return "", errors.New("API_RUNTIME_PROFILE must be standard, local-http-worker-free, local-space-wizard, local-spaces-order2, or local-document-scan-only")
 	}
 }
 
 func isAuthorizedWizardRuntime(getenv func(string) string, httpAddr string) bool {
 	return getenv("DATABASE_HOST") == "127.0.0.1" && getenv("DATABASE_PORT") == "15436" && getenv("DATABASE_NAME") == "espacigo_wizard_20261106" && getenv("DATABASE_USER") == "espacigo_api_login" && getenv("DATABASE_SET_ROLE") == "espacigo_runtime" && httpAddr == "127.0.0.1:18086"
+}
+
+func isAuthorizedSpacesOrder2Runtime(getenv func(string) string, httpAddr string) bool {
+	return getenv("DATABASE_HOST") == "127.0.0.1" && getenv("DATABASE_PORT") == "15440" && getenv("DATABASE_NAME") == "espacigo_spaces_order2_20261113" && getenv("DATABASE_USER") == "espacigo_api_login" && getenv("DATABASE_SET_ROLE") == "espacigo_runtime" && httpAddr == "127.0.0.1:18088"
 }
 
 func isAuthorizedF5Runtime(getenv func(string) string, httpAddr string) bool {
@@ -176,13 +185,73 @@ func isOwnerDocumentDownloadPath(path string) bool {
 		documentverification.ValidateID(parts[7]) == nil && parts[8] == "content"
 }
 
+func spacesOrder2RouteAllowed(method, path string) bool {
+	if method == http.MethodGet && (path == "/health/live" || path == "/health/ready" || path == "/openapi.yaml") {
+		return true
+	}
+	if method == http.MethodGet && path == "/api/v1/auth/terms" ||
+		method == http.MethodPost && (path == "/api/v1/auth/login" || path == "/api/v1/auth/logout") ||
+		method == http.MethodGet && path == "/api/v1/auth/session" {
+		return true
+	}
+	if method == http.MethodGet && (path == "/api/v1/spaces" || path == "/api/v1/spaces/") {
+		return true
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 5 || parts[1] != "api" || parts[2] != "v1" || parts[3] != "spaces" || documentverification.ValidateID(parts[4]) != nil {
+		return false
+	}
+	if len(parts) == 5 {
+		// The owner draft read supplies the ETag used by order-2 settings edits.
+		return method == http.MethodGet
+	}
+	if len(parts) == 6 && parts[5] == "availability" {
+		return method == http.MethodGet || method == http.MethodPut
+	}
+	if len(parts) == 6 && parts[5] == "weekly-hours" {
+		return method == http.MethodGet || method == http.MethodPut
+	}
+	if len(parts) == 7 && parts[5] == "availability" && parts[6] == "timezone" {
+		return method == http.MethodGet
+	}
+	if len(parts) == 7 && parts[5] == "availability" && parts[6] == "blocks" {
+		return method == http.MethodGet || method == http.MethodPost
+	}
+	if len(parts) == 8 && parts[5] == "availability" && parts[6] == "blocks" &&
+		documentverification.ValidateID(parts[7]) == nil {
+		return method == http.MethodDelete
+	}
+	return false
+}
+
+func restrictSpacesOrder2Routes(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !spacesOrder2RouteAllowed(r.Method, r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func handlerForRuntimeProfile(profile runtimeProfileName, handler http.Handler) http.Handler {
+	switch profile {
+	case runtimeProfileDocumentScanOnly:
+		return restrictDocumentVerificationRoutes(handler)
+	case runtimeProfileSpacesOrder2:
+		return restrictSpacesOrder2Routes(handler)
+	default:
+		return handler
+	}
+}
+
 type namedWorker struct {
 	name   string
 	launch func()
 }
 
 func validateWorkerRegistry(profile runtimeProfileName, workers []namedWorker) error {
-	if profile != runtimeProfileStandard && profile != runtimeProfileWorkerFree && profile != runtimeProfileWizardLocal && profile != runtimeProfileDocumentScanOnly {
+	if profile != runtimeProfileStandard && profile != runtimeProfileWorkerFree && profile != runtimeProfileWizardLocal && profile != runtimeProfileSpacesOrder2 && profile != runtimeProfileDocumentScanOnly {
 		return errors.New("invalid runtime profile for background workers")
 	}
 	documentScanWorkers := 0
@@ -211,7 +280,7 @@ func launchWorkers(profile runtimeProfileName, workers []namedWorker) error {
 	if err := validateWorkerRegistry(profile, workers); err != nil {
 		return err
 	}
-	if profile == runtimeProfileWorkerFree || profile == runtimeProfileWizardLocal {
+	if profile == runtimeProfileWorkerFree || profile == runtimeProfileWizardLocal || profile == runtimeProfileSpacesOrder2 {
 		return nil
 	}
 	for _, worker := range workers {

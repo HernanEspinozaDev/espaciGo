@@ -81,6 +81,7 @@ export function ListingWizard() {
     accessToken,
     getAccessToken,
   } = useAuth();
+  const recoveryScope = authFacade.getSessionIdentityScope();
   const {
     snapshot,
     loadCategories,
@@ -99,7 +100,9 @@ export function ListingWizard() {
     id: string | null;
     accountId: string | null;
   } | null>(() =>
-    hasPendingPartialDraftRecovery() ? { id: null, accountId: null } : null,
+    hasPendingPartialDraftRecovery(recoveryScope)
+      ? { id: null, accountId: null }
+      : null,
   );
   const [, startTransition] = useTransition();
 
@@ -366,7 +369,11 @@ export function ListingWizard() {
 
   const handleCreateDraft = async () => {
     if (isSubmitting || partialDraft) return;
-    if (authSnapshot.status !== "authenticated" || !accessToken) {
+    if (
+      authSnapshot.status !== "authenticated" ||
+      !accessToken ||
+      !recoveryScope
+    ) {
       setStepError("Sesión no disponible. Inicia sesión nuevamente.");
       return;
     }
@@ -421,7 +428,7 @@ export function ListingWizard() {
     try {
       const created = await createDraft(accessToken, draftPayload);
       createdDraftId = created.id;
-      markPartialDraftRecoveryPending();
+      markPartialDraftRecoveryPending(recoveryScope);
 
       if (!authSnapshot.roles.includes("arrendador")) {
         await checkSession().catch(() => false);

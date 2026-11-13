@@ -1,0 +1,885 @@
+{
+  "format": "espacigo.spaces-main-preparation.v1",
+  "source_root": "/home/nandev/Documentos/projects/espaciGo-spaces-wizard-recovery",
+  "candidate_root": "/home/nandev/Documentos/projects/espaciGo-spaces-main-preparation",
+  "candidate_branch": "codex/marketplace/chore/spaces-main-preparation",
+  "base_head": "647cd491985d619370990d3f226b5df61e36b42b",
+  "origin_main": "5830c9ce2dc61d4df13a4139da984b4cafd6d9ba",
+  "copied_count": 91,
+  "copied_files": [
+    {
+      "path": "cmd/api/config.go",
+      "sha256": "4bbd430db73ddc9b273edfed049b880553f9a1900362a1045140b34a23b030ae"
+    },
+    {
+      "path": "cmd/api/main.go",
+      "sha256": "e1703f8668a7160ec1857b4b3068f782b9772aa8abf0d2d4d32060a0f5824916"
+    },
+    {
+      "path": "cmd/api/runtime_storage.go",
+      "sha256": "c5c7313b0d94fc8a26302831089da77321897a7c20a3ac2b3712e930e8997a95"
+    },
+    {
+      "path": "cmd/api/worker_profile.go",
+      "sha256": "c0df1d37d0771b34fe934573722456e7a9251a0854bca99754c98b6cb10d2899"
+    },
+    {
+      "path": "cmd/api/worker_profile_order2_config_test.go",
+      "sha256": "891e0a9c9f5cc4fd934c711080a16166002f982029f8d4981a71aebce534b819"
+    },
+    {
+      "path": "cmd/api/worker_profile_order2_routes_test.go",
+      "sha256": "16e9ac59b333bf340ea88cbf522a325b21e1e52f4e719be8122a24fb14c628e8"
+    },
+    {
+      "path": "cmd/api/worker_profile_order2_test.go",
+      "sha256": "4b20e4f305a2bd084ae25f71a5afdc37911c741af2f81cce697b879318fb3e26"
+    },
+    {
+      "path": "cmd/api/worker_profile_test.go",
+      "sha256": "06d582488f73a71971251090ecd741ab57f65fb325c534bf0edcd9893a8163e2"
+    },
+    {
+      "path": "cmd/dbmigrate/spaces_order2_snapshot.go",
+      "sha256": "c6a31b15cd0c6d61594750c79c67f87b6832bc01a29809a4b71c1f96a1a326b3"
+    },
+    {
+      "path": "cmd/dbmigrate/spaces_order2_snapshot_test.go",
+      "sha256": "0f092490d19dc7faf88a8e2dc0f09299ef8b99a225ca0df243aeaf5448a35508"
+    },
+    {
+      "path": "frontend/package.json",
+      "sha256": "7c3ad77176f8927446c181c04784d4dcdc0b9e0b21d95674b69a4784f9834629"
+    },
+    {
+      "path": "frontend/playwright.config.ts",
+      "sha256": "d8ee7107ff6bfe0bcebb8f9384e6a6c5b5654a5aa9743f98eaf2c318a1503f8d"
+    },
+    {
+      "path": "frontend/playwright.public-gallery.config.ts",
+      "sha256": "ec54132a73ccab2f09f374c86d6c00dcc0c879ad4d554bd2a11e0e38d31d8875"
+    },
+    {
+      "path": "frontend/src/app/(workspace)/mi-cuenta/verificaciones/page.tsx",
+      "sha256": "7994a1a5445ce08ec314dc61de0b6436ab15deeccfe08189b2612dde6f4c274e"
+    },
+    {
+      "path": "frontend/src/features/host-listings/application/gallery-upload-queue.ts",
+      "sha256": "6408b81e335ad4809b1303a402d3d82cb58bb917c8ebdecd30f7118964a56abf"
+    },
+    {
+      "path": "frontend/src/features/host-listings/domain/types.ts",
+      "sha256": "5c9a061cb8ff37e41b7dd6ade5a6ad347c5a690d5c697a7cd27425eac6f5e9da"
+    },
+    {
+      "path": "frontend/src/features/host-listings/domain/validation.ts",
+      "sha256": "0eda6fba934a126f658621ba3b83d320204c8f6ce5054fadea56ea018c58cdaf"
+    },
+    {
+      "path": "frontend/src/features/host-listings/infrastructure/host-listings-openapi-adapter.ts",
+      "sha256": "5b25ed4bb7a472649bf6b559e4f6b4fe12bbca1ecb46085fa4694d6507137454"
+    },
+    {
+      "path": "frontend/src/features/host-listings/ui/gallery-upload-batch.tsx",
+      "sha256": "ade37f3ecdf16f4fd40c72fad70b6fdd13ecc5e5c7e3632ab32551947b4e9a21"
+    },
+    {
+      "path": "frontend/src/features/host-listings/ui/host-listings-list.tsx",
+      "sha256": "6cb6d1ea32c754d27678faa11bab6a3bebb6daacaff8abe1c5bef07ff5b4bb05"
+    },
+    {
+      "path": "frontend/src/features/host-listings/ui/listing-editor.tsx",
+      "sha256": "d76c31b6447afa837f1c54c85c96bc62fb1f90fa613cd1d0510288431b6327b6"
+    },
+    {
+      "path": "frontend/src/features/host-listings/ui/listing-gallery.tsx",
+      "sha256": "3e8b9481f144575f38daaf4c865f489a08386227f7685786cb2eb1e9676ccc4d"
+    },
+    {
+      "path": "frontend/src/features/public-catalog/domain/media.ts",
+      "sha256": "8b07f6d3796aec33d8ebee47de87743f9b56ea96201c436bad6ca6f9bfdd1436"
+    },
+    {
+      "path": "frontend/src/features/public-catalog/infrastructure/go-public-catalog-adapter.ts",
+      "sha256": "17295290c07295917ca3c942919e685e3cf3360294a34b60f3dd443cfc42eb84"
+    },
+    {
+      "path": "frontend/src/lib/api/generated/openapi.d.ts",
+      "sha256": "15264fa01532144c7f1e39f0ce5787823dfc9cd0a16b8b5deea5c38ff48f1183"
+    },
+    {
+      "path": "frontend/tests/auth-shell-ux.spec.ts",
+      "sha256": "0a204fae647caebe3d374c530d78247bf141c813b19d80bd07981c732246e1ac"
+    },
+    {
+      "path": "frontend/tests/availability-block-calendar.spec.ts",
+      "sha256": "0fc44ffce7e3e1931e3f0531a2eaf4d7661c857cb1e3360860e080648fae2923"
+    },
+    {
+      "path": "frontend/tests/availability-block-scope.spec.ts",
+      "sha256": "0cbfd18d99154ca4a7186232c575e98f445ff5eeedf6330f6d46c121181fe9de"
+    },
+    {
+      "path": "frontend/tests/host-listings-publication-cas.spec.ts",
+      "sha256": "449626d2290d4267fdf4020eac15b8d1473a996cb2f69d8d3c991c6d3dbcea28"
+    },
+    {
+      "path": "frontend/tests/nonhourly-listing-schedule.spec.ts",
+      "sha256": "2000bbce01c9959b864b49c09e76586df4b0453c5443224b216f69eb6ec8c046"
+    },
+    {
+      "path": "frontend/tests/phase-gallery-contract-guard.spec.ts",
+      "sha256": "b8162077619e9c1d0c2d9e156982b39acf80c5e0084cb39e8f71c1b747cd9bb8"
+    },
+    {
+      "path": "frontend/tests/phase-gallery-forbidden-purge.spec.ts",
+      "sha256": "79d78f54f5ed99f9aa24d65bac791819376c4b7a0f3aa05040669036ec30c0df"
+    },
+    {
+      "path": "frontend/tests/phase-gallery-queue.spec.ts",
+      "sha256": "64735e946bf0301915061f9c3370985a01979ff8288bfc41065f17fe4164d09f"
+    },
+    {
+      "path": "frontend/tests/phase-gallery-uncertain.spec.ts",
+      "sha256": "3adee4317fe80025cde3d1a3b37ba1e2fe3069966752d17ee671f5fcb0682eb5"
+    },
+    {
+      "path": "frontend/tests/phase6-account.spec.ts",
+      "sha256": "1a99e8d9a44b3907f8b783166c0bd743dcf78caefe8bb50eb27fe4c793a0e831"
+    },
+    {
+      "path": "frontend/tests/phase7-host-listings.spec.ts",
+      "sha256": "1b82010b6ae0b32dbebe2550a5baa3069b3c5396d938c8460cdeb1b0e7e0bd00"
+    },
+    {
+      "path": "frontend/tests/public-gallery-media.spec.ts",
+      "sha256": "4804d002560e044bb0ac182d3af2bb37389437a2204e840fa6b6cade3388cb79"
+    },
+    {
+      "path": "frontend/tests/public-weekly-calendar.spec.ts",
+      "sha256": "2fcc18cc3c1e8811b163b8f392bff0f13affdc0e5a4d17c64eca10c6a21c9c61"
+    },
+    {
+      "path": "frontend/tests/weekly-schedule-editor.spec.ts",
+      "sha256": "bd21f7ad29ee38b526c3c07ea5700a3efb223766fc08193d973d7248743b74dd"
+    },
+    {
+      "path": "frontend/tests/wizard-improvements.spec.ts",
+      "sha256": "867de31e85788823d25331081aa5af04870f549e675d6e95925282a95a788913"
+    },
+    {
+      "path": "frontend/tooling/backend-gateway-credentials.test.mjs",
+      "sha256": "4a6105b20fad9ae73d9d3cda48e281ac885d7581b9273cc05e5d2aa2183cd976"
+    },
+    {
+      "path": "frontend/tooling/gallery-upload-queue.test.mjs",
+      "sha256": "4e1db9b2b70db5b2dab7346b78a4b95306af4223306896f820b2dc4e52822e83"
+    },
+    {
+      "path": "frontend/tooling/host-listings-adapter-contract.test.mjs",
+      "sha256": "199b45a61e3d822eb21ca76782c8c12f2aaaeda4d888262adcf8ea3fda4ffc94"
+    },
+    {
+      "path": "frontend/tooling/host-listings-auth.test.mjs",
+      "sha256": "172b973b832d6501ae28d98288051d4280170c1cf4c0d81068a2acd499d09c4f"
+    },
+    {
+      "path": "frontend/tooling/host-listings-domain.test.mjs",
+      "sha256": "3668e1ab843bd6cdd21a76385236f10b658543fb53657abd553ae1c5d633d32f"
+    },
+    {
+      "path": "frontend/tooling/host-listings-draft-exact-json.test.mjs",
+      "sha256": "70e72b92c5f71623656731c5c2a675f9feeff53f8335512ec491750744052733"
+    },
+    {
+      "path": "frontend/tooling/local-date-time.test.mjs",
+      "sha256": "2340d45eb28eaccee8b2b61f8f72db9455ed28e2af108879fdc5568f61499afa"
+    },
+    {
+      "path": "frontend/tooling/public-calendar-fixture.mjs",
+      "sha256": "8b1a15a82ac7fe0a12386c6a7b396c2b54cdd941d5fbb894536b60a56019d810"
+    },
+    {
+      "path": "frontend/tooling/public-catalog-domain.test.mjs",
+      "sha256": "2bbb0ebdffee16bed26464be2ae47d161c630ce7692f13200738933bf14bc2fd"
+    },
+    {
+      "path": "frontend/tooling/public-gallery-fixture.mjs",
+      "sha256": "a4a417fc575396aab1a898976bd18d0699a8c9092f1bc357f3a70cc7ae47a351"
+    },
+    {
+      "path": "frontend/tooling/public-verification-refresh.test.mjs",
+      "sha256": "26f51dbf79590418b9dbab42ba855ea054947580c540abd959f8f52c741b2ab7"
+    },
+    {
+      "path": "infra/terraform/environments/testprod/gcp/main.tf",
+      "sha256": "04da19d41679b3d4590d4d5a053f464026cedd98895c75260ff71386420de0e0"
+    },
+    {
+      "path": "infra/terraform/environments/testprod/gcp/media_bucket_gate.tf",
+      "sha256": "8c2e250685ff7b9307aa2b37ac1383bf7a3c469e62e775204ef3f5c89116e398"
+    },
+    {
+      "path": "infra/terraform/environments/testprod/gcp/profile_space_media_only.tf",
+      "sha256": "76879716f90f87680fcca62068c9823e5bfe8b02266dd9830cf92d03d79d9f1a"
+    },
+    {
+      "path": "infra/terraform/environments/testprod/gcp/variables.tf",
+      "sha256": "66aa1e078930b59d19946128c101f666ff34f18d0982f671eea725d1c97d0958"
+    },
+    {
+      "path": "internal/adapters/postgres/booking/weekly_hours_equivalence_test.go",
+      "sha256": "2f7fb70d77ea015d9ebb9f9673e757f4cc1070b31e1fd7a1a857c876b1d129a8"
+    },
+    {
+      "path": "internal/adapters/postgres/publiccatalog/testnuevoverification_sql_test.go",
+      "sha256": "86f67c5e9ff0fa29e874a1e748faa0687400f547fcb2b626932006fe62b00fee"
+    },
+    {
+      "path": "internal/booking/owner_weekly_hours_service_test.go",
+      "sha256": "7ab3949704720475e8d4f1f65216c71d8d016b860450f0cb97e5d82c550e42b0"
+    },
+    {
+      "path": "internal/booking/owner_weekly_hours_test.go",
+      "sha256": "0fed6f52a1b2f4bd5c151df54e6bf91fa1e3e15d93873e74a0ef758a603977b0"
+    },
+    {
+      "path": "internal/booking/transport/http/owner_weekly_hours_handler_test.go",
+      "sha256": "fe5968cdabdf544eddf9a4f477d2abfecbcfafdef0f9c18156fc2571f5fad5f3"
+    },
+    {
+      "path": "internal/booking/weekly_hours.go",
+      "sha256": "ba283b6383cd55b27d0fabaa3f841b6776c686b1bfef432fcc6a1d30eb94a2aa"
+    },
+    {
+      "path": "internal/booking/weekly_hours_test.go",
+      "sha256": "d5801999503d78d75727e806807fdd57aec7c33af21a36f460c82f56926ffee1"
+    },
+    {
+      "path": "internal/gallery/service_test.go",
+      "sha256": "babf8ff56b70918222e21d7f41819ec480cb6b892e9bc921288ea450edec5eb7"
+    },
+    {
+      "path": "internal/gallery/transport/http/handler_test.go",
+      "sha256": "61550f466fa6cc075992c69cd791c5b988f9f8599687b3b82f608cdb48f19943"
+    },
+    {
+      "path": "internal/media/cleanup_test.go",
+      "sha256": "e8cc2bbcf48321159e2c06cf52a5f71149028d1e55c9e91992f6a5c263a94d04"
+    },
+    {
+      "path": "internal/media/service.go",
+      "sha256": "80e8226a4224ccaf3c47df069b0a63a60d8d1a3c1a270c772f07518871af3099"
+    },
+    {
+      "path": "internal/media/service_content_test.go",
+      "sha256": "26ec38f184bef0f2e1525cf485840abb0ac05a2dde5a1a6498a24d30521e302d"
+    },
+    {
+      "path": "internal/media/service_upload_test.go",
+      "sha256": "6878c83adb7c3b6dca7bb411b00484850d89c59e67ca209213a6b47a0186dde5"
+    },
+    {
+      "path": "internal/migrator/integration_test.go",
+      "sha256": "facf221fbad6a12c2b1daa5a21a366e1da240af9bc2b1455a0a6f8711930ebab"
+    },
+    {
+      "path": "internal/migrator/runner.go",
+      "sha256": "7c74dbcdb0792aa8aa225624b80b3c72f1d9c3ba33067bc3291e6a456bfc317f"
+    },
+    {
+      "path": "internal/occupancy/service.go",
+      "sha256": "69b910843f9f5754d545cf4e9bd7cfe2a475cd0ad9f299efa316cb39a31fff84"
+    },
+    {
+      "path": "internal/occupancy/service_test.go",
+      "sha256": "cfe35b068fc7dc300c914ac5d0b699342ec0036919e15f07fba3005e0f89bfdf"
+    },
+    {
+      "path": "internal/publiccatalog/service_media_input_test.go",
+      "sha256": "961d711c4fd7436018028c496e30c138c3235792b192f88fe227cec7eb8a3c51"
+    },
+    {
+      "path": "internal/publiccatalog/service_test.go",
+      "sha256": "5745b30573ce67ebdc4aea1b1155660e582cff4ef3b96251fa1677ce9ede99b1"
+    },
+    {
+      "path": "internal/publiccatalog/transport/http/handler_test.go",
+      "sha256": "2a84265db9dfeed40fb364f72cf4e8a07827f772df6c49f278353637eb5a2386"
+    },
+    {
+      "path": "internal/spaces/transport/http/etag_test.go",
+      "sha256": "9c356807ca07aae12fe6a4cee377b77a8c5506d3ae7758ea08c152022ba23fd5"
+    },
+    {
+      "path": "internal/spaces/transport/http/handler.go",
+      "sha256": "512588a8934e6826bb0734214b9b87fd7429122ca32fc684c1fdac46981f46b1"
+    },
+    {
+      "path": "internal/spaces/transport/http/handler_test.go",
+      "sha256": "0a8499de16e07c779e144a9ace3c9c96b9962d2e20d987921b7a8a5398397545"
+    },
+    {
+      "path": "planning/frontend_next/evidence/espacios-galeria-orden3-mocks-20261111.md",
+      "sha256": "6ff397409b997ba27e6ada60d342e7bba7eba19aeabde395ae530bee4d903331"
+    },
+    {
+      "path": "planning/frontend_next/evidence/espacios-orden2-mocks-20261111.md",
+      "sha256": "94bc6113997da6b5b0be9e14b521a2ca17e76e25497961bea12f4a4968a19f33"
+    },
+    {
+      "path": "planning/frontend_next/evidence/espacios-orden4-public-listing-cta-20261111.md",
+      "sha256": "56fbff30c7ce949fea7a2aeb92bdffd95f943f59db347e583fde1b01b99c1c98"
+    },
+    {
+      "path": "planning/frontend_next/evidence/espacios-orden5-verificacion-local-20261111.md",
+      "sha256": "a4b4ae1e2db410479835519b2cad7cdf8572385d49bd641f2816a118f21347ac"
+    },
+    {
+      "path": "planning/frontend_next/evidence/espacios-orden6-revision-local-20261111.md",
+      "sha256": "cf3ba4fbc01141ba8e866212a37cbb6240feed773ffdaff1d6e13a891379e921"
+    },
+    {
+      "path": "planning/frontend_next/evidence/espacios-storage-restore-20261113.md",
+      "sha256": "aa15d8fed141e214a53e4afd1f17f109bf05ac15b348ecb4eb799989e6954a69"
+    },
+    {
+      "path": "planning/frontend_next/evidence/matriz-operaciones-api-fase3.md",
+      "sha256": "2f1fe808eb12cd5f357d61ec0fc5ff1f70d3753057424722eba5e59b5533454a"
+    },
+    {
+      "path": "planning/frontend_next/evidence/space-create-partial-recovery-20261110.md",
+      "sha256": "c9d8738d62ed4e8f7f0e7dd522f1c137040a644639d7fc29a40335b589e338b1"
+    },
+    {
+      "path": "planning/frontend_next/plan_cierre_flujo_creacion_espacios_20261110.md",
+      "sha256": "7044623a05e8fd8d86ea098375b6cca6d5d984ca9e440cba924b8f78bd395bb7"
+    },
+    {
+      "path": "planning/frontend_next/plan_creacion_espacios_galeria_documentos.md",
+      "sha256": "2505464a3d9b19ce761b60c255e8dc6e411e35cebadf42875fb8d495a862a7d2"
+    },
+    {
+      "path": "planning/openapi.yaml",
+      "sha256": "01e4ef4ef28ad3098c6ae56585aa025131f81287f5e17ee6fab3ea42f51fc3cd"
+    },
+    {
+      "path": "scripts/gcp/release_main.py",
+      "sha256": "59065ff63ea1ff27ecd1a2a4317a50e940734633919c15bcc8217f08a099187a"
+    },
+    {
+      "path": "scripts/gcp/test_main_release.py",
+      "sha256": "5e47bc85c3f37c34198241ff8654be5b2fd0b2b8ce4c3921100dae424572d002"
+    }
+  ],
+  "migrations": [
+    {
+      "name": "V000001__m01_identity.sql",
+      "version": 1,
+      "sha256": "34736e22df35ffbd88bb43a1071788ba88ac9e6b35f2a5aeba83b9b87bf161f8",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000002__m02_profile_rights.sql",
+      "version": 2,
+      "sha256": "e3f9c0b9e60244490ef40230b5af6a452deb63cd475b43b7378d9a3895877ec2",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000003__m03_verification.sql",
+      "version": 3,
+      "sha256": "161a2fc06b46eb181b6ddec78eac4ff8e3020b48553429f435ce81c08ce4814f",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000004__m03_reason_codes.sql",
+      "version": 4,
+      "sha256": "f3942ba61513556253650fabc962843350e9c441fd384d8d5b8bd59ecf7362d1",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000005__m04_space_drafts.sql",
+      "version": 5,
+      "sha256": "f5ca7a06da755c8bbf8adba1ed7c539c69fb50743b3f58012079eb565b564f86",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000006__m04_extensible_category_attributes.sql",
+      "version": 6,
+      "sha256": "67bf11f666e9c3f2687e7bd6c3c0fcd82f075c51ff012f874ed3638b64cf2968",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000007__m04_profile_attribute_order.sql",
+      "version": 7,
+      "sha256": "c39bc8c2c3a7161bec0dd0b01b1f7cb04ff87c70aae15ea6db46a6054b1780c5",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000008__m03_synthetic_evidence.sql",
+      "version": 8,
+      "sha256": "896d0808f925f44f5bb82222b56fde369723b3579fae510c3bd3b1a84002113d",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000009__m06_draft_manual_occupancy.sql",
+      "version": 9,
+      "sha256": "e3fd2c98930f3d44280406a1698aa6d4594aa7b7e8ae708157c81ed4103ed900",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000010__m05_versioned_rates_and_private_simulations.sql",
+      "version": 10,
+      "sha256": "291748cd18b0ff3424066c322e570a9ff206a386a92e08ad714a9d0709ef212b",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000011__m06_local_booking_trial.sql",
+      "version": 11,
+      "sha256": "7d6e5dfda683164f434c70b415c7383a48d16120abc4d2d10ef0c64db710f452",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000012__m06_local_booking_conditions_snapshot.sql",
+      "version": 12,
+      "sha256": "daa604294fbab0c9d3ac027e3e2629a366c93c78795ea7f5edd75733dfd3a1cd",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000013__m06_booking_history_sequence.sql",
+      "version": 13,
+      "sha256": "8aaa68c5b3f06a8b363bc8332bb7574e937417616610d5dc4df8ac26365f30de",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000014__m06_deterministic_history_backfill.sql",
+      "version": 14,
+      "sha256": "c5b25c4d450f7ff5f60ebac401e85506a8835ade8e80c3043d0ddd2706682ccb",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000015__m05_local_synthetic_catalog.sql",
+      "version": 15,
+      "sha256": "55c2641621ca6dcba8c00108fb0d3bd607730a1544417f79388d2942c2a18525",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000016__m09_local_reservation_messages.sql",
+      "version": 16,
+      "sha256": "21772b55240bd9e42dcee9a0c60267f87e0c5652e9d20a2d4d84526994cc4a06",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000017__m09_reservation_message_read_cursor.sql",
+      "version": 17,
+      "sha256": "d22702994f854621e3eca912ce07a320a3b83e7c9bf1ad2910f82d8ef3cfe127",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000018__m05_synthetic_fixture_locations.sql",
+      "version": 18,
+      "sha256": "65ff0d76bafb9b7e78207aac40172cb45443291b2903c71165650174c9eac89b",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000019__m06_local_weekly_hours.sql",
+      "version": 19,
+      "sha256": "99d516ecae702fd158204d985662d1cc0c70104a9cd520a926009860dc160d57",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000020__m06_local_flexible_cancellation.sql",
+      "version": 20,
+      "sha256": "a594aa744d8fa8ffcf1884561d4e0f0730ea1a35098f422b55b46b4e933570d0",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000021__m06_local_payment_inbox.sql",
+      "version": 21,
+      "sha256": "3c3e72a6fcf9e1b6570362c7254a65cd6024c2838792898dfee5daeebd088a86",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000022__local_identity_history_and_outbox.sql",
+      "version": 22,
+      "sha256": "f2166790c2500956a2cbbf4bc16280a7bec11d3d36bf6096cc5ae666f9b5b4a8",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000023__local_privacy_suppression_review.sql",
+      "version": 23,
+      "sha256": "b38c23af4953e46c6d6c3b145d7c1c8212b0408ddc39e7eb434cd945ed355f2c",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000024__local_dispute_privacy_blocker.sql",
+      "version": 24,
+      "sha256": "ed27af7effe2c16f13896a4a6240cb62da46333158588755c4f835c6ded66e29",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000025__local_synthetic_privacy_suppression.sql",
+      "version": 25,
+      "sha256": "cf390257626036c35d4f0ca4715ca977a4ceab2b3032ced3e789f4a4098ded19",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000026__local_privacy_retention_purge_and_replay.sql",
+      "version": 26,
+      "sha256": "38eaed77c3421a34c1c3361e33d281d5ea1418bfc1c0d0c2d57ac8e8c6846e7b",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000027__local_credential_notice_terminal_recovery.sql",
+      "version": 27,
+      "sha256": "a30512e5efcf43b47426ef2a771b8899104d65aad4851058e990915a81ef94ec",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000028__local_kyc_eligibility_and_history.sql",
+      "version": 28,
+      "sha256": "dd3ebc10d38f9000b4ec1183a40b8ed4222e14c2fc358b8cbe26f98b7896a1a7",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000029__local_privacy_kyc_eligibility.sql",
+      "version": 29,
+      "sha256": "9ed0486313c8c6172cd7d133c08e39c6bed39fd3bbfb596b1a4a3bbbda1595b6",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000030__m02_synthetic_profile_photo_and_payout.sql",
+      "version": 30,
+      "sha256": "1130f484103f2383cbe310f312823a1af571ffc6e73603e03acb8e564bef4220",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000031__m04_local_publication_lifecycle.sql",
+      "version": 31,
+      "sha256": "7c18af2f8437bcbf7752dc021892c25d65033562f05eb40d0d400ad05e76483a",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000032__m04_synthetic_space_gallery.sql",
+      "version": 32,
+      "sha256": "803d2026c722795b0c008cc9ab81ac9fa796642dc83505161d614d7df0b3f994",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000033__m04_gallery_candidate_cleanup.sql",
+      "version": 33,
+      "sha256": "f3b0d590ba5b92d4483c0e173a6de758f6f3b7d69bff3923950bca5bb9ee0425",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000034__local_synthetic_contract_signing.sql",
+      "version": 34,
+      "sha256": "8c1e2bcc99df3f0f120e57ba087f627ce4c3148791d9626a1c4ba6f7d5dbbda4",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000035__local_synthetic_rental_operations.sql",
+      "version": 35,
+      "sha256": "205e0f230d0bf69c15da08c48f3dc1abc0639bba4980372e9451a49658ce7c26",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000036__local_communication_reviews_and_notices.sql",
+      "version": 36,
+      "sha256": "322fd98a8b921b905832bd75b4006d5fbed3f233334d400a6863c3a03aea2b09",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000037__local_communication_privacy_coordination.sql",
+      "version": 37,
+      "sha256": "ad45697b244bac64d5713145b89cadf1f1522fa723f99f63feda8aa497ffd665",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000038__local_damage_claim_resolution.sql",
+      "version": 38,
+      "sha256": "88000b1e3f94e68efca57e36a38914483cbf0d10c62741c75f57b282a7291b25",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000039__local_damage_claim_privacy_retention.sql",
+      "version": 39,
+      "sha256": "86bd6b0d684c33d4213eb47d68763f00edc8b5716e2fe5e85d46fbaf1916e083",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000040__local_guarantee_and_dispute_finance.sql",
+      "version": 40,
+      "sha256": "c749f178824ff5c1695483d2c32cde6b7c76794e247a5d423101ce7486058b0d",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000041__local_admin_account_block.sql",
+      "version": 41,
+      "sha256": "4e31876d355c374c61f335f199441647ffc68fc7991bd3404596c7005cd6db58",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000042__admin_block_privacy_minimization.sql",
+      "version": 42,
+      "sha256": "0bc20128faf1e745ad7d9d5e95b4b4596a06ccf2be00ebd12946bb274ba9a512",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000043__local_admin_financial_audit_actions.sql",
+      "version": 43,
+      "sha256": "cc4105234f80e6d27152ecf7ec35c50838789fc58c5b07d7e82209bb151eded4",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000044__local_fake_settlement_receipt.sql",
+      "version": 44,
+      "sha256": "f3ff70285a2c020b930eb34104be3c600cc0aeeb98f15cdd82f9b949a8addabf",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000045__local_settlement_privacy_obligations.sql",
+      "version": 45,
+      "sha256": "8a7f12beb68ddaa7c5d063b2659b4c1a851fefffaac8f3db91e76f451bb54754",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000046__local_close_durable_notices.sql",
+      "version": 46,
+      "sha256": "74e70bad1a0fb0d99dfb25a66e5dae169d957c62914e879fda18489501ab5736",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000047__local_privacy_retention_purgers.sql",
+      "version": 47,
+      "sha256": "cdde799f60c3648c26e1cc943a3ef53b0d09814e3b38e050720a87d6139dd8c9",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000048__local_defense_synthetic_evidence.sql",
+      "version": 48,
+      "sha256": "4da2568b0aa12f228da51ebf3570a0e61f72a200d08a73823d578f80bb00ebee",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000049__local_m04_gallery_cover.sql",
+      "version": 49,
+      "sha256": "2327da85443e0b4e182c02b94341e9288ee37a3e3ac8b3354bcfb4b12e423f64",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000050__local_publication_retirement.sql",
+      "version": 50,
+      "sha256": "1ba7ea88a0cb0d8b663f7756655d91104c5f266c0aae5bf6e749bcacb8bcd02e",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000051__local_close_reservation_after_settlement.sql",
+      "version": 51,
+      "sha256": "ad9411b1477ee6512086147c3961dc950b4f0113c163556003c7c257d19bfce7",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000052__scoped_publication_rate_retirement.sql",
+      "version": 52,
+      "sha256": "5c204afa60a4c83fd570b5c82f771711f1f890339bd42a23ad78190bbdee8330",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000053__local_close_contract_and_publication_retention.sql",
+      "version": 53,
+      "sha256": "2c34092c9db8cab94c0e6ebab1e72d82b061eead465b913d46e91aeb77842e68",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000054__local_contract_signature_expiry_retention.sql",
+      "version": 54,
+      "sha256": "7fc01ac4ee0ee83db339fadfe95fc032a25cd2621184abe4d2408245ce926af3",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000055__mpv2_02_public_search_and_locations.sql",
+      "version": 55,
+      "sha256": "a6b2e9b6eb055ea0375b35ebe881091e41ad1d0eacfa78d82896b9b8827ab6b6",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000056__mpv2_04_public_gallery.sql",
+      "version": 56,
+      "sha256": "5cccdde76a613a82afbefb582d5ef2bab16512c9c7a0b0cfcdbf11a91710d5a0",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000057__mpv2_11_typed_public_category_filters.sql",
+      "version": 57,
+      "sha256": "4da5888e15043f22576fd026934896aa6adebf3a49a65df43534c98a02d9be9d",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000058__gadm_01_global_administrator.sql",
+      "version": 58,
+      "sha256": "d902d5aab8a6ba0a18bdc4e332792e567c0e5a00a69c897c3274c93384418acc",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000059__gadm_03_audit_scope_and_query_indexes.sql",
+      "version": 59,
+      "sha256": "a097a82fd5ece1b66ca953e4d48073834adc2edf4d31596f7d57f6ae36dbe93a",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000060__gadm_local_bootstrap_restricted_role.sql",
+      "version": 60,
+      "sha256": "75495ea50cdc2e6f5a61566dd725f5f623eca6133dcfdef55bde88498f424156",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000061__mpv2_12_hourly_publication_schedules.sql",
+      "version": 61,
+      "sha256": "cb3f719b3b846607abef9b8d356c980b47da1a22f5da38b55839112f2b619b95",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000062__gcp04_durable_privacy_replay_registry.sql",
+      "version": 62,
+      "sha256": "6fc1ea07d47287fe4ddafaf6f613a8c2e88daf441b0d337d8b6b35eead1243e8",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000063__gcp04_privacy_suppression_claim_fencing.sql",
+      "version": 63,
+      "sha256": "a42c0943ff314c5199d6fdd87c13f6552eeeb69629e811f6d41853e4eb16a858",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000064__gcp04_privacy_cleanup_worker_role.sql",
+      "version": 64,
+      "sha256": "9b791ae6950dd9f23d87c31ae59dcbeb1feb9d85631ac21fa95e1e9a6a4763bf",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000065__gcp06_bootstrap_audit_actor.sql",
+      "version": 65,
+      "sha256": "b1f7126f125bc9694e30d43205a509f34aa9e39ad8257456f666a431f5492fd8",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000066__gcp06_test_access_reset.sql",
+      "version": 66,
+      "sha256": "05a751e9d9ab73bf2babadd0b3ad9ab170ee44ddf8ca7d441625d516f4cadcb6",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000067__inmuebles_residential_rentals.sql",
+      "version": 67,
+      "sha256": "0d5052cee2e9c45911c00bd32ee97cc3eb9c656c0a680b998911fbbdb48e0bcb",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000068__img_01b_media_schema.sql",
+      "version": 68,
+      "sha256": "5eeda41115017b5ba292db13215304f1e576002e015b6d46352ebd2de98f2626",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000069__img_01c_local_media_provider.sql",
+      "version": 69,
+      "sha256": "9dc863b5e4b1edd7cd32bf1c2e48ecce6f9e36d6bc13072a3bf3e5cd8a433493",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000070__img_01c_durable_media_write_intents.sql",
+      "version": 70,
+      "sha256": "71bcbcd91091013b91a89b3be9a152a46bd9f86f71565a898b50cb95701f6cc6",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000071__img_01c_terminal_media_write_intents.sql",
+      "version": 71,
+      "sha256": "30d355260611615324ca70336ced97498340b0e2725b7a8828147af6adc82d14",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000072__img_01d_media_relation_trigger_scope.sql",
+      "version": 72,
+      "sha256": "50b7f34d340c20a690c9506e68e9146a311363a526eb7449812d2674cf39f461",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000073__img_01e_privacy_media_cleanup.sql",
+      "version": 73,
+      "sha256": "ac2bfc0ba17e97ee40297dc75d8aaaa25f8506e5602a2d281d09415158670ada",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000074__first_business_action_roles.sql",
+      "version": 74,
+      "sha256": "a91df632b305468e1389ee72831e77121382e4c467d2cc279ea393e1bdc57bf8",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000075__auth_evaluation_consent_documents.sql",
+      "version": 75,
+      "sha256": "d6396472df02f2dd2cddd43994be064e6b0705c3fa2cb044bed970fcc9992220",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000076__spaces_gallery_capacity_replacement_v2.sql",
+      "version": 76,
+      "sha256": "c3ea6cbead8a41dfd283b5fe1393499228afb0e3447b4c2fccecc50ea39f7843",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000077__img01b_gallery_slot_record_guard.sql",
+      "version": 77,
+      "sha256": "22b98284b303f7a9e69e88afc83c978a5bbab1840e1ed12097b9fe24f653218c",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000078__img01b_gallery_replay_expected_revision.sql",
+      "version": 78,
+      "sha256": "6cb99e5b21db0d4c975d1419596b4850410fb47f7cb2d104481334a9eb082c9e",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000079__document_verification_cases.sql",
+      "version": 79,
+      "sha256": "248ecdd6eac067a704871d24148d850b5a603a6577e59e89d9b03d9a74130e5b",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000080__document_verification_space_ownership_supersession.sql",
+      "version": 80,
+      "sha256": "fc2c3eacf10bc99d6ad4c66a7a5aa2c80a0592b45eeee6e938400c95f613c401",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000081__document_verification_runtime_scope_helpers.sql",
+      "version": 81,
+      "sha256": "7b9700b546532854ab7569654d05039c1df832a6a80154ae053d13b5cea43967",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000082__document_verification_retention_precedence.sql",
+      "version": 82,
+      "sha256": "b53fe7f6f03af4d9081e4a378053ad0780d8b532962326488108201eb098ed96",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000083__document_verification_lock_and_transfer_fix.sql",
+      "version": 83,
+      "sha256": "405c2f02f8a29e962421a44cbbd07e6e7fae4aa4696483e9d45ab209e82e9333",
+      "identical_to_origin_main": true
+    },
+    {
+      "name": "V000084__didit_identity_verification_schema.sql",
+      "version": 84,
+      "sha256": "d8cc68f3ea73c6e351a31bd8f88fd0606e8217c028777d5ebca7b406bb852b8f",
+      "identical_to_origin_main": true
+    }
+  ],
+  "migration_count": 84,
+  "tests_executed": false,
+  "database_modified": false,
+  "pushed": false
+}

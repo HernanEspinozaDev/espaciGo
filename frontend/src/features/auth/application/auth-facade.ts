@@ -297,6 +297,13 @@ export class AuthFacade {
     return !this.getSnapshot().restrictedMode && this.hasCapability(capability);
   }
 
+  getSessionIdentityScope(): string | null {
+    const snapshot = this.getSnapshot();
+    if (snapshot.status !== "authenticated") return null;
+    // Identity epoch only; role refreshes must not erase partial-create recovery.
+    return JSON.stringify([this.#generation, snapshot.accountId]);
+  }
+
   getAccessToken(): AccessToken | null {
     const snapshot = this.getSnapshot();
     if (snapshot.status !== "authenticated") return null;

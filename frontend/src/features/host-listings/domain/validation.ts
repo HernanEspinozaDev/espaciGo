@@ -80,9 +80,11 @@ export function denormalizeDayOfWeek(isoDay: number): number {
 }
 
 export function isValidIanaTimeZone(tz: unknown): boolean {
-  if (typeof tz !== "string" || tz.trim() === "") return false;
+  if (typeof tz !== "string" || tz.trim() === "" || tz.trim() !== tz) {
+    return false;
+  }
   try {
-    new Intl.DateTimeFormat("en-US", { timeZone: tz.trim() }).format(0);
+    new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(0);
     return true;
   } catch {
     return false;

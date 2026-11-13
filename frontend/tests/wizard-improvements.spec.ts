@@ -13,6 +13,7 @@ test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours 
   let createCount = 0;
   let availabilityCount = 0;
   let weeklyHoursCount = 0;
+  let spaceDetailGetCount = 0;
   let createBody: Record<string, unknown> = {};
 
   await page.route("**/api/backend/**", async (route) => {
@@ -107,6 +108,7 @@ test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours 
       path === `/api/backend/spaces/${spaceId}` &&
       request.method() === "GET"
     ) {
+      spaceDetailGetCount += 1;
       result = {
         status: 200,
         headers: { etag: '"draft-v2"' },
@@ -225,7 +227,18 @@ test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours 
   await expect(
     page.getByRole("heading", { name: "Borrador sintético recuperable" }),
   ).toBeVisible();
+  const readsBeforeReload = spaceDetailGetCount;
+  await page.reload();
+  await expect(page).toHaveURL(`/anfitrion/espacios/${spaceId}/editar`);
+  await expect
+    .poll(() => spaceDetailGetCount)
+    .toBeGreaterThan(readsBeforeReload);
+  await expect(
+    page.getByRole("heading", { name: "Borrador sintético recuperable" }),
+  ).toBeVisible();
   expect(createCount).toBe(1);
+  expect(availabilityCount).toBe(1);
+  expect(weeklyHoursCount).toBe(1);
 });
 
 test("@phase7 @controlled wizard valida atributos requeridos opcionales sin serializar undefined", async ({
