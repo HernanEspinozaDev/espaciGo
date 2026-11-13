@@ -27,10 +27,17 @@ func main() {
 	confirmCloudOwner := flag.String("confirm-cloud-owner-pre81", "", "exact CloudSQL staging confirmation")
 	wizardAdminVersion := flag.Int64("wizard-admin-version", 0, "apply one authorized wizard migration version (60, 64, or 66) in the isolated ensayo")
 	confirmWizardAdmin := flag.String("confirm-wizard-admin", "", "must exactly equal espacigo_wizard_20261106")
+	recoveryInspectionOnly := flag.Bool("recovery-inspection-only", false, "print bounded read-only recovery inspection report")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "positional arguments are not supported")
 		os.Exit(2)
+	}
+	if *recoveryInspectionOnly {
+		if *inventoryOnly || *schemaOnly || *planOnly || *releaseMode || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *confirmCloudOwner != "" || *releaseSHA != "" || *releaseInventory != "" || *releaseExpected != 0 || *wizardAdminVersion != 0 || *confirmWizardAdmin != "" {
+			fmt.Fprintln(os.Stderr, "-recovery-inspection-only cannot combine with offline, schema, plan, apply, or administrative modes")
+			os.Exit(2)
+		}
 	}
 	if err := validateWizardModeConflicts(*wizardAdminVersion, *confirmWizardAdmin, *inventoryOnly, *schemaOnly, *releaseMode, *releaseSHA, *releaseInventory, *releaseExpected); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -70,6 +77,19 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	if *recoveryInspectionOnly {
+		if err := validateRecoveryInspectionInvocation(true, *inventoryOnly, *schemaOnly, *planOnly, *releaseMode, *applyRuntimeACL, *recoverRuntimeACL, *cloudOwner, settings, os.Getenv); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
+		defer cancel()
+		if err := runRecoveryInspection(ctx, os.Stdout, settings, *migrationDir, os.Getenv); err != nil {
+			fmt.Fprintf(os.Stderr, "recovery inspection failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 	if *wizardAdminVersion != 0 {
 		if err := validateWizardAdminIdentity(settings.databaseURL, settings.mode, settings.setRole, os.Getenv); err != nil {
