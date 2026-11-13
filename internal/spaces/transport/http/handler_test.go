@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -663,6 +665,14 @@ func TestTimezoneCASPreconditionsAndRevision(t *testing.T) {
 			t.Fatalf("status=%d calls=%d body=%s", r.Code, c.calls, r.Body.String())
 		}
 	})
+	t.Run("unexpected query is rejected before timezone CAS", func(t *testing.T) {
+		c := &statefulTimezoneCalendar{revision: initial}
+		tag := DraftETag(spaces.Draft{ID: draftID, UpdatedAt: initial})
+		r := invokeIfMatch(newHandler(c), base+"?page=1", "user", `{"time_zone":"Europe/Paris"}`, tag)
+		if r.Code != http.StatusBadRequest || !strings.Contains(r.Body.String(), `"code":"invalid_request"`) || c.calls != 0 || !c.revision.Equal(initial) || c.zone != "" {
+			t.Fatalf("status=%d calls=%d revision=%s zone=%q body=%s", r.Code, c.calls, c.revision, c.zone, r.Body.String())
+		}
+	})
 	for _, tc := range []struct {
 		name, tag string
 		status    int
@@ -776,12 +786,530 @@ func TestCalendarAPIConfiguresQueriesCreatesAndDeletesWithOwnerChecks(t *testing
 	if listed.Code != 200 {
 		t.Fatalf("list blocks status=%d %s", listed.Code, listed.Body.String())
 	}
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{"missing from", blocks + "?to=2030-04-01T13%3A00%3A00Z"},
+		{"missing to", blocks + "?from=2030-04-01T12%3A00%3A00Z"},
+		{"empty to", blocks + "?from=2030-04-01T12%3A00%3A00Z&to="},
+		{"duplicate from", blocks + "?from=2030-04-01T12%3A00%3A00Z&from=2030-04-01T12%3A00%3A00Z&to=2030-04-01T13%3A00%3A00Z"},
+		{"unexpected query parameter", blocks + "?from=2030-04-01T12%3A00%3A00Z&to=2030-04-01T13%3A00%3A00Z&page=2"},
+	} {
+		t.Run("list blocks rejects "+tc.name, func(t *testing.T) {
+			invalid := invoke(h, http.MethodGet, tc.path, "user", "")
+			if invalid.Code != http.StatusBadRequest || !strings.Contains(invalid.Body.String(), `"code":"invalid_request"`) {
+				t.Fatalf("list blocks query %q status=%d body=%s", tc.name, invalid.Code, invalid.Body.String())
+			}
+		})
+	}
 	assertJSONSchema(t, compileOpenAPISchema(t, schemas["ManualBlockList"]), listed.Body.Bytes(), "ManualBlockList")
 	if got := invoke(h, "DELETE", blocks+"/"+draftID, "other", "").Code; got != 404 {
 		t.Fatalf("foreign block delete status=%d", got)
 	}
 	if got := invoke(h, "DELETE", blocks+"/"+draftID, "user", "").Code; got != 204 {
 		t.Fatalf("delete status=%d", got)
+	}
+}
+
+type countingOccupancyRepository struct {
+	occupancy.Repository
+	availabilityCalls   int
+	listBlocksCalls     int
+	createBlockCalls    int
+	setTimeZoneCalls    int
+	setTimeZoneCASCalls int
+	timeZoneCalls       int
+	deleteBlockCalls    int
+	listOwner           string
+	listSpaceID         string
+	lastStart           time.Time
+	lastEnd             time.Time
+}
+
+func (r *countingOccupancyRepository) SetTimeZone(context.Context, string, string, string) error {
+	r.setTimeZoneCalls++
+	return nil
+}
+
+func (r *countingOccupancyRepository) SetTimeZoneCAS(context.Context, string, string, string, time.Time) (time.Time, error) {
+	r.setTimeZoneCASCalls++
+	return time.Time{}, nil
+}
+
+func (r *countingOccupancyRepository) TimeZone(context.Context, string, string) (string, error) {
+	r.timeZoneCalls++
+	return "America/Santiago", nil
+}
+
+func (r *countingOccupancyRepository) Availability(_ context.Context, _, spaceID string, start, end time.Time) (occupancy.Availability, error) {
+	r.availabilityCalls++
+	return occupancy.Availability{SpaceID: spaceID, TimeZone: "America/Santiago", StartAt: start, EndAt: end, Available: true}, nil
+}
+
+func (r *countingOccupancyRepository) ListBlocks(_ context.Context, owner, spaceID string, start, end time.Time) (occupancy.Calendar, error) {
+	r.listBlocksCalls++
+	r.listOwner, r.listSpaceID = owner, spaceID
+	r.lastStart, r.lastEnd = start, end
+	return occupancy.Calendar{SpaceID: spaceID, TimeZone: "America/Santiago", Items: []occupancy.Block{}}, nil
+}
+
+func (r *countingOccupancyRepository) CreateBlock(_ context.Context, _, _, _ string, _, _ time.Time, _ string) (occupancy.Block, error) {
+	r.createBlockCalls++
+	return occupancy.Block{}, nil
+}
+
+func (r *countingOccupancyRepository) DeleteBlock(context.Context, string, string, string) error {
+	r.deleteBlockCalls++
+	return nil
+}
+
+func TestCalendarRejectsUnsupportedMethodAndResourceRoutesWithoutRepositoryCalls(t *testing.T) {
+	repository := &countingOccupancyRepository{}
+	calendar, err := occupancy.NewService(repository, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesService, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, spacesService, nil, calendar)
+	base := "/api/v1/spaces/" + draftID + "/availability"
+	cases := []struct {
+		name, method, path string
+	}{
+		{name: "POST availability", method: http.MethodPost, path: base},
+		{name: "PUT blocks collection", method: http.MethodPut, path: base + "/blocks"},
+		{name: "DELETE blocks collection", method: http.MethodDelete, path: base + "/blocks"},
+		{name: "POST timezone resource", method: http.MethodPost, path: base + "/timezone"},
+		{name: "GET individual block resource", method: http.MethodGet, path: base + "/blocks/" + draftID},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			response := invoke(h, tc.method, tc.path, "user", "")
+			if response.Code != http.StatusNotFound {
+				t.Fatalf("status=%d body=%s, want 404", response.Code, response.Body.String())
+			}
+		})
+	}
+	if repository.setTimeZoneCalls != 0 || repository.setTimeZoneCASCalls != 0 || repository.timeZoneCalls != 0 ||
+		repository.availabilityCalls != 0 || repository.listBlocksCalls != 0 || repository.createBlockCalls != 0 || repository.deleteBlockCalls != 0 {
+		t.Fatalf("unsupported calendar routes reached repository: %+v", repository)
+	}
+}
+
+func TestCalendarRouteFailsClosedWithoutServiceOrOnMalformedPath(t *testing.T) {
+	spacesService, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/v1/spaces/" + draftID + "/availability"
+	withoutCalendar := NewHandler(fakeAuth{}, spacesService, nil)
+	response := invoke(withoutCalendar, http.MethodGet, base, "user", "")
+	if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"code":"not_found"`) {
+		t.Fatalf("missing calendar service status=%d body=%s", response.Code, response.Body.String())
+	}
+
+	repository := &countingOccupancyRepository{}
+	calendar, err := occupancy.NewService(repository, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, spacesService, nil, calendar)
+	for _, tc := range []struct{ name, path string }{
+		{name: "wrong path prefix", path: "/outside/availability"},
+		{name: "wrong resource segment", path: "/api/v1/spaces/" + draftID + "/other/availability"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := invoke(h, http.MethodGet, tc.path, "user", "")
+			if response.Code != http.StatusNotFound || !strings.Contains(response.Body.String(), `"code":"not_found"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+		})
+	}
+	if repository.setTimeZoneCalls != 0 || repository.setTimeZoneCASCalls != 0 || repository.timeZoneCalls != 0 ||
+		repository.availabilityCalls != 0 || repository.listBlocksCalls != 0 || repository.createBlockCalls != 0 || repository.deleteBlockCalls != 0 {
+		t.Fatalf("malformed calendar routes reached repository: %+v", repository)
+	}
+}
+
+func TestCalendarBlockListForwardsAuthenticatedOwnerAndSpaceScope(t *testing.T) {
+	repository := &countingOccupancyRepository{}
+	calendar, err := occupancy.NewService(repository, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesService, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, spacesService, nil, calendar)
+	path := "/api/v1/spaces/" + draftID + "/availability/blocks?from=2030-01-01T10%3A00%3A00Z&to=2030-01-01T11%3A00%3A00Z"
+
+	for i, tc := range []struct {
+		name, token, owner string
+	}{
+		{name: "primary owner", token: "user", owner: ownerA},
+		{name: "other authenticated owner", token: "other", owner: ownerB},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			response := invoke(h, http.MethodGet, path, tc.token, "")
+			if response.Code != http.StatusOK || repository.listBlocksCalls != i+1 {
+				t.Fatalf("status=%d listCalls=%d body=%s", response.Code, repository.listBlocksCalls, response.Body.String())
+			}
+			if repository.listOwner != tc.owner || repository.listSpaceID != draftID {
+				t.Fatalf("repository scope owner=%q space=%q, want owner=%q space=%q", repository.listOwner, repository.listSpaceID, tc.owner, draftID)
+			}
+		})
+	}
+}
+
+func TestCalendarBlockRangeRejectsInvalidTimestampsBeforeRepositoryRead(t *testing.T) {
+	repository := &countingOccupancyRepository{}
+	calendar, err := occupancy.NewService(repository, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesService, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, spacesService, nil, calendar)
+	base := "/api/v1/spaces/" + draftID + "/availability/blocks"
+	for _, tc := range []struct {
+		name string
+		from string
+		to   string
+	}{
+		{name: "date without time", from: "2030-01-01", to: "2030-01-02T00:00:00Z"},
+		{name: "non-UTC offset", from: "2030-01-01T10:00:00-03:00", to: "2030-01-01T11:00:00-03:00"},
+		{name: "impossible date", from: "2030-02-30T10:00:00Z", to: "2030-03-01T10:00:00Z"},
+		{name: "equal bounds", from: "2030-01-01T10:00:00Z", to: "2030-01-01T10:00:00Z"},
+		{name: "reversed bounds", from: "2030-01-01T11:00:00Z", to: "2030-01-01T10:00:00Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := base + "?from=" + url.QueryEscape(tc.from) + "&to=" + url.QueryEscape(tc.to)
+			response := invoke(h, http.MethodGet, path, "user", "")
+			if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), `"code":"validation_error"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if repository.listBlocksCalls != 0 {
+				t.Fatalf("invalid range reached repository %d times", repository.listBlocksCalls)
+			}
+		})
+	}
+
+	availabilityReversed := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+draftID+"/availability", nil)
+	availabilityReversed.URL.RawQuery = "from=2030-01-01T11%3A00%3A00Z&to=2030-01-01T10%3A00%3A00Z"
+	availabilityReversed.Header.Set("Authorization", "Bearer user")
+	availabilityRangeResponse := httptest.NewRecorder()
+	h.ServeHTTP(availabilityRangeResponse, availabilityReversed)
+	if availabilityRangeResponse.Code != http.StatusUnprocessableEntity || !strings.Contains(availabilityRangeResponse.Body.String(), `"code":"validation_error"`) {
+		t.Fatalf("availability reversed range status=%d body=%s", availabilityRangeResponse.Code, availabilityRangeResponse.Body.String())
+	}
+	if repository.availabilityCalls != 0 {
+		t.Fatalf("invalid availability range reached repository %d times", repository.availabilityCalls)
+	}
+
+	availabilityOffset := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+draftID+"/availability", nil)
+	availabilityOffset.URL.RawQuery = "from=2030-01-01T10%3A00%3A00-03%3A00&to=2030-01-01T11%3A00%3A00-03%3A00"
+	availabilityOffset.Header.Set("Authorization", "Bearer user")
+	availabilityOffsetResponse := httptest.NewRecorder()
+	h.ServeHTTP(availabilityOffsetResponse, availabilityOffset)
+	if availabilityOffsetResponse.Code != http.StatusUnprocessableEntity || !strings.Contains(availabilityOffsetResponse.Body.String(), `"code":"validation_error"`) {
+		t.Fatalf("availability non-UTC range status=%d body=%s", availabilityOffsetResponse.Code, availabilityOffsetResponse.Body.String())
+	}
+	if repository.availabilityCalls != 0 {
+		t.Fatalf("non-UTC availability range reached repository %d times", repository.availabilityCalls)
+	}
+
+	invalidSpace := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/not-a-uuid/availability", nil)
+	invalidSpace.URL.RawQuery = "from=2030-01-01T13%3A00%3A00Z&to=2030-01-01T14%3A00%3A00Z"
+	invalidSpace.Header.Set("Authorization", "Bearer user")
+	invalidSpaceResponse := httptest.NewRecorder()
+	h.ServeHTTP(invalidSpaceResponse, invalidSpace)
+	if invalidSpaceResponse.Code != http.StatusUnprocessableEntity || !strings.Contains(invalidSpaceResponse.Body.String(), `"code":"validation_error"`) {
+		t.Fatalf("invalid space ID status=%d body=%s", invalidSpaceResponse.Code, invalidSpaceResponse.Body.String())
+	}
+	if repository.availabilityCalls != 0 {
+		t.Fatalf("invalid space ID reached repository %d times", repository.availabilityCalls)
+	}
+
+	malformed := httptest.NewRequest(http.MethodGet, base, nil)
+	malformed.URL.RawQuery = "from=2030-01-01T13%3A00%3A00Z&to=2030-01-01T14%3A00%3A00Z&%ZZ"
+	malformed.Header.Set("Authorization", "Bearer user")
+	malformedResponse := httptest.NewRecorder()
+	h.ServeHTTP(malformedResponse, malformed)
+	if malformedResponse.Code != http.StatusBadRequest || !strings.Contains(malformedResponse.Body.String(), `"code":"invalid_request"`) {
+		t.Fatalf("malformed query status=%d body=%s", malformedResponse.Code, malformedResponse.Body.String())
+	}
+	if repository.listBlocksCalls != 0 {
+		t.Fatalf("malformed query reached repository %d times", repository.listBlocksCalls)
+	}
+
+	availabilityMalformed := httptest.NewRequest(http.MethodGet, "/api/v1/spaces/"+draftID+"/availability", nil)
+	availabilityMalformed.URL.RawQuery = "from=2030-01-01T13%3A00%3A00Z&to=2030-01-01T14%3A00%3A00Z&%ZZ"
+	availabilityMalformed.Header.Set("Authorization", "Bearer user")
+	availabilityResponse := httptest.NewRecorder()
+	h.ServeHTTP(availabilityResponse, availabilityMalformed)
+	if availabilityResponse.Code != http.StatusBadRequest || !strings.Contains(availabilityResponse.Body.String(), `"code":"invalid_request"`) {
+		t.Fatalf("availability malformed query status=%d body=%s", availabilityResponse.Code, availabilityResponse.Body.String())
+	}
+	if repository.availabilityCalls != 0 {
+		t.Fatalf("malformed availability query reached repository %d times", repository.availabilityCalls)
+	}
+
+	valid := invoke(h, http.MethodGet, base+"?from=2030-01-01T13%3A00%3A00Z&to=2030-01-01T14%3A00%3A00Z", "user", "")
+	if valid.Code != http.StatusOK || repository.listBlocksCalls != 1 {
+		t.Fatalf("valid range status=%d repository calls=%d body=%s", valid.Code, repository.listBlocksCalls, valid.Body.String())
+	}
+	wantStart := time.Date(2030, 1, 1, 13, 0, 0, 0, time.UTC)
+	wantEnd := wantStart.Add(time.Hour)
+	if !repository.lastStart.Equal(wantStart) || !repository.lastEnd.Equal(wantEnd) {
+		t.Fatalf("repository range = %s .. %s, want %s .. %s", repository.lastStart, repository.lastEnd, wantStart, wantEnd)
+	}
+}
+
+func TestManualBlockCreateHTTPRejectsInvalidInputBeforeRepositoryWrite(t *testing.T) {
+	repository := &countingOccupancyRepository{}
+	calendar, err := occupancy.NewService(repository, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesService, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, spacesService, nil, calendar)
+	base := "/api/v1/spaces/" + draftID + "/availability/blocks"
+	valid := occupancy.BlockInput{
+		StartAt: "2030-04-01T12:00:00Z",
+		EndAt:   "2030-04-01T13:00:00Z",
+		Reason:  "Mantención",
+	}
+	cases := []struct {
+		name  string
+		input occupancy.BlockInput
+	}{
+		{name: "date without time", input: occupancy.BlockInput{StartAt: "2030-04-01", EndAt: valid.EndAt, Reason: valid.Reason}},
+		{name: "non-UTC offset", input: occupancy.BlockInput{StartAt: "2030-04-01T09:00:00-03:00", EndAt: "2030-04-01T10:00:00-03:00", Reason: valid.Reason}},
+		{name: "equal bounds", input: occupancy.BlockInput{StartAt: valid.StartAt, EndAt: valid.StartAt, Reason: valid.Reason}},
+		{name: "inverted bounds", input: occupancy.BlockInput{StartAt: valid.EndAt, EndAt: valid.StartAt, Reason: valid.Reason}},
+		{name: "empty trimmed reason", input: occupancy.BlockInput{StartAt: valid.StartAt, EndAt: valid.EndAt, Reason: " \t "}},
+		{name: "reason exceeds Unicode codepoint limit", input: occupancy.BlockInput{StartAt: valid.StartAt, EndAt: valid.EndAt, Reason: strings.Repeat("ñ", 501)}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := json.Marshal(tc.input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response := invoke(h, http.MethodPost, base, "user", string(body))
+			if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), `"code":"validation_error"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if repository.createBlockCalls != 0 {
+				t.Fatalf("invalid block reached repository %d times", repository.createBlockCalls)
+			}
+		})
+	}
+}
+
+func TestManualBlockCreateHTTPRejectsUnexpectedBodyAndQueryBeforeRepositoryWrite(t *testing.T) {
+	repository := &countingOccupancyRepository{}
+	calendar, err := occupancy.NewService(repository, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesService, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, spacesService, nil, calendar)
+	base := "/api/v1/spaces/" + draftID + "/availability/blocks"
+	validBody := `{"start_at":"2030-04-01T12:00:00Z","end_at":"2030-04-01T13:00:00Z","reason":"Mantención"}`
+	cases := []struct {
+		name, path, body string
+	}{
+		{name: "unknown owner field", path: base, body: `{"start_at":"2030-04-01T12:00:00Z","end_at":"2030-04-01T13:00:00Z","reason":"Mantención","owner_id":"` + ownerB + `"}`},
+		{name: "multiple JSON values", path: base, body: validBody + ` {}`},
+		{name: "body exceeds request size limit", path: base, body: validBody + strings.Repeat(" ", 64*1024)},
+		{name: "unexpected query parameter", path: base + "?owner_id=" + ownerB, body: validBody},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			response := invoke(h, http.MethodPost, tc.path, "user", tc.body)
+			if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), `"code":"invalid_request"`) {
+				t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+			}
+			if repository.createBlockCalls != 0 {
+				t.Fatalf("invalid HTTP request reached repository %d times", repository.createBlockCalls)
+			}
+		})
+	}
+}
+
+func TestManualBlockCreateHTTPRejectsNonJSONBeforeRepositoryWrite(t *testing.T) {
+	repository := &countingOccupancyRepository{}
+	calendar, err := occupancy.NewService(repository, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesService, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, spacesService, nil, calendar)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/spaces/"+draftID+"/availability/blocks",
+		strings.NewReader(`{"start_at":"2030-04-01T12:00:00Z","end_at":"2030-04-01T13:00:00Z","reason":"Mantención"}`),
+	)
+	request.Header.Set("Authorization", "Bearer user")
+	request.Header.Set("Content-Type", "text/plain")
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnsupportedMediaType || !strings.Contains(response.Body.String(), `"code":"unsupported_media_type"`) {
+		t.Fatalf("status=%d body=%s, want 415 unsupported_media_type", response.Code, response.Body.String())
+	}
+	if repository.createBlockCalls != 0 {
+		t.Fatalf("non-JSON request reached repository %d times", repository.createBlockCalls)
+	}
+}
+
+type calendarErrorStub struct {
+	fakeCalendar
+	err error
+}
+
+func (c calendarErrorStub) SetTimeZoneCAS(context.Context, string, string, string, time.Time) (time.Time, error) {
+	return time.Time{}, c.err
+}
+
+func (c calendarErrorStub) ListBlocks(context.Context, string, string, string, string) (occupancy.Calendar, error) {
+	return occupancy.Calendar{}, c.err
+}
+
+func (c calendarErrorStub) CreateBlock(context.Context, string, string, occupancy.BlockInput) (occupancy.Block, error) {
+	return occupancy.Block{}, c.err
+}
+
+func (c calendarErrorStub) DeleteBlock(context.Context, string, string, string) error {
+	return c.err
+}
+
+// This test characterizes the existing HTTP error contract for calendar
+// operations; repository details must remain sanitized at the transport edge.
+func TestCalendarHTTPMapsAvailabilityErrorsWithoutChangingContract(t *testing.T) {
+	revision := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	base := "/api/v1/spaces/" + draftID + "/availability"
+	cases := []struct {
+		name, method, path, body, code string
+		err                            error
+		status                         int
+	}{
+		{
+			name: "missing timezone while listing blocks", method: http.MethodGet,
+			path: base + "/blocks?from=2030-01-01T13%3A00%3A00Z&to=2030-01-01T14%3A00%3A00Z",
+			err:  occupancy.ErrTimezoneRequired, status: http.StatusConflict, code: "time_zone_required",
+		},
+		{
+			name: "overlapping manual block", method: http.MethodPost, path: base + "/blocks",
+			body: `{"start_at":"2030-01-01T13:00:00Z","end_at":"2030-01-01T14:00:00Z","reason":"synthetic"}`,
+			err:  occupancy.ErrConflict, status: http.StatusConflict, code: "occupancy_conflict",
+		},
+		{
+			name: "missing block deletion", method: http.MethodDelete, path: base + "/blocks/00000000-0000-4000-8000-000000000003",
+			err: occupancy.ErrNotFound, status: http.StatusNotFound, code: "not_found",
+		},
+		{
+			name: "timezone cannot be replaced while in use", method: http.MethodPut, path: base,
+			body: `{"time_zone":"America/Santiago"}`,
+			err:  occupancy.ErrTimezoneInUse, status: http.StatusConflict, code: "time_zone_in_use",
+		},
+		{
+			name: "locked timezone remains locked", method: http.MethodPut, path: base,
+			body: `{"time_zone":"America/Santiago"}`,
+			err:  occupancy.ErrTimezoneLocked, status: http.StatusConflict, code: "time_zone_locked",
+		},
+		{
+			name: "unknown calendar failure is sanitized", method: http.MethodGet,
+			path: base + "/blocks?from=2030-01-01T13%3A00%3A00Z&to=2030-01-01T14%3A00%3A00Z",
+			err:  errors.New("synthetic repository detail"), status: http.StatusInternalServerError, code: "internal_error",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &memoryRepo{owner: ownerA, draft: spaces.Draft{ID: draftID, UpdatedAt: revision}}
+			service, err := spaces.NewService(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := NewHandler(fakeAuth{}, service, nil, calendarErrorStub{err: tc.err})
+			var response *httptest.ResponseRecorder
+			if tc.method == http.MethodPut {
+				tag := DraftETag(spaces.Draft{ID: draftID, UpdatedAt: revision})
+				response = invokeIfMatch(h, tc.path, "user", tc.body, tag)
+			} else {
+				response = invoke(h, tc.method, tc.path, "user", tc.body)
+			}
+			if response.Code != tc.status || !strings.Contains(response.Body.String(), `"code":"`+tc.code+`"`) {
+				t.Fatalf("status=%d body=%s, want status=%d code=%s", response.Code, response.Body.String(), tc.status, tc.code)
+			}
+			if strings.Contains(response.Body.String(), "synthetic repository detail") {
+				t.Fatalf("raw repository error leaked: %s", response.Body.String())
+			}
+		})
+	}
+}
+
+type manualBlockCaptureRepository struct {
+	occupancy.Repository
+	owner, spaceID, blockID, reason string
+	start, end                      time.Time
+}
+
+func (r *manualBlockCaptureRepository) CreateBlock(_ context.Context, owner, spaceID, blockID string, start, end time.Time, reason string) (occupancy.Block, error) {
+	r.owner, r.spaceID, r.blockID = owner, spaceID, blockID
+	r.start, r.end, r.reason = start, end, reason
+	return occupancy.Block{
+		ID: blockID, SpaceID: spaceID, TimeZone: "America/Santiago",
+		StartAt: start, EndAt: end, Reason: reason,
+	}, nil
+}
+
+func TestManualBlockCreateHTTPForwardsValidatedUTCBlockAndReturnsRepositoryBlock(t *testing.T) {
+	repository := &manualBlockCaptureRepository{}
+	calendar, err := occupancy.NewService(repository, credentials.Generator{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spacesService, err := spaces.NewService(&memoryRepo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(fakeAuth{}, spacesService, nil, calendar)
+	body := `{"start_at":"2030-04-01T12:00:00.123456789Z","end_at":"2030-04-01T13:00:00.987654321Z","reason":"  mantención  "}`
+	response := invoke(h, http.MethodPost, "/api/v1/spaces/"+draftID+"/availability/blocks", "user", body)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", response.Code, response.Body.String())
+	}
+	var got occupancy.Block
+	if err := json.Unmarshal(response.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode created block: %v", err)
+	}
+	wantStart := time.Date(2030, time.April, 1, 12, 0, 0, 123456789, time.UTC)
+	wantEnd := time.Date(2030, time.April, 1, 13, 0, 0, 987654321, time.UTC)
+	if repository.owner != ownerA || repository.spaceID != draftID || repository.blockID == "" ||
+		!repository.start.Equal(wantStart) || !repository.end.Equal(wantEnd) || repository.reason != "mantención" {
+		t.Fatalf("repository received owner=%q space=%q id=%q start=%s end=%s reason=%q", repository.owner, repository.spaceID, repository.blockID, repository.start, repository.end, repository.reason)
+	}
+	if got.ID != repository.blockID || got.SpaceID != draftID || got.TimeZone != "America/Santiago" ||
+		!got.StartAt.Equal(wantStart) || !got.EndAt.Equal(wantEnd) || got.Reason != "mantención" {
+		t.Fatalf("response block=%+v, want repository readback", got)
 	}
 }
 

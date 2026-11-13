@@ -865,8 +865,18 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: visualización de elegibili
   await page.waitForURL((url) => url.pathname === "/mi-cuenta/verificaciones");
 
   // 1. Elegibilidad KYC / KYB
-  await expect(page.getByText("Verificación KYC")).toBeVisible();
-  await expect(page.getByText("Verificación KYB")).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 3,
+      name: "Verificación de usuario (Identidad)",
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 3,
+      name: "Verificación de espacios",
+    }),
+  ).toBeVisible();
   await expect(page.getByText("requiere_rut_empresa")).toBeVisible();
   await expect(page.getByText("Elegible", { exact: true })).toBeVisible();
   await expect(page.getByText("No elegible", { exact: true })).toBeVisible();
@@ -878,7 +888,13 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: visualización de elegibili
   // 3. Detalle con historial
   const detailButtons = page.getByRole("button", { name: "Ver detalle" });
   await detailButtons.first().click();
-  await expect(page.getByText("Detalle de Verificación (KYC)")).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      level: 2,
+      name: "Detalle de Verificación: Usuario (Identidad)",
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(page.getByText("documento_borroso")).toBeVisible();
   await expect(page.getByText("REVISION_DOCUMENTAL")).toBeVisible();
 
@@ -1224,6 +1240,15 @@ test("@phase6 @a11y account routes fit both viewports and have no Axe violations
       await page.waitForURL((url) => url.pathname === route);
     }
 
+    if (route === "/mi-cuenta/verificaciones") {
+      await expect(
+        page.getByRole("heading", {
+          level: 2,
+          name: "Verificación de cuenta y espacios",
+          exact: true,
+        }),
+      ).toBeVisible();
+    }
     await expect(page.locator("h1")).toHaveCount(1);
     for (const viewport of [
       { width: 1365, height: 900 },

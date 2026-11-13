@@ -42,8 +42,12 @@ class FakeCloud:
             uri=str(args[2]);self.assert_generation(uri,args[3]);del self.objects[uri];return ''
         if args[:2]==('run','deploy'):
             service=args[2];image=next(a.split('=',1)[1] for a in args if a.startswith('--image='));suffix=next(a.split('=',1)[1] for a in args if a.startswith('--revision-suffix='));revision=service+'-'+suffix
-            self.services[service]['spec']['template']['spec']['containers'][0]['image']=image
-            self.revisions[revision]={'metadata':{'labels':{'source-commit':SHA,'cloud-build-id':BUILD}},'status':{'imageDigest':image,'conditions':[{'type':'Ready','status':'False' if self.fail_ready else 'True'}]}}
+            container=self.services[service]['spec']['template']['spec']['containers'][0]
+            container['image']=image
+            update_env=next((a.split('=',1)[1] for a in args if a.startswith('--update-env-vars=')), '')
+            for entry in update_env.split(',') if update_env else []:
+                name,value=entry.split('=',1);env=container.setdefault('env',[]);env[:]=[item for item in env if item.get('name')!=name];env.append({'name':name,'value':value})
+            self.revisions[revision]={'metadata':{'labels':{'source-commit':SHA,'cloud-build-id':BUILD}},'spec':{'containers':[copy.deepcopy(container)]},'status':{'imageDigest':image,'conditions':[{'type':'Ready','status':'False' if self.fail_ready else 'True'}]}}
             return ''
         if args[:3]==('run','services','update-traffic'):
             revision=args[4].split('=',1)[1].rsplit('=',1)[0];self.services[args[3]]['status']['traffic']=[{'revisionName':revision,'percent':100}];return ''
@@ -96,8 +100,12 @@ class MainReleaseTests(unittest.TestCase):
             if call[:2]==('run','deploy'):
                 self.assertIn('--no-traffic',call);self.assertIn('--update-labels=source-commit='+SHA+',cloud-build-id='+BUILD,call)
                 self.assertFalse(any(x.startswith(('--max','--set-env-vars','--set-secrets','--service-account')) for x in call))
+                if call[2]==release.ALL_SERVICES[0]:self.assertIn('--update-env-vars=CLOUD_STORAGE_MEDIA_BUCKET='+release.MEDIA_BUCKET,call)
+                else:self.assertFalse(any(x.startswith('--update-env-vars=CLOUD_STORAGE_MEDIA_BUCKET=') for x in call))
         for service in release.ALL_SERVICES:
             self.assertEqual(self.cloud.services[service]['spec']['template']['metadata']['annotations']['autoscaling.knative.dev/maxScale'],'10')
+        api_env={item['name']:item.get('value') for item in self.cloud.services[release.ALL_SERVICES[0]]['spec']['template']['spec']['containers'][0]['env']}
+        self.assertEqual(api_env['CLOUD_STORAGE_MEDIA_BUCKET'],release.MEDIA_BUCKET)
         self.assertTrue(any('/success.json' in x for x in self.cloud.objects))
     def test_job_failure_or_backup_failure_never_deploys_and_retains_owned_lock(self):
         for job,backup in [(True,False),(False,True)]:

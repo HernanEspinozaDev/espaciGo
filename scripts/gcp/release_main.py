@@ -23,6 +23,7 @@ from backup_readiness import check as backup_check
 from release_jobs import request,provision,execute_job,remove_job
 
 ALL_SERVICES=('espacigo-test-api',*SERVICES)
+MEDIA_BUCKET='espacigo-testprod-media-447373903153'
 
 
 def source_inventory(root):
@@ -169,11 +170,27 @@ def backup(cloud,pending,locked_at,bid,record):
     return receipt
 
 
-def semantic_template(service):
+def semantic_template(service, ignore_media_bucket=False):
     template=service['spec']['template'];spec=json.loads(json.dumps(template['spec']))
-    for c in spec.get('containers',[]):c.pop('image',None)
+    for c in spec.get('containers',[]):
+        c.pop('image',None)
+        if ignore_media_bucket:
+            c['env']=[item for item in c.get('env',[]) if item.get('name')!='CLOUD_STORAGE_MEDIA_BUCKET']
+        if isinstance(c.get('env'),list):
+            c['env']=sorted(c['env'],key=lambda item:item.get('name',''))
     annotations={k:v for k,v in template.get('metadata',{}).get('annotations',{}).items() if k not in ['run.googleapis.com/client-name','run.googleapis.com/client-version','run.googleapis.com/operation-id']}
     return {'spec':spec,'annotations':annotations}
+
+
+def media_bucket_value(containers,required=False):
+    require(len(containers)==1,'one application container required')
+    matches=[item for item in containers[0].get('env',[]) if isinstance(item,dict) and item.get('name')=='CLOUD_STORAGE_MEDIA_BUCKET']
+    require(len(matches)<=1,'duplicate CLOUD_STORAGE_MEDIA_BUCKET environment entries')
+    if not matches:
+        require(not required,'deployed API media bucket environment variable is missing')
+        return None
+    require(matches[0].get('value')==MEDIA_BUCKET,'API media bucket configuration differs from the reviewed bucket')
+    return matches[0]['value']
 
 
 def snapshot_services(cloud):
@@ -185,9 +202,10 @@ def snapshot_services(cloud):
         require(t['spec'].get('serviceAccountName')==expected_sa,'application runtime identity differs')
         port=8080 if service==ALL_SERVICES[0] else 4000;path='/health/ready' if port==8080 else '/healthz'
         require(c[0].get('startupProbe',{}).get('httpGet')=={'path':path,'port':port},'application startup readiness contract differs')
+        if service==ALL_SERVICES[0]:media_bucket_value(c)
         traffic=[x for x in d.get('status',{}).get('traffic',[]) if x.get('percent',0)]
         require(len(traffic)==1 and traffic[0].get('percent')==100,'single baseline revision at 100% required')
-        result[service]={'metadata':d,'revision':traffic[0]['revisionName'],'template':semantic_template(d)}
+        result[service]={'metadata':d,'revision':traffic[0]['revisionName'],'template':semantic_template(d,ignore_media_bucket=service==ALL_SERVICES[0])}
     verify_private(cloud)
     return result
 
@@ -198,10 +216,15 @@ def rollout(cloud,images,sha,bid,baseline,record):
         for service in ALL_SERVICES:
             image=images['api'] if service==ALL_SERVICES[0] else images['web']
             revision=service+'-b'+bid.replace('-','')[:24]
-            cloud.run('run','deploy',service,'--image='+image,'--no-traffic','--revision-suffix=b'+bid.replace('-','')[:24],'--update-labels=source-commit='+sha+',cloud-build-id='+bid,timeout=420)
-            ready_revision(cloud.json('run','revisions','describe',revision),image,sha,bid)
+            deploy_args=['run','deploy',service,'--image='+image,'--no-traffic','--revision-suffix=b'+bid.replace('-','')[:24],'--update-labels=source-commit='+sha+',cloud-build-id='+bid]
+            if service==ALL_SERVICES[0]:deploy_args.append('--update-env-vars=CLOUD_STORAGE_MEDIA_BUCKET='+MEDIA_BUCKET)
+            cloud.run(*deploy_args,timeout=420)
+            revision_metadata=cloud.json('run','revisions','describe',revision)
+            ready_revision(revision_metadata,image,sha,bid)
+            if service==ALL_SERVICES[0]:media_bucket_value(revision_metadata.get('spec',{}).get('containers',[]),required=True)
             current=cloud.json('run','services','describe',service)
-            require(semantic_template(current)==baseline[service]['template'],'service configuration changed during image rollout')
+            if service==ALL_SERVICES[0]:media_bucket_value(current['spec']['template']['spec']['containers'],required=True)
+            require(semantic_template(current,ignore_media_bucket=service==ALL_SERVICES[0])==baseline[service]['template'],'service configuration changed during image rollout')
             revisions[service]=revision;record('ready-'+service,{'revision':revision,'image':image})
         verify_private(cloud)
         for service in ALL_SERVICES:

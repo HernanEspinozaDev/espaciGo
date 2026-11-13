@@ -181,12 +181,14 @@ type publicMediaStore struct {
 	body       []byte
 	key        string
 	generation int64
+	getCalls   int
 }
 
 func (s *publicMediaStore) Put(context.Context, string, []byte, string) (media.StoredObject, error) {
 	return media.StoredObject{}, nil
 }
 func (s *publicMediaStore) Get(_ context.Context, key string, generation int64) ([]byte, error) {
+	s.getCalls++
 	if key != s.key || generation != s.generation {
 		return nil, media.ErrNotFound
 	}
@@ -224,4 +226,74 @@ type PublicImageStoreFunc func(context.Context, string) ([]byte, error)
 
 func (f PublicImageStoreFunc) Get(ctx context.Context, key string) ([]byte, error) {
 	return f(ctx, key)
+}
+
+func TestMediaImageContentRejectsInvalidMetadataSizeAndDigest(t *testing.T) {
+	body := []byte("normalized-webp-fixture")
+	digest := sha256.Sum256(body)
+	base := PublicImage{
+		MIME: "image/webp", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)),
+		ObjectKey: "media/v1/spaces/a/photo/display.webp", Generation: 7,
+	}
+	cases := []struct {
+		name         string
+		mutate       func(*PublicImage)
+		wantGetCalls int
+	}{
+		{name: "invalid mime", mutate: func(item *PublicImage) { item.MIME = "image/png" }},
+		{name: "zero size", mutate: func(item *PublicImage) { item.Size = 0 }},
+		{name: "oversized variant", mutate: func(item *PublicImage) { item.Size = 10<<20 + 1 }},
+		{name: "stored size mismatch", mutate: func(item *PublicImage) { item.Size++ }, wantGetCalls: 1},
+		{name: "digest mismatch", mutate: func(item *PublicImage) { item.SHA256 = strings.Repeat("0", 64) }, wantGetCalls: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			item := base
+			tc.mutate(&item)
+			store := &publicMediaStore{body: body, key: base.ObjectKey, generation: base.Generation}
+			repo := publicMediaRepository{item: item}
+			legacy := PublicImageStoreFunc(func(context.Context, string) ([]byte, error) { return nil, ErrNotFound })
+			service, err := NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), legacy, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, content, err := service.MediaImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "display")
+			if !errors.Is(err, ErrNotFound) || len(content) != 0 {
+				t.Fatalf("content length=%d err=%v; want hidden not-found", len(content), err)
+			}
+			if store.getCalls != tc.wantGetCalls {
+				t.Fatalf("object-store reads=%d; want %d", store.getCalls, tc.wantGetCalls)
+			}
+		})
+	}
+}
+
+type cancelledPublicMediaRepository struct {
+	publicMediaRepository
+	calls int
+}
+
+func (r *cancelledPublicMediaRepository) PublicMediaVariant(ctx context.Context, _, _, _ string) (PublicImage, error) {
+	r.calls++
+	return PublicImage{}, ctx.Err()
+}
+
+func TestMediaImageContentStopsAfterCancelledRepositoryLookup(t *testing.T) {
+	store := &publicMediaStore{body: []byte("must-not-be-read"), key: "fixture", generation: 7}
+	repo := &cancelledPublicMediaRepository{}
+	legacy := PublicImageStoreFunc(func(context.Context, string) ([]byte, error) { return nil, ErrNotFound })
+	service, err := NewWithImageAndMediaStore(repo, []byte("01234567890123456789012345678901"), legacy, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, content, err := service.MediaImageContent(ctx, "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002", "display")
+	if !errors.Is(err, context.Canceled) || len(content) != 0 {
+		t.Fatalf("content length=%d err=%v; want canceled lookup and no content", len(content), err)
+	}
+	if repo.calls != 1 || store.getCalls != 0 {
+		t.Fatalf("repository calls=%d object-store reads=%d; want 1 and 0", repo.calls, store.getCalls)
+	}
 }

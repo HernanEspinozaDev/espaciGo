@@ -5,7 +5,14 @@ export interface QueueTask {
 }
 
 export interface QueueItem extends QueueTask {
-  state: "queued" | "uploading" | "pending" | "ready" | "failed" | "cancelled";
+  state:
+    | "queued"
+    | "uploading"
+    | "pending"
+    | "ready"
+    | "failed"
+    | "rejected"
+    | "cancelled";
   retryAllowed: boolean;
   photoId?: string;
   discardAllowed: boolean;
@@ -57,7 +64,11 @@ export class GalleryUploadQueue {
   cancel(id: string): void {
     if (this.#disposed) return;
     const item = this.#items.get(id);
-    if (!item || ["ready", "failed", "cancelled"].includes(item.state)) return;
+    if (
+      !item ||
+      ["ready", "failed", "rejected", "cancelled"].includes(item.state)
+    )
+      return;
     if (item.state === "queued") {
       this.#set(id, { state: "cancelled", retryAllowed: false });
       return;
@@ -72,14 +83,15 @@ export class GalleryUploadQueue {
     if (
       this.#disposed ||
       !item ||
-      item.state !== "failed" ||
+      !["failed", "rejected"].includes(item.state) ||
       !item.discardAllowed ||
       this.#controllers.has(id) ||
       this.#checking.has(id)
     )
       return;
-    // Local removal only after an authoritative terminal failure. Neither
-    // pending nor not_found proves cancellation of an already-sent request.
+    // Local removal is safe only after a terminal server failure or an
+    // explicit validation rejection. Neither pending nor not_found proves
+    // cancellation of an already-sent request.
     this.#items.delete(id);
     this.#emit();
   }
@@ -180,9 +192,17 @@ export class GalleryUploadQueue {
       } else if (!this.#disposed) {
         this.#set(item.id, { state: "pending", photoId, retryAllowed: false });
       }
-    } catch {
+    } catch (failure) {
       if (!this.#disposed) {
-        await this.#reconcile(item, callbacks);
+        if (isDefinitiveUploadRejection(failure)) {
+          this.#set(item.id, {
+            state: "rejected",
+            retryAllowed: false,
+            discardAllowed: true,
+          });
+        } else {
+          await this.#reconcile(item, callbacks);
+        }
       }
     } finally {
       this.#controllers.delete(item.id);
@@ -232,4 +252,14 @@ export class GalleryUploadQueue {
         this.#set(item.id, { state: "pending", retryAllowed: false });
     }
   }
+}
+
+function isDefinitiveUploadRejection(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "status" in error &&
+    "code" in error &&
+    ((error.status === 422 && error.code === "validation_error") ||
+      (error.status === 413 && error.code === "upload_too_large"))
+  );
 }

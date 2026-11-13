@@ -106,7 +106,8 @@ func parseTimestamp(value string) (time.Time, error) {
 }
 
 func validTimeZone(zone string) bool {
-	if strings.TrimSpace(zone) != zone || zone == "" || zone == "Local" || strings.Contains(zone, "..") {
+	// TZDB's "Factory" is a noncommittal placeholder for an unknown local zone, not a space locality.
+	if strings.TrimSpace(zone) != zone || zone == "" || zone == "Local" || zone == "Factory" || strings.Contains(zone, "..") {
 		return false
 	}
 	_, err := time.LoadLocation(zone)

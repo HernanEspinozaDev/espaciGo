@@ -30,7 +30,12 @@ export function publicCoverUrl(
   space: PublicSpace,
   variant: "thumbnail" | "display",
 ): string | null {
-  if (!space.cover_image_id || !isPublicUuid(space.space_id)) return null;
+  if (
+    !space.cover_image_id ||
+    !isPublicUuid(space.space_id) ||
+    !isPublicUuid(space.cover_image_id)
+  )
+    return null;
   const reference = space.images?.find(
     (image) => image.image_id === space.cover_image_id,
   );

@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   Loader2,
   History,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -71,6 +72,8 @@ interface ListingEditorProps {
 }
 
 type TabKey = "info" | "pricing" | "schedule" | "availability" | "photos";
+const weeklyScheduleUnavailableMessage =
+  "No se pudo cargar el horario semanal. Recarga la página antes de editarlo.";
 
 function localDateInputValue(date: Date): string {
   const year = date.getFullYear();
@@ -271,6 +274,10 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   const [timeZone, setTimeZone] = useState("America/Santiago");
   const [scheduleEnabled, setScheduleEnabled] = useState(true);
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlot[]>([]);
+  const [weeklyScheduleLoadState, setWeeklyScheduleLoadState] = useState<{
+    listingId: string;
+    available: boolean;
+  } | null>(null);
 
   // Pestaña 4: Bloqueos manuales por fecha (no reservas ni ocupación).
   const [calendarFrom, setCalendarFrom] = useState(() =>
@@ -295,13 +302,27 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   );
   const [calendarError, setCalendarError] = useState<string | null>(null);
   const [calendarNotice, setCalendarNotice] = useState<string | null>(null);
+  const [calendarRevisionStaleScope, setCalendarRevisionStaleScope] = useState<
+    string | null
+  >(null);
+  const calendarRevisionStale = calendarRevisionStaleScope === calendarScope;
   const calendarLoadController = useRef<AbortController | null>(null);
+
+  const markCalendarRevisionStale = () => {
+    calendarLoadController.current?.abort();
+    calendarLoadController.current = null;
+    setCalendarLoading(false);
+    setCalendarRevisionStaleScope(calendarScope);
+  };
 
   const refreshManualBlocks = useCallback(async () => {
     if (!accessToken) return;
-    if (!currentListing?.time_zone) {
+    if (
+      !currentListing?.time_zone ||
+      !isValidIanaTimeZone(currentListing.time_zone)
+    ) {
       setCalendarError(
-        "Configura y guarda primero la zona horaria del espacio en Calendario y horarios.",
+        "Configura y guarda primero una zona horaria IANA válida en Calendario y horarios.",
       );
       return;
     }
@@ -368,6 +389,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     selectListing(accessToken, listingId)
       .then(async (detail) => {
         if (detail) {
+          setFeedbackError(null);
           setTitle(detail.title);
           setDescription(detail.description);
           setCapacity(detail.capacity);
@@ -390,6 +412,13 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           }
 
           const sched = hostListingsFacade.getSnapshot().weeklySchedule;
+          setWeeklyScheduleLoadState({
+            listingId,
+            available: detail.rate_unit !== "hora" || sched !== null,
+          });
+          if (detail.rate_unit === "hora" && sched === null) {
+            setFeedbackError(weeklyScheduleUnavailableMessage);
+          }
           if (sched) {
             setScheduleEnabled(sched.enabled);
             if (sched.time_zone) {
@@ -440,6 +469,10 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         `${currentListing.category_code}@${currentListing.attribute_schema_version}`
       ] || snapshot.categorySchemas[currentListing.category_code]
     : null;
+  const weeklyScheduleUnavailable =
+    currentListing?.rate_unit === "hora" &&
+    (weeklyScheduleLoadState?.listingId !== listingId ||
+      !weeklyScheduleLoadState.available);
 
   // Guardar Pestaña 1: Contenido y atributos
   const handleSaveContent = async (e: React.FormEvent) => {
@@ -569,6 +602,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           );
           return;
         }
+        if (err instanceof ApiError && err.status === 412) {
+          markCalendarRevisionStale();
+        }
         setFeedbackError(listingErrorMessage(err));
       }
     });
@@ -618,6 +654,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         await loadPricingHistory(accessToken, listingId);
         setFeedbackSuccess("Tarifa actualizada y registrada en el historial.");
       } catch (err) {
+        if (err instanceof ApiError && err.status === 412) {
+          markCalendarRevisionStale();
+        }
         setFeedbackError(listingErrorMessage(err));
       }
     });
@@ -629,6 +668,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     if (!accessToken || returnsBusy || galleryBusy) return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
+
+    if (weeklyScheduleUnavailable) {
+      setFeedbackError(weeklyScheduleUnavailableMessage);
+      return;
+    }
 
     if (!isValidIanaTimeZone(timeZone)) {
       setFeedbackError(
@@ -656,6 +700,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     }
 
     startTransition(async () => {
+      let timeZoneConfigured = false;
       try {
         const configured = await configureTimeZone(
           accessToken,
@@ -663,6 +708,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           timeZone,
           listingEtag,
         );
+        timeZoneConfigured = true;
         if (hourlySchedule) {
           await updateWeeklySchedule(
             accessToken,
@@ -683,7 +729,16 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           );
         }
       } catch (err) {
-        setFeedbackError(listingErrorMessage(err));
+        if (err instanceof ApiError && err.status === 412) {
+          markCalendarRevisionStale();
+        }
+        const message =
+          timeZoneConfigured && hourlySchedule
+            ? err instanceof ApiError && err.status === 412
+              ? "La zona horaria se guardó. Este espacio cambió. Actualiza la información antes de volver a guardar. El horario semanal no pudo confirmarse. Recarga para verificar el estado."
+              : "La zona horaria se guardó, pero no se pudo confirmar el horario semanal. Recarga para verificar su estado antes de volver a guardar."
+            : listingErrorMessage(err);
+        setFeedbackError(message);
       }
     });
   };
@@ -691,11 +746,15 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   const handleCreateManualBlock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accessToken || calendarSaving || calendarLoading) return;
+    if (calendarRevisionStale) return;
     setCalendarError(null);
     setCalendarNotice(null);
-    if (!currentListing?.time_zone) {
+    if (
+      !currentListing?.time_zone ||
+      !isValidIanaTimeZone(currentListing.time_zone)
+    ) {
       setCalendarError(
-        "Configura y guarda primero la zona horaria del espacio en Calendario y horarios.",
+        "Configura y guarda primero una zona horaria IANA válida en Calendario y horarios.",
       );
       return;
     }
@@ -739,7 +798,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         ],
       }));
       setCalendarReason("");
-      setCalendarNotice("Bloqueo manual guardado. Se actualizará la lista.");
+      setCalendarNotice("Bloqueo manual guardado.");
       await refreshManualBlocks();
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") return;
@@ -961,16 +1020,24 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           )}
 
           {currentListing.state === "activa" && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={galleryBusy || returnsUncertainBusy || isPending}
-              onClick={handleGlobalArchive}
-              className="gap-1.5 text-amber-700 hover:bg-amber-50"
-            >
-              <Archive className="size-4" aria-hidden="true" />
-              Archivar
-            </Button>
+            <>
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link href={`/espacios/${listingId}`}>
+                  <ExternalLink className="size-4" aria-hidden="true" />
+                  Ver publicación
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={galleryBusy || returnsUncertainBusy || isPending}
+                onClick={handleGlobalArchive}
+                className="gap-1.5 text-amber-700 hover:bg-amber-50"
+              >
+                <Archive className="size-4" aria-hidden="true" />
+                Archivar
+              </Button>
+            </>
           )}
 
           {currentListing.state === "oculta" && (
@@ -1955,6 +2022,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                         aria-label="Habilitar horario semanal"
                         checked={scheduleEnabled}
                         onChange={(e) => setScheduleEnabled(e.target.checked)}
+                        disabled={isPending || weeklyScheduleUnavailable}
                         className="size-5 rounded text-primary focus:ring-primary"
                       />
                     </div>
@@ -1966,6 +2034,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                         returnsBusy ||
                         returnsUncertainBusy ||
                         galleryBusy ||
+                        weeklyScheduleUnavailable ||
                         !accessToken ||
                         !currentListing
                       }
@@ -1988,6 +2057,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                       returnsBusy ||
                       returnsUncertainBusy ||
                       galleryBusy ||
+                      weeklyScheduleUnavailable ||
                       !accessToken ||
                       !currentListing
                     }
@@ -2012,7 +2082,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                 )}
               </CardContent>
               <CardFooter className="border-t pt-4 flex justify-end">
-                <Button type="submit" disabled={isPending} className="gap-2">
+                <Button
+                  type="submit"
+                  disabled={isPending || weeklyScheduleUnavailable}
+                  className="gap-2"
+                >
                   {isPending ? (
                     <Loader2
                       className="size-4 animate-spin"
@@ -2050,6 +2124,15 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {calendarRevisionStale && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+                >
+                  Este espacio cambió. Recarga la página antes de crear bloqueos
+                  manuales.
+                </div>
+              )}
               <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
                 <div className="space-y-2">
                   <Label htmlFor="calendar-from">Desde</Label>
@@ -2075,17 +2158,23 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                   type="button"
                   variant="outline"
                   onClick={() => void refreshManualBlocks()}
-                  disabled={calendarLoading || calendarSaving || !accessToken}
+                  disabled={
+                    calendarLoading ||
+                    calendarSaving ||
+                    !accessToken ||
+                    !isValidIanaTimeZone(currentListing.time_zone)
+                  }
                 >
                   {calendarLoading ? "Actualizando…" : "Actualizar fechas"}
                 </Button>
               </div>
 
-              {!currentListing.time_zone && (
+              {(!currentListing.time_zone ||
+                !isValidIanaTimeZone(currentListing.time_zone)) && (
                 <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
                   <p>
-                    Guarda una zona horaria IANA antes de consultar o crear
-                    bloqueos por fecha.
+                    Guarda una zona horaria IANA válida antes de consultar o
+                    crear bloqueos por fecha.
                   </p>
                   <Button
                     type="button"
@@ -2172,7 +2261,8 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                     returnsUncertainBusy ||
                     galleryBusy ||
                     !accessToken ||
-                    !currentListing.time_zone
+                    calendarRevisionStale ||
+                    !isValidIanaTimeZone(currentListing.time_zone)
                   }
                 >
                   {calendarSaving ? "Guardando…" : "Crear bloqueo"}

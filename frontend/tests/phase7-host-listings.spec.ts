@@ -330,6 +330,11 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
   await expect(page.getByText("Oficina Providencia A")).toBeVisible();
   await expect(page.getByText("Oficina Las Condes B")).toBeVisible();
   await expect(page.getByText("Bodega Quilicura C")).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: "Ver publicación de Oficina Providencia A",
+    }),
+  ).toHaveCount(0);
   // No debe mostrar activos ni archivados
   await expect(page.getByText("Sala de Eventos Bellavista D")).toBeHidden();
   await expect(page.getByText("Oficina Vitacura G (Archivada)")).toBeHidden();
@@ -344,6 +349,14 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
   await expect(page.getByText("Sala de Eventos Bellavista D")).toBeVisible();
   await expect(page.getByText("Cowork Santiago Centro E")).toBeVisible();
   await expect(page.getByText("Estacionamiento Subterráneo F")).toBeVisible();
+  const activePublicLink = page.getByRole("link", {
+    name: "Ver publicación de Sala de Eventos Bellavista D",
+  });
+  await expect(activePublicLink).toHaveAttribute(
+    "href",
+    "/espacios/00000000-0000-4000-8000-000000000021",
+  );
+  await expect(activePublicLink).toBeVisible();
   await expect(page.getByText("Oficina Providencia A")).toBeHidden();
   const publicadoBadges = page.locator(
     "span:has-text('Publicado'):not([role='tab'])",
@@ -412,7 +425,7 @@ test("@phase7 @controlled /anfitrion/espacios: listado de espacios, filtrado por
   await expect(page.getByText("Sala de Eventos Bellavista D")).toHaveCount(0);
 });
 
-test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 1: selección dinámica de categorías desde /spaces/categories, título; Paso 2: dirección y atributos dinámicos con attribute_schema_version; Paso 3: tarifas CLP; Paso 4: disponibilidad semanal; Paso 5: confirmación y creación con Idempotency-Key en POST /spaces redirigiendo a /anfitrion/espacios/{id}/editar)", async ({
+test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 1: selección dinámica de categorías desde /spaces/categories, título; Paso 2: dirección y atributos dinámicos con attribute_schema_version; Paso 3: tarifas CLP; Paso 4: disponibilidad semanal; Paso 5: confirmación y creación con POST /spaces sin Idempotency-Key redirigiendo a /anfitrion/espacios/{id}/editar)", async ({
   page,
 }) => {
   let capturedIdempotencyKey: string | null = null;
@@ -424,6 +437,11 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   let weeklyHoursGetCount = 0;
   let timezoneIfMatch: string | null = null;
   let weeklyHoursIfMatch: string | null = null;
+  let galleryUploadCount = 0;
+  let galleryUploadIdempotencyKey: string | null = null;
+  let galleryUploadBody: string | null = null;
+  let uploadedGalleryPhoto: Record<string, unknown> | null = null;
+  const galleryReadbacks: string[][] = [];
   const postCreateSessionRequests: string[] = [];
   let currentSyntheticSession = {
     account_id: accountId,
@@ -433,6 +451,11 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
     expires_at: new Date(Date.now() + 3600_000).toISOString(),
   };
   const newSpaceId = "00000000-0000-4000-8000-000000000101";
+  const uploadedPhotoId = "00000000-0000-4000-8000-000000000102";
+  const uploadImageBytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNQSlv1HwAEEgIyVuBIjQAAAABJRU5ErkJggg==",
+    "base64",
+  );
 
   const categories = [
     { code: "oficina", name: "Oficinas y Cowork" },
@@ -680,7 +703,80 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
       pathname === `/api/backend/spaces/${newSpaceId}/gallery` &&
       method === "GET"
     ) {
-      return { status: 200, body: { items: [] } };
+      const items = uploadedGalleryPhoto ? [uploadedGalleryPhoto] : [];
+      galleryReadbacks.push(items.map((photo) => String(photo.id)));
+      return {
+        status: 200,
+        body: {
+          items,
+          max_photos: 30,
+        },
+      };
+    }
+    if (
+      pathname === `/api/backend/spaces/${newSpaceId}/gallery` &&
+      method === "POST"
+    ) {
+      galleryUploadCount += 1;
+      galleryUploadIdempotencyKey =
+        request.headers()["idempotency-key"] ?? null;
+      galleryUploadBody = request.postData() ?? "";
+      const requestBytes = request.postDataBuffer() ?? Buffer.from([]);
+      if (!requestBytes.includes(uploadImageBytes)) {
+        return apiError(422, "validation_error");
+      }
+      uploadedGalleryPhoto = {
+        id: uploadedPhotoId,
+        space_id: newSpaceId,
+        alt_text: "",
+        visible: true,
+        cover: false,
+        position: 1,
+        state: "ready",
+        created_at: "2026-10-27T12:00:00Z",
+        variants: ["thumbnail", "display"].map((name) => ({
+          name,
+          url: `/api/v1/spaces/${newSpaceId}/gallery/${uploadedPhotoId}/variants/${name}`,
+          mime_type: "image/webp",
+          size_bytes: 128,
+          sha256: "c".repeat(64),
+          width: 32,
+          height: 32,
+        })),
+      };
+      return {
+        status: 201,
+        body: { photo: uploadedGalleryPhoto, reused: false },
+      };
+    }
+    const uploadedVariantMatch = pathname.match(
+      new RegExp(
+        `^/api/backend/spaces/${newSpaceId}/gallery/${uploadedPhotoId}/variants/(thumbnail|display)$`,
+      ),
+    );
+    if (uploadedVariantMatch && method === "GET") {
+      return {
+        status: 200,
+        headers: { "content-type": "image/webp" },
+        body: Buffer.from([]),
+      };
+    }
+    if (
+      pathname === `/api/backend/spaces/${newSpaceId}/cover` &&
+      method === "PUT"
+    ) {
+      const body = JSON.parse(request.postData() ?? "{}") as {
+        photo_id?: string;
+      };
+      if (!uploadedGalleryPhoto || body.photo_id !== uploadedPhotoId) {
+        return apiError(404, "not_found");
+      }
+      uploadedGalleryPhoto = { ...uploadedGalleryPhoto, cover: true };
+      return {
+        status: 200,
+        headers: { etag: '"rev-cover-1"' },
+        body: { cover_photo_id: uploadedPhotoId },
+      };
     }
     if (
       pathname === `/api/backend/spaces/${newSpaceId}/weekly-hours` &&
@@ -1084,12 +1180,63 @@ test("@phase7 @controlled /anfitrion/espacios/nuevo: asistente en 5 pasos (Paso 
   );
   expect(weeklyHoursGetCount).toBeGreaterThan(weeklyHoursGetCountBeforeReload);
   expect(createPostCount).toBe(1);
+
+  // Caracterización del primer entregable: crear borrador y cargar su primera imagen.
+  await page.getByRole("tab", { name: /Fotografías/ }).click();
+  const galleryReadbackCountBeforeUpload = galleryReadbacks.length;
+  const galleryImageInput = page.getByLabel("Subir fotografías", {
+    exact: true,
+  });
+  await expect(galleryImageInput).toBeEnabled();
+  await galleryImageInput.setInputFiles({
+    name: "espacio-creado-galeria.png",
+    mimeType: "image/png",
+    buffer: uploadImageBytes,
+  });
+  await expect(
+    page.getByText("Fotografía agregada a la galería.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("img", { name: "Fotografía del espacio", exact: true }),
+  ).toHaveAttribute("src", /^blob:/);
+  expect(galleryUploadCount).toBe(1);
+  expect(galleryUploadIdempotencyKey).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  );
+  expect(galleryUploadBody).toContain('name="image"');
+  expect(galleryUploadBody).toContain("espacio-creado-galeria.png");
+  expect(uploadedGalleryPhoto).toMatchObject({
+    id: uploadedPhotoId,
+    space_id: newSpaceId,
+    state: "ready",
+    cover: true,
+  });
+  expect(
+    galleryReadbacks.slice(galleryReadbackCountBeforeUpload),
+  ).toContainEqual([uploadedPhotoId]);
 });
 
 test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pestañas (Información con PUT /spaces/{id}/publication-content, Tarifas e historial con PUT /spaces/{id}/tariff y GET /spaces/{id}/tariffs, Horarios con PUT /spaces/{id}/availability, Fotos con selección de imágenes, portada y reordenamiento, y Publicación con PUT /spaces/{id}/publication)", async ({
   page,
 }) => {
   const spaceId = "00000000-0000-4000-8000-000000000042";
+  await page.addInitScript(() => {
+    const revokedUrls: string[] = [];
+    Object.defineProperty(window, "__privateBlobRevocations", {
+      value: revokedUrls,
+    });
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = (url) => {
+      revokedUrls.push(url);
+      revoke(url);
+    };
+  });
+  const revokedBlobUrls = () =>
+    page.evaluate(
+      () =>
+        Object.getOwnPropertyDescriptor(window, "__privateBlobRevocations")
+          ?.value as string[],
+    );
   const firstPhotoId = "00000000-0000-4000-8000-000000000001";
   let putContentBody: Record<string, unknown> | null = null;
   let rejectNextDraftUpdate: Array<{ field: string; code: string }> | null =
@@ -1129,6 +1276,8 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   const releaseGalleryPosts: Array<() => void> = [];
   let thumbnailGetCount = 0;
   let secondPhotoThumbnailGetCount = 0;
+  const genericThumbnailRequests: string[] = [];
+  const genericVariantRequests: string[] = [];
   let reorderPutCount = 0;
   const reorderIfMatchHeaders: string[] = [];
   const reorderRequests: Array<{
@@ -1153,6 +1302,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   let retryTargetFailed = false;
   let pendingTargetResponded = false;
   let pendingReplacementResponded = false;
+  let unavailableReplacementResponded = false;
   let deletingReplacementResponded = false;
   let pendingStatusCheckCount = 0;
   let cancelledUploadKey: string | null = null;
@@ -1168,6 +1318,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   const replacementPhotoId = "00000000-0000-4000-8000-000000000099";
   const readyReplacementPhotoId = "00000000-0000-4000-8000-000000000091";
   const pendingReplacementPhotoId = "00000000-0000-4000-8000-000000000100";
+  const unavailableReplacementPhotoId = "00000000-0000-4000-8000-000000000111";
 
   const currentSpace = {
     id: spaceId,
@@ -1481,6 +1632,35 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
         body: Buffer.from([]),
       };
     }
+    const genericVariantMatch = pathname.match(
+      new RegExp(
+        `^/api/backend/spaces/${spaceId}/gallery/([^/]+)/variants/(thumbnail|display)$`,
+      ),
+    );
+    if (genericVariantMatch && method === "GET") {
+      const photoId = genericVariantMatch[1]!;
+      const variantName = genericVariantMatch[2]!;
+      const photo = photos.find((item) => item.id === photoId);
+      if (!photo || !Array.isArray(photo.variants))
+        return apiError(404, "not_found");
+      if (
+        !photo.variants.some(
+          (item) =>
+            typeof item === "object" &&
+            item !== null &&
+            "name" in item &&
+            item.name === variantName,
+        )
+      )
+        return apiError(404, "not_found");
+      genericVariantRequests.push(`${photoId}:${variantName}`);
+      if (variantName === "thumbnail") genericThumbnailRequests.push(photoId);
+      return {
+        status: 200,
+        headers: { "content-type": "image/webp" },
+        body: Buffer.from([]),
+      };
+    }
     const galleryReplacementMatch = pathname.match(
       new RegExp(`^/api/backend/spaces/${spaceId}/gallery/([^/]+)/content$`),
     );
@@ -1501,6 +1681,13 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
       };
       replacementAttempts.push(replacementAttempt);
       const previous = photos[targetIndex]!;
+      if (
+        body.includes("foto-reemplazo-503.png") &&
+        !unavailableReplacementResponded
+      ) {
+        unavailableReplacementResponded = true;
+        return apiError(503, "unavailable");
+      }
       if (
         body.includes("foto-reemplazo-pending.png") &&
         !pendingReplacementResponded
@@ -1540,9 +1727,11 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
       const wasCover =
         Boolean(previous.cover) ||
         currentSpace.cover_photo_id === targetPhotoId;
-      const nextReplacementPhotoId = body.includes("foto-reemplazo-pending.png")
-        ? pendingReplacementPhotoId
-        : replacementPhotoId;
+      const nextReplacementPhotoId = body.includes("foto-reemplazo-503.png")
+        ? unavailableReplacementPhotoId
+        : body.includes("foto-reemplazo-pending.png")
+          ? pendingReplacementPhotoId
+          : replacementPhotoId;
       const variants = Array.isArray(previous.variants)
         ? (previous.variants as Array<Record<string, unknown>>)
         : [];
@@ -1571,7 +1760,8 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
       if (
         idempotencyKey === replacementAttempt?.idempotencyKey &&
         (replacementAttempt.body.includes("foto-reemplazo-pending.png") ||
-          replacementAttempt.body.includes("foto-reemplazo-deleting.png"))
+          replacementAttempt.body.includes("foto-reemplazo-deleting.png") ||
+          replacementAttempt.body.includes("foto-reemplazo-503.png"))
       ) {
         replacementStatusLookups.push(idempotencyKey);
         replacementStatusLookupCount += 1;
@@ -1746,7 +1936,7 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
           url: `/api/v1/spaces/${spaceId}/gallery/${photoId}/variants/${name}`,
           mime_type: "image/webp",
           size_bytes: 128,
-          sha256: `a${String(uploadNumber).repeat(63)}`,
+          sha256: uploadNumber.toString(16).padStart(64, "0"),
           width: 32,
           height: 32,
         })),
@@ -1874,6 +2064,9 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
       .locator("h1"),
   ).toHaveText("Oficina Providencia Inicial");
   await expect(page.getByText("Borrador").first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ver publicación" })).toHaveCount(
+    0,
+  );
 
   // 1. Pestaña Información: validación común antes de guardar contenido
   const calefaccion = page.getByLabel("calefaccion", { exact: true });
@@ -2320,7 +2513,13 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   replacementStatusState = "pending";
   const readyLookupStart = replacementStatusLookupCount;
   const readyAttemptStart = replacementAttempts.length;
-  const blobBeforeReady = await firstPhotoImage.getAttribute("src");
+  const firstPhotoCard = page.getByTestId("gallery-photo").first();
+  await expect(firstPhotoCard).toHaveAttribute(
+    "data-photo-id",
+    pendingReplacementPhotoId,
+  );
+  await expect(firstPhotoImage).toHaveAttribute("src", /^blob:/);
+  const photoIdBeforeReady = await firstPhotoCard.getAttribute("data-photo-id");
   await page.getByLabel("Reemplazar fotografía").setInputFiles({
     name: "foto-reemplazo-pending.png",
     mimeType: "image/png",
@@ -2351,7 +2550,11 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(replacementStatusLookupCount).toBe(readyLookupStart + 2);
   expect(replacementStatusLookups.at(-1)).toBe(readyReplacementKey);
   expect(replacementAttempts).toHaveLength(readyAttemptStart + 1);
-  await expect(firstPhotoImage).toHaveAttribute("src", blobBeforeReady!);
+  await expect(firstPhotoCard).toHaveAttribute(
+    "data-photo-id",
+    photoIdBeforeReady!,
+  );
+  await expect(firstPhotoImage).toHaveAttribute("src", /^blob:/);
   await expect(page.getByText("Portada", { exact: true })).toBeVisible();
   const detailReadsBeforeReady = detailReloads.length;
   const galleryReadsBeforeReady = galleryReloads.length;
@@ -2388,7 +2591,11 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(photos[0]?.id).toBe(readyReplacementPhotoId);
   expect(currentSpace.cover_photo_id).toBe(readyReplacementPhotoId);
   await expect(firstPhotoImage).toBeVisible();
-  await expect(firstPhotoImage).not.toHaveAttribute("src", blobBeforeReady!);
+  await expect(firstPhotoCard).toHaveAttribute(
+    "data-photo-id",
+    readyReplacementPhotoId,
+  );
+  await expect(firstPhotoImage).toHaveAttribute("src", /^blob:/);
   await expect(page.getByText("Portada", { exact: true })).toBeVisible();
   await expect(
     page.getByRole("button", {
@@ -2504,6 +2711,15 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
     buffer: tinyPng,
   });
   await expect(page.getByText("#2", { exact: true })).toBeVisible();
+  const displayOnlyPhotoId = String(photos.at(-1)?.id);
+  await expect
+    .poll(() => genericVariantRequests)
+    .toContain(`${displayOnlyPhotoId}:display`);
+  await expect(
+    page.locator(
+      `[data-testid="gallery-photo"][data-photo-id="${displayOnlyPhotoId}"] img`,
+    ),
+  ).toHaveAttribute("src", /^blob:/);
   await expect(
     page.getByRole("img", { name: "Imagen 2 del espacio", exact: true }),
   ).toHaveCount(0);
@@ -2716,12 +2932,14 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   });
 
   // Derive the moved photo and target from the rendered gallery order.
-  const visiblePhotoIds = async () => {
-    const visibleCards = await page
-      .getByRole("button", { name: "Eliminar foto" })
-      .count();
-    return photos.slice(0, visibleCards).map((photo) => String(photo.id));
-  };
+  const visiblePhotoIds = () =>
+    page.getByTestId("gallery-photo").evaluateAll((cards) =>
+      cards.map((card) => {
+        const photoId = card.getAttribute("data-photo-id");
+        if (!photoId) throw new Error("Gallery card missing photo ID");
+        return photoId;
+      }),
+    );
   const moveUpButton = page.locator(
     "button[aria-label='Mover foto antes']:not([disabled])",
   );
@@ -2767,8 +2985,22 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(reorderPutCount).toBe(requestsBeforeStaleReorder + 1);
 
   // Quitar la foto real que quedó primera tras el reordenamiento
+  const removedPhotoCard = page.getByTestId("gallery-photo").first();
+  const removedPhotoId = await removedPhotoCard.getAttribute("data-photo-id");
+  const removedPhotoImage = removedPhotoCard.locator("img");
+  await expect(removedPhotoImage).toHaveAttribute("src", /^blob:/);
+  const removedPhotoBlobUrl = await removedPhotoImage.getAttribute("src");
+  expect(removedPhotoId).toBe("00000000-0000-4000-8000-000000000003");
+  expect(removedPhotoBlobUrl).toMatch(/^blob:/);
+  expect(genericVariantRequests).toContain(`${removedPhotoId}:display`);
   await page.getByRole("button", { name: "Eliminar foto" }).first().click();
   await expect(page.getByText("Fotografía eliminada.")).toBeVisible();
+  await expect(
+    page.locator(
+      `[data-testid="gallery-photo"][data-photo-id="${removedPhotoId}"]`,
+    ),
+  ).toHaveCount(0);
+  await expect.poll(revokedBlobUrls).toContain(removedPhotoBlobUrl);
   expect(galleryDeleteIfMatchHeaders[1]).toBe(revisionAfterReorder);
   expect(currentSpaceEtag).toBe(galleryDeleteResponseEtags[1]);
   await expect(page.getByRole("button", { name: "Eliminar foto" })).toHaveCount(
@@ -2806,18 +3038,70 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
     page.locator(
       '[data-testid="gallery-upload-item"][data-upload-state="ready"]',
     ),
-  ).toHaveCount(readyBeforeLimitBatch + 26);
-  await expect.poll(() => postGalleryCount).toBe(postCountBeforeOverflow + 26);
+  ).toHaveCount(readyBeforeLimitBatch + 26, { timeout: 20_000 });
+  await expect
+    .poll(() => postGalleryCount, { timeout: 20_000 })
+    .toBe(postCountBeforeOverflow + 26);
   await expect(page.getByRole("button", { name: "Eliminar foto" })).toHaveCount(
     30,
   );
   await expect(imageInput).toBeDisabled();
 
+  // Reemplazar la portada conserva su ranura cuando el cupo está lleno.
+  const replacementAttemptsBeforeFullGallery = replacementAttempts.length;
+  const postsBeforeFullGalleryReplacement = postGalleryCount;
+  const detailReadsBeforeFullGalleryReplacement = detailReloads.length;
+  const galleryReadsBeforeFullGalleryReplacement = galleryReloads.length;
+  const fullGalleryCoverPhoto = page
+    .getByTestId("gallery-photo")
+    .filter({ has: page.getByText("Portada", { exact: true }) });
+  await expect(fullGalleryCoverPhoto).toHaveCount(1);
+  const fullGalleryTargetId =
+    await fullGalleryCoverPhoto.getAttribute("data-photo-id");
+  expect(fullGalleryTargetId).toBe(currentSpace.cover_photo_id);
+  const etagBeforeFullGalleryReplacement = currentSpaceEtag;
+  const fullGalleryReplacementInput = fullGalleryCoverPhoto.getByLabel(
+    "Reemplazar fotografía",
+    { exact: true },
+  );
+  await expect(fullGalleryReplacementInput).toBeEnabled();
+  await fullGalleryReplacementInput.setInputFiles({
+    name: "foto-reemplazo-en-cupo.png",
+    mimeType: "image/png",
+    buffer: tinyPng,
+  });
+  await expect
+    .poll(() => replacementAttempts.length)
+    .toBe(replacementAttemptsBeforeFullGallery + 1);
+  await expect(
+    page.getByText("Fotografía reemplazada.", { exact: true }),
+  ).toBeVisible();
+  const fullGalleryReplacement =
+    replacementAttempts[replacementAttemptsBeforeFullGallery]!;
+  expect(fullGalleryReplacement.targetPhotoId).toBe(fullGalleryTargetId);
+  expect(fullGalleryReplacement.ifMatch).toBe(etagBeforeFullGalleryReplacement);
+  expect(fullGalleryReplacement.body).toContain("foto-reemplazo-en-cupo.png");
+  expect(postGalleryCount).toBe(postsBeforeFullGalleryReplacement);
+  await expect(page.getByTestId("gallery-photo")).toHaveCount(30);
+  await expect
+    .poll(() => galleryReloads.length)
+    .toBe(galleryReadsBeforeFullGalleryReplacement + 2);
+  expect(detailReloads).toHaveLength(
+    detailReadsBeforeFullGalleryReplacement + 2,
+  );
+  expect(galleryReloads.at(-1)).toHaveLength(30);
+  expect(photos).toHaveLength(30);
+  const fullGalleryCoverPhotos = photos.filter((photo) => photo.cover);
+  expect(fullGalleryCoverPhotos).toHaveLength(1);
+  expect(fullGalleryCoverPhotos[0]?.id).toBe(currentSpace.cover_photo_id);
+  await expect(page.getByText("Portada", { exact: true })).toHaveCount(1);
+  const etagAfterFullGalleryReplacement = currentSpaceEtag;
+
   // Un reintento idempotente pendiente no cuenta como completado ni ocupa una ranura.
   const postCountBeforePending = postGalleryCount;
   await page.getByRole("button", { name: "Eliminar foto" }).first().click();
   await expect(page.getByText("Fotografía eliminada.")).toBeVisible();
-  expect(galleryDeleteIfMatchHeaders[2]).toBe(galleryDeleteResponseEtags[1]);
+  expect(galleryDeleteIfMatchHeaders[2]).toBe(etagAfterFullGalleryReplacement);
   expect(currentSpaceEtag).toBe(galleryDeleteResponseEtags[2]);
   await expect(page.getByRole("button", { name: "Eliminar foto" })).toHaveCount(
     29,
@@ -2872,6 +3156,122 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   expect(photos).toHaveLength(30);
   await expect(imageInput).toBeDisabled();
 
+  // A 503 replacement stays blocked until upload-status not_found reconciles the gallery.
+  replacementStatusState = "not_found";
+  const unavailableReplacementIndex = photos.findIndex((photo) => !photo.cover);
+  expect(unavailableReplacementIndex).toBeGreaterThanOrEqual(0);
+  const photosBeforeUnavailableReplacement = photos.map((photo) => photo.id);
+  const replacementCountBeforeUnavailable = replacementAttempts.length;
+  const reorderCountBeforeUnavailable = reorderRequests.length;
+  const deleteCountBeforeUnavailable = galleryDeleteIfMatchHeaders.length;
+  const postCountBeforeUnavailable = postGalleryCount;
+  const coverBeforeUnavailable = currentSpace.cover_photo_id;
+  await page
+    .getByLabel("Reemplazar fotografía", { exact: true })
+    .nth(unavailableReplacementIndex)
+    .setInputFiles({
+      name: "foto-reemplazo-503.png",
+      mimeType: "image/png",
+      buffer: tinyPng,
+    });
+  await expect(
+    page.getByText(
+      "La solicitud quedó sin confirmar. No se repetirá automáticamente; actualiza la galería o reintenta explícitamente.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(replacementAttempts).toHaveLength(
+    replacementCountBeforeUnavailable + 1,
+  );
+  expect(photos.map((photo) => photo.id)).toEqual(
+    photosBeforeUnavailableReplacement,
+  );
+  const oldReplacementCard = page
+    .getByTestId("gallery-photo")
+    .nth(unavailableReplacementIndex);
+  await expect(oldReplacementCard).toHaveAttribute(
+    "data-photo-id",
+    String(photosBeforeUnavailableReplacement[unavailableReplacementIndex]),
+  );
+  await expect(oldReplacementCard).toBeVisible();
+  await expect(page.getByText(/La galería no está confirmada/)).toBeVisible();
+  for (const control of await page
+    .getByLabel("Reemplazar fotografía", { exact: true })
+    .all())
+    await expect(control).toBeDisabled();
+  for (const label of [
+    "Marcar portada",
+    "Mover foto antes",
+    "Mover foto después",
+    "Eliminar foto",
+  ]) {
+    const controls = page.getByRole("button", { name: label, exact: true });
+    expect(await controls.count()).toBeGreaterThan(0);
+    for (const control of await controls.all())
+      await expect(control).toBeDisabled();
+  }
+  const uncertainReplacement = replacementAttempts.at(-1)!;
+  expect(uncertainReplacement.body).toContain("foto-reemplazo-503.png");
+  expect(uncertainReplacement.ifMatch).toBe(currentSpaceEtag);
+  const galleryReadsBeforeStatus = galleryReloads.length;
+  const detailReadsBeforeStatus = detailReloads.length;
+  await page
+    .getByRole("button", { name: "Consultar estado", exact: true })
+    .click();
+  await expect(
+    page.getByText(
+      "La operación no se completó. Puedes reintentar explícitamente.",
+      {
+        exact: true,
+      },
+    ),
+  ).toBeVisible();
+  await expect(page.getByText(/La galería no está confirmada/)).toHaveCount(0);
+  await expect
+    .poll(() => galleryReloads.length)
+    .toBe(galleryReadsBeforeStatus + 1);
+  await expect
+    .poll(() => detailReloads.length)
+    .toBe(detailReadsBeforeStatus + 1);
+  const retryUnavailableReplacement = page.getByRole("button", {
+    name: "Reintentar con el mismo archivo",
+    exact: true,
+  });
+  await expect(retryUnavailableReplacement).toBeEnabled();
+  await retryUnavailableReplacement.click();
+  await expect(
+    page.getByText("Fotografía reemplazada.", { exact: true }),
+  ).toBeVisible();
+  expect(replacementAttempts).toHaveLength(
+    replacementCountBeforeUnavailable + 2,
+  );
+  expect(replacementAttempts.at(-1)?.idempotencyKey).toBe(
+    uncertainReplacement.idempotencyKey,
+  );
+  expect(replacementAttempts.at(-1)?.ifMatch).toBe(
+    uncertainReplacement.ifMatch,
+  );
+  expect(replacementAttempts.at(-1)?.body).toContain("foto-reemplazo-503.png");
+  expect(photos).toHaveLength(photosBeforeUnavailableReplacement.length);
+  expect(photos.map((photo) => photo.id)).toEqual(
+    photosBeforeUnavailableReplacement.map((photoId, index) =>
+      index === unavailableReplacementIndex
+        ? unavailableReplacementPhotoId
+        : photoId,
+    ),
+  );
+  expect(reorderRequests).toHaveLength(reorderCountBeforeUnavailable);
+  expect(galleryDeleteIfMatchHeaders).toHaveLength(
+    deleteCountBeforeUnavailable,
+  );
+  expect(postGalleryCount).toBe(postCountBeforeUnavailable);
+  expect(currentSpace.cover_photo_id).toBe(coverBeforeUnavailable);
+  await expect(
+    page
+      .getByLabel("Reemplazar fotografía", { exact: true })
+      .nth(unavailableReplacementIndex),
+  ).toBeEnabled();
+
   // 5. Publicación global del espacio con PUT /spaces/{id}/publication
   const publishButton = page.getByRole("button", { name: "Publicar" });
   await expect(publishButton).toBeEnabled();
@@ -2884,6 +3284,14 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   ).toBeVisible();
   expect(putPublicationBody!.state).toBe("activa");
   await expect(page.getByText("Publicado").first()).toBeVisible();
+  const publicListingLink = page.getByRole("link", {
+    name: "Ver publicación",
+  });
+  await expect(publicListingLink).toHaveAttribute(
+    "href",
+    `/espacios/${spaceId}`,
+  );
+  await expect(publicListingLink).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Archivar", exact: true }),
   ).toBeVisible();
@@ -2919,6 +3327,19 @@ test("@phase7 @controlled /anfitrion/espacios/[id]/editar: navegación por pesta
   ).toBeVisible();
   expect(publishedContentSaveCount).toBe(3);
   expect(contentIfMatchHeaders).toHaveLength(3);
+
+  await page.getByRole("button", { name: "Archivar", exact: true }).click();
+  await expect(
+    page.getByText(
+      "El espacio ha sido archivado (oculto del catálogo público).",
+      {
+        exact: true,
+      },
+    ),
+  ).toBeVisible();
+  expect(putPublicationBody!.state).toBe("oculta");
+  await expect(page.getByText("Archivado", { exact: true })).toBeVisible();
+  await expect(publicListingLink).toHaveCount(0);
 });
 
 test("@phase7 @controlled una carga inicial pendiente conserva la intención de portada al quedar lista", async ({

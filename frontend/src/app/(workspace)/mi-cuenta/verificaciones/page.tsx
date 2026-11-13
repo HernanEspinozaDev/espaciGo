@@ -16,9 +16,9 @@ export default function VerificacionesPage() {
   return (
     <div className="space-y-8">
       <div className="border-b border-border/60 pb-5">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">
+        <h2 className="text-2xl font-bold tracking-tight text-foreground">
           Verificación de cuenta y espacios
-        </h1>
+        </h2>
         <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
           Comprueba tu identidad oficial para realizar reservas seguras y
           acredita la titularidad de tus espacios para publicar en EspaciGo.

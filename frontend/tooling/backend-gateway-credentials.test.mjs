@@ -242,6 +242,95 @@ test("all six document operations forward Bearer without browser credentials", a
   }
 });
 
+test("space gallery variant BFF streams private WebP bytes without browser credentials", async () => {
+  const spaceID = "33333333-3333-4333-8333-333333333333";
+  const photoID = "44444444-4444-4444-8444-444444444444";
+  const path = ["spaces", spaceID, "gallery", photoID, "variants", "thumbnail"];
+  const mediaBytes = new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 0x10, 0x20, 0x30, 0x40, 0x57, 0x45, 0x42, 0x50,
+    0x00, 0xff, 0x01, 0x80,
+  ]);
+  let upstreamURL;
+  let upstreamOptions;
+  globalThis.fetch = async (url, options) => {
+    upstreamURL = url;
+    upstreamOptions = options;
+    return new Response(mediaBytes, {
+      status: 200,
+      headers: {
+        "content-type": "image/webp",
+        "x-request-id": "gallery-variant-request-1",
+      },
+    });
+  };
+
+  const response = await GET(
+    requestWithSession(`http://127.0.0.1:3000/api/backend/${path.join("/")}`),
+    { params: Promise.resolve({ path }) },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "image/webp");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(
+    response.headers.get("x-request-id"),
+    "gallery-variant-request-1",
+  );
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), mediaBytes);
+  assert.equal(new URL(upstreamURL).pathname, `/api/v1/${path.join("/")}`);
+  assert.equal(
+    upstreamOptions.headers.get("authorization"),
+    "Bearer synthetic-opaque-token",
+  );
+  assert.equal(upstreamOptions.headers.has("cookie"), false);
+  assert.equal(upstreamOptions.credentials, "omit");
+  assert.equal(upstreamOptions.cache, "no-store");
+  assert.equal(upstreamOptions.redirect, "manual");
+});
+
+test("published media variant BFF does not forward a browser session", async () => {
+  const spaceID = "55555555-5555-4555-8555-555555555555";
+  const imageID = "66666666-6666-4666-8666-666666666666";
+  const path = [
+    "public",
+    "spaces",
+    spaceID,
+    "images",
+    imageID,
+    "variants",
+    "thumbnail",
+  ];
+  const mediaBytes = new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 0x10, 0x20, 0x30, 0x40, 0x57, 0x45, 0x42, 0x50,
+    0x00, 0xff, 0x01, 0x80,
+  ]);
+  let upstreamURL;
+  let upstreamOptions;
+  globalThis.fetch = async (url, options) => {
+    upstreamURL = url;
+    upstreamOptions = options;
+    return new Response(mediaBytes, {
+      headers: { "content-type": "image/webp" },
+    });
+  };
+
+  const response = await GET(
+    requestWithSession(`http://127.0.0.1:3000/api/backend/${path.join("/")}`),
+    { params: Promise.resolve({ path }) },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "image/webp");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), mediaBytes);
+  assert.equal(new URL(upstreamURL).pathname, `/api/v1/${path.join("/")}`);
+  assert.equal(upstreamOptions.headers.has("authorization"), false);
+  assert.equal(upstreamOptions.headers.has("cookie"), false);
+  assert.equal(upstreamOptions.credentials, "omit");
+  assert.equal(upstreamOptions.cache, "no-store");
+  assert.equal(upstreamOptions.redirect, "manual");
+});
+
 test("BFF preserves upstream auth and CAS statuses without exposing text errors", async () => {
   const caseID = "11111111-1111-4111-8111-111111111111";
   const scenarios = [

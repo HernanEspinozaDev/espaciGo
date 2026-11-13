@@ -142,6 +142,10 @@ func (s *Service) upload(ctx context.Context, owner, spaceID string, purpose Pur
 			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
 			return UploadResult{}, mapRepositoryError(err)
 		}
+		if err = ctx.Err(); err != nil {
+			_ = s.repo.FailReservation(context.Background(), reservation.ID, reservation.Token, s.now().UTC())
+			return UploadResult{}, err
+		}
 		stored, putErr := s.store.Put(ctx, key, variants[i].Bytes, variants[i].MIME)
 		if putErr != nil {
 			// Mark this exact write terminal even if cleanup already fenced the

@@ -33,6 +33,7 @@ import type {
 import {
   convertSlotsToWeeklyDays,
   generateIdempotencyKey,
+  isValidUUID,
 } from "../domain/validation";
 
 function mapSpaceCategory(item: OpenApiSpaceCategory): Category {
@@ -158,13 +159,89 @@ function mapManualBlock(block: OpenApiManualBlock): ManualAvailabilityBlock {
   };
 }
 
+function isGoTimeDateTime(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  // Gallery created_at is serialized from Go time.Time, which cannot represent leap seconds.
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|z|[+-](\d{2}):(\d{2}))$/.exec(
+      value,
+    );
+  if (!match) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const offsetHour = match[8] ? Number(match[8]) : 0;
+  const offsetMinute = match[9] ? Number(match[9]) : 0;
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const maxDay =
+    month === 2
+      ? leapYear
+        ? 29
+        : 28
+      : [4, 6, 9, 11].includes(month)
+        ? 30
+        : 31;
+
+  return (
+    month >= 1 &&
+    month <= 12 &&
+    day >= 1 &&
+    day <= maxDay &&
+    hour <= 23 &&
+    minute <= 59 &&
+    second <= 59 &&
+    offsetHour <= 23 &&
+    offsetMinute <= 59 &&
+    Number.isFinite(Date.parse(value))
+  );
+}
+
 function mapPhotoToGalleryPhoto(raw: unknown): GalleryPhoto {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw))
+    throw new ApiProtocolError();
   const p = raw as Record<string, unknown>;
-  const isSynthetic =
-    p.fixture_code === "synthetic-png-v1" ||
-    (p.state !== "pending" && !Array.isArray(p.variants));
+  const isSynthetic = p.fixture_code === "synthetic-png-v1";
   const state =
     p.state === "pending" || p.state === "ready" ? p.state : undefined;
+  const createdAt = p.created_at;
+  const validCreatedAt = isGoTimeDateTime(createdAt) ? createdAt : undefined;
+  if (
+    (state !== "pending" && validCreatedAt === undefined) ||
+    (createdAt !== undefined && validCreatedAt === undefined)
+  )
+    throw new ApiProtocolError();
+  if (
+    !isSynthetic &&
+    (state === undefined ||
+      typeof p.id !== "string" ||
+      !isValidUUID(p.id) ||
+      p.id.trim() !== p.id ||
+      typeof p.space_id !== "string" ||
+      !isValidUUID(p.space_id) ||
+      p.space_id.trim() !== p.space_id)
+  )
+    throw new ApiProtocolError();
+  if (
+    !isSynthetic &&
+    state === "ready" &&
+    (typeof p.alt_text !== "string" ||
+      p.alt_text.length > 250 ||
+      typeof p.visible !== "boolean" ||
+      typeof p.cover !== "boolean" ||
+      typeof p.position !== "number" ||
+      !Number.isInteger(p.position) ||
+      p.position < 1 ||
+      p.position > 30)
+  )
+    throw new ApiProtocolError();
+  const variants =
+    !isSynthetic && state === "ready"
+      ? mapPhotoVariants(p.variants, p.space_id, p.id)
+      : [];
   return {
     id: String(p.id ?? ""),
     space_id: p.space_id ? String(p.space_id) : undefined,
@@ -176,16 +253,13 @@ function mapPhotoToGalleryPhoto(raw: unknown): GalleryPhoto {
           : "image/webp",
     sha256: typeof p.sha256 === "string" ? p.sha256 : "",
     size_bytes: typeof p.size_bytes === "number" ? p.size_bytes : 0,
-    created_at:
-      typeof p.created_at === "string"
-        ? p.created_at
-        : new Date().toISOString(),
+    ...(validCreatedAt !== undefined ? { created_at: validCreatedAt } : {}),
     is_synthetic: isSynthetic,
     is_cover: Boolean(p.cover),
     visible: p.visible !== false,
     position: typeof p.position === "number" ? p.position : 0,
     alt_text: typeof p.alt_text === "string" ? p.alt_text : undefined,
-    variants: mapPhotoVariants(p.variants, p.space_id, p.id),
+    variants,
     ...(state ? { state } : {}),
   };
 }
@@ -194,41 +268,60 @@ function mapPhotoVariants(
   value: unknown,
   spaceId: unknown,
   photoId: unknown,
-): GalleryPhoto["variants"] {
+): NonNullable<GalleryPhoto["variants"]> {
   if (
     !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 2 ||
     typeof spaceId !== "string" ||
-    typeof photoId !== "string"
+    typeof photoId !== "string" ||
+    !isValidUUID(spaceId) ||
+    spaceId.trim() !== spaceId ||
+    !isValidUUID(photoId) ||
+    photoId.trim() !== photoId
   )
-    return [];
-  const result: NonNullable<GalleryPhoto["variants"]>[number][] = [];
-  for (const item of value) {
-    if (!item || typeof item !== "object") continue;
+    throw new ApiProtocolError();
+  return value.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      throw new ApiProtocolError();
     const variant = item as Record<string, unknown>;
     const name = variant.name;
-    if (name !== "thumbnail" && name !== "display") continue;
-    if (variant.mime_type !== "image/webp" || typeof variant.url !== "string")
-      continue;
+    if (name !== "thumbnail" && name !== "display")
+      throw new ApiProtocolError();
     const expected = `/api/v1/spaces/${spaceId}/gallery/${photoId}/variants/${name}`;
-    if (variant.url !== expected) continue;
+    if (variant.mime_type !== "image/webp" || variant.url !== expected)
+      throw new ApiProtocolError();
+    const sizeBytes = variant.size_bytes;
+    const sha256 = variant.sha256;
+    const width = variant.width;
+    const height = variant.height;
     if (
-      typeof variant.size_bytes !== "number" ||
-      typeof variant.sha256 !== "string" ||
-      typeof variant.width !== "number" ||
-      typeof variant.height !== "number"
+      typeof sizeBytes !== "number" ||
+      !Number.isInteger(sizeBytes) ||
+      sizeBytes < 1 ||
+      sizeBytes > 10_485_760 ||
+      typeof sha256 !== "string" ||
+      !/^[0-9a-f]{64}$/.test(sha256) ||
+      typeof width !== "number" ||
+      !Number.isInteger(width) ||
+      width < 1 ||
+      width > 1600 ||
+      typeof height !== "number" ||
+      !Number.isInteger(height) ||
+      height < 1 ||
+      height > 1600
     )
-      continue;
-    result.push({
+      throw new ApiProtocolError();
+    return {
       name,
       url: `/api/backend/spaces/${spaceId}/gallery/${photoId}/variants/${name}`,
       mime_type: "image/webp",
-      size_bytes: variant.size_bytes,
-      sha256: variant.sha256,
-      width: variant.width,
-      height: variant.height,
-    });
-  }
-  return result;
+      size_bytes: sizeBytes,
+      sha256,
+      width,
+      height,
+    };
+  });
 }
 
 export class OpenApiHostListingsAdapter implements HostListingsPort {
