@@ -487,13 +487,19 @@ func (r *Repository) ListSpace(ctx context.Context, owner, spaceID string) ([]me
 		if err = rows.Scan(&p.ID, &p.Position, &p.AltText, &p.Visible, &p.Cover, &p.CreatedAt, &p.State); err != nil {
 			return nil, err
 		}
-		p.Variants, err = r.variants(ctx, p.ID)
+		out = append(out, p)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	for i := range out {
+		out[i].Variants, err = r.variants(ctx, out[i].ID)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, p)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (r *Repository) GetSpace(ctx context.Context, owner, spaceID, id string) (media.Photo, error) {
