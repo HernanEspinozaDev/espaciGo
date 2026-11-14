@@ -44,6 +44,17 @@ class RecoveryJobTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 jobs._verify_task(task, desired)
 
+    def test_only_reviewed_empty_environment_value_may_be_omitted(self):
+        desired = self.desired()
+        task = jobs._expected_task(desired)
+        empty = next(row for row in task['containers'][0]['env'] if row['name'] == 'DATABASE_SET_ROLE')
+        del empty['value']
+        jobs._verify_task(task, desired)
+        nonempty = next(row for row in task['containers'][0]['env'] if row['name'] == 'CLOUD_SQL_INSTANCE_CONNECTION_NAME')
+        del nonempty['value']
+        with self.assertRaises(ValueError):
+            jobs._verify_task(task, desired)
+
     def test_execution_uses_task_spec_not_job_wrapper(self):
         desired = self.desired()
         valid = {'taskCount': 1, 'parallelism': 1, 'template': {'spec': jobs._expected_task(desired)}}

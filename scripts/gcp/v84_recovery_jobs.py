@@ -83,6 +83,12 @@ def _verify_task(task, d):
     volumes[0]['name'] = 'secret'
     containers[0]['volumeMounts'][0]['name'] = 'secret'
     actual['timeoutSeconds'] = str(actual.get('timeoutSeconds'))
+    # The observed Cloud Run v1 protobuf omits value for an explicitly empty
+    # DATABASE_SET_ROLE. Normalize only that reviewed empty value, not missing
+    # nonempty values, extra keys, or unexpected environment variables.
+    for row in containers[0].get('env', []):
+        if set(row) == {'name'} and d['env'].get(row['name']) == '':
+            row['value'] = ''
     containers[0]['env'] = sorted(containers[0].get('env', []), key=lambda row: row.get('name', ''))
     _need(actual == _expected_task(d), 'complete effective task specification differs')
 

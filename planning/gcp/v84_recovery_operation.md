@@ -58,3 +58,17 @@ El padre verificó por Git los 84 blobs SQL de `bb10309129adad9d7204b9b54bb22591
 6. Full release normal del SHA revisado, sin bypass de calidad, backup, catálogo ni tráfico exacto. Readback de env media, digest, Ready y tráfico en API/web. QA funcional online corresponde al usuario.
 
 Al cierre del preflight inicial no se había creado backup ni cambiado IAM/SQL. El addendum anterior acredita el backup posterior; IAM administrativo, permisos SQL, aplicación V84 y desbloqueo siguen sin ejecutarse en este estado de preparación.
+
+## Ejecución posterior del candidato 7a64cec — rechazada antes de ejecutar SQL
+
+Main publicado y ref remoto confirmado `7a64cec92ab2843b49917dcbd2303f7e7cd1026d`, worktree limpio y hooks/identidad conservados. CI automático Application43529645985, Database43529645998 y Frontend43529645911 terminaron SUCCESS. El log Database acredita el harness obligatorio V1–V84 con recuperación/finalización de autoridad. Imagen dedicada build `70024b8a-6c84-46c1-8b42-ab863aeca16b` SUCCESS, digest `sha256:139a0092f78c50c3719c78714bcb712fe70a7b3ecdba5f7ee8cd031e5201536d`; archive 42,751,060bytes SHA256 `0d0566d5dc7530bcf57a69372594e8832a53c4e4ce2dffb2c42309f2f5c9843c`.
+
+El guard archive/workspace rechazó primero archivos locales adicionales (`.git` de worktree y artefactos frontend ignorados); no se tocó IAM en ese intento ni se borraron esos datos. Se conservó el guard y se preparó un clon privado limpio del mismo SHA en scratch, sin cuentas ni payloads privados. La verificación de archive pasó allí.
+
+Se concedió y releyó el binding autorizado exacto, con expiración `2026-11-14T00:56:40.806650Z`, sin descargar el secreto. La versión1 estaba ENABLED; ninguna otra aplicación/Job regional usaba esa SA antes del grant. El Job administrativo `espacigo-v84-admininspect-7d4cdc801b214d2b`, UID `43260ad6-c13c-40b1-82e0-49391ac76f9b`, fue rechazado por la comparación completa ANTES de execute: única diferencia, Cloud Run omitió el campo `value` para `DATABASE_SET_ROLE` configurada como cadena vacía. No se ejecutó SQL ni se concedieron privilegios SQL.
+
+Cleanup readback a `2026-11-14T00:00:36.397944Z`: accessor retirado por el helper, consulta independiente cero bindings de esa SA sobre el secreto; lista exacta cero ejecuciones; Job propio eliminado y GET de ausencia verificado. Recibos privados preservados también en el worktree principal bajo el run `7d4cdc80-1b21-4d2b-8dbc-401a59829dc6`; backup y lock retenidos. El acceso temporal no quedó abierto durante el ajuste de código.
+
+Se prepara exclusivamente la normalización de ese default vacío observado y su fixture; no admite omisiones de valores no vacíos, campos desconocidos, versiones de secreto distintas ni cambios de identidad. Requiere revisión/publicación/CI del nuevo SHA antes de otro intento. El backup válido existente puede reutilizarse con metadata fresca mientras pase la política y se mantenga el mismo lock; no se crea otro por inferencia ni se borra el anterior. La última observación SQL sigue siendo V83; no se declara reparación ni despliegue.
+
+Revisión del ajuste mínimo `deleg_aa9045c5`: passed=true, sin bloqueos ni relajación del contrato; solo fuente, sin nuevas pruebas ni operaciones externas. Nuevo intento reservado `59763def-3717-44b5-94bc-8a132398034a`, conservando el run anterior y reutilizando el backup1794610719706 sujeto a metadata fresca y al mismo lock. Ningún permiso permanece abierto mientras se publica y verifica el nuevo SHA.
