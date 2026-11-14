@@ -11,7 +11,9 @@ import ts from "typescript";
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL("../", import.meta.url));
-const tempDir = await mkdtemp(path.join(process.env.TMPDIR ?? os.tmpdir(), "rental-demo-cal-ui-"));
+const tempDir = await mkdtemp(
+  path.join(process.env.TMPDIR ?? os.tmpdir(), "rental-demo-cal-ui-"),
+);
 
 test.after(async () => {
   await rm(tempDir, { recursive: true, force: true });
@@ -22,14 +24,15 @@ async function compile(relPath, outputName, replacements = []) {
   for (const [from, to] of replacements) {
     source = source.replaceAll(from, to);
   }
-  const transpiled = ts.transpileModule(source, {
-    compilerOptions: {
-      target: ts.ScriptTarget.ES2022,
-      module: ts.ModuleKind.ESNext,
-      jsx: ts.JsxEmit.ReactJSX,
-    },
-  }).outputText
-    .replaceAll(
+  const transpiled = ts
+    .transpileModule(source, {
+      compilerOptions: {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.ESNext,
+        jsx: ts.JsxEmit.ReactJSX,
+      },
+    })
+    .outputText.replaceAll(
       '"react/jsx-runtime"',
       JSON.stringify(pathToFileURL(require.resolve("react/jsx-runtime")).href),
     )
@@ -42,10 +45,7 @@ async function compile(relPath, outputName, replacements = []) {
   return import(pathToFileURL(outPath).href);
 }
 
-await compile(
-  "src/features/rental-demo/domain/calendar.ts",
-  "calendar.mjs",
-);
+await compile("src/features/rental-demo/domain/calendar.ts", "calendar.mjs");
 
 const { MonthCalendar } = await compile(
   "src/features/rental-demo/ui/month-calendar.tsx",
@@ -55,9 +55,27 @@ const { MonthCalendar } = await compile(
 
 test("MonthCalendar renders accessible grid, header navigation and availability legend", () => {
   const days = [
-    { date: "2030-01-14", status: "available", intervals: [{ start_at: "2030-01-14T10:00:00Z", end_at: "2030-01-14T11:00:00Z" }] },
-    { date: "2030-01-15", status: "available", intervals: [{ start_at: "2030-01-15T10:00:00Z", end_at: "2030-01-15T11:00:00Z" }] },
-    { date: "2030-01-16", status: "partial", intervals: [{ start_at: "2030-01-16T14:00:00Z", end_at: "2030-01-16T15:00:00Z" }] },
+    {
+      date: "2030-01-14",
+      status: "available",
+      intervals: [
+        { start_at: "2030-01-14T10:00:00Z", end_at: "2030-01-14T11:00:00Z" },
+      ],
+    },
+    {
+      date: "2030-01-15",
+      status: "available",
+      intervals: [
+        { start_at: "2030-01-15T10:00:00Z", end_at: "2030-01-15T11:00:00Z" },
+      ],
+    },
+    {
+      date: "2030-01-16",
+      status: "partial",
+      intervals: [
+        { start_at: "2030-01-16T14:00:00Z", end_at: "2030-01-16T15:00:00Z" },
+      ],
+    },
     { date: "2030-01-17", status: "unavailable", intervals: [] },
     { date: "2030-01-18", status: "outside_horizon", intervals: [] },
   ];
@@ -74,10 +92,10 @@ test("MonthCalendar renders accessible grid, header navigation and availability 
     }),
   );
 
-  // Check semantic grid roles
-  assert.match(html, /role="grid"/);
-  assert.match(html, /role="columnheader"/);
-  assert.match(html, /role="gridcell"/);
+  // Check the calendar structure without imposing an invalid ARIA grid pattern.
+  assert.match(html, /class="grid grid-cols-7 gap-1"/);
+  assert.match(html, />Lunes<\/div>/);
+  assert.match(html, />Domingo<\/div>/);
 
   // Check navigation controls
   assert.match(html, /aria-label="Mes anterior"/);

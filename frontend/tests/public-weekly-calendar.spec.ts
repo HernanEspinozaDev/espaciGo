@@ -46,7 +46,7 @@ test("public detail hides unknown private fields and shows exact weekly periods"
       page.getByRole("heading", { name: "Horario semanal habitual", level: 3 }),
     ).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
-    const dayButton = page.getByRole("button", { name: "Martes" });
+    const dayButton = page.getByRole("button", { name: "Martes", exact: true });
     const beforePressed = await dayButton.getAttribute("aria-pressed");
     await dayButton.click();
     await expect(dayButton).toHaveAttribute(
@@ -158,7 +158,7 @@ test("a runtime-supported timezone alias remains visible in the public detail", 
   await expect(
     page.getByRole("heading", { name: "Horario semanal habitual", level: 3 }),
   ).toBeVisible();
-  const tuesday = page.getByRole("button", { name: "Martes" });
+  const tuesday = page.getByRole("button", { name: "Martes", exact: true });
   await expect(tuesday).toBeVisible();
   const beforePressed = await tuesday.getAttribute("aria-pressed");
   await tuesday.click();

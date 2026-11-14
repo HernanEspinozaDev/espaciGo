@@ -45,20 +45,27 @@ export function PublicRentalContractPreview({
     let active = true;
     const controller = new AbortController();
 
-    fetch(`/api/backend/rental-quotes/${encodeURIComponent(quoteId)}/contract-preview`, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
-    })
+    fetch(
+      `/api/backend/rental-quotes/${encodeURIComponent(quoteId)}/contract-preview`,
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      },
+    )
       .then(async (res) => {
         if (!active) return;
         if (res.status === 409) {
           setKycRequired(true);
-          setError("Se requiere verificación de identidad vigente (RUT y cédula oficial) para preparar el borrador del contrato.");
+          setError(
+            "Se requiere verificación de identidad vigente (RUT y cédula oficial) para preparar el borrador del contrato.",
+          );
           return;
         }
         if (!res.ok) {
-          setError("No fue posible generar el borrador de contrato en este momento.");
+          setError(
+            "No fue posible generar el borrador de contrato en este momento.",
+          );
           return;
         }
         const json = await res.json();
@@ -109,11 +116,15 @@ export function PublicRentalContractPreview({
       <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl border border-border bg-background p-6 shadow-2xl sm:p-8 space-y-6">
         <header className="flex items-start justify-between border-b border-border pb-4">
           <div>
-            <h2 id={dialogId} className="text-xl font-bold tracking-tight text-foreground">
+            <h2
+              id={dialogId}
+              className="text-xl font-bold tracking-tight text-foreground"
+            >
               Borrador de Condiciones Contractuales
             </h2>
             <p className="text-xs text-muted-foreground mt-1">
-              Revisión previa sin efecto vinculante, firma ni retención de horario
+              Revisión previa sin efecto vinculante, firma ni retención de
+              horario
             </p>
           </div>
           <button
@@ -135,11 +146,11 @@ export function PublicRentalContractPreview({
             <h3 className="font-semibold text-amber-700 dark:text-amber-400">
               Verificación de identidad requerida
             </h3>
-            <p className="text-muted-foreground leading-relaxed">
-              {error}
-            </p>
+            <p className="text-muted-foreground leading-relaxed">{error}</p>
             <p className="text-xs text-muted-foreground">
-              Para proteger la seguridad de ambas partes, EspaciGo exige validar tu identidad oficial antes de redactar o mostrar el borrador contractual.
+              Para proteger la seguridad de ambas partes, EspaciGo exige validar
+              tu identidad oficial antes de redactar o mostrar el borrador
+              contractual.
             </p>
             <div className="pt-2">
               <Link
@@ -157,12 +168,19 @@ export function PublicRentalContractPreview({
         ) : preview ? (
           <div className="space-y-6 text-sm">
             <section className="space-y-3 rounded-xl border border-border bg-muted/20 p-4">
-              <h3 className="font-semibold text-foreground">Partes del Arriendo</h3>
+              <h3 className="font-semibold text-foreground">
+                Partes del Arriendo
+              </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {preview.parties.map((party) => (
-                  <div key={party.role} className="rounded-lg border border-border bg-background p-3">
+                  <div
+                    key={party.role}
+                    className="rounded-lg border border-border bg-background p-3"
+                  >
                     <span className="text-xs uppercase font-medium text-muted-foreground block">
-                      {party.role === "arrendador" ? "Propietario / Anfitrión" : "Arrendatario"}
+                      {party.role === "arrendador"
+                        ? "Propietario / Anfitrión"
+                        : "Arrendatario"}
                     </span>
                     <span className="font-medium text-foreground block mt-1">
                       {party.legal_name}
@@ -176,26 +194,45 @@ export function PublicRentalContractPreview({
             </section>
 
             <section className="space-y-2 rounded-xl border border-border bg-muted/20 p-4">
-              <h3 className="font-semibold text-foreground">Condiciones del Espacio e Intervalo</h3>
+              <h3 className="font-semibold text-foreground">
+                Condiciones del Espacio e Intervalo
+              </h3>
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <dt className="text-muted-foreground">Publicación:</dt>
-                <dd className="font-medium text-foreground">{preview.space_title}</dd>
+                <dd className="font-medium text-foreground">
+                  {preview.space_title}
+                </dd>
                 <dt className="text-muted-foreground">Inicio:</dt>
-                <dd className="font-medium text-foreground">{formatTimestamp(preview.start_at)}</dd>
+                <dd className="font-medium text-foreground">
+                  {formatTimestamp(preview.start_at)}
+                </dd>
                 <dt className="text-muted-foreground">Término:</dt>
-                <dd className="font-medium text-foreground">{formatTimestamp(preview.end_at)}</dd>
+                <dd className="font-medium text-foreground">
+                  {formatTimestamp(preview.end_at)}
+                </dd>
                 <dt className="text-muted-foreground">Zona Horaria:</dt>
-                <dd className="font-medium text-foreground">{preview.time_zone}</dd>
+                <dd className="font-medium text-foreground">
+                  {preview.time_zone}
+                </dd>
                 <dt className="text-muted-foreground">Unidades:</dt>
-                <dd className="font-medium text-foreground">{preview.units} ({preview.rate_unit})</dd>
+                <dd className="font-medium text-foreground">
+                  {preview.units} ({preview.rate_unit})
+                </dd>
                 <dt className="text-muted-foreground">Subtotal estimado:</dt>
-                <dd className="font-bold text-foreground text-base">{formatCLP(preview.subtotal_clp)}</dd>
+                <dd className="font-bold text-foreground text-base">
+                  {formatCLP(preview.subtotal_clp)}
+                </dd>
               </dl>
             </section>
 
             <div className="rounded-lg border border-border bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
-              <p className="font-semibold text-foreground mb-1">Advertencia Legal y Alcance:</p>
-              Este documento es únicamente un borrador de revisión previa generado automáticamente. No constituye contrato firmado, aceptación legal, promesa de arriendo, comprobante de pago ni reserva confirmada.
+              <p className="font-semibold text-foreground mb-1">
+                Advertencia Legal y Alcance:
+              </p>
+              Este documento es únicamente un borrador de revisión previa
+              generado automáticamente. No constituye contrato firmado,
+              aceptación legal, promesa de arriendo, comprobante de pago ni
+              reserva confirmada.
             </div>
           </div>
         ) : null}

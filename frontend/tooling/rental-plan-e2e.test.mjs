@@ -77,8 +77,16 @@ test("End-to-end rental plan flow: Phases 1 through 5 integrated journey", async
         end_at: quote.end_at,
         time_zone: quote.time_zone,
         parties: [
-          { role: "arrendador", legal_name: "Propietario Demo", rut: "11.111.111-1" },
-          { role: "arrendatario", legal_name: "Arrendatario Demo", rut: "22.222.222-2" },
+          {
+            role: "arrendador",
+            legal_name: "Propietario Demo",
+            rut: "11.111.111-1",
+          },
+          {
+            role: "arrendatario",
+            legal_name: "Arrendatario Demo",
+            rut: "22.222.222-2",
+          },
         ],
         generated_at: new Date().toISOString(),
       },
@@ -93,8 +101,14 @@ test("End-to-end rental plan flow: Phases 1 through 5 integrated journey", async
   assert.equal(verifiedResult.status, 200);
   assert.equal(verifiedResult.preview.state, "preview");
   assert.equal(verifiedResult.preview.parties.length, 2);
-  assert.equal(verifiedResult.preview.parties[0].legal_name, "Propietario Demo");
-  assert.equal(verifiedResult.preview.parties[1].legal_name, "Arrendatario Demo");
+  assert.equal(
+    verifiedResult.preview.parties[0].legal_name,
+    "Propietario Demo",
+  );
+  assert.equal(
+    verifiedResult.preview.parties[1].legal_name,
+    "Arrendatario Demo",
+  );
 
   // 4.2 Regulatory ADR Notice validation
   const disclaimerText =

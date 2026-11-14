@@ -34,13 +34,19 @@ export function monthDays(month: string): MonthDay[] {
   const length = Math.ceil((mondayOffset + count) / 7) * 7;
   return Array.from({ length }, (_, index) => {
     const date = utcCivilDate(year, monthIndex, index - mondayOffset + 1);
-    return { date: isoDate(date), weekday: index % 7, inMonth: date.getUTCMonth() === monthIndex && date.getUTCFullYear() === year };
+    return {
+      date: isoDate(date),
+      weekday: index % 7,
+      inMonth:
+        date.getUTCMonth() === monthIndex && date.getUTCFullYear() === year,
+    };
   });
 }
 
 export function shiftMonth(month: string, delta: number): string | null {
   const { year, monthIndex } = parseMonth(month);
-  if (!Number.isInteger(delta)) throw new RangeError("El desplazamiento debe ser entero");
+  if (!Number.isInteger(delta))
+    throw new RangeError("El desplazamiento debe ser entero");
   const ordinal = year * 12 + monthIndex + delta;
   if (ordinal < 12 || ordinal > 9999 * 12 + 11) return null;
   const nextYear = Math.floor(ordinal / 12);
@@ -53,5 +59,11 @@ export function localDateLabel(date: string): string {
   const [year, month, day] = date.split("-").map(Number);
   const civil = utcCivilDate(year, month - 1, day);
   if (isoDate(civil) !== date) throw new RangeError("Fecha inválida");
-  return new Intl.DateTimeFormat("es", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(civil);
+  return new Intl.DateTimeFormat("es", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(civil);
 }

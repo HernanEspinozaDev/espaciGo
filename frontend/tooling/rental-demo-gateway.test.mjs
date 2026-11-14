@@ -292,7 +292,8 @@ test("oversized request is rejected before upstream; redirects are sanitized", a
 });
 test("enforces cache-control no-store and nosniff on both success and error", async () => {
   enabled();
-  globalThis.fetch = async () => new Response(JSON.stringify({ spaces: [] }), { status: 200 });
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ spaces: [] }), { status: 200 });
   const okRes = await GET(request("GET", "spaces"), {
     params: Promise.resolve({ path: ["spaces"] }),
   });
@@ -349,7 +350,10 @@ test("PUT mutation checks CSRF origin and forwards to owner space upstream", asy
   );
   assert.equal(okRes.status, 200);
   assert.equal(forwardedMethod, "PUT");
-  assert.equal(String(forwardedUrl), `http://127.0.0.1:18084/api/v1/local/rental-demo/owner/spaces/${spaceId}`);
+  assert.equal(
+    String(forwardedUrl),
+    `http://127.0.0.1:18084/api/v1/local/rental-demo/owner/spaces/${spaceId}`,
+  );
   assert.equal(okRes.headers.get("cache-control"), "no-store");
   assert.equal(okRes.headers.get("x-content-type-options"), "nosniff");
 });

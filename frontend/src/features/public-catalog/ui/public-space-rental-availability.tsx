@@ -2,7 +2,10 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { MonthCalendar, type RentalDemoCalendarDay } from "@/features/rental-demo/ui/month-calendar";
+import {
+  MonthCalendar,
+  type RentalDemoCalendarDay,
+} from "@/features/rental-demo/ui/month-calendar";
 
 interface Interval {
   start_at: string;
@@ -27,10 +30,13 @@ export function PublicSpaceRentalAvailability({
   const [intervals, setIntervals] = useState<Interval[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedInterval, setSelectedInterval] = useState<Interval | null>(null);
+  const [selectedInterval, setSelectedInterval] = useState<Interval | null>(
+    null,
+  );
   const generation = useRef(0);
 
-  const durations = rateUnit === "hora" ? [1, 2, 4] : rateUnit === "dia" ? [1, 2, 3] : [1];
+  const durations =
+    rateUnit === "hora" ? [1, 2, 4] : rateUnit === "dia" ? [1, 2, 3] : [1];
 
   useEffect(() => {
     if (!selectedDate) {
@@ -41,13 +47,19 @@ export function PublicSpaceRentalAvailability({
 
     fetch(
       `/api/backend/spaces/${encodeURIComponent(spaceId)}/rental-availability?date=${encodeURIComponent(selectedDate)}&duration=${duration}`,
-      { method: "GET", headers: { Accept: "application/json" }, signal: controller.signal },
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      },
     )
       .then(async (res) => {
         if (generation.current !== currentOp) return;
         if (!res.ok) {
           if (res.status === 404) {
-            setError("Publicación no encontrada o no disponible para arriendo.");
+            setError(
+              "Publicación no encontrada o no disponible para arriendo.",
+            );
           } else {
             setError("No se pudo consultar la disponibilidad en este momento.");
           }
@@ -61,7 +73,8 @@ export function PublicSpaceRentalAvailability({
         setError(null);
       })
       .catch(() => {
-        if (controller.signal.aborted || generation.current !== currentOp) return;
+        if (controller.signal.aborted || generation.current !== currentOp)
+          return;
         setError("Error de conexión al consultar disponibilidad.");
         setIntervals([]);
       })
@@ -90,7 +103,11 @@ export function PublicSpaceRentalAvailability({
   const formatTime = (iso: string) => {
     try {
       const d = new Date(iso);
-      return d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+      return d.toLocaleTimeString("es-CL", {
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: "UTC",
+      });
     } catch {
       return iso;
     }
@@ -100,13 +117,20 @@ export function PublicSpaceRentalAvailability({
   const loginUrl = `/acceso?returnTo=${encodeURIComponent(returnUrl)}`;
 
   return (
-    <section aria-labelledby={headingId} className="rounded-2xl border border-border p-6 sm:p-8 space-y-6">
+    <section
+      aria-labelledby={headingId}
+      className="rounded-2xl border border-border p-6 sm:p-8 space-y-6"
+    >
       <header className="space-y-1">
-        <h2 id={headingId} className="text-xl font-semibold tracking-tight text-foreground">
+        <h2
+          id={headingId}
+          className="text-xl font-semibold tracking-tight text-foreground"
+        >
           Disponibilidad para arriendo
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Consulta los intervalos disponibles en tiempo real. La consulta es meramente informativa, no congela ni reserva el horario.
+          Consulta los intervalos disponibles en tiempo real. La consulta es
+          meramente informativa, no congela ni reserva el horario.
         </p>
       </header>
 
@@ -127,7 +151,14 @@ export function PublicSpaceRentalAvailability({
                     : "border-border bg-background hover:bg-muted text-foreground"
                 }`}
               >
-                {d} {rateUnit === "hora" ? (d === 1 ? "hora" : "horas") : (d === 1 ? "día" : "días")}
+                {d}{" "}
+                {rateUnit === "hora"
+                  ? d === 1
+                    ? "hora"
+                    : "horas"
+                  : d === 1
+                    ? "día"
+                    : "días"}
               </button>
             ))}
           </div>
@@ -160,7 +191,8 @@ export function PublicSpaceRentalAvailability({
             <p className="text-sm text-destructive">{error}</p>
           ) : intervals.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              No hay intervalos disponibles para la duración seleccionada en esta fecha.
+              No hay intervalos disponibles para la duración seleccionada en
+              esta fecha.
             </p>
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
@@ -190,7 +222,9 @@ export function PublicSpaceRentalAvailability({
                 Para continuar, inicia sesión o crea una cuenta
               </p>
               <p className="text-xs text-muted-foreground leading-relaxed">
-                Al iniciar sesión volverás directamente a esta publicación con tu intervalo seleccionado para revisar la cotización y verificar tu identidad antes de ver el borrador de contrato.
+                Al iniciar sesión volverás directamente a esta publicación con
+                tu intervalo seleccionado para revisar la cotización y verificar
+                tu identidad antes de ver el borrador de contrato.
               </p>
               <Link
                 href={loginUrl}
@@ -203,7 +237,8 @@ export function PublicSpaceRentalAvailability({
         </div>
       ) : (
         <p className="text-sm text-muted-foreground text-center py-2">
-          Selecciona una fecha en el calendario para consultar horarios disponibles.
+          Selecciona una fecha en el calendario para consultar horarios
+          disponibles.
         </p>
       )}
     </section>

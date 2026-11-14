@@ -32,10 +32,7 @@ test("demo month, quote and confirmation contracts remain separate from commerci
     )?.[1];
     assert.equal(success.headers["Cache-Control"].schema.const, "no-store");
   }
-  assert.deepEqual(
-    api.paths[root + "/spaces"].get.security,
-    [],
-  );
+  assert.deepEqual(api.paths[root + "/spaces"].get.security, []);
   assert.deepEqual(
     api.paths[root + "/spaces/{spaceID}/month"].get.security,
     [],
@@ -84,16 +81,36 @@ test("demo month, quote and confirmation contracts remain separate from commerci
     "paid_simulated",
   );
   assert.equal(api.components.schemas.DemoQuote.additionalProperties, false);
-  assert.equal(api.components.schemas.DemoConfirmRequest.additionalProperties, false);
-  assert.equal(api.components.schemas.DemoBlockRequest.additionalProperties, false);
+  assert.equal(
+    api.components.schemas.DemoConfirmRequest.additionalProperties,
+    false,
+  );
+  assert.equal(
+    api.components.schemas.DemoBlockRequest.additionalProperties,
+    false,
+  );
   assert.equal(api.components.schemas.DemoSpace.additionalProperties, false);
   assert.equal(api.components.schemas.DemoDay.additionalProperties, false);
   assert.equal(api.components.schemas.DemoInterval.additionalProperties, false);
   assert.equal(api.components.schemas.DemoSession.additionalProperties, false);
-  assert.deepEqual(api.components.schemas.DemoSession.properties.actor.enum, ["host", "renter", "renter2"]);
+  assert.deepEqual(api.components.schemas.DemoSession.properties.actor.enum, [
+    "host",
+    "renter",
+    "renter2",
+  ]);
   assert.equal(api.components.schemas.DemoLogin.additionalProperties, false);
-  assert.deepEqual(api.components.schemas.DemoLogin.properties.actor.enum, ["host", "renter", "renter2"]);
+  assert.deepEqual(api.components.schemas.DemoLogin.properties.actor.enum, [
+    "host",
+    "renter",
+    "renter2",
+  ]);
 
-  const demoPaths = Object.keys(api.paths).filter((p) => p.startsWith("/local/rental-demo"));
-  assert.equal(demoPaths.length, 11, "Must maintain exactly 11 isolated demo endpoints");
+  const demoPaths = Object.keys(api.paths).filter((p) =>
+    p.startsWith("/local/rental-demo"),
+  );
+  assert.equal(
+    demoPaths.length,
+    11,
+    "Must maintain exactly 11 isolated demo endpoints",
+  );
 });

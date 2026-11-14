@@ -80,11 +80,17 @@ test("adapter month method routes correctly for public vs owner", async () => {
   const spaceId = "00000000-0000-4000-8000-000000000001";
 
   await adapter.month(spaceId, "2030-01", 1, false);
-  assert.equal(new URL(seen[0]).pathname, `/api/rental-demo/spaces/${spaceId}/month`);
+  assert.equal(
+    new URL(seen[0]).pathname,
+    `/api/rental-demo/spaces/${spaceId}/month`,
+  );
   assert.equal(new URL(seen[0]).search, "?month=2030-01&duration=1");
 
   await adapter.month(spaceId, "2030-01", 1, true);
-  assert.equal(new URL(seen[1]).pathname, `/api/rental-demo/owner/spaces/${spaceId}/month`);
+  assert.equal(
+    new URL(seen[1]).pathname,
+    `/api/rental-demo/owner/spaces/${spaceId}/month`,
+  );
   assert.equal(new URL(seen[1]).search, "?month=2030-01&duration=1");
 });
 
@@ -109,10 +115,13 @@ test("demo transport preserves query and rewrites only the exact prefix", async 
 test("adapter session returns null on 401 unauthenticated and data on 200", async () => {
   const { createRentalDemoAdapter } = await loadAdapter();
   const unauthAdapter = createRentalDemoAdapter(async () => {
-    return new Response(JSON.stringify({ error: { code: "unauthenticated" } }), {
-      status: 401,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: { code: "unauthenticated" } }),
+      {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }, "http://local/api");
   assert.equal(await unauthAdapter.session(), null);
 
@@ -132,10 +141,13 @@ test("adapter login sends POST with actor payload to session endpoint", async ()
     seenUrl = request.url;
     seenMethod = request.method;
     seenBody = JSON.parse(await request.text());
-    return new Response(JSON.stringify({ actor: "renter", expires_at: "2030-01-15T20:00:00Z" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ actor: "renter", expires_at: "2030-01-15T20:00:00Z" }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }, "http://local/api");
 
   const session = await adapter.login("renter");
@@ -181,17 +193,26 @@ test("adapter quote and confirm methods construct correct payloads and routes", 
     seenUrl = request.url;
     seenMethod = request.method;
     seenBody = await request.json();
-    return new Response(JSON.stringify({ id: "mock-id", status: "confirmed_demo" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ id: "mock-id", status: "confirmed_demo" }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }, "http://local/api");
 
   const quoteId = "00000000-0000-4000-8000-000000000010";
   const intentId = "00000000-0000-4000-8000-000000000020";
-  await adapter.confirm(quoteId, { approved_contract: true, intent_id: intentId });
+  await adapter.confirm(quoteId, {
+    approved_contract: true,
+    intent_id: intentId,
+  });
   assert.equal(seenMethod, "POST");
-  assert.equal(new URL(seenUrl).pathname, `/api/rental-demo/quotes/${quoteId}/confirm`);
+  assert.equal(
+    new URL(seenUrl).pathname,
+    `/api/rental-demo/quotes/${quoteId}/confirm`,
+  );
   assert.deepEqual(seenBody, { approved_contract: true, intent_id: intentId });
 });
 
@@ -203,10 +224,13 @@ test("adapter attempt and logout query correct endpoints", async () => {
     if (request.method === "DELETE") {
       return new Response(null, { status: 204 });
     }
-    return new Response(JSON.stringify({ id: "mock-attempt", status: "confirmed_demo" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ id: "mock-attempt", status: "confirmed_demo" }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }, "http://local/api");
 
   const intentId = "00000000-0000-4000-8000-000000000055";
@@ -229,10 +253,9 @@ test("adapter logout and quote throw descriptive error when upstream rejects", a
     });
   }, "http://local/api");
 
-  await assert.rejects(
-    () => adapter.logout(),
-    { message: "No se pudo cerrar la sesión de demostración." },
-  );
+  await assert.rejects(() => adapter.logout(), {
+    message: "No se pudo cerrar la sesión de demostración.",
+  });
 
   await assert.rejects(
     () => adapter.quote("sp-1", "2030-01-16T10:00:00Z", "2030-01-16T11:00:00Z"),
@@ -240,7 +263,11 @@ test("adapter logout and quote throw descriptive error when upstream rejects", a
   );
 
   await assert.rejects(
-    () => adapter.confirm("q-1", { approved_contract: true, intent_id: "00000000-0000-4000-8000-000000000001" }),
+    () =>
+      adapter.confirm("q-1", {
+        approved_contract: true,
+        intent_id: "00000000-0000-4000-8000-000000000001",
+      }),
     { message: "No se pudo completar la operación de demostración." },
   );
 
@@ -250,7 +277,12 @@ test("adapter logout and quote throw descriptive error when upstream rejects", a
   );
 
   await assert.rejects(
-    () => adapter.createBlock("sp-1", { expected_revision: "r1", start_at: "2030-01-16T10:00:00Z", end_at: "2030-01-16T11:00:00Z" }),
+    () =>
+      adapter.createBlock("sp-1", {
+        expected_revision: "r1",
+        start_at: "2030-01-16T10:00:00Z",
+        end_at: "2030-01-16T11:00:00Z",
+      }),
     { message: "No se pudo completar la operación de demostración." },
   );
 
@@ -276,14 +308,21 @@ test("adapter createBlock and updateSpace invoke correct owner routes with paylo
         headers: { "content-type": "application/json" },
       });
     }
-    return new Response(JSON.stringify({ id: "space-updated-456", state: "activa" }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ id: "space-updated-456", state: "activa" }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      },
+    );
   }, "http://local/api");
 
   const spaceId = "00000000-0000-4000-8000-000000000099";
-  const blockReq = { expected_revision: "rev-1", start_at: "2030-01-16T10:00:00Z", end_at: "2030-01-16T12:00:00Z" };
+  const blockReq = {
+    expected_revision: "rev-1",
+    start_at: "2030-01-16T10:00:00Z",
+    end_at: "2030-01-16T12:00:00Z",
+  };
   const createdId = await adapter.createBlock(spaceId, blockReq);
   assert.equal(createdId, "blk-created-123");
 
