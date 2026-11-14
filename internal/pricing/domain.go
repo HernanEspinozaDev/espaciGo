@@ -98,6 +98,9 @@ func parseWindow(in SimulationInput) (time.Time, time.Time, error) {
 }
 
 func units(unit string, startUTC, endUTC time.Time, zone string) (int64, error) {
+	if !endUTC.After(startUTC) {
+		return 0, ErrInvalid
+	}
 	loc, err := time.LoadLocation(zone)
 	if err != nil {
 		return 0, ErrInvalid

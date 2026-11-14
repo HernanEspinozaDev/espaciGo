@@ -9,6 +9,958 @@ servers:
 security:
   - bearerAuth: []
 paths:
+  /local/rental-demo/session:
+    get:
+      operationId: getRentalDemoSession
+      tags:
+        - Local rental demo
+      summary: getRentalDemoSession
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoSession"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+    post:
+      operationId: createRentalDemoSession
+      tags:
+        - Local rental demo
+      summary: createRentalDemoSession
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoSession"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DemoLogin"
+    delete:
+      operationId: deleteRentalDemoSession
+      tags:
+        - Local rental demo
+      summary: deleteRentalDemoSession
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "204":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+  /local/rental-demo/spaces:
+    get:
+      operationId: listRentalDemoSpaces
+      tags:
+        - Local rental demo
+      summary: listRentalDemoSpaces
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DemoPublicSpace"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+  /local/rental-demo/owner/spaces:
+    get:
+      operationId: listOwnerRentalDemoSpaces
+      tags:
+        - Local rental demo
+      summary: listOwnerRentalDemoSpaces
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DemoSpace"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+  /local/rental-demo/spaces/{spaceID}/month:
+    get:
+      operationId: getPublicRentalDemoMonth
+      tags:
+        - Local rental demo
+      summary: getPublicRentalDemoMonth
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoMonth"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      parameters:
+        - in: path
+          name: spaceID
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: month
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]{4}-[0-9]{2}$
+        - in: query
+          name: duration
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+  /local/rental-demo/owner/spaces/{spaceID}/month:
+    get:
+      operationId: getOwnerRentalDemoMonth
+      tags:
+        - Local rental demo
+      summary: getOwnerRentalDemoMonth
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoOwnerMonth"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      parameters:
+        - in: path
+          name: spaceID
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: month
+          required: true
+          schema:
+            type: string
+            pattern: ^[0-9]{4}-[0-9]{2}$
+        - in: query
+          name: duration
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 4
+  /local/rental-demo/owner/spaces/{spaceID}:
+    put:
+      operationId: updateRentalDemoSpace
+      tags:
+        - Local rental demo
+      summary: updateRentalDemoSpace
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoSpace"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      parameters:
+        - in: path
+          name: spaceID
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DemoConfig"
+  /local/rental-demo/owner/spaces/{spaceID}/blocks:
+    post:
+      operationId: createRentalDemoBlock
+      tags:
+        - Local rental demo
+      summary: createRentalDemoBlock
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "201":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoBlockCreated"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      parameters:
+        - in: path
+          name: spaceID
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DemoBlockRequest"
+  /local/rental-demo/owner/spaces/{spaceID}/blocks/{blockID}:
+    delete:
+      operationId: deleteRentalDemoBlock
+      tags:
+        - Local rental demo
+      summary: deleteRentalDemoBlock
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "204":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      parameters:
+        - in: path
+          name: spaceID
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: path
+          name: blockID
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: header
+          name: If-Match
+          required: true
+          schema:
+            type: string
+  /local/rental-demo/quotes:
+    post:
+      operationId: createRentalDemoQuote
+      tags:
+        - Local rental demo
+      summary: createRentalDemoQuote
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "201":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoQuote"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DemoQuoteRequest"
+  /local/rental-demo/quotes/{quoteID}/confirm:
+    post:
+      operationId: confirmRentalDemoQuote
+      tags:
+        - Local rental demo
+      summary: confirmRentalDemoQuote
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoConfirmation"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      parameters:
+        - in: path
+          name: quoteID
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DemoConfirmRequest"
+  /local/rental-demo/attempts/{intentID}:
+    get:
+      operationId: getRentalDemoAttempt
+      tags:
+        - Local rental demo
+      summary: getRentalDemoAttempt
+      description: Solo composición local explícita y loopback. Estado sintético
+        reiniciable. No verifica identidad, no genera ni firma contrato, no cobra
+        fondos y no confirma reserva comercial.
+      security:
+        - RentalDemoSession: []
+      responses:
+        "200":
+          description: Resultado exclusivo de demostración en memoria; sin efecto comercial.
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoConfirmation"
+        "400":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "401":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "403":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "404":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "409":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "422":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+        "503":
+          description: Error demo genérico; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DemoError"
+      parameters:
+        - in: path
+          name: intentID
+          required: true
+          schema:
+            type: string
+            format: uuid
   /verifications/didit/intent:
     post:
       operationId: createDiditIntent
@@ -71,6 +1023,121 @@ paths:
         "413": { description: Payload demasiado grande. }
         "415": { $ref: "#/components/responses/UnsupportedMediaType" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
+  /spaces/{spaceID}/rental-availability:
+    get:
+      operationId: listPublicRentalAvailability
+      tags: [Public catalog]
+      summary: Consultar intervalos informativos de arriendo de una publicación activa
+      description: >-
+        Devuelve únicamente intervalos que la fuente autoritativa de disponibilidad
+        declara consultables en este instante. No deriva disponibilidad únicamente
+        del horario semanal ni revela bloqueos, ocupantes, razones o reservas. La
+        consulta es informativa, no retiene ni garantiza un intervalo; cotizar vuelve
+        a validar.
+      security: []
+      parameters:
+        - name: spaceID
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+        - name: duration
+          in: query
+          required: true
+          description: Duración admitida por unidad tarifaria; Go aplica la combinación exacta.
+          schema: { type: integer, minimum: 1, maximum: 4 }
+      responses:
+        "200":
+          description: Intervalos consultables, minimizados y con instante de lectura.
+          headers:
+            Cache-Control:
+              description: Evita reutilizar una lectura de disponibilidad vencida.
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RentalAvailabilityEnvelope" }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "405": { $ref: "#/components/responses/RentalMethodNotAllowed" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "500": { $ref: "#/components/responses/RentalInternalServerError" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /rental-quotes:
+    post:
+      operationId: createRentalQuote
+      tags: [Rental]
+      summary: Crear una cotización autenticada sin retener el intervalo
+      description: >-
+        Deriva al arrendatario de la sesión. Go revalida publicación activa,
+        intervalo, ocupación, tarifa y zona horaria. La cotización es una
+        instantánea de precio; no crea reserva, ocupación, bloqueo, firma ni pago.
+        No acepta return_url ni datos de identidad en el cuerpo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateRentalQuoteRequest" }
+      responses:
+        "201":
+          description: Cotización actual con snapshot CLP y vigencia autoritativa.
+          headers:
+            Cache-Control:
+              description: La cotización está limitada a los participantes y no debe almacenarse en caché.
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RentalQuoteEnvelope" }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "405": { $ref: "#/components/responses/RentalMethodNotAllowed" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "415": { $ref: "#/components/responses/RentalUnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "500": { $ref: "#/components/responses/RentalInternalServerError" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
+  /rental-quotes/{quoteID}/contract-preview:
+    post:
+      operationId: previewRentalContract
+      tags: [Rental]
+      summary: Preparar la vista previa de condiciones contractuales esenciales
+      description: >-
+        Requiere sesión autenticada como participante, cotización vigente,
+        intervalo todavía disponible e identidad documental vigente de ambas
+        partes según el contrato vigente del servicio de identidad documental;
+        una lectura privada autorizada de nombre legal y RUT es una dependencia
+        separada que debe revalidar la identidad y el ámbito del participante. No
+        persiste un contrato ni crea reserva/ocupación; no firma, acepta ni cobra.
+        El servicio de identidad conserva la autoridad y los datos de evidencia nunca salen.
+      parameters:
+        - name: quoteID
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Resumen privado de condiciones esenciales; no es el documento contractual final ni representa aceptación o firma.
+          headers:
+            Cache-Control:
+              description: Contiene datos de identidad legal; no debe almacenarse en caché.
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RentalContractPreviewEnvelope" }
+        "400": { $ref: "#/components/responses/RentalBadRequest" }
+        "405": { $ref: "#/components/responses/RentalMethodNotAllowed" }
+        "401": { $ref: "#/components/responses/RentalUnauthorized" }
+        "403": { $ref: "#/components/responses/RentalForbidden" }
+        "404": { $ref: "#/components/responses/RentalNotFound" }
+        "409": { $ref: "#/components/responses/RentalConflict" }
+        "422": { $ref: "#/components/responses/RentalUnprocessableEntity" }
+        "500": { $ref: "#/components/responses/RentalInternalServerError" }
+        "503": { $ref: "#/components/responses/RentalServiceUnavailable" }
   /admin/global/me:
     get:
       operationId: getGlobalAdminMe
@@ -7513,6 +8580,11 @@ components:
         type: string
         minLength: 1
   securitySchemes:
+    RentalDemoSession:
+      type: apiKey
+      in: cookie
+      name: espacigo_rental_demo
+      description: Sesión sintética exclusiva de la composición demo loopback.
     bearerAuth:
       type: http
       scheme: bearer
@@ -7520,6 +8592,9 @@ components:
         Credencial de acceso protegida por TLS. Esta base no fija formato, emisor ni ciclo de vida
         del token; cada operación declara sus excepciones.
   headers:
+    Cache-Control-NoStore:
+      description: La respuesta no debe almacenarse en caché.
+      schema: { type: string, const: no-store }
     X-Request-ID:
       description: Identificador de correlación generado o propagado por el servidor.
       schema:
@@ -7536,6 +8611,556 @@ components:
         type: string
         minLength: 1
   schemas:
+    DemoPublicSpace:
+      type: object
+      additionalProperties: false
+      required: [id, title, state, time_zone, rate_unit, unit_price_clp]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        state: { type: string, const: activa }
+        time_zone: { type: string }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        unit_price_clp: { type: string, pattern: "^[0-9]+$" }
+    DemoInterval:
+      type: object
+      additionalProperties: false
+      required:
+        - start_at
+        - end_at
+      properties:
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+    DemoSession:
+      type: object
+      additionalProperties: false
+      required:
+        - actor
+        - expires_at
+      properties:
+        actor:
+          type: string
+          enum:
+            - host
+            - renter
+            - renter2
+        expires_at:
+          type: string
+          format: date-time
+    DemoLogin:
+      type: object
+      additionalProperties: false
+      required:
+        - actor
+      properties:
+        actor:
+          type: string
+          enum:
+            - host
+            - renter
+            - renter2
+    DemoSpace:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - state
+        - time_zone
+        - rate_unit
+        - unit_price_clp
+        - revision
+        - open_hour
+        - close_hour
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        state:
+          type: string
+          enum:
+            - activa
+            - borrador
+            - oculta
+        time_zone:
+          type: string
+        rate_unit:
+          type: string
+          enum:
+            - hora
+            - dia
+            - mes
+        unit_price_clp:
+          type: string
+          pattern: ^[0-9]+$
+        revision:
+          type: string
+        open_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        close_hour:
+          type: integer
+          minimum: 1
+          maximum: 24
+    DemoDay:
+      type: object
+      additionalProperties: false
+      required:
+        - date
+        - status
+        - intervals
+      properties:
+        date:
+          type: string
+          format: date
+        status:
+          type: string
+          enum:
+            - available
+            - partial
+            - unavailable
+            - outside_horizon
+        intervals:
+          type: array
+          items:
+            $ref: "#/components/schemas/DemoInterval"
+    DemoBlock:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - start_at
+        - end_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+    DemoBlockRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - expected_revision
+        - start_at
+        - end_at
+      properties:
+        expected_revision:
+          type: string
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+    DemoBlockCreated:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          format: uuid
+    DemoConfig:
+      type: object
+      additionalProperties: false
+      required:
+        - expected_revision
+        - state
+        - unit_price_clp
+        - open_hour
+        - close_hour
+      properties:
+        expected_revision:
+          type: string
+        state:
+          type: string
+          enum:
+            - activa
+            - borrador
+            - oculta
+        unit_price_clp:
+          type: string
+          pattern: ^[0-9]+$
+        open_hour:
+          type: integer
+          minimum: 0
+          maximum: 23
+        close_hour:
+          type: integer
+          minimum: 1
+          maximum: 24
+    DemoQuoteRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - space_id
+        - start_at
+        - end_at
+      properties:
+        space_id:
+          type: string
+          format: uuid
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+    DemoConfirmRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - approved_contract
+        - intent_id
+      properties:
+        approved_contract:
+          type: boolean
+          const: true
+        intent_id:
+          type: string
+          format: uuid
+    DemoError:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required:
+            - code
+          properties:
+            code:
+              type: string
+              enum:
+                - invalid_request
+                - unauthenticated
+                - forbidden
+                - not_found
+                - conflict
+                - unavailable
+                - method_not_allowed
+    DemoMonth:
+      type: object
+      additionalProperties: false
+      required:
+        - space_id
+        - title
+        - time_zone
+        - rate_unit
+        - unit_price_clp
+        - month
+        - today
+        - days
+      properties:
+        space_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        time_zone:
+          type: string
+        rate_unit:
+          type: string
+          enum:
+            - hora
+            - dia
+            - mes
+        unit_price_clp:
+          type: string
+          pattern: ^[0-9]+$
+        month:
+          type: string
+          pattern: ^[0-9]{4}-[0-9]{2}$
+        today:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/DemoDay"
+    DemoOwnerMonth:
+      type: object
+      additionalProperties: false
+      required:
+        - space_id
+        - title
+        - time_zone
+        - rate_unit
+        - unit_price_clp
+        - month
+        - today
+        - days
+        - revision
+        - blocks
+      properties:
+        space_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        time_zone:
+          type: string
+        rate_unit:
+          type: string
+          enum:
+            - hora
+            - dia
+            - mes
+        unit_price_clp:
+          type: string
+          pattern: ^[0-9]+$
+        month:
+          type: string
+          pattern: ^[0-9]{4}-[0-9]{2}$
+        today:
+          type: string
+          format: date
+        days:
+          type: array
+          items:
+            $ref: "#/components/schemas/DemoDay"
+        revision:
+          type: string
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DemoBlock"
+    DemoQuote:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - space_id
+        - space_title
+        - start_at
+        - end_at
+        - time_zone
+        - rate_unit
+        - unit_price_clp
+        - units
+        - subtotal_clp
+        - currency
+        - expires_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        space_id:
+          type: string
+          format: uuid
+        space_title:
+          type: string
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        time_zone:
+          type: string
+        rate_unit:
+          type: string
+          enum:
+            - hora
+            - dia
+            - mes
+        unit_price_clp:
+          type: string
+          pattern: ^[0-9]+$
+        units:
+          type: integer
+          minimum: 1
+          maximum: 4
+        subtotal_clp:
+          type: string
+          pattern: ^[0-9]+$
+        currency:
+          type: string
+          const: CLP
+        expires_at:
+          type: string
+          format: date-time
+    DemoConfirmation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - space_id
+        - space_title
+        - start_at
+        - end_at
+        - time_zone
+        - rate_unit
+        - unit_price_clp
+        - units
+        - subtotal_clp
+        - currency
+        - expires_at
+        - quote_id
+        - intent_id
+        - status
+        - payment_status
+      properties:
+        id:
+          type: string
+          format: uuid
+        space_id:
+          type: string
+          format: uuid
+        space_title:
+          type: string
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+        time_zone:
+          type: string
+        rate_unit:
+          type: string
+          enum:
+            - hora
+            - dia
+            - mes
+        unit_price_clp:
+          type: string
+          pattern: ^[0-9]+$
+        units:
+          type: integer
+          minimum: 1
+          maximum: 4
+        subtotal_clp:
+          type: string
+          pattern: ^[0-9]+$
+        currency:
+          type: string
+          const: CLP
+        expires_at:
+          type: string
+          format: date-time
+        quote_id:
+          type: string
+          format: uuid
+        intent_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: confirmed_demo
+        payment_status:
+          type: string
+          const: paid_simulated
+    RentalInterval:
+      type: object
+      additionalProperties: false
+      required: [start_at, end_at]
+      properties:
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+    PublicRentalAvailability:
+      type: object
+      additionalProperties: false
+      required: [space_id, time_zone, rate_unit, checked_at, items]
+      properties:
+        space_id: { type: string, format: uuid }
+        time_zone: { type: string, description: Zona IANA configurada en la publicación. }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        checked_at: { type: string, format: date-time }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/RentalInterval" }
+    RentalAvailabilityEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/PublicRentalAvailability" }
+    CreateRentalQuoteRequest:
+      type: object
+      additionalProperties: false
+      required: [space_id, start_at, end_at]
+      properties:
+        space_id: { type: string, format: uuid }
+        start_at: { type: string, format: date-time, description: Instante del intervalo devuelto por el calendario público. }
+        end_at: { type: string, format: date-time, description: Fin exclusivo del intervalo seleccionado. }
+    RentalQuote:
+      type: object
+      additionalProperties: false
+      required: [id, space_id, space_title, rate_unit, unit_price_clp, currency, units, subtotal_clp, start_at, end_at, time_zone, created_at, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        space_title: { type: string, minLength: 1, maxLength: 70 }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        unit_price_clp: { type: integer, format: int64, minimum: 5001 }
+        currency: { type: string, const: CLP }
+        units: { type: integer, format: int64, minimum: 1 }
+        subtotal_clp: { type: integer, format: int64, minimum: 5001 }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        time_zone: { type: string, description: Zona IANA autoritativa de la publicación. }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time, description: Vencimiento de la cotización; no retiene el intervalo. }
+    RentalQuoteEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/RentalQuote" }
+    RentalContractPartyPreview:
+      type: object
+      additionalProperties: false
+      required: [role, legal_name, rut]
+      properties:
+        role: { type: string, enum: [arrendador, arrendatario] }
+        legal_name: { type: string, minLength: 1, maxLength: 200 }
+        rut: { type: string, minLength: 3, maxLength: 10, pattern: '^[0-9]{1,8}-[0-9K]$', description: RUT canónico validado; se devuelve solo a un participante autenticado después del gate de ambas identidades. }
+    RentalContractPreview:
+      type: object
+      description: Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste.
+      additionalProperties: false
+      required: [state, quote_id, space_id, space_title, rate_unit, unit_price_clp, units, subtotal_clp, currency, start_at, end_at, time_zone, parties, generated_at]
+      properties:
+        state: { type: string, const: preview, description: Vista regenerable; no es aceptación, emisión final ni reserva. }
+        quote_id: { type: string, format: uuid }
+        space_id: { type: string, format: uuid }
+        space_title: { type: string, minLength: 1, maxLength: 70 }
+        rate_unit: { type: string, enum: [hora, dia, mes] }
+        unit_price_clp: { type: integer, format: int64, minimum: 5001 }
+        units: { type: integer, format: int64, minimum: 1 }
+        subtotal_clp: { type: integer, format: int64, minimum: 5001 }
+        currency: { type: string, const: CLP }
+        start_at: { type: string, format: date-time }
+        end_at: { type: string, format: date-time }
+        time_zone: { type: string, description: Zona IANA autoritativa. }
+        parties:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { $ref: "#/components/schemas/RentalContractPartyPreview" }
+        generated_at: { type: string, format: date-time }
+    RentalContractPreviewEnvelope:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/RentalContractPreview" }
     DiditIntentRequest:
       type: object
       additionalProperties: false
@@ -11090,6 +12715,90 @@ components:
           message: Ocurrió un error inesperado.
           request_id: 550e8400-e29b-41d4-a716-446655440000
   responses:
+    RentalBadRequest:
+      description: Solicitud de arriendo mal formada o parámetros inválidos; no almacenar la respuesta.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalUnauthorized:
+      description: Credencial ausente, inválida o expirada; no almacenar la respuesta.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+        WWW-Authenticate: { $ref: "#/components/headers/WWW-Authenticate" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalForbidden:
+      description: Identidad autenticada sin permiso para la acción; no almacenar la respuesta.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalNotFound:
+      description: Recurso inexistente o no visible para esta identidad; no almacenar la respuesta.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalConflict:
+      description: La disponibilidad, cotización o estado cambió; no almacenar la respuesta.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalUnsupportedMediaType:
+      description: Usar Content-Type application/json; no almacenar la respuesta.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalMethodNotAllowed:
+      description: Método no admitido para esta ruta; usar los métodos indicados en Allow y no almacenar la respuesta.
+      headers:
+        Allow:
+          description: Métodos admitidos por la ruta.
+          schema: { type: string }
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalUnprocessableEntity:
+      description: Regla semántica de arriendo no satisfecha; no almacenar la respuesta.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalInternalServerError:
+      description: Error inesperado; no se exponen detalles internos y la respuesta no se almacena.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    RentalServiceUnavailable:
+      description: Servicio de arriendo temporalmente no disponible; no almacenar la respuesta.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/Cache-Control-NoStore" }
+        X-Request-ID: { $ref: "#/components/headers/X-Request-ID" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     BadRequest:
       description: Solicitud mal formada o parámetros inválidos.
       headers:

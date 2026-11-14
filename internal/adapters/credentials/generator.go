@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"io"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 )
@@ -14,7 +15,7 @@ var _ identity.CredentialGenerator = Generator{}
 
 func (Generator) ID() (string, error) {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	if _, err := io.ReadFull(rand.Reader, b[:]); err != nil {
 		return "", err
 	}
 	b[6] = (b[6] & 0x0f) | 0x40
@@ -23,7 +24,7 @@ func (Generator) ID() (string, error) {
 }
 func (Generator) Token() (identity.Secret, error) {
 	var b [32]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	if _, err := io.ReadFull(rand.Reader, b[:]); err != nil {
 		return "", err
 	}
 	return identity.Secret(base64.RawURLEncoding.EncodeToString(b[:])), nil

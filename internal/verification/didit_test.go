@@ -74,6 +74,22 @@ func TestEvaluateDecisionFailClosed(t *testing.T) {
 	}
 }
 
+func TestEvaluateDecisionMissingInputsFailClosed(t *testing.T) {
+	t.Run("missing attempt", func(t *testing.T) {
+		status, flags, warnings := EvaluateDecision(nil, &DiditDecisionResponse{})
+		if status != "IN_REVIEW" || len(flags) != 0 || len(warnings) != 1 || warnings[0] != "MISSING_DECISION" {
+			t.Fatalf("got status=%q flags=%v warnings=%v", status, flags, warnings)
+		}
+	})
+
+	t.Run("missing decision", func(t *testing.T) {
+		status, flags, warnings := EvaluateDecision(&IdentityVerificationAttempt{}, nil)
+		if status != "IN_REVIEW" || len(flags) != 0 || len(warnings) != 1 || warnings[0] != "MISSING_DECISION" {
+			t.Fatalf("got status=%q flags=%v warnings=%v", status, flags, warnings)
+		}
+	})
+}
+
 func TestVerifyWebhookSignature(t *testing.T) {
 	secret := "test-secret-key-12345"
 	client := NewHTTPDiditClient("key", secret, true, 0)

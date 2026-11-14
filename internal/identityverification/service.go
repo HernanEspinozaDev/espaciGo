@@ -58,11 +58,17 @@ func NewService(repository Repository) (*Service, error) {
 // current, approved identity-document review performed manually. Synthetic KYC
 // or KYB fixture eligibility is intentionally not accepted as identity proof.
 func (s *Service) RequireForBooking(ctx context.Context, hostID, renterID string, now time.Time) error {
-	if s == nil || s.repository == nil || strings.TrimSpace(hostID) == "" || strings.TrimSpace(renterID) == "" || hostID == renterID || now.IsZero() {
+	if s == nil || s.repository == nil || ctx == nil || strings.TrimSpace(hostID) == "" || strings.TrimSpace(renterID) == "" || hostID == renterID || now.IsZero() {
 		return ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	for _, accountID := range []string{hostID, renterID} {
 		verification, err := s.repository.CurrentForAccount(ctx, accountID)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if errors.Is(err, ErrNotFound) {
 			return ErrNotVerified
 		}

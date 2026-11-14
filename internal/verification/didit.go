@@ -141,10 +141,10 @@ func (c *HTTPDiditClient) VerifyWebhookSignature(signature string, payload []byt
 
 func EvaluateDecision(a *IdentityVerificationAttempt, d *DiditDecisionResponse) (string, map[string]interface{}, []string) {
 	flags := map[string]interface{}{}
-	warnings := append([]string(nil), d.Warnings...)
 	if a == nil || d == nil {
 		return "IN_REVIEW", flags, []string{"MISSING_DECISION"}
 	}
+	warnings := append([]string(nil), d.Warnings...)
 	critical := map[string]bool{"FULL_NAME_MISMATCH_WITH_PROVIDED": true, "DOB_MISMATCH_WITH_PROVIDED": true, "COUNTRY_MISMATCH_WITH_PROVIDED": true, "IDENTIFICATION_NUMBER_MISMATCH_WITH_PROVIDED": true}
 	for _, w := range warnings {
 		if critical[w] {

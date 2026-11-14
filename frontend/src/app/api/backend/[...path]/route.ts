@@ -312,6 +312,12 @@ async function proxy(
   if (!Array.isArray(path) || path.length === 0) {
     return errorResponse(404, "route_not_allowed", requestId);
   }
+  // The isolated demo has its own loopback-only gateway and synthetic session.
+  // Never forward product cookies/Bearer to that composition, even though its
+  // contracts are included in the generated OpenAPI inventory.
+  if (path[0] === "local" && path[1] === "rental-demo") {
+    return errorResponse(404, "route_not_allowed", requestId);
+  }
   const { operation, allowedMethods } = operationFor(
     request.method.toUpperCase(),
     path,

@@ -116,6 +116,87 @@ func TestReviewCapsValidityAndRequestedExpiry(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewHonorsRequestedExpiryEarlierThanDocumentExpiry(t *testing.T) {
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	s, r, x := fixture(t, PurposeIdentity)
+	s.SetClock(func() time.Time { return now })
+	requestedExpiry := now.AddDate(0, 6, 0)
+	r.state.DocumentExpiresAt = requestedExpiry.Add(time.Nanosecond)
+	if err := s.Review(context.Background(), actor, x.ID, CapabilityIdentity, DecisionApprove, requestedExpiry, 0); err != nil {
+		t.Fatal(err)
+	}
+	if !r.state.VerifiedUntil.Equal(requestedExpiry) {
+		t.Fatalf("verifiedUntil=%s; want earlier requested expiry %s", r.state.VerifiedUntil, requestedExpiry)
+	}
+}
+
+func FuzzReviewUsesEarliestIdentityValidityBoundary(f *testing.F) {
+	f.Add(uint16(0), uint16(30), uint16(0))
+	f.Add(uint16(59), uint16(900), uint16(180))
+	f.Add(uint16(365), uint16(4000), uint16(5000))
+	f.Add(uint16(59), uint16(3000), uint16(5000))
+	f.Fuzz(func(t *testing.T, dateSeed, documentDaysSeed, requestedDaysSeed uint16) {
+		year := 2000 + int(dateSeed%40)
+		dayOfYear := int(dateSeed % 366)
+		now := time.Date(year, time.January, 1, 12, 0, 0, 0, time.UTC).AddDate(0, 0, dayOfYear)
+		documentExpiry := now.AddDate(0, 0, int(documentDaysSeed%4000)+1)
+		requestedDays := int(requestedDaysSeed % 5001)
+		requestedExpiry := time.Time{}
+		if requestedDays > 0 {
+			requestedExpiry = now.AddDate(0, 0, requestedDays)
+		}
+
+		want := now.AddDate(0, 24, 0)
+		if documentExpiry.Before(want) {
+			want = documentExpiry
+		}
+		if !requestedExpiry.IsZero() && requestedExpiry.Before(want) {
+			want = requestedExpiry
+		}
+
+		s, repository, x := fixture(t, PurposeIdentity)
+		s.SetClock(func() time.Time { return now })
+		repository.state.DocumentExpiresAt = documentExpiry
+		if err := s.Review(context.Background(), actor, x.ID, CapabilityIdentity, DecisionApprove, requestedExpiry, 0); err != nil {
+			t.Fatalf("valid expiry bounds rejected: doc=%s requested=%s err=%v", documentExpiry, requestedExpiry, err)
+		}
+		if !repository.state.VerifiedAt.Equal(now) || !repository.state.VerifiedUntil.Equal(want) {
+			t.Fatalf("reviewed dates verifiedAt=%s verifiedUntil=%s; want %s and %s", repository.state.VerifiedAt, repository.state.VerifiedUntil, now, want)
+		}
+	})
+}
+
+func TestReviewRejectsRequestedExpiryAtCurrentInstantWithoutMutation(t *testing.T) {
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	s, r, x := fixture(t, PurposeIdentity)
+	s.SetClock(func() time.Time { return now })
+	r.state.DocumentExpiresAt = now.AddDate(0, 6, 0)
+	before := r.state
+	if err := s.Review(context.Background(), actor, x.ID, CapabilityIdentity, DecisionApprove, now, 0); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expiry at now must be rejected, got %v", err)
+	}
+	if r.state.State != before.State || r.state.Revision != before.Revision || r.state.ReviewerID != before.ReviewerID ||
+		!r.state.VerifiedAt.Equal(before.VerifiedAt) || !r.state.VerifiedUntil.Equal(before.VerifiedUntil) {
+		t.Fatalf("rejected expiry mutated verification state: before=%+v after=%+v", before, r.state)
+	}
+}
+
+func TestReviewRejectsIdentityWithoutDocumentExpiry(t *testing.T) {
+	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
+	s, r, x := fixture(t, PurposeIdentity)
+	s.SetClock(func() time.Time { return now })
+	r.state.DocumentExpiresAt = time.Time{}
+	before := r.state
+	if err := s.Review(context.Background(), actor, x.ID, CapabilityIdentity, DecisionApprove, time.Time{}, 0); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("identity without document expiry must not be approved: got %v", err)
+	}
+	if r.state.State != before.State || r.state.Revision != before.Revision || r.state.ReviewerID != before.ReviewerID ||
+		!r.state.VerifiedAt.Equal(before.VerifiedAt) || !r.state.VerifiedUntil.Equal(before.VerifiedUntil) {
+		t.Fatalf("missing document expiry mutated verification state: before=%+v after=%+v", before, r.state)
+	}
+}
+
 func TestRevokeUsesClockAndRequiresCapability(t *testing.T) {
 	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
 	s, r, x := fixture(t, PurposeSpace)

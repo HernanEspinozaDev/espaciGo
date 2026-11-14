@@ -458,3 +458,21 @@ test("BFF passes contract JSON errors through with their original status", async
   assert.equal(response.status, 409);
   assert.deepEqual(await response.json(), payload);
 });
+
+test("product gateway never forwards the isolated rental demo with product credentials", async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response("[]", {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const response = await GET(
+    requestWithSession(
+      "http://127.0.0.1:3000/api/backend/local/rental-demo/spaces",
+    ),
+    { params: Promise.resolve({ path: ["local", "rental-demo", "spaces"] }) },
+  );
+  assert.equal(response.status, 404);
+  assert.equal(calls, 0);
+});

@@ -12,7 +12,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type Repository struct{ pool *pgxpool.Pool }
+type publicCatalogPool interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+type Repository struct{ pool publicCatalogPool }
 
 func New(pool *pgxpool.Pool) *Repository { return &Repository{pool: pool} }
 

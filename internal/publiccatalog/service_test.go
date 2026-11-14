@@ -297,3 +297,205 @@ func TestMediaImageContentStopsAfterCancelledRepositoryLookup(t *testing.T) {
 		t.Fatalf("repository calls=%d object-store reads=%d; want 1 and 0", repo.calls, store.getCalls)
 	}
 }
+
+type legacyPublicImageRepository struct {
+	memoryRepository
+	item       PublicImage
+	imageErr   error
+	imageCalls int
+	spaceID    string
+	imageID    string
+}
+
+func (r *legacyPublicImageRepository) PublicImage(_ context.Context, spaceID, imageID string) (PublicImage, error) {
+	r.imageCalls++
+	r.spaceID, r.imageID = spaceID, imageID
+	return r.item, r.imageErr
+}
+
+func (*legacyPublicImageRepository) PublicMediaVariant(context.Context, string, string, string) (PublicImage, error) {
+	return PublicImage{}, ErrNotFound
+}
+
+func TestLegacyImageContentReturnsVerifiedPNGAndCanonicalIDs(t *testing.T) {
+	body := []byte("\x89PNG\r\n\x1a\nsynthetic-public-png")
+	digest := sha256.Sum256(body)
+	const spaceID = "00000000-0000-4000-8000-ABCDEF000001"
+	const imageID = "00000000-0000-4000-8000-ABCDEF000002"
+	repo := &legacyPublicImageRepository{item: PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), FileID: "synthetic-file-1"}}
+	var reads int
+	var storedKey string
+	store := PublicImageStoreFunc(func(_ context.Context, key string) ([]byte, error) {
+		reads++
+		storedKey = key
+		return append([]byte(nil), body...), nil
+	})
+	service, err := NewWithImageStore(repo, []byte("01234567890123456789012345678901"), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, got, err := service.ImageContent(context.Background(), spaceID, imageID)
+	if err != nil || string(got) != string(body) || item.FileID != "synthetic-file-1" {
+		t.Fatalf("item=%+v body=%q err=%v", item, got, err)
+	}
+	if repo.imageCalls != 1 || repo.spaceID != strings.ToLower(spaceID) || repo.imageID != strings.ToLower(imageID) || reads != 1 || storedKey != item.FileID {
+		t.Fatalf("repository calls=%d ids=%q/%q store reads=%d key=%q", repo.imageCalls, repo.spaceID, repo.imageID, reads, storedKey)
+	}
+}
+
+func TestLegacyImageContentRejectsUnsafeMetadataBeforeStorage(t *testing.T) {
+	cases := []struct {
+		name string
+		item PublicImage
+	}{
+		{name: "wrong MIME", item: PublicImage{MIME: "image/webp", Size: 10, FileID: "file"}},
+		{name: "oversized image", item: PublicImage{MIME: "image/png", Size: 1<<20 + 1, FileID: "file"}},
+		{name: "missing file ID", item: PublicImage{MIME: "image/png", Size: 10}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &legacyPublicImageRepository{item: tc.item}
+			var reads int
+			service, err := NewWithImageStore(repo, []byte("01234567890123456789012345678901"), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+				reads++
+				return []byte("unexpected storage read"), nil
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = service.ImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002")
+			if !errors.Is(err, ErrNotFound) || reads != 0 || repo.imageCalls != 1 {
+				t.Fatalf("err=%v storage_reads=%d repository_calls=%d", err, reads, repo.imageCalls)
+			}
+		})
+	}
+}
+
+func TestLegacyImageContentRejectsUnverifiedStoredBytes(t *testing.T) {
+	valid := []byte("\x89PNG\r\n\x1a\nsynthetic-public-png")
+	badSignature := []byte("not-a-png-synthetic")
+	validDigest := sha256.Sum256(valid)
+	wrongDigest := sha256.Sum256([]byte("different-bytes"))
+	badSignatureDigest := sha256.Sum256(badSignature)
+	cases := []struct {
+		name string
+		body []byte
+		item PublicImage
+	}{
+		{name: "size mismatch", body: valid, item: PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(validDigest[:]), Size: int64(len(valid) + 1), FileID: "file"}},
+		{name: "digest mismatch", body: valid, item: PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(wrongDigest[:]), Size: int64(len(valid)), FileID: "file"}},
+		{name: "invalid PNG signature", body: badSignature, item: PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(badSignatureDigest[:]), Size: int64(len(badSignature)), FileID: "file"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &legacyPublicImageRepository{item: tc.item}
+			var reads int
+			service, err := NewWithImageStore(repo, []byte("01234567890123456789012345678901"), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+				reads++
+				return append([]byte(nil), tc.body...), nil
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = service.ImageContent(context.Background(), "00000000-0000-4000-8000-000000000001", "00000000-0000-4000-8000-000000000002")
+			if !errors.Is(err, ErrNotFound) || reads != 1 || repo.imageCalls != 1 {
+				t.Fatalf("err=%v storage_reads=%d repository_calls=%d", err, reads, repo.imageCalls)
+			}
+		})
+	}
+}
+
+func TestLegacyImageContentRejectsInvalidIDsAndUnavailableDependenciesEarly(t *testing.T) {
+	const masterKey = "01234567890123456789012345678901"
+	const spaceID = "00000000-0000-4000-8000-000000000001"
+	const imageID = "00000000-0000-4000-8000-000000000002"
+	body := []byte("\x89PNG\r\n\x1a\nsynthetic-public-png")
+	digest := sha256.Sum256(body)
+	item := PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), FileID: "file"}
+
+	t.Run("invalid IDs before repository or storage", func(t *testing.T) {
+		repo := &legacyPublicImageRepository{item: item}
+		var reads int
+		service, err := NewWithImageStore(repo, []byte(masterKey), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+			reads++
+			return body, nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, ids := range [][2]string{{"bad-space", imageID}, {spaceID, "bad-image"}} {
+			if _, _, err := service.ImageContent(context.Background(), ids[0], ids[1]); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("IDs %q/%q returned %v", ids[0], ids[1], err)
+			}
+		}
+		if repo.imageCalls != 0 || reads != 0 {
+			t.Fatalf("invalid IDs reached dependencies: repository=%d storage=%d", repo.imageCalls, reads)
+		}
+	})
+
+	t.Run("missing store before repository", func(t *testing.T) {
+		repo := &legacyPublicImageRepository{item: item}
+		service, err := New(repo, []byte(masterKey))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := service.ImageContent(context.Background(), spaceID, imageID); !errors.Is(err, ErrNotFound) || repo.imageCalls != 0 {
+			t.Fatalf("err=%v repository_calls=%d", err, repo.imageCalls)
+		}
+	})
+
+	t.Run("repository without legacy image capability", func(t *testing.T) {
+		var reads int
+		service, err := NewWithImageStore(memoryRepository{}, []byte(masterKey), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+			reads++
+			return body, nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := service.ImageContent(context.Background(), spaceID, imageID); !errors.Is(err, ErrNotFound) || reads != 0 {
+			t.Fatalf("err=%v storage_reads=%d", err, reads)
+		}
+	})
+}
+
+func TestLegacyImageContentHandlesRepositoryAndStorageErrors(t *testing.T) {
+	const masterKey = "01234567890123456789012345678901"
+	const spaceID = "00000000-0000-4000-8000-000000000001"
+	const imageID = "00000000-0000-4000-8000-000000000002"
+	body := []byte("\x89PNG\r\n\x1a\nsynthetic-public-png")
+	digest := sha256.Sum256(body)
+	item := PublicImage{MIME: "image/png", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(body)), FileID: "file"}
+
+	t.Run("repository error propagates", func(t *testing.T) {
+		failure := errors.New("synthetic image metadata failure")
+		repo := &legacyPublicImageRepository{imageErr: failure}
+		var reads int
+		service, err := NewWithImageStore(repo, []byte(masterKey), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+			reads++
+			return body, nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := service.ImageContent(context.Background(), spaceID, imageID); !errors.Is(err, failure) || reads != 0 {
+			t.Fatalf("err=%v storage_reads=%d", err, reads)
+		}
+	})
+
+	t.Run("storage error is hidden as not found", func(t *testing.T) {
+		repo := &legacyPublicImageRepository{item: item}
+		var reads int
+		service, err := NewWithImageStore(repo, []byte(masterKey), PublicImageStoreFunc(func(context.Context, string) ([]byte, error) {
+			reads++
+			return nil, errors.New("synthetic private storage detail")
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = service.ImageContent(context.Background(), spaceID, imageID)
+		if !errors.Is(err, ErrNotFound) || reads != 1 || err.Error() == "synthetic private storage detail" {
+			t.Fatalf("err=%v storage_reads=%d", err, reads)
+		}
+	})
+}
