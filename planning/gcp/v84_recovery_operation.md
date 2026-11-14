@@ -72,3 +72,28 @@ Cleanup readback a `2026-11-14T00:00:36.397944Z`: accessor retirado por el helpe
 Se prepara exclusivamente la normalización de ese default vacío observado y su fixture; no admite omisiones de valores no vacíos, campos desconocidos, versiones de secreto distintas ni cambios de identidad. Requiere revisión/publicación/CI del nuevo SHA antes de otro intento. El backup válido existente puede reutilizarse con metadata fresca mientras pase la política y se mantenga el mismo lock; no se crea otro por inferencia ni se borra el anterior. La última observación SQL sigue siendo V83; no se declara reparación ni despliegue.
 
 Revisión del ajuste mínimo `deleg_aa9045c5`: passed=true, sin bloqueos ni relajación del contrato; solo fuente, sin nuevas pruebas ni operaciones externas. Nuevo intento reservado `59763def-3717-44b5-94bc-8a132398034a`, conservando el run anterior y reutilizando el backup1794610719706 sujeto a metadata fresca y al mismo lock. Ningún permiso permanece abierto mientras se publica y verifica el nuevo SHA.
+
+## Operación V84 completada — fuente 3c27edb
+
+Fuente publicada/ref confirmado `3c27edbe9f934ed151224073563b62d196705eb4`. CI automático Application43531723760, Database43531723740 y Frontend43531723798 SUCCESS; imagen dedicada build `0f29edd0-b51f-40b7-aba0-8b71d34afece` SUCCESS, digest `sha256:c2166688707f15ed3d53235c252bf5689aa35939b97bc6ff8901b39da182a0c4`, archive SHA256 `56909939483f3d0a4827869065dc0982e55ef281b3dad0d77d108cdfe9d64047`. Clon privado actualizado por fast-forward; no se relajó el guard archive/workspace.
+
+Run59763def: accessor exacto concedido/releído con expiración `2026-11-14T01:09:40.705148Z`. Admin-inspect ejecutado y eliminado confirmó V83/ambos permisos ausentes. Backup1794610719706 revalidado desde metadata nativa nueva en cada límite. Prepare concedió solo CREATEpublic y REFERENCES(usuario.id), sin grant option, con readback directo/efectivo. Aplicador privado limitado ejecutó únicamente la V84 original; validó ledger84 y catálogo IMG-01. Finalize corrió desde finally del controlador de esta ejecución que invocó el CLI versionado; no se atribuye ese encadenamiento automático a cada comando individual. Comprometió ambos REVOKE y confirmó baseline inicial/restaurado `a79501d0b93e6c33c78d46d7f57d5d63cc1e107213aaf2d6b7029e3a6273a041`, count84/authority_closed=true. El accessor se retiró después; comprobación independiente posterior: cero bindings y política semánticamente igual al baseline. No se descargó ni imprimió el secreto.
+
+Ejecuciones exitosas propias (todas con reporte/UID/especificación y cleanup/GET de ausencia verificados):
+
+- admin-inspect `espacigo-v84-admininspect-59763def371744b5-4sgtb`;
+- prepare `espacigo-v84-adminprepare-59763def371744b5-zkzb7`;
+- migración `espacigo-v84-migrate-59763def371744b5-lcrgb`;
+- finalize `espacigo-v84-adminfinalize-59763def371744b5-cndfm`;
+- postcheck limitado `espacigo-v84-inspect-59763def371744b5-hdvn7`;
+- catálogo `espacigo-v84-catalog-59763def371744b5-9x6g6`.
+
+El postcheck separado confirmó84/cero pendientes y ausencia efectiva de CREATE/REFERENCES. Catálogo nuevo capturado `2026-11-14T00:17:43.721983Z` validado. Proof del fallo original y blobs SQL anteriores se releyeron; el helper recuperó exclusivamente la generación1794600804441535 y verificó ausencia a `2026-11-14T00:19:42.411514Z`. Se mantuvieron el backup, artefactos/Job del fallo original y base local; no hubo transferencias de owners ni cambios de roles/membresías. Los recibos exactos privados se conservan bajo el run en el clon operativo y se copian create-only al worktree principal para continuidad.
+
+Se lanzó una sola vez el trigger canónico de main: build `5ce74175-df7a-4669-b09f-d3a76c6c54dc`, branchmain/fuente3c27edb confirmadas. No se reconstruye manualmente su secuencia ni se reejecuta un writer histórico. Su terminación y las revisiones de aplicación quedan pendientes de readback al escribir esta sección; la reparación V84 está cerrada, el despliegue y QA de producto son estados separados.
+
+## Cierre técnico del despliegue
+
+Build5ce74175 terminó SUCCESS a `2026-11-14T00:37:23.923059Z`. Readback independiente confirmó fuente3c27edb, API y ambos frontends Ready/100%, digests resueltos exactos, SA separadas, variable media correcta, bucket privado protegido/API objectAdmin, versión84 y aplicación normal no-op. Success objeto generación1794616620425446/SHA25609c21f045146bf9c2b8074f39211339538e154bff5af9578ef90c43b475d3395; watermark generación1794616636885841/SHA256d0b75eb1c5a640f90c05a09ebf9768f0c388834e70fccb3f926df0e32d1e354c. Retención borró cero backups. Ocho Jobs propios ausentes y lock global ausente; política secret restaurada. Detalle/revisiones en `../frontend_next/evidence/espacios-image-deployment-sync.md`.
+
+Recibos privados de los dos intentos preservados en el worktree principal con igualdad SHA256 y modo0600 (146 archivos verificados en la copia final). Se retiró solo el clon de código scratch creado para esta operación después de comprobar su fuente limpia y esa preservación; ausencia verificada a `2026-11-14T00:53:34.304999Z`. No se eliminó ningún worktree, dataset, volumen o recurso ajeno. Base local sin conexión ni modificaciones. No se realizó QA funcional online, carga de imágenes, login ni aceptación por el agente; esa puerta sigue al usuario.

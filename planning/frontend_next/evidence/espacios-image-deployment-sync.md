@@ -50,3 +50,23 @@ Readback adicional del bucket media: API objectAdmin presente; ningún miembro a
 **Gate identificado al cerrar la inspección:** la autorización de despliegue no revocaba por inferencia la prohibición expresa de permisos SQL/desbloqueo. Se solicitó autorización separada para la operación temporal mínima V84 y la recuperación exacta del lock. Backup, DDL por Job y postcheck permanecían como gates separados; la inspección no significó despliegue completado.
 
 **Autorización posterior recibida:** el usuario autorizó la operación acotada V84 con backup, los dos permisos SQL temporales mínimos y su retirada verificada, Job privado y recuperación de la generación exacta del lock. Después autorizó expresamente roles/secretmanager.secretAccessor solo sobre `espacigo-testprod-cloudsql-postgres-admin-password` para `espacigo-test-migrator@espacigo-testprod.iam.gserviceaccount.com`, con expiración/retirada y versión1 montada solo en el Job, sin descargar/mostrar ni dar acceso a API/builder. Backup `1794610719706` SUCCESSFUL verificado. Preparación, revisiones, desviación de pruebas y gates pendientes se conservan en `../../gcp/v84_recovery_operation.md`. Al escribir este addendum no se había concedido IAM, aplicado SQL ni retirado el lock.
+
+## Despliegue técnico sincronizado — 2026-11-14 UTC
+
+Release canónico `5ce74175-df7a-4669-b09f-d3a76c6c54dc` **SUCCESS**, terminado `2026-11-14T00:37:23.923059Z`, fuente main `3c27edbe9f934ed151224073563b62d196705eb4`. Los tres CI del mismo SHA estaban SUCCESS (Application43531723760, Database43531723740, Frontend43531723798); sin omitir hooks/controles. V84 original aplicada antes mediante el corte autorizado; el plan normal leyó84/cero pendientes y su aplicación fue no-op (`applied=[]`), con postcheck/catálogo validados. Permisos SQL y accessor temporales retirados, baseline restaurado; no acceso nuevo a API/builder al secreto administrativo ni payload local.
+
+Readback independiente: los tres servicios Ready, exactamente100% a las revisiones siguientes, labels de fuente/build coincidentes y `status.imageDigest` resuelto igual al manifest. La plantilla conserva sus SA diferenciadas:
+
+| Servicio | Revisión con 100% |
+| --- | --- |
+| espacigo-test-api | espacigo-test-api-b5ce74175df7a4669b09fd3a7 |
+| espacigo-test-public | espacigo-test-public-b5ce74175df7a4669b09fd3a7 |
+| espacigo-test-private | espacigo-test-private-b5ce74175df7a4669b09fd3a7 |
+
+Imagen API `sha256:22bdb36aa3fe40d126dd1cbcd53e237865c9f41b8cdfc2acadac21ecfcafda81`; web `sha256:b09030dae8b93bbd07bb2e03acb32ce9eb7bd0096ca234877fcb9fad4509d0a6`. API live tiene exactamente `CLOUD_STORAGE_MEDIA_BUCKET=espacigo-testprod-media-447373903153`. Bucket con UBLA=true, PAP=enforced, versionado=true, API objectAdmin y sin allUsers/allAuthenticatedUsers. La publicidad del producto la decide/atiende el API para imágenes elegibles publicadas; no se hizo público el bucket.
+
+Evidencia inmutable de este build: success generación `1794616620425446`, SHA256 `09c21f045146bf9c2b8074f39211339538e154bff5af9578ef90c43b475d3395`; preflight generación `1794616386351446`; postcheck generación `1794616488664566`. Watermark exitoso generación `1794616636885841`, SHA256 `d0b75eb1c5a640f90c05a09ebf9768f0c388834e70fccb3f926df0e32d1e354c`. Todos bajo el bucket Cloud Build/prefijo releases del build, con readback por generación/hash. Retención no borró backups (`deleted_ids=[]`).
+
+Seguridad/cleanup independiente a `2026-11-14T00:46:14.872197Z`: política del secreto administrativo restaurada, ocho Jobs propios (seis de recuperación y dos del release) ausentes por GET exacto, lock global ausente. Se conservan backup, histórico del fallo original, worktrees/datos ajenos y base local. Recibos privados copiados create-only/verificados bajo `.local/v84-recovery/`; sin payloads de credenciales.
+
+**Límite:** sincronización y despliegue técnicos completados, no prueba funcional browser→BFF→Go→GCS de una carga real. QA online/carga/visualización y aceptación siguen reservadas al usuario. No se usó navegador del usuario, cuentas reales ni formularios. La ejecución unitaria offline indebida de una hoja antes de publicar quedó informada/documentada en el registro V84; no valida el candidato final corregido ni autoriza otras pruebas manuales.
