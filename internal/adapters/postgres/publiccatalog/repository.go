@@ -168,13 +168,13 @@ LEFT JOIN public.region_publica r ON r.catalogo_version=e.ubicacion_catalogo_ver
 LEFT JOIN public.comuna_publica m ON m.catalogo_version=e.ubicacion_catalogo_version AND m.region_codigo=e.region_codigo AND m.codigo=e.comuna_codigo
 LEFT JOIN public.espacio_caracteristicas attrs ON attrs.espacio_id=e.id AND attrs.categoria_codigo=e.categoria_codigo
 LEFT JOIN LATERAL (
- SELECT g.id::text AS image_id
+ SELECT g.id::text AS image_id,'synthetic'::text AS source
  FROM public.espacio_galeria_sintetica_local g
  WHERE g.espacio_id=e.id AND g.propietario_id=e.propietario_id
    AND g.id=e.portada_foto_id AND g.estado='activa' AND g.publicada_en_catalogo
    AND g.archivo_id IS NOT NULL AND g.mime_type='image/png' AND g.size_bytes BETWEEN 1 AND 1048576
  UNION ALL
- SELECT sm.id::text AS image_id
+ SELECT sm.id::text AS image_id,'media'::text AS source
  FROM public.space_media sm JOIN public.media_asset a ON a.id=sm.media_id
  WHERE sm.espacio_id=e.id AND sm.propietario_id=e.propietario_id
    AND sm.id=e.portada_media_id AND sm.retired_at IS NULL AND sm.visible AND a.estado='ready'
@@ -208,7 +208,7 @@ func (r *Repository) List(ctx context.Context, f publiccatalog.Filters, after *p
 SELECT e.id::text AS space_id,e.categoria_codigo,c.nombre AS category_name,e.titulo,e.descripcion,
        e.superficie_m2::double precision AS area_m2,t.modalidad,t.precio_base_clp,t.moneda,c.orden AS category_order,
        lower(e.titulo) COLLATE "C" AS title_key,e.zona_horaria,
-       r.codigo AS region_code,r.nombre AS region_name,m.codigo AS commune_code,m.nombre AS commune_name,cover.image_id AS cover_image_id,
+       r.codigo AS region_code,r.nombre AS region_name,m.codigo AS commune_code,m.nombre AS commune_name,cover.image_id AS cover_image_id,cover.source AS cover_source,
        public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria) AS billed_units,
        CASE WHEN $11::timestamptz IS NULL THEN NULL
             WHEN public.public_catalog_billed_units(t.modalidad,$11::timestamptz,$12::timestamptz,e.zona_horaria) IS NULL THEN NULL
@@ -229,7 +229,7 @@ AND ($1='' OR e.categoria_codigo=$1)
   AND ($10::jsonb='{}'::jsonb OR (attrs.perfil_version=$9 AND attrs.valores @> $10::jsonb))
 )
 SELECT space_id, categoria_codigo, category_name,titulo,descripcion,area_m2,modalidad,precio_base_clp,moneda,
-       category_order,title_key,zona_horaria,region_code,region_name,commune_code,commune_name,cover_image_id,estimated_total,relevance_rank,
+       category_order,title_key,zona_horaria,region_code,region_name,commune_code,commune_name,cover_image_id,cover_source,estimated_total,relevance_rank,
        identity_verified,space_verified
 FROM candidates
 WHERE ($13::bigint IS NULL OR estimated_total >= $13)
@@ -334,9 +334,9 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		var v publiccatalog.Space
 		v.Features = []publiccatalog.PublicFeature{}
 		v.Images = []publiccatalog.PublicImageRef{}
-		var timeZone, regionCode, regionName, communeCode, communeName, coverImageID sql.NullString
+		var timeZone, regionCode, regionName, communeCode, communeName, coverImageID, coverSource sql.NullString
 		var estimatedTotal sql.NullInt64
-		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &estimatedTotal, &v.RelevanceRank, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified); err != nil {
+		if err := rows.Scan(&v.SpaceID, &v.CategoryCode, &v.CategoryName, &v.Title, &v.Description, &v.AreaM2, &v.RateUnit, &v.BasePriceCLP, &v.Currency, &v.CategoryOrder, &v.TitleKey, &timeZone, &regionCode, &regionName, &communeCode, &communeName, &coverImageID, &coverSource, &estimatedTotal, &v.RelevanceRank, &v.Verification.IdentityVerified, &v.Verification.SpaceVerified); err != nil {
 			return nil, err
 		}
 		if timeZone.Valid {
@@ -359,7 +359,7 @@ WHERE ($13::bigint IS NULL OR estimated_total >= $13)
 		}
 		if coverImageID.Valid {
 			v.CoverImageID = &coverImageID.String
-			v.Images = []publiccatalog.PublicImageRef{{ImageID: coverImageID.String, IsCover: true}}
+			v.Images = []publiccatalog.PublicImageRef{{ImageID: coverImageID.String, IsCover: true, Source: coverSource.String}}
 		}
 		out = append(out, v)
 	}
@@ -422,9 +422,9 @@ WHERE a.espacio_id=$1 AND jsonb_typeof(a.valores->f.codigo)='boolean' ORDER BY f
 
 func (r *Repository) publicImages(ctx context.Context, id string) ([]publiccatalog.PublicImageRef, error) {
 	rows, err := r.pool.Query(ctx, `SELECT image_id,is_cover,source FROM (
-SELECT g.id::text AS image_id,(e.portada_foto_id=g.id) AS is_cover,o.position,'synthetic'::text AS source FROM public.espacio e JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=e.id AND g.propietario_id=e.propietario_id AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL JOIN public.gallery_item_order o ON o.synthetic_photo_id=g.id WHERE e.id=$1
+SELECT g.id::text AS image_id,COALESCE(e.portada_foto_id=g.id,false) AS is_cover,o.position,'synthetic'::text AS source FROM public.espacio e JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=e.id AND g.propietario_id=e.propietario_id AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL JOIN public.gallery_item_order o ON o.synthetic_photo_id=g.id WHERE e.id=$1
 UNION ALL
-SELECT sm.id::text,(e.portada_media_id=sm.id),o.position,'media'::text FROM public.espacio e JOIN public.space_media sm ON sm.espacio_id=e.id AND sm.propietario_id=e.propietario_id AND sm.retired_at IS NULL AND sm.visible JOIN public.media_asset a ON a.id=sm.media_id AND a.estado='ready' JOIN public.gallery_item_order o ON o.space_media_id=sm.id WHERE e.id=$1
+SELECT sm.id::text,COALESCE(e.portada_media_id=sm.id,false),o.position,'media'::text FROM public.espacio e JOIN public.space_media sm ON sm.espacio_id=e.id AND sm.propietario_id=e.propietario_id AND sm.retired_at IS NULL AND sm.visible JOIN public.media_asset a ON a.id=sm.media_id AND a.estado='ready' JOIN public.gallery_item_order o ON o.space_media_id=sm.id WHERE e.id=$1
 ) images ORDER BY is_cover DESC,position,image_id`, id)
 	if err != nil {
 		return nil, err

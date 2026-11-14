@@ -75,4 +75,7 @@ func assertRuntimeAPISchemaContract(t *testing.T, ctx context.Context, adminURL 
 	if err := pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.document_verification_reviewer_grant','UPDATE'),has_table_privilege(current_user,'public.schema_migrations','SELECT'),has_schema_privilege(current_user,'public','CREATE')`).Scan(&tableUpdate, &ledgerSelect, &createSchema); err != nil || tableUpdate || ledgerSelect || createSchema {
 		t.Fatalf("runtime gained migration or generic reviewer privileges: %v", err)
 	}
+	t.Run("public-gallery-sync", func(t *testing.T) {
+		assertRuntimePublicGallerySync(t, ctx, admin, pool)
+	})
 }

@@ -375,7 +375,7 @@ func (r *Repository) FinalizeSpace(ctx context.Context, id string, token int64, 
 	if position > media.MaxSpaceMedia {
 		return media.Photo{}, media.ErrLimit
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO public.space_media(id,espacio_id,propietario_id,media_id,created_at) VALUES($1,$2,$3,$1,$4)`, id, spaceID, owner, at)
+	_, err = tx.Exec(ctx, `INSERT INTO public.space_media(id,espacio_id,propietario_id,media_id,visible,created_at) VALUES($1,$2,$3,$1,true,$4)`, id, spaceID, owner, at)
 	if err != nil {
 		return media.Photo{}, mapError(err)
 	}
