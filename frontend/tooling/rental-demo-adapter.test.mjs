@@ -17,13 +17,13 @@ async function loadAdapter() {
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  const module = { exports: {} };
+  const mod = { exports: {} };
   new Function("require", "module", "exports", compiled)(
     createRequire(sourcePath),
-    module,
-    module.exports,
+    mod,
+    mod.exports,
   );
-  return module.exports;
+  return mod.exports;
 }
 
 test("demo fetch transport rewrites only the generated local path and never forwards product auth", async () => {

@@ -86,14 +86,13 @@ export function RentalDemoView() {
   useEffect(() => {
     const op = ++generation.current;
     const c = new AbortController();
-    setCalendar(null);
-    setSpaces([]);
-    clearJourney();
     rentalDemoAdapter
       .spaces(owner, c.signal)
       .then((items) => {
         if (generation.current !== op) return;
+        setCalendar(null);
         setSpaces([...items]);
+        clearJourney();
         const selected = items.find((item) => item.id === spaceId) ?? items[0];
         if (selected && selected.id !== spaceId) setSpaceId(selected.id);
       })
@@ -101,17 +100,18 @@ export function RentalDemoView() {
         if (generation.current === op) setError(genericError);
       });
     return () => c.abort();
-  }, [owner, session?.actor, clearJourney]);
+  }, [owner, session?.actor, spaceId, clearJourney]);
   useEffect(() => {
     if (!spaceId) return;
     const op = ++generation.current;
     const c = new AbortController();
-    setCalendar(null);
-    clearJourney();
     rentalDemoAdapter
       .month(spaceId, month, duration, owner, c.signal)
       .then((value) => {
-        if (generation.current === op) setCalendar(value);
+        if (generation.current === op) {
+          setCalendar(value);
+          clearJourney();
+        }
       })
       .catch(() => {
         if (generation.current === op) setError(genericError);
