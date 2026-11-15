@@ -56,6 +56,12 @@ El SHA publicado, igualdad con `refs/heads/main` y estado remoto de CI/build se 
 
 ## Qué falta para completar el plan
 
+### Recibo de publicación y ajuste CI
+
+El avance de 162 archivos se publicó en la rama de entrega y se integró por fast-forward a `main` con commit `f23fdc84a733ebef4f6990f7e037ff39a9ea3a4c`. `git ls-remote` y la API GitHub confirmaron el ref exacto; la bitácora remota se descargó por ese SHA y coincidió byte a byte. Ambos worktrees de entrega/integración quedaron limpios; las fuentes originales se preservaron.
+
+El trigger inició build `8172291f-f039-4ad2-8e07-20a1a994bffc`; su consulta inicial era WORKING y no se afirma éxito. La verificación del primer CI de rama (`43756497924`) reveló un defecto de configuración: el nuevo harness exige `TMPDIR` explícito y `database-quality.yml` no lo proporcionaba. El ajuste acotado fija `TMPDIR: ${{ runner.temp }}` en el job, sin cambiar el harness ni sus guards. Se reprodujo la ausencia de la variable y se ejecutó el comando real leído del YAML con el scratch local equivalente: 93 resultados requeridos PASS, sin omitidos, contenedor/scratch propios retirados. El resultado del CI remoto corregido debe consultarse por su nuevo SHA; no se deduce de esa prueba local.
+
 - **A05/A06:** ledger, autoridad y catálogo cloud actuales ligados al SHA revisado, preflight privado y decisión específica por migración; backups/gates antes de cualquier aplicación. No se sustituye por un harness local.
 - **A09:** perfil/autenticación comercial aptos para cloud y clasificación/custodia documental durable; los flags comerciales siguen exclusivamente locales y cerrados por defecto.
 - **A10/A11:** recorrido comercial compuesto navegador→BFF→Go→PostgreSQL con identidad sintética autorizada y readback independiente. La persistencia de quote está probada en DB descartable; el E2E comercial actual usa fixtures, por lo que no cierra esta integración.
