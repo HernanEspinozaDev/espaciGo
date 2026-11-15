@@ -61,7 +61,7 @@ test("createDraft uses cookie transport without a bearer or unsupported idempote
     );
     await writeFile(
       path.join(scratch, "validation.mjs"),
-      `export function convertSlotsToWeeklyDays() { return []; }\nexport function generateIdempotencyKey() { return "generated-key"; }`,
+      `export function convertSlotsToWeeklyDays() { return []; }\nexport function generateIdempotencyKey() { return "generated-key"; }\nexport function isValidUUID(value) { return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value.trim()); }`,
     );
     let adapter = await readFile(
       path.join(

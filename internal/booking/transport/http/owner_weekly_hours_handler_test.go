@@ -106,6 +106,25 @@ func TestOwnerWeeklyHoursPUTChecksIfMatchBeforeBodyAndMapsCAS(t *testing.T) {
 		}
 	})
 
+	t.Run("precondition for another space is stale before body decode", func(t *testing.T) {
+		repo := &ownerScheduleServiceStub{}
+		h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
+		req := ownerScheduleRequest(http.MethodPut, "{")
+		otherSpaceETag := spaceshttp.DraftETag(spaces.Draft{
+			ID:        "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+			UpdatedAt: ownerScheduleRevision,
+		})
+		req.Header.Set("If-Match", otherSpaceETag)
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusPreconditionFailed || repo.saveCalls != 0 || res.Header().Get("ETag") != "" {
+			t.Fatalf("status=%d saveCalls=%d ETag=%q body=%s", res.Code, repo.saveCalls, res.Header().Get("ETag"), res.Body.String())
+		}
+		if !strings.Contains(res.Body.String(), `"code":"precondition_failed"`) {
+			t.Fatalf("wrong-space ETag error body=%s", res.Body.String())
+		}
+	})
+
 	for _, tag := range []string{`W/"weak"`, "*", `"a", "b"`, "malformed"} {
 		t.Run("invalid If-Match "+tag, func(t *testing.T) {
 			repo := &ownerScheduleServiceStub{}
@@ -120,6 +139,23 @@ func TestOwnerWeeklyHoursPUTChecksIfMatchBeforeBodyAndMapsCAS(t *testing.T) {
 		})
 	}
 
+	t.Run("multiple If-Match field values are rejected before saving", func(t *testing.T) {
+		repo := &ownerScheduleServiceStub{}
+		h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
+		req := ownerScheduleRequest(http.MethodPut, validBody)
+		tag := ownerScheduleETag(ownerScheduleRevision)
+		req.Header.Add("If-Match", tag)
+		req.Header.Add("If-Match", tag)
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest || repo.saveCalls != 0 || res.Header().Get("ETag") != "" {
+			t.Fatalf("status=%d saveCalls=%d ETag=%q body=%s", res.Code, repo.saveCalls, res.Header().Get("ETag"), res.Body.String())
+		}
+		if !strings.Contains(res.Body.String(), `"code":"invalid_request"`) {
+			t.Fatalf("wrong duplicate If-Match error body=%s", res.Body.String())
+		}
+	})
+
 	t.Run("invalid JSON does not call service", func(t *testing.T) {
 		repo := &ownerScheduleServiceStub{}
 		h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
@@ -132,6 +168,31 @@ func TestOwnerWeeklyHoursPUTChecksIfMatchBeforeBodyAndMapsCAS(t *testing.T) {
 		}
 		if strings.Contains(res.Body.String(), "ensayo local") {
 			t.Fatalf("owner endpoint returned local booking-trial copy: %s", res.Body.String())
+		}
+	})
+
+	t.Run("timezone field stays on the separate availability operation", func(t *testing.T) {
+		repo := &ownerScheduleServiceStub{}
+		h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
+		body := strings.Replace(validBody, `"days":`, `"time_zone":"America/Santiago","days":`, 1)
+		req := ownerScheduleRequest(http.MethodPut, body)
+		req.Header.Set("If-Match", ownerScheduleETag(ownerScheduleRevision))
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest || repo.saveCalls != 0 {
+			t.Fatalf("status=%d saveCalls=%d body=%s", res.Code, repo.saveCalls, res.Body.String())
+		}
+	})
+
+	t.Run("trailing JSON document is rejected before service", func(t *testing.T) {
+		repo := &ownerScheduleServiceStub{}
+		h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
+		req := ownerScheduleRequest(http.MethodPut, validBody+` {}`)
+		req.Header.Set("If-Match", ownerScheduleETag(ownerScheduleRevision))
+		res := httptest.NewRecorder()
+		h.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest || repo.saveCalls != 0 {
+			t.Fatalf("status=%d saveCalls=%d body=%s", res.Code, repo.saveCalls, res.Body.String())
 		}
 	})
 
@@ -205,6 +266,40 @@ func TestOwnerWeeklyHoursPUTChecksIfMatchBeforeBodyAndMapsCAS(t *testing.T) {
 	})
 }
 
+// This test characterizes the existing transport mapping for domain write
+// failures and ensures unsuccessful CAS writes never publish a renewed ETag.
+func TestOwnerWeeklyHoursMapsSaveFailuresWithoutRenewingRevision(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "invalid weekly schedule", err: booking.ErrInvalid, status: http.StatusUnprocessableEntity, code: "invalid_request"},
+		{name: "space not found", err: booking.ErrNotFound, status: http.StatusNotFound, code: "not_found"},
+		{name: "repository failure is sanitized", err: errors.New("synthetic weekly schedule failure"), status: http.StatusInternalServerError, code: "internal_error"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &ownerScheduleServiceStub{saveErr: tc.err}
+			h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
+			req := ownerScheduleRequest(http.MethodPut, `{"enabled":true,"days":[]}`)
+			req.Header.Set("If-Match", ownerScheduleETag(ownerScheduleRevision))
+			res := httptest.NewRecorder()
+			h.ServeHTTP(res, req)
+			if res.Code != tc.status || !strings.Contains(res.Body.String(), `"code":"`+tc.code+`"`) {
+				t.Fatalf("status=%d body=%s, want status=%d code=%s", res.Code, res.Body.String(), tc.status, tc.code)
+			}
+			if repo.saveCalls != 1 || res.Header().Get("ETag") != "" {
+				t.Fatalf("saveCalls=%d ETag=%q, want one service call and no renewed revision", repo.saveCalls, res.Header().Get("ETag"))
+			}
+			if strings.Contains(res.Body.String(), "synthetic weekly schedule failure") {
+				t.Fatalf("raw service error leaked: %s", res.Body.String())
+			}
+		})
+	}
+}
+
 func TestOwnerWeeklyHoursCORSAllowsCASAndExposesETag(t *testing.T) {
 	h := NewOwnerWeeklyHoursHandler(authStub{}, &ownerScheduleServiceStub{}, []string{"http://ui.local"})
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/spaces/"+ownerScheduleSpaceID+"/weekly-hours", nil)
@@ -213,6 +308,79 @@ func TestOwnerWeeklyHoursCORSAllowsCASAndExposesETag(t *testing.T) {
 	h.ServeHTTP(res, req)
 	if res.Code != http.StatusNoContent || !strings.Contains(res.Header().Get("Access-Control-Allow-Headers"), "If-Match") || !strings.Contains(res.Header().Get("Access-Control-Expose-Headers"), "ETag") {
 		t.Fatalf("CORS status=%d allow=%q expose=%q", res.Code, res.Header().Get("Access-Control-Allow-Headers"), res.Header().Get("Access-Control-Expose-Headers"))
+	}
+}
+
+func TestOwnerWeeklyHoursCORSRejectsUnlistedOriginBeforeReadingSchedule(t *testing.T) {
+	repo := &ownerScheduleServiceStub{}
+	h := NewOwnerWeeklyHoursHandler(authStub{}, repo, []string{"http://ui.local"})
+	req := ownerScheduleRequest(http.MethodGet, "")
+	req.Header.Set("Origin", "https://unlisted.example")
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+	if res.Code != http.StatusForbidden || repo.getCalls != 0 || res.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Fatalf("status=%d getCalls=%d allow-origin=%q body=%s", res.Code, repo.getCalls, res.Header().Get("Access-Control-Allow-Origin"), res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"code":"origin_denied"`) {
+		t.Fatalf("wrong CORS denial body=%s", res.Body.String())
+	}
+}
+
+func TestOwnerWeeklyHoursRejectsUnexpectedPathAndQueryBeforeService(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+	}{
+		{name: "wrong prefix", path: "/api/v2/spaces/" + ownerScheduleSpaceID + "/weekly-hours"},
+		{name: "wrong suffix", path: "/api/v1/spaces/" + ownerScheduleSpaceID + "/weekly-hours/extra"},
+		{name: "empty space id", path: "/api/v1/spaces//weekly-hours"},
+		{name: "nested path segment", path: "/api/v1/spaces/one/two/weekly-hours"},
+		{name: "query string", path: "/api/v1/spaces/" + ownerScheduleSpaceID + "/weekly-hours?from=2030-01-01T00:00:00Z"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &ownerScheduleServiceStub{}
+			h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req.Header.Set("Authorization", "Bearer test-session")
+			res := httptest.NewRecorder()
+			h.ServeHTTP(res, req)
+			if res.Code != http.StatusUnprocessableEntity || repo.getCalls != 0 || repo.saveCalls != 0 {
+				t.Fatalf("status=%d getCalls=%d saveCalls=%d body=%s", res.Code, repo.getCalls, repo.saveCalls, res.Body.String())
+			}
+		})
+	}
+}
+
+func TestOwnerWeeklyHoursRejectsUnsupportedMethodBeforeService(t *testing.T) {
+	repo := &ownerScheduleServiceStub{}
+	h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, ownerScheduleRequest(http.MethodPatch, "{"))
+
+	if res.Code != http.StatusMethodNotAllowed || res.Header().Get("Allow") != "GET, PUT, OPTIONS" || repo.getCalls != 0 || repo.saveCalls != 0 {
+		t.Fatalf("status=%d Allow=%q getCalls=%d saveCalls=%d body=%s", res.Code, res.Header().Get("Allow"), repo.getCalls, repo.saveCalls, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"code":"method_not_allowed"`) || res.Header().Get("ETag") != "" {
+		t.Fatalf("unsupported method response body=%s ETag=%q", res.Body.String(), res.Header().Get("ETag"))
+	}
+}
+
+func TestOwnerWeeklyHoursRejectsOversizedBodyBeforeService(t *testing.T) {
+	repo := &ownerScheduleServiceStub{}
+	h := NewOwnerWeeklyHoursHandler(authStub{}, repo, nil)
+	body := `{"enabled":true,"days":[]}` + strings.Repeat(" ", 16*1024)
+	req := ownerScheduleRequest(http.MethodPut, body)
+	req.Header.Set("If-Match", ownerScheduleETag(ownerScheduleRevision))
+	res := httptest.NewRecorder()
+	h.ServeHTTP(res, req)
+
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), `"code":"invalid_request"`) {
+		t.Fatalf("status=%d body=%s, want 400 invalid_request", res.Code, res.Body.String())
+	}
+	if repo.getCalls != 0 || repo.saveCalls != 0 || res.Header().Get("ETag") != "" {
+		t.Fatalf("oversized body reached service or renewed ETag: getCalls=%d saveCalls=%d ETag=%q", repo.getCalls, repo.saveCalls, res.Header().Get("ETag"))
 	}
 }
 

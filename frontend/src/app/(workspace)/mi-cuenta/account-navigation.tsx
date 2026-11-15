@@ -2,58 +2,45 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Building2,
-  FileCheck,
-  Lock,
-  Shield,
-  ShieldCheck,
-  User,
-} from "lucide-react";
+import { FileCheck, FileText, Lock, Shield, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const items = [
+const NAV_ITEMS = [
   {
-    title: "General",
+    label: "General",
     href: "/mi-cuenta",
     icon: User,
-    description: "Información personal y contacto",
+    exact: true,
   },
   {
-    title: "Mis espacios",
-    href: "/anfitrion/espacios",
-    icon: Building2,
-    description: "Administra tus espacios",
-  },
-  {
-    title: "Seguridad",
-    href: "/mi-cuenta/seguridad",
-    icon: Lock,
-    description: "Contraseña y sesiones",
-  },
-  {
-    title: "Privacidad",
+    label: "Privacidad",
     href: "/mi-cuenta/privacidad",
     icon: Shield,
-    description: "Exportación y derechos",
+    exact: false,
   },
   {
-    title: "Verificaciones",
+    label: "Seguridad",
+    href: "/mi-cuenta/seguridad",
+    icon: Lock,
+    exact: false,
+  },
+  {
+    label: "Verificaciones",
     href: "/mi-cuenta/verificaciones",
-    icon: ShieldCheck,
-    description: "Verificación de usuario y espacios",
+    icon: FileCheck,
+    exact: false,
   },
   {
-    title: "Documentos",
+    label: "Revisión de identidad",
+    href: "/mi-cuenta/revisiones",
+    icon: FileCheck,
+    exact: false,
+  },
+  {
+    label: "Documentos",
     href: "/mi-cuenta/documentos",
-    icon: FileCheck,
-    description: "Expedientes privados por finalidad",
-  },
-  {
-    title: "Revisión documental",
-    href: "/mi-cuenta/revision-documental",
-    icon: FileCheck,
-    description: "Asignaciones confirmadas por el servidor",
+    icon: FileText,
+    exact: false,
   },
 ];
 
@@ -61,50 +48,33 @@ export function AccountNavigation() {
   const pathname = usePathname();
 
   return (
-    <aside
+    <nav
       aria-label="Navegación de cuenta"
-      className="w-full min-w-0 max-w-full md:w-64 md:shrink-0 md:border-r md:border-border/60 md:pr-6"
+      className="border-b border-border flex items-center gap-1 overflow-x-auto pb-px"
     >
-      <nav
-        aria-label="Secciones de mi cuenta"
-        className="flex min-w-0 max-w-full flex-row md:flex-col gap-1.5 overflow-x-auto pb-2 md:pb-0"
-      >
-        {items.map((item) => {
-          const isActive =
-            pathname === item.href ||
-            (item.href !== "/mi-cuenta" &&
-              Boolean(pathname?.startsWith(item.href)));
-          const Icon = item.icon;
+      {NAV_ITEMS.map((item) => {
+        const isActive = item.exact
+          ? pathname === item.href
+          : pathname.startsWith(item.href);
+        const Icon = item.icon;
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              aria-current={isActive ? "page" : undefined}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3.5 py-2.5 text-sm font-medium transition-colors whitespace-nowrap md:whitespace-normal",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                isActive
-                  ? "bg-primary/10 text-primary font-semibold border-b-2 md:border-b-0 md:border-l-2 border-primary"
-                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-              )}
-            >
-              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <div className="flex flex-col min-w-0 text-left">
-                <span>{item.title}</span>
-                <span
-                  className={cn(
-                    "text-xs font-normal hidden lg:block truncate",
-                    isActive ? "text-foreground" : "text-muted-foreground",
-                  )}
-                >
-                  {item.description}
-                </span>
-              </div>
-            </Link>
-          );
-        })}
-      </nav>
-    </aside>
+        return (
+          <Link
+            key={item.href}
+            href={item.href}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
+              "inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors rounded-t-md",
+              isActive
+                ? "border-primary text-primary bg-muted/40 font-semibold"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
+            )}
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            <span>{item.label}</span>
+          </Link>
+        );
+      })}
+    </nav>
   );
 }

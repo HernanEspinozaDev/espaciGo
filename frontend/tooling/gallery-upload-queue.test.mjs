@@ -81,6 +81,72 @@ test("a server-confirmed failed upload can be explicitly discarded without repla
   });
 });
 
+test("a definitive image validation rejection skips status lookup and can be dismissed", async () => {
+  await withQueue(async (Queue) => {
+    let posts = 0;
+    let lookups = 0;
+    const queue = new Queue(
+      callbacks({
+        upload: async () => {
+          posts++;
+          throw Object.assign(new Error("invalid image bytes"), {
+            status: 422,
+            code: "validation_error",
+          });
+        },
+        lookup: async () => {
+          lookups++;
+          return { state: "not_found" };
+        },
+      }),
+    );
+    queue.enqueue([task("invalid-image")]);
+    await tick();
+    await tick();
+    const item = queue.getSnapshot()[0];
+    assert.equal(item.state, "rejected");
+    assert.equal(item.retryAllowed, false);
+    assert.equal(item.discardAllowed, true);
+    assert.equal(posts, 1);
+    assert.equal(lookups, 0);
+    queue.discard("invalid-image");
+    assert.equal(queue.getSnapshot().length, 0);
+    queue.dispose();
+  });
+});
+
+test("a definitive oversized upload rejection skips status lookup", async () => {
+  await withQueue(async (Queue) => {
+    let posts = 0;
+    let lookups = 0;
+    const queue = new Queue(
+      callbacks({
+        upload: async () => {
+          posts++;
+          throw Object.assign(new Error("upload too large"), {
+            status: 413,
+            code: "upload_too_large",
+          });
+        },
+        lookup: async () => {
+          lookups++;
+          return { state: "not_found" };
+        },
+      }),
+    );
+    queue.enqueue([task("oversized-image")]);
+    await tick();
+    await tick();
+    const item = queue.getSnapshot()[0];
+    assert.equal(item.state, "rejected");
+    assert.equal(item.retryAllowed, false);
+    assert.equal(item.discardAllowed, true);
+    assert.equal(posts, 1);
+    assert.equal(lookups, 0);
+    queue.dispose();
+  });
+});
+
 test("pending or not_found results cannot be discarded as confirmed failures", async () => {
   for (const state of ["pending", "not_found", "deleting"]) {
     await withQueue(async (Queue) => {

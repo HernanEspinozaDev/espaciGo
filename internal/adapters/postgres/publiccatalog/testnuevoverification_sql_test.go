@@ -47,3 +47,48 @@ func TestPublicVerificationSQLDerivesCurrentOwnerBadges(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicVerificationSQLUsesLatestFinalizedDecision(t *testing.T) {
+	source, err := os.ReadFile("repository.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	const declaration = "const eligiblePublicSQL = `"
+	start := strings.Index(text, declaration)
+	if start < 0 {
+		t.Fatal("eligible public SQL declaration not found")
+	}
+	start += len(declaration)
+	end := strings.Index(text[start:], "`")
+	if end < 0 {
+		t.Fatal("eligible public SQL declaration is not terminated")
+	}
+	eligibleSQL := text[start : start+end]
+	if !strings.Contains(text, "` + eligiblePublicSQL + `") {
+		t.Fatal("eligible public SQL is not included in a query")
+	}
+	for _, decision := range []struct {
+		name     string
+		fragment string
+	}{
+		{
+			name: "identity",
+			fragment: "WHERE purpose='identity' AND subject_id=owner.id\n" +
+				"         AND state IN ('aprobada','revocada','vencida')\n" +
+				"       ORDER BY updated_at DESC,id DESC LIMIT 1",
+		},
+		{
+			name: "space",
+			fragment: "WHERE purpose='space' AND space_id=e.id AND subject_id=owner.id\n" +
+				"         AND state IN ('aprobada','revocada','vencida')\n" +
+				"       ORDER BY updated_at DESC,id DESC LIMIT 1",
+		},
+	} {
+		t.Run(decision.name, func(t *testing.T) {
+			if !strings.Contains(eligibleSQL, decision.fragment) {
+				t.Fatalf("latest finalized %s decision must be selected deterministically", decision.name)
+			}
+		})
+	}
+}

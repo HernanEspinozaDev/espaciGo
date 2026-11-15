@@ -237,6 +237,20 @@ test("builds only same-origin public image paths and supports zero, one, and man
     mediaModule.publicImageUrl("not-a-uuid", first, "display"),
     null,
   );
+  assert.equal(
+    mediaModule.publicCoverUrl(
+      { space_id: spaceId, cover_image_id: first.image_id, images: [] },
+      "thumbnail",
+    ),
+    `/api/backend/public/spaces/${spaceId}/images/${first.image_id}`,
+  );
+  assert.equal(
+    mediaModule.publicCoverUrl(
+      { space_id: spaceId, cover_image_id: "not-a-uuid", images: [] },
+      "thumbnail",
+    ),
+    null,
+  );
 });
 
 test.after(async () => rm(scratch, { recursive: true, force: true }));

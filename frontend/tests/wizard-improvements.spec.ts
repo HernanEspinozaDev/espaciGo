@@ -4,6 +4,243 @@ import categoryProfiles from "./fixtures/category-profiles-v1.json";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
+test("@phase7 @controlled wizard recupera el borrador cuando falla weekly-hours después de crearlo", async ({
+  page,
+}) => {
+  const bff = createBffFixtureState();
+  const spaceId = "00000000-0000-4000-8000-000000000121";
+  const profile = categoryProfiles.profiles.inmuebles;
+  let createCount = 0;
+  let availabilityCount = 0;
+  let weeklyHoursCount = 0;
+  let spaceDetailGetCount = 0;
+  let createBody: Record<string, unknown> = {};
+
+  await page.route("**/api/backend/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname;
+    let result: {
+      status: number;
+      body?: unknown;
+      headers?: Record<string, string>;
+    };
+    if (path === "/api/backend/auth/login" && request.method() === "POST") {
+      result = {
+        status: 200,
+        body: {
+          account_id: "770e8400-e29b-41d4-a716-446655440000",
+          roles: ["arrendador"],
+          capabilities: [],
+          expires_at: new Date(Date.now() + 3600000).toISOString(),
+          restricted_mode: false,
+        },
+      };
+    } else if (
+      path === "/api/backend/auth/session" &&
+      request.method() === "GET"
+    ) {
+      result = {
+        status: 200,
+        body: {
+          account_id: "770e8400-e29b-41d4-a716-446655440000",
+          roles: ["arrendador"],
+          capabilities: [],
+          restricted_mode: false,
+        },
+      };
+    } else if (
+      path === "/api/backend/spaces/categories" &&
+      request.method() === "GET"
+    ) {
+      result = {
+        status: 200,
+        body: { items: [{ code: "inmuebles", name: "Inmuebles" }] },
+      };
+    } else if (
+      /^\/api\/backend\/spaces\/categories\/inmuebles\/attributes(?:\/1)?$/.test(
+        path,
+      ) &&
+      request.method() === "GET"
+    ) {
+      result = { status: 200, body: profile };
+    } else if (path === "/api/backend/spaces" && request.method() === "POST") {
+      createCount += 1;
+      createBody = JSON.parse(request.postData() ?? "{}") as Record<
+        string,
+        unknown
+      >;
+      result = {
+        status: 201,
+        headers: { etag: '"draft-v1"' },
+        body: {
+          id: spaceId,
+          category_code: "inmuebles",
+          category_name: "Inmuebles",
+          state: "borrador",
+          ...createBody,
+        },
+      };
+    } else if (
+      path === `/api/backend/spaces/${spaceId}/availability` &&
+      request.method() === "PUT"
+    ) {
+      availabilityCount += 1;
+      result = {
+        status: 200,
+        headers: { etag: '"availability-v2"' },
+        body: { space_id: spaceId, time_zone: "America/Santiago" },
+      };
+    } else if (
+      path === `/api/backend/spaces/${spaceId}/weekly-hours` &&
+      request.method() === "PUT"
+    ) {
+      weeklyHoursCount += 1;
+      result = {
+        status: 503,
+        body: {
+          error: {
+            code: "fixture_unavailable",
+            message: "Controlled weekly-hours failure",
+          },
+        },
+      };
+    } else if (
+      path === `/api/backend/spaces/${spaceId}` &&
+      request.method() === "GET"
+    ) {
+      spaceDetailGetCount += 1;
+      result = {
+        status: 200,
+        headers: { etag: '"draft-v2"' },
+        body: {
+          id: spaceId,
+          category_code: "inmuebles",
+          category_name: "Inmuebles",
+          title: createBody.title,
+          description: createBody.description,
+          state: "borrador",
+          time_zone: "America/Santiago",
+          region_code: createBody.region_code,
+          comuna_code: createBody.comuna_code,
+          address: createBody.address,
+          area_m2: createBody.area_m2,
+          capacity: createBody.capacity,
+          rate_unit: createBody.rate_unit,
+          base_price_clp: createBody.base_price_clp,
+          usage_rules: createBody.usage_rules,
+          attribute_schema_version: 1,
+          attributes: createBody.attributes,
+        },
+      };
+    } else {
+      result = {
+        status: 404,
+        body: { error: { code: "not_found", message: "Not found" } },
+      };
+    }
+    const adapted = bff.adapt(request, result);
+    if (!adapted)
+      throw new Error(
+        `Missing controlled response for ${request.method()} ${path}`,
+      );
+    await route.fulfill({
+      status: adapted.status,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        ...(adapted.headers ?? {}),
+      },
+      body: JSON.stringify(adapted.body ?? {}),
+    });
+  });
+
+  await page.goto(
+    `/acceso?return_to=${encodeURIComponent("/anfitrion/espacios/nuevo")}`,
+  );
+  await page
+    .getByLabel("Correo electrónico")
+    .fill("wizard-test@example.invalid");
+  await page
+    .getByLabel("Contraseña", { exact: true })
+    .fill("SyntheticPass123!");
+  await page.getByRole("button", { name: "Iniciar sesión" }).click();
+  await page.waitForURL((url) => url.pathname === "/anfitrion/espacios/nuevo");
+  await page.locator("#wizard-category").selectOption("inmuebles");
+  await page.locator("#wizard-title").fill("Borrador sintético recuperable");
+  await page
+    .locator("#wizard-description")
+    .fill(
+      "Descripción sintética suficientemente extensa para el anuncio del espacio y su prueba controlada, con detalles de uso, acceso y características principales.",
+    );
+  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.locator("#wizard-region").selectOption("13");
+  await page.locator("#wizard-comuna").selectOption("13101");
+  await page
+    .locator("#wizard-address")
+    .fill("Dirección sintética 100, Santiago");
+  await page.locator("#wizard-area").fill("40");
+  await page.locator("#wizard-capacity").fill("2");
+  for (const attribute of profile.attributes.filter((item) => item.required)) {
+    const control = page.locator(`#attr-${attribute.code}`);
+    if (attribute.type === "enum")
+      await control.selectOption(attribute.options![0]!);
+    else if (attribute.type === "boolean") await control.check();
+    else await control.fill("1");
+  }
+  await page.getByRole("button", { name: "Siguiente" }).click();
+  await page.locator("#wizard-price").fill("5001");
+  await page.getByRole("button", { name: "Siguiente" }).click();
+  await expect(page.locator("#wizard-timezone")).toBeVisible();
+  await page.getByRole("button", { name: "Siguiente" }).click();
+  await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Crear espacio y continuar a edición" })
+    .click();
+
+  await expect.poll(() => weeklyHoursCount).toBe(1);
+  expect(createCount).toBe(1);
+  expect(availabilityCount).toBe(1);
+  await expect(
+    page
+      .getByRole("region", { name: "Contenido de la sección de cuenta" })
+      .getByRole("alert"),
+  ).toContainText(/borrador.*creado/i);
+  const editorLink = page.getByRole("link", {
+    name: /editar.*borrador|ir al editor/i,
+  });
+  await expect(editorLink).toHaveAttribute(
+    "href",
+    `/anfitrion/espacios/${spaceId}/editar`,
+  );
+  const createButton = page.getByRole("button", {
+    name: "Crear espacio y continuar a edición",
+  });
+  await expect(createButton).toBeDisabled();
+  const stepper = page.getByRole("navigation", {
+    name: "Pasos del asistente de publicación",
+  });
+  await stepper.getByRole("button", { name: /Tipo y Resumen/ }).click();
+  await expect(editorLink).toBeVisible();
+  await stepper.getByRole("button", { name: /Confirmación/ }).click();
+  await expect(createButton).toBeDisabled();
+  await editorLink.click();
+  await page.waitForURL(`/anfitrion/espacios/${spaceId}/editar`);
+  await expect(
+    page.getByRole("heading", { name: "Borrador sintético recuperable" }),
+  ).toBeVisible();
+  const readsBeforeReload = spaceDetailGetCount;
+  await page.reload();
+  await expect(page).toHaveURL(`/anfitrion/espacios/${spaceId}/editar`);
+  await expect
+    .poll(() => spaceDetailGetCount)
+    .toBeGreaterThan(readsBeforeReload);
+  await expect(
+    page.getByRole("heading", { name: "Borrador sintético recuperable" }),
+  ).toBeVisible();
+  expect(createCount).toBe(1);
+  expect(availabilityCount).toBe(1);
+  expect(weeklyHoursCount).toBe(1);
+});
+
 test("@phase7 @controlled wizard valida atributos requeridos opcionales sin serializar undefined", async ({
   page,
 }) => {

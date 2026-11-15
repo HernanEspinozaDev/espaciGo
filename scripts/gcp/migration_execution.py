@@ -55,7 +55,7 @@ def check_execution_authority(preflight,report):
         raise ValueError('unexpected apply-time V84 authority for a release without V84')
     if needs_identity_tail:
         if 'identity_ddl_authority' not in report or report['identity_ddl_authority']!=preflight.get('identity_ddl_authority'):
-            raise ValueError('apply-time V95/V96 authority is missing or differs from reviewed preflight; inspect, never grant/retry automatically')
+            raise ValueError('apply-time authority is missing or differs from reviewed preflight for V95/V96; inspect, never grant/retry automatically')
     elif 'identity_ddl_authority' in report:
         raise ValueError('unexpected apply-time identity-tail authority without V95/V96')
     return needs_v84,needs_identity_tail

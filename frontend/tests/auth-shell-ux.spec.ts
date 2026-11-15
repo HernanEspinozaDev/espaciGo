@@ -283,10 +283,13 @@ test.describe("AuthShell UX, Brand Logo and Legal Footer", () => {
       await setupAuthRoutes(page);
       await page.goto(route.path, { waitUntil: "domcontentloaded" });
 
-      const termsLink = page.getByRole("link", {
+      const legalFooter = page.getByRole("navigation", {
+        name: "Enlaces legales",
+      });
+      const termsLink = legalFooter.getByRole("link", {
         name: /términos y condiciones/i,
       });
-      const privacyLink = page.getByRole("link", {
+      const privacyLink = legalFooter.getByRole("link", {
         name: /política de privacidad/i,
       });
 

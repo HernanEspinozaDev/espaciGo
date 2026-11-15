@@ -29,6 +29,8 @@ import {
 import { Button } from "@/components/workspace/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
+import type { AccessToken } from "@/features/auth/application/auth.port";
+import { isAbortError } from "@/lib/api/errors";
 import { useVerifications } from "./use-verifications";
 import type {
   VerificationCorrectionCode,
@@ -36,6 +38,7 @@ import type {
   VerificationType,
 } from "../domain/verification";
 import { privateBlobUrls } from "@/lib/api/private-blob-urls";
+import { IdentityDeclarationPanel } from "@/features/identity-declaration/ui/identity-declaration-panel";
 
 function renderStateBadge(state: VerificationState) {
   switch (state) {
@@ -78,23 +81,36 @@ function renderStateBadge(state: VerificationState) {
   }
 }
 
-function isAbortError(err: unknown): boolean {
-  return (
-    (err instanceof Error ||
-      (typeof err === "object" && err !== null && "name" in err)) &&
-    (err as { name?: string }).name === "AbortError"
-  );
+function verificationCategoryLabel(type: VerificationType): string {
+  return type === "kyc"
+    ? "usuario (Identidad)"
+    : "espacios (Propiedad / Titularidad)";
+}
+
+function verificationTitle(type: VerificationType): string {
+  return `Verificación de ${verificationCategoryLabel(type)}`;
 }
 
 export function VerificationsView() {
-  const { snapshot: authSnapshot } = useAuth();
-  const isAuthenticated = authSnapshot.status === "authenticated";
-  const accountId = authSnapshot.accountId;
-  const rolesKey = authSnapshot.roles.join(",");
-  const capabilitiesKey = authSnapshot.capabilities.join(",");
-  const restrictedMode = authSnapshot.restrictedMode;
-  const expiresAt = authSnapshot.expiresAt;
+  const { accessToken, snapshot: authSnapshot } = useAuth();
+  const sessionKey = JSON.stringify([
+    authSnapshot.status,
+    authSnapshot.accountId,
+    authSnapshot.roles,
+    authSnapshot.capabilities,
+    authSnapshot.restrictedMode,
+    authSnapshot.expiresAt,
+  ]);
+  return (
+    <SessionVerificationsView key={sessionKey} accessToken={accessToken} />
+  );
+}
 
+function SessionVerificationsView({
+  accessToken,
+}: {
+  accessToken: AccessToken | null;
+}) {
   const {
     snapshot,
     loadOverview,
@@ -115,41 +131,15 @@ export function VerificationsView() {
     null,
   );
 
-  const identityKey = `${isAuthenticated}:${accountId}:${rolesKey}:${capabilitiesKey}:${restrictedMode}:${expiresAt}`;
-  const [prevIdentityKey, setPrevIdentityKey] = useState(identityKey);
-
-  if (prevIdentityKey !== identityKey) {
-    setPrevIdentityKey(identityKey);
-    setSelectedCaseId(null);
-    setLoadingAction(null);
-    setMessage(null);
-    setError(null);
-    setPreviewEvidenceId(null);
-    if (previewBlobUrl) {
-      privateBlobUrls.revoke(previewBlobUrl);
-      setPreviewBlobUrl(null);
-    }
-  }
-
   useEffect(() => {
-    if (isAuthenticated) {
+    if (accessToken) {
       const controller = new AbortController();
-      loadOverview(controller.signal).catch((err) => {
-        if (isAbortError(err)) return;
+      loadOverview(controller.signal).catch((error) => {
+        if (!isAbortError(error)) return;
       });
-      return () => {
-        controller.abort();
-      };
+      return () => controller.abort();
     }
-  }, [
-    isAuthenticated,
-    accountId,
-    rolesKey,
-    capabilitiesKey,
-    restrictedMode,
-    expiresAt,
-    loadOverview,
-  ]);
+  }, [accessToken, loadOverview]);
 
   useEffect(() => {
     return () => {
@@ -160,7 +150,7 @@ export function VerificationsView() {
   }, [previewBlobUrl]);
 
   const handleSelectCase = async (id: string) => {
-    if (!isAuthenticated) return;
+    if (!accessToken) return;
     setSelectedCaseId(id);
     setError(null);
     setMessage(null);
@@ -180,14 +170,14 @@ export function VerificationsView() {
   };
 
   const handleStartVerification = async (type: VerificationType) => {
-    if (!isAuthenticated) return;
+    if (!accessToken) return;
     setError(null);
     setMessage(null);
     setLoadingAction(`start-${type}`);
     try {
       const key = crypto.randomUUID();
       const created = await startVerification(key, type);
-      setMessage(`Verificación ${type.toUpperCase()} iniciada correctamente.`);
+      setMessage(`${verificationTitle(type)} iniciada correctamente.`);
       setSelectedCaseId(created.id);
     } catch (err) {
       if (isAbortError(err)) return;
@@ -200,7 +190,7 @@ export function VerificationsView() {
   };
 
   const handleRetry = async (id: string, code: VerificationCorrectionCode) => {
-    if (!isAuthenticated) return;
+    if (!accessToken) return;
     setError(null);
     setMessage(null);
     setLoadingAction(`retry-${id}`);
@@ -217,7 +207,7 @@ export function VerificationsView() {
   };
 
   const handleUploadEvidence = async (id: string) => {
-    if (!isAuthenticated) return;
+    if (!accessToken) return;
     setError(null);
     setMessage(null);
     setLoadingAction(`upload-${id}`);
@@ -237,7 +227,7 @@ export function VerificationsView() {
   };
 
   const handleDeleteEvidence = async (id: string, evidenceId: string) => {
-    if (!isAuthenticated) return;
+    if (!accessToken) return;
     setError(null);
     setMessage(null);
     setLoadingAction(`delete-ev-${evidenceId}`);
@@ -260,7 +250,7 @@ export function VerificationsView() {
   };
 
   const handleViewEvidence = async (id: string, evidenceId: string) => {
-    if (!isAuthenticated) return;
+    if (!accessToken) return;
     setError(null);
     setLoadingAction(`view-ev-${evidenceId}`);
     try {
@@ -288,7 +278,7 @@ export function VerificationsView() {
   };
 
   const handleDownloadEvidence = async (id: string, evidenceId: string) => {
-    if (!isAuthenticated) return;
+    if (!accessToken) return;
     setError(null);
     setLoadingAction(`dl-ev-${evidenceId}`);
     try {
@@ -321,18 +311,20 @@ export function VerificationsView() {
 
   return (
     <div className="space-y-6">
-      {/* Tarjeta de Verificaciones de usuario y espacios */}
+      <IdentityDeclarationPanel accessToken={accessToken} />
+
+      {/* Elegibilidad de usuario y espacios */}
       <Card aria-labelledby="eligibility-title">
         <CardHeader>
           <div className="flex items-center gap-2">
             <ShieldCheck className="size-5 text-primary" aria-hidden="true" />
             <CardTitle id="eligibility-title">
-              Acreditación y verificación de espacios
+              Elegibilidad de verificación
             </CardTitle>
           </div>
           <CardDescription>
-            Estado de validación de identidad y cumplimiento normativo para
-            publicar y operar espacios.
+            Condiciones actuales para iniciar verificaciones de usuario o de
+            espacios.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -361,16 +353,12 @@ export function VerificationsView() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h3 className="font-medium text-sm">
-                        {item.type === "kyc"
-                          ? "Verificación de usuario (Identidad)"
-                          : "Verificación de espacios"}
+                      <h3 className="font-medium capitalize text-sm">
+                        {verificationTitle(item.type)}
                       </h3>
                       <p className="text-xs text-muted-foreground mt-1">
                         {item.eligible
-                          ? item.type === "kyc"
-                            ? "Cumples las condiciones para verificar o mantener tu identidad activa."
-                            : "Cumples las condiciones para acreditar y publicar tus espacios."
+                          ? "Cumples las condiciones para iniciar o mantener esta verificación."
                           : item.revocation_reason_code ||
                             "No elegible temporalmente."}
                       </p>
@@ -398,7 +386,7 @@ export function VerificationsView() {
                       }
                       disabled={
                         Boolean(loadingAction) ||
-                        !isAuthenticated ||
+                        !accessToken ||
                         verifications.some(
                           (v) =>
                             v.type === item.type && v.state === "en_revision",
@@ -410,9 +398,8 @@ export function VerificationsView() {
                       ) : (
                         <FileCheck2 className="mr-2 size-3.5" />
                       )}
-                      {item.type === "kyc"
-                        ? "Iniciar verificación de usuario"
-                        : "Iniciar verificación de espacios"}
+                      Iniciar verificación de{" "}
+                      {verificationCategoryLabel(item.type)}
                     </Button>
                   )}
                 </div>
@@ -461,8 +448,8 @@ export function VerificationsView() {
               type="button"
               size="sm"
               variant="ghost"
-              onClick={() => isAuthenticated && loadOverview()}
-              disabled={snapshot.loading || !isAuthenticated}
+              onClick={() => accessToken && loadOverview()}
+              disabled={snapshot.loading || !accessToken}
               aria-label="Actualizar listado de verificaciones"
             >
               <RefreshCw
@@ -495,10 +482,8 @@ export function VerificationsView() {
                 >
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs tracking-wider">
-                        {v.type === "kyc"
-                          ? "Identidad de usuario"
-                          : "Acreditación de espacios"}
+                      <span className="font-semibold uppercase text-xs tracking-wider">
+                        {v.type}
                       </span>
                       <span className="text-xs text-muted-foreground font-mono">
                         ID: {v.id.slice(0, 8)}...
@@ -547,10 +532,7 @@ export function VerificationsView() {
                   aria-hidden="true"
                 />
                 <CardTitle id="case-detail-title">
-                  Detalle de Verificación:{" "}
-                  {currentCase.type === "kyc"
-                    ? "Usuario (Identidad)"
-                    : "Espacios"}
+                  Detalle de {verificationTitle(currentCase.type)}
                 </CardTitle>
               </div>
               {renderStateBadge(currentCase.state)}
@@ -580,8 +562,7 @@ export function VerificationsView() {
                     handleRetry(currentCase.id, "fixture_vigente_actualizado")
                   }
                   disabled={
-                    loadingAction === `retry-${currentCase.id}` ||
-                    !isAuthenticated
+                    loadingAction === `retry-${currentCase.id}` || !accessToken
                   }
                 >
                   {loadingAction === `retry-${currentCase.id}` ? (
@@ -604,8 +585,7 @@ export function VerificationsView() {
                   variant="outline"
                   onClick={() => handleUploadEvidence(currentCase.id)}
                   disabled={
-                    loadingAction === `upload-${currentCase.id}` ||
-                    !isAuthenticated
+                    loadingAction === `upload-${currentCase.id}` || !accessToken
                   }
                 >
                   {loadingAction === `upload-${currentCase.id}` ? (
@@ -652,7 +632,7 @@ export function VerificationsView() {
                           onClick={() =>
                             handleViewEvidence(currentCase.id, ev.id)
                           }
-                          disabled={Boolean(loadingAction) || !isAuthenticated}
+                          disabled={Boolean(loadingAction) || !accessToken}
                         >
                           <Eye className="mr-1 size-3" />
                           Ver
@@ -665,7 +645,7 @@ export function VerificationsView() {
                           onClick={() =>
                             handleDownloadEvidence(currentCase.id, ev.id)
                           }
-                          disabled={Boolean(loadingAction) || !isAuthenticated}
+                          disabled={Boolean(loadingAction) || !accessToken}
                         >
                           <Download className="mr-1 size-3" />
                           Descargar
@@ -678,7 +658,7 @@ export function VerificationsView() {
                           onClick={() =>
                             handleDeleteEvidence(currentCase.id, ev.id)
                           }
-                          disabled={Boolean(loadingAction) || !isAuthenticated}
+                          disabled={Boolean(loadingAction) || !accessToken}
                         >
                           <Trash2 className="size-3" />
                         </Button>

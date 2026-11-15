@@ -1245,3 +1245,52 @@ resource "google_compute_global_forwarding_rule" "https" {
 
   depends_on = [google_project_service.required]
 }
+# Data-class buckets: media has a single canonical *_only address below.
+resource "google_storage_bucket" "contracts" {
+  count                       = var.enable_data_class_buckets ? 1 : 0
+  project                     = var.project_id
+  name                        = "espacigo-testprod-contracts-${var.bucket_suffix}"
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+  labels = {
+    application = "espacigo"
+    managed_by  = "terraform"
+    purpose     = "contracts"
+  }
+
+  versioning {
+    enabled = true
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  depends_on = [google_project_service.required]
+}
+
+resource "google_storage_bucket" "identity_evidence" {
+  count                       = var.enable_data_class_buckets ? 1 : 0
+  project                     = var.project_id
+  name                        = "espacigo-testprod-kyc-${var.bucket_suffix}"
+  location                    = var.region
+  storage_class               = "STANDARD"
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = false
+  labels = {
+    application = "espacigo"
+    managed_by  = "terraform"
+    purpose     = "identity-evidence"
+  }
+  versioning {
+    enabled = true
+  }
+  lifecycle {
+    prevent_destroy = true
+  }
+  depends_on = [google_project_service.required]
+}

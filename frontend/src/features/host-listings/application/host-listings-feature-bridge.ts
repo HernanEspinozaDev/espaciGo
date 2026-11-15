@@ -123,6 +123,9 @@ export function createHostListingsFeatureBridge(
           signal,
         ),
     ),
+    listManualBlocks: scoped(core.listManualBlocks.bind(core)),
+    createManualBlock: scoped(core.createManualBlock.bind(core)),
+    deleteManualBlock: scoped(core.deleteManualBlock.bind(core)),
     loadPhotos: scoped(core.loadPhotos.bind(core)),
     uploadPhoto: scoped(core.uploadPhoto.bind(core)),
     replacePhoto: scoped(

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	osuser "os/user"
+	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 )
@@ -40,9 +41,22 @@ func main() {
 	nativeTailFingerprint := flag.String("native-kyc-tail-source-sha256", "", "pinned reviewed source fingerprint for the selected native KYC prefix")
 	wizardAdminVersion := flag.Int64("wizard-admin-version", 0, "apply one authorized wizard migration version (60, 64, or 66) in the isolated ensayo")
 	confirmWizardAdmin := flag.String("confirm-wizard-admin", "", "must exactly equal espacigo_wizard_20261106")
+	recoveryInspectionOnly := flag.Bool("recovery-inspection-only", false, "print bounded read-only recovery inspection report")
+	v84AuthorityMode := flag.String("v84-authority-mode", "", "bounded V84 authority operation: inspect, prepare, or finalize")
+	v84AuthorityBaseline := flag.String("v84-authority-baseline", "", "expected V84 authority baseline SHA-256 for finalize")
+	confirmV84Authority := flag.String("confirm-v84-authority", "", "must exactly equal espacigo_dms_stage_20261020")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "positional arguments are not supported")
+		os.Exit(2)
+	}
+	var nativeModeSelected, recoveryModeSelected bool
+	flag.Visit(func(f *flag.Flag) {
+		nativeModeSelected = nativeModeSelected || strings.Contains(f.Name, "native-")
+		recoveryModeSelected = recoveryModeSelected || f.Name == "recovery-inspection-only" || strings.HasPrefix(f.Name, "v84-authority-") || f.Name == "confirm-v84-authority"
+	})
+	if nativeModeSelected && recoveryModeSelected {
+		fmt.Fprintln(os.Stderr, "native and cloud recovery authority modes are mutually exclusive")
 		os.Exit(2)
 	}
 	var selectedNativeFlags []string
@@ -63,6 +77,52 @@ func main() {
 		}
 		if err := runNativeKYCTail(*migrationDir, *nativeTailVersion, *nativeTailFingerprint, os.Getenv); err != nil {
 			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	var authorityFlagSeen bool
+	var authorityConflict string
+	flag.Visit(func(f *flag.Flag) {
+		if strings.HasPrefix(f.Name, "v84-authority-") || f.Name == "confirm-v84-authority" {
+			authorityFlagSeen = true
+		}
+		if *v84AuthorityMode != "" && f.Name != "dir" && f.Name != "v84-authority-mode" && f.Name != "v84-authority-baseline" && f.Name != "confirm-v84-authority" {
+			authorityConflict = f.Name
+		}
+	})
+	if (authorityFlagSeen && *v84AuthorityMode == "") || authorityConflict != "" {
+		fmt.Fprintln(os.Stderr, "V84 authority options require their explicit exclusive mode")
+		os.Exit(2)
+	}
+	if *recoveryInspectionOnly {
+		if *inventoryOnly || *schemaOnly || *planOnly || *releaseMode || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *confirmCloudOwner != "" || *releaseSHA != "" || *releaseInventory != "" || *releaseExpected != 0 || *wizardAdminVersion != 0 || *confirmWizardAdmin != "" {
+			fmt.Fprintln(os.Stderr, "-recovery-inspection-only cannot combine with offline, schema, plan, apply, or administrative modes")
+			os.Exit(2)
+		}
+	}
+	if *v84AuthorityMode != "" {
+		if *inventoryOnly || *schemaOnly || *planOnly || *releaseMode || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *recoveryInspectionOnly || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *confirmCloudOwner != "" || *releaseSHA != "" || *releaseInventory != "" || *releaseExpected != 0 || *wizardAdminVersion != 0 || *confirmWizardAdmin != "" || *confirmV84Authority != v84AuthorityDatabase {
+			fmt.Fprintln(os.Stderr, "V84 authority mode cannot combine with other modes or administrative options")
+			os.Exit(2)
+		}
+		if err := validateV84AuthorityFlags(*v84AuthorityMode, *v84AuthorityBaseline, *confirmV84Authority, releaseSourceSHA); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		settings, err := loadConnectionSettings(os.Getenv)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := validateV84AuthorityInvocation(*v84AuthorityMode, *v84AuthorityBaseline, *confirmV84Authority, settings, releaseSourceSHA, os.Getenv); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
+		defer cancel()
+		if err := runV84Authority(ctx, os.Stdout, settings, *migrationDir, *v84AuthorityMode, *v84AuthorityBaseline, os.Getenv); err != nil {
+			fmt.Fprintf(os.Stderr, "V84 authority failed: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -145,6 +205,19 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	if *recoveryInspectionOnly {
+		if err := validateRecoveryInspectionInvocation(true, *inventoryOnly, *schemaOnly, *planOnly, *releaseMode, *applyRuntimeACL, *recoverRuntimeACL, *cloudOwner, settings, os.Getenv); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
+		defer cancel()
+		if err := runRecoveryInspection(ctx, os.Stdout, settings, *migrationDir, os.Getenv); err != nil {
+			fmt.Fprintf(os.Stderr, "recovery inspection failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 	if *nativeMigratorV81 {
 		currentUser, userErr := osuser.Current()

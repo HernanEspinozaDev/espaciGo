@@ -1,17 +1,22 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/cloudstorage"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/documentfs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/documentgcs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/mediafs"
+	"github.com/HernanEspinozaDev/espaciGo/internal/documentverification"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
 )
 
@@ -21,12 +26,83 @@ type runtimeFileStore interface {
 	Delete(context.Context, string) error
 }
 
-func newRuntimeDocumentStore(getenv func(string) string, evidenceRoot string) (*documentfs.Store, error) {
+type runtimeDocumentStore interface {
+	documentverification.UploadDocumentStore
+	documentverification.ReviewerDocumentStore
+}
+
+type runtimeDocumentObjectFactory func(context.Context, string, string) (documentgcs.ObjectStore, error)
+
+func newRuntimeDocumentStore(getenv func(string) string, evidenceRoot string) (runtimeDocumentStore, error) {
+	return newRuntimeDocumentStoreWithFactory(getenv, evidenceRoot, func(ctx context.Context, bucket, prefix string) (documentgcs.ObjectStore, error) {
+		return cloudstorage.NewWithPrefix(ctx, bucket, prefix)
+	})
+}
+
+func newRuntimeDocumentStoreWithFactory(getenv func(string) string, evidenceRoot string, factory runtimeDocumentObjectFactory) (runtimeDocumentStore, error) {
+	if getenv == nil {
+		return nil, errors.New("document verification storage configuration is invalid")
+	}
+	backend := getenv("DOCUMENT_VERIFICATION_STORAGE_BACKEND")
 	root := strings.TrimSpace(getenv("DOCUMENT_VERIFICATION_STORAGE_ROOT"))
 	keyPath := strings.TrimSpace(getenv("DOCUMENT_VERIFICATION_ENCRYPTION_KEY_FILE"))
-	if root == "" && keyPath == "" {
+	identityBucket := getenv("DOCUMENT_VERIFICATION_IDENTITY_GCS_BUCKET")
+	spaceBucket := getenv("DOCUMENT_VERIFICATION_SPACE_GCS_BUCKET")
+	keyringPath := strings.TrimSpace(getenv("DOCUMENT_VERIFICATION_ENCRYPTION_KEYRING_FILE"))
+	if backend == "" && root == "" && keyPath == "" && identityBucket == "" && spaceBucket == "" && keyringPath == "" {
 		return nil, nil
 	}
+	if backend == "" {
+		if identityBucket != "" || spaceBucket != "" || keyringPath != "" {
+			return nil, errors.New("document verification GCS backend must be selected explicitly")
+		}
+		backend = "filesystem"
+	}
+	switch backend {
+	case "filesystem":
+		if identityBucket != "" || spaceBucket != "" || keyringPath != "" || root == "" || keyPath == "" ||
+			!filepath.IsAbs(root) || filepath.Clean(root) != root || !filepath.IsAbs(keyPath) || filepath.Clean(keyPath) != keyPath ||
+			!filepath.IsAbs(evidenceRoot) || filepath.Clean(evidenceRoot) != evidenceRoot {
+			return nil, errors.New("document verification storage configuration is incomplete or invalid")
+		}
+		return newRuntimeFilesystemDocumentStore(root, keyPath, evidenceRoot)
+	case "gcs":
+		genericPrivateBucket := getenv("CLOUD_STORAGE_BUCKET")
+		if root != "" || keyPath != "" || identityBucket == "" || spaceBucket == "" || identityBucket == spaceBucket ||
+			strings.TrimSpace(identityBucket) != identityBucket || strings.TrimSpace(spaceBucket) != spaceBucket || keyringPath == "" ||
+			!filepath.IsAbs(keyringPath) || filepath.Clean(keyringPath) != keyringPath || factory == nil ||
+			genericPrivateBucket != "" && (strings.TrimSpace(genericPrivateBucket) != genericPrivateBucket || genericPrivateBucket == identityBucket || genericPrivateBucket == spaceBucket) {
+			return nil, errors.New("document verification GCS configuration is incomplete or invalid")
+		}
+		currentVersion, keys, err := loadRuntimeDocumentKeyring(keyringPath)
+		if err != nil {
+			return nil, errors.New("document verification keyring is unavailable or invalid")
+		}
+		identityStore, err := factory(context.Background(), identityBucket, "identity-documents")
+		if err != nil || identityStore == nil {
+			clearRuntimeDocumentKeys(keys)
+			return nil, errors.New("identity document object store initialization failed")
+		}
+		spaceStore, err := factory(context.Background(), spaceBucket, "space-documents")
+		if err != nil || spaceStore == nil {
+			closeRuntimeDocumentObjectStore(identityStore)
+			clearRuntimeDocumentKeys(keys)
+			return nil, errors.New("space document object store initialization failed")
+		}
+		store, err := documentgcs.New(identityStore, spaceStore, keys, documentgcs.WithCurrentKeyVersion(currentVersion))
+		clearRuntimeDocumentKeys(keys)
+		if err != nil {
+			closeRuntimeDocumentObjectStore(identityStore)
+			closeRuntimeDocumentObjectStore(spaceStore)
+			return nil, errors.New("encrypted document store initialization failed")
+		}
+		return store, nil
+	default:
+		return nil, errors.New("DOCUMENT_VERIFICATION_STORAGE_BACKEND must be filesystem or gcs")
+	}
+}
+
+func newRuntimeFilesystemDocumentStore(root, keyPath, evidenceRoot string) (*documentfs.Store, error) {
 	if root == "" || keyPath == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root || !filepath.IsAbs(keyPath) || filepath.Clean(keyPath) != keyPath || !filepath.IsAbs(evidenceRoot) || filepath.Clean(evidenceRoot) != evidenceRoot {
 		return nil, errors.New("document verification storage configuration is incomplete or invalid")
 	}
@@ -64,6 +140,77 @@ func newRuntimeDocumentStore(getenv func(string) string, evidenceRoot string) (*
 		return nil, err
 	}
 	return store, nil
+}
+
+func loadRuntimeDocumentKeyring(keyringPath string) (string, map[string][]byte, error) {
+	if !filepath.IsAbs(keyringPath) || filepath.Clean(keyringPath) != keyringPath {
+		return "", nil, errors.New("invalid keyring path")
+	}
+	canonicalPath, err := canonicalStoragePath(keyringPath)
+	if err != nil || canonicalPath != keyringPath {
+		return "", nil, errors.New("keyring path cannot contain symlinked ancestors")
+	}
+	info, err := os.Lstat(keyringPath)
+	if err != nil {
+		return "", nil, errors.New("keyring must be a bounded readable regular file with an approved mode")
+	}
+	mode := info.Mode().Perm()
+	// Cloud Run secret volumes are commonly mounted read-only as 0444; local
+	// private files may use 0400 or 0600. Never accept group/other write access.
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 ||
+		(mode != 0o400 && mode != 0o600 && mode != 0o444) || info.Size() <= 0 || info.Size() > 64<<10 {
+		return "", nil, errors.New("keyring must be a bounded readable regular file with an approved mode")
+	}
+	contents, err := os.ReadFile(keyringPath)
+	if err != nil {
+		return "", nil, errors.New("keyring cannot be read")
+	}
+	defer func() {
+		for i := range contents {
+			contents[i] = 0
+		}
+	}()
+	var config struct {
+		CurrentVersion string            `json:"current_version"`
+		Keys           map[string]string `json:"keys"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&config); err != nil || config.CurrentVersion == "" || len(config.Keys) == 0 {
+		return "", nil, errors.New("invalid keyring document")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return "", nil, errors.New("keyring contains trailing data")
+	}
+	keys := make(map[string][]byte, len(config.Keys))
+	for version, encoded := range config.Keys {
+		key, err := hex.DecodeString(encoded)
+		if err != nil || len(key) != 32 {
+			clearRuntimeDocumentKeys(keys)
+			return "", nil, errors.New("invalid key material")
+		}
+		keys[version] = key
+	}
+	if keys[config.CurrentVersion] == nil {
+		clearRuntimeDocumentKeys(keys)
+		return "", nil, errors.New("current key version is absent")
+	}
+	return config.CurrentVersion, keys, nil
+}
+
+func clearRuntimeDocumentKeys(keys map[string][]byte) {
+	for _, key := range keys {
+		for i := range key {
+			key[i] = 0
+		}
+	}
+}
+
+func closeRuntimeDocumentObjectStore(store documentgcs.ObjectStore) {
+	if closer, ok := store.(interface{ Close() error }); ok {
+		_ = closer.Close()
+	}
 }
 
 func canonicalStoragePath(path string) (string, error) {
@@ -136,7 +283,20 @@ func newRuntimeMediaStore(ctx context.Context, getenv func(string) string, evide
 		}
 		return mediafs.New(filepath.Join(evidenceRoot, "private-media"))
 	case "gcs":
-		return cloudstorage.NewMediaStore(ctx, bucket)
+		mediaBucket := getenv("CLOUD_STORAGE_MEDIA_BUCKET")
+		if mediaBucket == "" || strings.TrimSpace(mediaBucket) != mediaBucket || strings.TrimSpace(bucket) != bucket {
+			return nil, errors.New("CLOUD_STORAGE_MEDIA_BUCKET must name a dedicated GCS media bucket")
+		}
+		for _, privateBucket := range []string{
+			bucket,
+			getenv("DOCUMENT_VERIFICATION_IDENTITY_GCS_BUCKET"),
+			getenv("DOCUMENT_VERIFICATION_SPACE_GCS_BUCKET"),
+		} {
+			if privateBucket != "" && (strings.TrimSpace(privateBucket) != privateBucket || privateBucket == mediaBucket) {
+				return nil, errors.New("GCS media bucket must be separate from private blob and document buckets")
+			}
+		}
+		return cloudstorage.NewMediaStore(ctx, mediaBucket)
 	default:
 		return nil, errors.New("media storage configuration is invalid")
 	}

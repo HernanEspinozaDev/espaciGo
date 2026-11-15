@@ -385,7 +385,12 @@ test("host-listings domain enforces publication eligibility and IANA timezone re
   );
 
   assert.equal(isValidIanaTimeZone("America/Santiago"), true);
+  assert.equal(isValidIanaTimeZone(" America/Santiago "), false);
   assert.equal(isValidIanaTimeZone("UTC"), true);
+  assert.equal(isValidIanaTimeZone("EST"), true);
+  assert.equal(isValidIanaTimeZone("Local"), false);
+  assert.equal(isValidIanaTimeZone("Factory"), false);
+  assert.equal(isValidIanaTimeZone("../UTC"), false);
   assert.equal(isValidIanaTimeZone("Invalida/Zona"), false);
   assert.equal(isValidIanaTimeZone(""), false);
   assert.equal(isValidIanaTimeZone(null), false);

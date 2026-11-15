@@ -133,8 +133,18 @@ func IntervalFitsWeeklyHours(start, end time.Time, zone string, schedule WeeklyH
 		lastSecond := last.Hour()*3600 + last.Minute()*60 + last.Second()
 		endSecond := lastSecond + 1
 		fits := false
-		for _, period := range periods[weekday] {
-			if startSecond >= period.open*60 && endSecond <= period.close*60 {
+		dayPeriods := periods[weekday]
+		sort.Slice(dayPeriods, func(i, j int) bool { return dayPeriods[i].open < dayPeriods[j].open })
+		coveredUntil := startSecond
+		for _, period := range dayPeriods {
+			open, close := period.open*60, period.close*60
+			if open > coveredUntil {
+				break
+			}
+			if close > coveredUntil {
+				coveredUntil = close
+			}
+			if coveredUntil >= endSecond {
 				fits = true
 				break
 			}

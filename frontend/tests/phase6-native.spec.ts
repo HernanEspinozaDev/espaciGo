@@ -123,9 +123,7 @@ test("@phase6 @native authorized synthetic account accesses profile and verifica
   // 3. Navegación a /mi-cuenta/verificaciones y consulta de elegibilidad
   await page.getByRole("link", { name: "Verificaciones" }).click();
   await expect(page).toHaveURL(/\/mi-cuenta\/verificaciones$/);
-  await expect(
-    page.getByText("Elegibilidad de Verificación (KYC / KYB)"),
-  ).toBeVisible();
+  await expect(page.getByText("Elegibilidad de verificación")).toBeVisible();
   expect(eligibilityQueried).toBe(true);
 
   // 4. Cierre de sesión limpio

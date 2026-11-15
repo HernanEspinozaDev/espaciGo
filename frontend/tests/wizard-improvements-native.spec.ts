@@ -331,19 +331,15 @@ for (const unit of ["hora", "dia", "mes"] as const) {
       "America/Santiago",
     );
     if (unit !== "hora") {
-      await expect(
-        page.getByLabel("Habilitar calendario de reservas semanal"),
-      ).toHaveCount(0);
+      await expect(page.getByLabel("Habilitar horario semanal")).toHaveCount(0);
       await expect(
         page.getByText("Horario semanal no aplicable a tarifas por día o mes", {
           exact: false,
         }),
       ).toBeVisible();
     } else {
-      await expect(
-        page.getByLabel("Habilitar calendario de reservas semanal"),
-      ).toBeVisible();
-      await page.getByLabel("Habilitar calendario de reservas semanal").check();
+      await expect(page.getByLabel("Habilitar horario semanal")).toBeVisible();
+      await page.getByLabel("Habilitar horario semanal").check();
     }
     await page.getByRole("button", { name: "Siguiente" }).click();
     await expect(page.getByRole("heading", { name: /Paso 5:/ })).toBeVisible();

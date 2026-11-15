@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,4 +46,23 @@ func localPublicCatalogEnabled(getenv func(string) string, profile runtimeProfil
 		return false, errors.New("standalone public catalog requires the exact isolated synthetic target")
 	}
 	return true, nil
+}
+
+func mountPublicCatalogRoutes(mux *http.ServeMux, handler http.Handler, standaloneCatalog, localBookingTrial, commercialRentalFlow bool) error {
+	if !standaloneCatalog && !localBookingTrial && !commercialRentalFlow {
+		return nil
+	}
+	if mux == nil || handler == nil {
+		return errors.New("public catalog route dependencies are unavailable")
+	}
+	for _, route := range []string{
+		"/api/v1/public/spaces",
+		"/api/v1/public/spaces/",
+		"/api/v1/public/space-categories",
+		"/api/v1/public/space-categories/",
+		"/api/v1/public/locations",
+	} {
+		mux.Handle(route, handler)
+	}
+	return nil
 }

@@ -500,7 +500,7 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 			w.Header().Set("ETag", DraftETag(spaces.Draft{ID: spaceID, UpdatedAt: revision}))
 			write(w, 200, map[string]string{"space_id": spaceID, "time_zone": in.TimeZone})
 		case http.MethodGet:
-			from, to, ok := queryWindow(w, r.URL.Query())
+			from, to, ok := queryWindow(w, r.URL.RawQuery)
 			if !ok {
 				return
 			}
@@ -518,7 +518,7 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 	if len(parts) == 3 && parts[2] == "blocks" {
 		switch r.Method {
 		case http.MethodGet:
-			from, to, ok := queryWindow(w, r.URL.Query())
+			from, to, ok := queryWindow(w, r.URL.RawQuery)
 			if !ok {
 				return
 			}
@@ -568,8 +568,9 @@ func (h *Handler) serveCalendar(w http.ResponseWriter, r *http.Request, path, ow
 	failure(w, 404, "not_found", "Recurso no encontrado.")
 }
 
-func queryWindow(w http.ResponseWriter, values url.Values) (string, string, bool) {
-	if len(values) != 2 || len(values["from"]) != 1 || len(values["to"]) != 1 || values.Get("from") == "" || values.Get("to") == "" {
+func queryWindow(w http.ResponseWriter, rawQuery string) (string, string, bool) {
+	values, err := url.ParseQuery(rawQuery)
+	if err != nil || len(values) != 2 || len(values["from"]) != 1 || len(values["to"]) != 1 || values.Get("from") == "" || values.Get("to") == "" {
 		failure(w, 400, "invalid_request", "Se requieren from y to como timestamps RFC 3339.")
 		return "", "", false
 	}

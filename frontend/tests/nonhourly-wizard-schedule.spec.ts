@@ -180,9 +180,7 @@ for (const rateUnit of ["dia", "mes"] as const) {
     await expect(page.locator("#wizard-timezone")).toHaveValue(
       "America/Santiago",
     );
-    await expect(
-      page.getByLabel("Habilitar calendario de reservas semanal"),
-    ).toHaveCount(0);
+    await expect(page.getByLabel("Habilitar horario semanal")).toHaveCount(0);
     await expect(
       page.getByText("Horario semanal no aplicable a tarifas por día o mes", {
         exact: false,

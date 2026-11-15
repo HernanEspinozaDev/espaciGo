@@ -4,7 +4,11 @@ import { AccountNavigation } from "./account-navigation";
 export const metadata: Metadata = {
   title: "Mi Cuenta | EspaciGo",
   description:
-    "Administración de perfil de usuario, seguridad, preferencias y verificaciones en EspaciGo.",
+    "Configuración de cuenta, perfil, privacidad, seguridad y verificaciones.",
+  robots: {
+    index: false,
+    follow: false,
+  },
 };
 
 export default function MiCuentaLayout({
@@ -13,26 +17,20 @@ export default function MiCuentaLayout({
   children: React.ReactNode;
 }) {
   return (
-    <main className="container mx-auto px-4 py-8 max-w-6xl space-y-8">
-      <div className="border-b border-border/60 pb-5">
+    <main className="container mx-auto px-4 py-8 max-w-5xl space-y-8">
+      <div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">
           Mi Cuenta
         </h1>
-        <p className="text-muted-foreground mt-2 text-sm sm:text-base">
-          Administra tu perfil, configuración de seguridad, privacidad y estado
-          de verificaciones.
+        <p className="text-sm text-muted-foreground mt-1">
+          Gestiona tu perfil público, opciones de seguridad, privacidad de datos
+          y declaración de identidad.
         </p>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-8 items-start min-w-0">
-        <AccountNavigation />
-        <section
-          aria-label="Contenido de la sección de cuenta"
-          className="flex-1 w-full min-w-0 space-y-6"
-        >
-          {children}
-        </section>
-      </div>
+      <AccountNavigation />
+
+      <div>{children}</div>
     </main>
   );
 }

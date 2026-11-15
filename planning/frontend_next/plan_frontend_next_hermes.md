@@ -606,6 +606,12 @@ Revalidación local documental (2026-11-01): en el worktree existente `frontend-
 
 Revalidación adicional documental (2026-11-01): el spec ahora cubre también la creación de expediente de identidad, su vencimiento obligatorio, lista/consulta, carga y envío con ETag, y ausencia de descarga para identidad. `pnpm check` en `frontend/` pasó con 67/67 tooling, build de 30 rutas y Playwright 66/111 aprobadas, 45 omitidas; los dos specs documentales pasaron. La prueba de espacio conserva las seis operaciones y compara bytes descargados. Todo sigue siendo UI/mock. No hubo API/DB/storage/scanner/cuentas; F6 continúa parcial tras los gates F5. Evidencia: `planning/frontend_next/evidence/fase-6-cuenta-verificaciones.md`, sección “Cobertura UI del propósito identidad — 2026-11-01”.
 
+#### Avance KYC conservado desde el worktree frontend — 2026-11-15
+
+Se incorpora el avance local de declaración, captura propia, corrección y cola/revisión de identidad. La evidencia histórica del 2026-11-13 queda en `evidence/identity-correction-cycle-browser-mock-20261113.md` y `evidence/identity-full-owner-flow-browser-mock-20261113.md`: recorridos UI con APIs y scanner sintéticos, aislamiento de solicitudes, fecha civil y respuestas tardías. Sus resultados no prueban autenticación efectiva, BFF→Go→PostgreSQL, scanner real, almacenamiento durable ni reinicio.
+
+La instrucción humana del 2026-11-15 autoriza integrar el avance KYC incompleto en `main`, aunque no funcione en Google Cloud. Esta publicación no cierra los gates del plan de verificación propia ni acredita despliegue o aceptación funcional; prevalece `planning/verificacion_identidad/plan_verificacion_identidad_espacigo.md`.
+
 ### Fase 7 — Panel anfitrión
 
 Entregables:

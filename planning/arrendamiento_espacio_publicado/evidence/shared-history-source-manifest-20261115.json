@@ -1,0 +1,1077 @@
+{
+  "format": "espacigo.rental-shared-history-discovery.v1",
+  "observed_date": "2026-11-15",
+  "scope": "source hashes and native ledger snapshot; not a migration executor, import approval or cloud state",
+  "rental": {
+    "worktree": "/home/nandev/Documentos/projects/espaciGo-rental-demo-reconciled",
+    "head": "aa53379db0da0e3b872ce23e8258becb324a2b4e"
+  },
+  "identity": {
+    "worktree": "/home/nandev/Documentos/projects/espaciGo-main-sync",
+    "head": "274f37e483a078890e92382a159fa49fd23c2fe8",
+    "dirty_source": true
+  },
+  "native_ledger": {
+    "database": "espacigo_dms_stage_20261020",
+    "port": 5432,
+    "access": "READ ONLY",
+    "count": 96
+  },
+  "migrations": [
+    {
+      "version": 1,
+      "name": "V000001__m01_identity.sql",
+      "sha256": "34736e22df35ffbd88bb43a1071788ba88ac9e6b35f2a5aeba83b9b87bf161f8",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 2,
+      "name": "V000002__m02_profile_rights.sql",
+      "sha256": "e3f9c0b9e60244490ef40230b5af6a452deb63cd475b43b7378d9a3895877ec2",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 3,
+      "name": "V000003__m03_verification.sql",
+      "sha256": "161a2fc06b46eb181b6ddec78eac4ff8e3020b48553429f435ce81c08ce4814f",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 4,
+      "name": "V000004__m03_reason_codes.sql",
+      "sha256": "f3942ba61513556253650fabc962843350e9c441fd384d8d5b8bd59ecf7362d1",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 5,
+      "name": "V000005__m04_space_drafts.sql",
+      "sha256": "f5ca7a06da755c8bbf8adba1ed7c539c69fb50743b3f58012079eb565b564f86",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 6,
+      "name": "V000006__m04_extensible_category_attributes.sql",
+      "sha256": "67bf11f666e9c3f2687e7bd6c3c0fcd82f075c51ff012f874ed3638b64cf2968",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 7,
+      "name": "V000007__m04_profile_attribute_order.sql",
+      "sha256": "c39bc8c2c3a7161bec0dd0b01b1f7cb04ff87c70aae15ea6db46a6054b1780c5",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 8,
+      "name": "V000008__m03_synthetic_evidence.sql",
+      "sha256": "896d0808f925f44f5bb82222b56fde369723b3579fae510c3bd3b1a84002113d",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 9,
+      "name": "V000009__m06_draft_manual_occupancy.sql",
+      "sha256": "e3fd2c98930f3d44280406a1698aa6d4594aa7b7e8ae708157c81ed4103ed900",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 10,
+      "name": "V000010__m05_versioned_rates_and_private_simulations.sql",
+      "sha256": "291748cd18b0ff3424066c322e570a9ff206a386a92e08ad714a9d0709ef212b",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 11,
+      "name": "V000011__m06_local_booking_trial.sql",
+      "sha256": "7d6e5dfda683164f434c70b415c7383a48d16120abc4d2d10ef0c64db710f452",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 12,
+      "name": "V000012__m06_local_booking_conditions_snapshot.sql",
+      "sha256": "daa604294fbab0c9d3ac027e3e2629a366c93c78795ea7f5edd75733dfd3a1cd",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 13,
+      "name": "V000013__m06_booking_history_sequence.sql",
+      "sha256": "8aaa68c5b3f06a8b363bc8332bb7574e937417616610d5dc4df8ac26365f30de",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 14,
+      "name": "V000014__m06_deterministic_history_backfill.sql",
+      "sha256": "c5b25c4d450f7ff5f60ebac401e85506a8835ade8e80c3043d0ddd2706682ccb",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 15,
+      "name": "V000015__m05_local_synthetic_catalog.sql",
+      "sha256": "55c2641621ca6dcba8c00108fb0d3bd607730a1544417f79388d2942c2a18525",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 16,
+      "name": "V000016__m09_local_reservation_messages.sql",
+      "sha256": "21772b55240bd9e42dcee9a0c60267f87e0c5652e9d20a2d4d84526994cc4a06",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 17,
+      "name": "V000017__m09_reservation_message_read_cursor.sql",
+      "sha256": "d22702994f854621e3eca912ce07a320a3b83e7c9bf1ad2910f82d8ef3cfe127",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 18,
+      "name": "V000018__m05_synthetic_fixture_locations.sql",
+      "sha256": "65ff0d76bafb9b7e78207aac40172cb45443291b2903c71165650174c9eac89b",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 19,
+      "name": "V000019__m06_local_weekly_hours.sql",
+      "sha256": "99d516ecae702fd158204d985662d1cc0c70104a9cd520a926009860dc160d57",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 20,
+      "name": "V000020__m06_local_flexible_cancellation.sql",
+      "sha256": "a594aa744d8fa8ffcf1884561d4e0f0730ea1a35098f422b55b46b4e933570d0",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 21,
+      "name": "V000021__m06_local_payment_inbox.sql",
+      "sha256": "3c3e72a6fcf9e1b6570362c7254a65cd6024c2838792898dfee5daeebd088a86",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 22,
+      "name": "V000022__local_identity_history_and_outbox.sql",
+      "sha256": "f2166790c2500956a2cbbf4bc16280a7bec11d3d36bf6096cc5ae666f9b5b4a8",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 23,
+      "name": "V000023__local_privacy_suppression_review.sql",
+      "sha256": "b38c23af4953e46c6d6c3b145d7c1c8212b0408ddc39e7eb434cd945ed355f2c",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 24,
+      "name": "V000024__local_dispute_privacy_blocker.sql",
+      "sha256": "ed27af7effe2c16f13896a4a6240cb62da46333158588755c4f835c6ded66e29",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 25,
+      "name": "V000025__local_synthetic_privacy_suppression.sql",
+      "sha256": "cf390257626036c35d4f0ca4715ca977a4ceab2b3032ced3e789f4a4098ded19",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 26,
+      "name": "V000026__local_privacy_retention_purge_and_replay.sql",
+      "sha256": "38eaed77c3421a34c1c3361e33d281d5ea1418bfc1c0d0c2d57ac8e8c6846e7b",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 27,
+      "name": "V000027__local_credential_notice_terminal_recovery.sql",
+      "sha256": "a30512e5efcf43b47426ef2a771b8899104d65aad4851058e990915a81ef94ec",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 28,
+      "name": "V000028__local_kyc_eligibility_and_history.sql",
+      "sha256": "dd3ebc10d38f9000b4ec1183a40b8ed4222e14c2fc358b8cbe26f98b7896a1a7",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 29,
+      "name": "V000029__local_privacy_kyc_eligibility.sql",
+      "sha256": "9ed0486313c8c6172cd7d133c08e39c6bed39fd3bbfb596b1a4a3bbbda1595b6",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 30,
+      "name": "V000030__m02_synthetic_profile_photo_and_payout.sql",
+      "sha256": "1130f484103f2383cbe310f312823a1af571ffc6e73603e03acb8e564bef4220",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 31,
+      "name": "V000031__m04_local_publication_lifecycle.sql",
+      "sha256": "7c18af2f8437bcbf7752dc021892c25d65033562f05eb40d0d400ad05e76483a",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 32,
+      "name": "V000032__m04_synthetic_space_gallery.sql",
+      "sha256": "803d2026c722795b0c008cc9ab81ac9fa796642dc83505161d614d7df0b3f994",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 33,
+      "name": "V000033__m04_gallery_candidate_cleanup.sql",
+      "sha256": "f3b0d590ba5b92d4483c0e173a6de758f6f3b7d69bff3923950bca5bb9ee0425",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 34,
+      "name": "V000034__local_synthetic_contract_signing.sql",
+      "sha256": "8c1e2bcc99df3f0f120e57ba087f627ce4c3148791d9626a1c4ba6f7d5dbbda4",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 35,
+      "name": "V000035__local_synthetic_rental_operations.sql",
+      "sha256": "205e0f230d0bf69c15da08c48f3dc1abc0639bba4980372e9451a49658ce7c26",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 36,
+      "name": "V000036__local_communication_reviews_and_notices.sql",
+      "sha256": "322fd98a8b921b905832bd75b4006d5fbed3f233334d400a6863c3a03aea2b09",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 37,
+      "name": "V000037__local_communication_privacy_coordination.sql",
+      "sha256": "ad45697b244bac64d5713145b89cadf1f1522fa723f99f63feda8aa497ffd665",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 38,
+      "name": "V000038__local_damage_claim_resolution.sql",
+      "sha256": "88000b1e3f94e68efca57e36a38914483cbf0d10c62741c75f57b282a7291b25",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 39,
+      "name": "V000039__local_damage_claim_privacy_retention.sql",
+      "sha256": "86bd6b0d684c33d4213eb47d68763f00edc8b5716e2fe5e85d46fbaf1916e083",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 40,
+      "name": "V000040__local_guarantee_and_dispute_finance.sql",
+      "sha256": "c749f178824ff5c1695483d2c32cde6b7c76794e247a5d423101ce7486058b0d",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 41,
+      "name": "V000041__local_admin_account_block.sql",
+      "sha256": "4e31876d355c374c61f335f199441647ffc68fc7991bd3404596c7005cd6db58",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 42,
+      "name": "V000042__admin_block_privacy_minimization.sql",
+      "sha256": "0bc20128faf1e745ad7d9d5e95b4b4596a06ccf2be00ebd12946bb274ba9a512",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 43,
+      "name": "V000043__local_admin_financial_audit_actions.sql",
+      "sha256": "cc4105234f80e6d27152ecf7ec35c50838789fc58c5b07d7e82209bb151eded4",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 44,
+      "name": "V000044__local_fake_settlement_receipt.sql",
+      "sha256": "f3ff70285a2c020b930eb34104be3c600cc0aeeb98f15cdd82f9b949a8addabf",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 45,
+      "name": "V000045__local_settlement_privacy_obligations.sql",
+      "sha256": "8a7f12beb68ddaa7c5d063b2659b4c1a851fefffaac8f3db91e76f451bb54754",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 46,
+      "name": "V000046__local_close_durable_notices.sql",
+      "sha256": "74e70bad1a0fb0d99dfb25a66e5dae169d957c62914e879fda18489501ab5736",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 47,
+      "name": "V000047__local_privacy_retention_purgers.sql",
+      "sha256": "cdde799f60c3648c26e1cc943a3ef53b0d09814e3b38e050720a87d6139dd8c9",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 48,
+      "name": "V000048__local_defense_synthetic_evidence.sql",
+      "sha256": "4da2568b0aa12f228da51ebf3570a0e61f72a200d08a73823d578f80bb00ebee",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 49,
+      "name": "V000049__local_m04_gallery_cover.sql",
+      "sha256": "2327da85443e0b4e182c02b94341e9288ee37a3e3ac8b3354bcfb4b12e423f64",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 50,
+      "name": "V000050__local_publication_retirement.sql",
+      "sha256": "1ba7ea88a0cb0d8b663f7756655d91104c5f266c0aae5bf6e749bcacb8bcd02e",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 51,
+      "name": "V000051__local_close_reservation_after_settlement.sql",
+      "sha256": "ad9411b1477ee6512086147c3961dc950b4f0113c163556003c7c257d19bfce7",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 52,
+      "name": "V000052__scoped_publication_rate_retirement.sql",
+      "sha256": "5c204afa60a4c83fd570b5c82f771711f1f890339bd42a23ad78190bbdee8330",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 53,
+      "name": "V000053__local_close_contract_and_publication_retention.sql",
+      "sha256": "2c34092c9db8cab94c0e6ebab1e72d82b061eead465b913d46e91aeb77842e68",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 54,
+      "name": "V000054__local_contract_signature_expiry_retention.sql",
+      "sha256": "7fc01ac4ee0ee83db339fadfe95fc032a25cd2621184abe4d2408245ce926af3",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 55,
+      "name": "V000055__mpv2_02_public_search_and_locations.sql",
+      "sha256": "a6b2e9b6eb055ea0375b35ebe881091e41ad1d0eacfa78d82896b9b8827ab6b6",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 56,
+      "name": "V000056__mpv2_04_public_gallery.sql",
+      "sha256": "5cccdde76a613a82afbefb582d5ef2bab16512c9c7a0b0cfcdbf11a91710d5a0",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 57,
+      "name": "V000057__mpv2_11_typed_public_category_filters.sql",
+      "sha256": "4da5888e15043f22576fd026934896aa6adebf3a49a65df43534c98a02d9be9d",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 58,
+      "name": "V000058__gadm_01_global_administrator.sql",
+      "sha256": "d902d5aab8a6ba0a18bdc4e332792e567c0e5a00a69c897c3274c93384418acc",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 59,
+      "name": "V000059__gadm_03_audit_scope_and_query_indexes.sql",
+      "sha256": "a097a82fd5ece1b66ca953e4d48073834adc2edf4d31596f7d57f6ae36dbe93a",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 60,
+      "name": "V000060__gadm_local_bootstrap_restricted_role.sql",
+      "sha256": "75495ea50cdc2e6f5a61566dd725f5f623eca6133dcfdef55bde88498f424156",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 61,
+      "name": "V000061__mpv2_12_hourly_publication_schedules.sql",
+      "sha256": "cb3f719b3b846607abef9b8d356c980b47da1a22f5da38b55839112f2b619b95",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 62,
+      "name": "V000062__gcp04_durable_privacy_replay_registry.sql",
+      "sha256": "6fc1ea07d47287fe4ddafaf6f613a8c2e88daf441b0d337d8b6b35eead1243e8",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 63,
+      "name": "V000063__gcp04_privacy_suppression_claim_fencing.sql",
+      "sha256": "a42c0943ff314c5199d6fdd87c13f6552eeeb69629e811f6d41853e4eb16a858",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 64,
+      "name": "V000064__gcp04_privacy_cleanup_worker_role.sql",
+      "sha256": "9b791ae6950dd9f23d87c31ae59dcbeb1feb9d85631ac21fa95e1e9a6a4763bf",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 65,
+      "name": "V000065__gcp06_bootstrap_audit_actor.sql",
+      "sha256": "b1f7126f125bc9694e30d43205a509f34aa9e39ad8257456f666a431f5492fd8",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 66,
+      "name": "V000066__gcp06_test_access_reset.sql",
+      "sha256": "05a751e9d9ab73bf2babadd0b3ad9ab170ee44ddf8ca7d441625d516f4cadcb6",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 67,
+      "name": "V000067__inmuebles_residential_rentals.sql",
+      "sha256": "0d5052cee2e9c45911c00bd32ee97cc3eb9c656c0a680b998911fbbdb48e0bcb",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 68,
+      "name": "V000068__img_01b_media_schema.sql",
+      "sha256": "5eeda41115017b5ba292db13215304f1e576002e015b6d46352ebd2de98f2626",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 69,
+      "name": "V000069__img_01c_local_media_provider.sql",
+      "sha256": "9dc863b5e4b1edd7cd32bf1c2e48ecce6f9e36d6bc13072a3bf3e5cd8a433493",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 70,
+      "name": "V000070__img_01c_durable_media_write_intents.sql",
+      "sha256": "71bcbcd91091013b91a89b3be9a152a46bd9f86f71565a898b50cb95701f6cc6",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 71,
+      "name": "V000071__img_01c_terminal_media_write_intents.sql",
+      "sha256": "30d355260611615324ca70336ced97498340b0e2725b7a8828147af6adc82d14",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 72,
+      "name": "V000072__img_01d_media_relation_trigger_scope.sql",
+      "sha256": "50b7f34d340c20a690c9506e68e9146a311363a526eb7449812d2674cf39f461",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 73,
+      "name": "V000073__img_01e_privacy_media_cleanup.sql",
+      "sha256": "ac2bfc0ba17e97ee40297dc75d8aaaa25f8506e5602a2d281d09415158670ada",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 74,
+      "name": "V000074__first_business_action_roles.sql",
+      "sha256": "a91df632b305468e1389ee72831e77121382e4c467d2cc279ea393e1bdc57bf8",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 75,
+      "name": "V000075__auth_evaluation_consent_documents.sql",
+      "sha256": "d6396472df02f2dd2cddd43994be064e6b0705c3fa2cb044bed970fcc9992220",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 76,
+      "name": "V000076__spaces_gallery_capacity_replacement_v2.sql",
+      "sha256": "c3ea6cbead8a41dfd283b5fe1393499228afb0e3447b4c2fccecc50ea39f7843",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 77,
+      "name": "V000077__img01b_gallery_slot_record_guard.sql",
+      "sha256": "22b98284b303f7a9e69e88afc83c978a5bbab1840e1ed12097b9fe24f653218c",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 78,
+      "name": "V000078__img01b_gallery_replay_expected_revision.sql",
+      "sha256": "6cb99e5b21db0d4c975d1419596b4850410fb47f7cb2d104481334a9eb082c9e",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 79,
+      "name": "V000079__document_verification_cases.sql",
+      "sha256": "248ecdd6eac067a704871d24148d850b5a603a6577e59e89d9b03d9a74130e5b",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 80,
+      "name": "V000080__document_verification_space_ownership_supersession.sql",
+      "sha256": "fc2c3eacf10bc99d6ad4c66a7a5aa2c80a0592b45eeee6e938400c95f613c401",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 81,
+      "name": "V000081__document_verification_runtime_scope_helpers.sql",
+      "sha256": "7b9700b546532854ab7569654d05039c1df832a6a80154ae053d13b5cea43967",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 82,
+      "name": "V000082__document_verification_retention_precedence.sql",
+      "sha256": "b53fe7f6f03af4d9081e4a378053ad0780d8b532962326488108201eb098ed96",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 83,
+      "name": "V000083__document_verification_lock_and_transfer_fix.sql",
+      "sha256": "405c2f02f8a29e962421a44cbbd07e6e7fae4aa4696483e9d45ab209e82e9333",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 84,
+      "name": "V000084__didit_identity_verification_schema.sql",
+      "sha256": "d8cc68f3ea73c6e351a31bd8f88fd0606e8217c028777d5ebca7b406bb852b8f",
+      "source_worktree": "rental",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 85,
+      "name": "V000085__identity_encrypted_declarations_and_minimal_events.sql",
+      "sha256": "7b78094558e2d9bde7804919b01c54d34caf2ac31ac34fb1b86a63999aeeaf51",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 86,
+      "name": "V000086__identity_declaration_retention_purge.sql",
+      "sha256": "af864b793d8f4cbc9cf28dbfe65b8ed6d2388a0ade9a739fc8b480470bd3dc8e",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 87,
+      "name": "V000087__identity_declaration_retention_worker.sql",
+      "sha256": "5eda043ddf3a3d5bb89e8d470eaf4e5450ed0964a9d59fe232bdcb37888b1d45",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 88,
+      "name": "V000088__revoke_runtime_identity_purge_execute.sql",
+      "sha256": "44cc5e74b8f8fcfba1633f01009024a7fdeae5683077b13677ed7bf2894083a8",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 89,
+      "name": "V000089__identity_rut_claims.sql",
+      "sha256": "93671b484f3118c697eebc4654f4b32325cce4231582b488f2e1a8d9b7fece9c",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 90,
+      "name": "V000090__identity_verified_snapshot_purge.sql",
+      "sha256": "23bbacde2cf992f912926f84945c701422b097598e698b2e8f38158b61622592",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 91,
+      "name": "V000091__identity_detached_terminal_withdrawal.sql",
+      "sha256": "6ceee080736bd965a27226e3810d28ede0ecf2deb52477716a504e2b425c1250",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 92,
+      "name": "V000092__identity_expired_lifecycle_purge.sql",
+      "sha256": "bf7db344af0752ac479b4422dfa0e770cd11623c3be2b51c4449dba89c93cc03",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 93,
+      "name": "V000093__identity_verified_claim_reverification.sql",
+      "sha256": "885d3f926ffc7d3420f2391a257ca2ed68663e71d4cd54f4cf310c79bd8b7292",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 94,
+      "name": "V000094__identity_delivered_session_outbox_retirement.sql",
+      "sha256": "a4ee15a45ab352527e93c00e82763056b57b3750064483b8b90aa6891c0672a9",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 95,
+      "name": "V000095__identity_document_case_declaration_binding.sql",
+      "sha256": "351a9bbdbd890e34b3b5db46ecffa971d49b1f5d4519d9bf7f2b1eae1e897275",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    },
+    {
+      "version": 96,
+      "name": "V000096__identity_reviewer_observation_audit.sql",
+      "sha256": "a206e74995db47112c6b382c33ffab5badcab2ec9b9859af0fbd018478cc7ca5",
+      "source_worktree": "identity",
+      "state": "matched-to-native-read-only-snapshot"
+    }
+  ],
+  "consumer_discovery": [
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/native_optin_test.go",
+      "sha256": "8192983e36639f6d96637c610121b148b1fbbac86e77baa6774ec96f36236a8f",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/provider_attempt.go",
+      "sha256": "d99b25b76c19a3dd998a9c46396cd9b537c6355582cf8ea241f0d8b4d09863a3",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/provider_session_ready_contract_test.go",
+      "sha256": "dd364819d279f3ef1192a3aa7738d6653a82b63e25555edc8f2113ba18290dc8",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/repository.go",
+      "sha256": "b99bc1443ee496797e7f88b5143c40e60f40993d55ea7de15821898f9fde4ad6",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/repository_claim_transaction_test.go",
+      "sha256": "29b210c217b8d7576dbb71aba4ac8fba53dfc6ccc5f3d79d8b1904c11180cbfd",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/repository_rotation_test.go",
+      "sha256": "6117779c1b2f9ed93f6a3ab15c7dd24b0c08d61ddd8785794587e8f28a3085e9",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/repository_test.go",
+      "sha256": "09b59d2c271fc32dfa6bb1474f2b9f9a7bd8b9c5aa7205c8aa75d8bb7174a064",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/rut_claim.go",
+      "sha256": "aeb8b80c994f4ed8b153677c87a5757e263ac0ecac16eb296dcce67bb77017ac",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/rut_claim_rotation.go",
+      "sha256": "3066a567ddd2404fb64ac7f73a4c4a8987b740e805ab95a87f8981a34416a7cd",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/rut_claim_rotation_behavior_test.go",
+      "sha256": "c89d0f9acde83811d317da25e5e43f8c299817e9d41ab722aaf844e3899ecae4",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/rut_claim_rotation_test.go",
+      "sha256": "cb6d3102923aca704607f9368ef94bee0365727d2b13b43d24e7854ca7893314",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/rut_claim_test.go",
+      "sha256": "40f020ef25c5f384aea719079bf5f0abaf5366268647f7d4df519befb7e73a11",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/rut_claim_transaction_test.go",
+      "sha256": "47af4180ae5474519805fb837e365686fa6e3b28d4855320a840c79e9828b842",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/session_deletion_clock_test.go",
+      "sha256": "bad2b5986f8856fe15fcd008adbb6b8e1b444c94fc5ee5fd59b0436822310c77",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/session_deletion_queue.go",
+      "sha256": "a28c4dcd1d6c8a09abeab71cbea2be78fdf6e5788ec5d781fc6c4dfdde29aca1",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/adapters/postgres/identitydeclaration/session_deletion_queue_test.go",
+      "sha256": "ca2f622f886dcb7a9e88169bbb660ca2716200e1937df99b739b73b488cc0943",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/declaration.go",
+      "sha256": "a3ab65310ff626a463cfae541a0f61e05a90c685348d78681beb79254cea8b8a",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/declaration_keyring_snapshot_test.go",
+      "sha256": "1fb3b96e0cac58a6ad9c7162e9d59fd25ccb8285d884449e587c1835cb82ad49",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/declaration_service.go",
+      "sha256": "2eaeaf057654588f187c5fb2a9f373655098b049797da28c8859a83ab916c706",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/declaration_service_boundaries_test.go",
+      "sha256": "d7207276831a17da3bf4ef8ffb63bdf29d06523f725a64330230fd3e9c5646e8",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/declaration_service_test.go",
+      "sha256": "722cfa28b9761224f1009ead7d91e8f966954baa3b202828310ad34fd2f6643a",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/declaration_test.go",
+      "sha256": "3f474615f6c1c9b6024965ce6303229b27b73b3cb970891c3435cfb1b6935cf1",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit.go",
+      "sha256": "742514f1c85df605ca9c62e52bc4201bf8819ff0eb812067d68d6fb22249cbba",
+      "kind": "production",
+      "rental_relation": "modified",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_callback_test.go",
+      "sha256": "6f99f1b98acddb1eac83ef56b3dd803b9e5f7df259e874a37deb0d1a037567e7",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_client_and_queue_boundaries_test.go",
+      "sha256": "65c2602dd5fc64b154f1f4028392f0c116dadbded4b45b898cdaa080e8fb3f51",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_expected_details_unicode_test.go",
+      "sha256": "0a787a309833feba62dc1aa7220f64e156206563576cfc41ab6f94b65b248888",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_late_ready_nil_test.go",
+      "sha256": "ffe55a2a4ea5b2c2cf963de32492205ab6120a5e4a4895060073feb6e1d62af2",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_redirect_test.go",
+      "sha256": "23b05da15e29305dbe5b9128e2b7b8e85b405f9b384d46f6b88971ec8df03795",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_rotation_behavior_test.go",
+      "sha256": "7f3f72b6764c3ab99c5e1d291d91b5f2a0d25ba105b8aeb1d678d660772352ea",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_rotation_test.go",
+      "sha256": "7101cfd33866c397909cdec09ccad003a83201ec5fb147f5f631d66bd22c0b46",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_service.go",
+      "sha256": "0c5515d8539616360c986f3dfee052d1958bcc882e780c0e49d8f334896b0468",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_service_test.go",
+      "sha256": "5d8949176646eecd1d49657fe026f9f6b304f4757e29802a7e82996755f6558a",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_status_read.go",
+      "sha256": "72545b0e4f714c48b2d27e3c55c31432c148c5f87819bc1bbc7c51210beea564",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_status_read_test.go",
+      "sha256": "33c84e402f008226aa1eaeb0a8b7e04a1f338ca4fbe695a524a57af04c7ed3c8",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/didit_test.go",
+      "sha256": "12691c656fcb1013770f5f59867d83f177f59cca7d6beecf80054dba39bd9138",
+      "kind": "test",
+      "rental_relation": "modified",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/evidence.go",
+      "sha256": "d3231d3f9d369e2e6a097865716cd19e7e08dd9fa638a613b71600cafa72eeab",
+      "kind": "production",
+      "rental_relation": "identical",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/evidence_service_boundaries_test.go",
+      "sha256": "d5dec4d907b46380263acda8a61b9fa5f687f8777f05dc585d8445305da43ff5",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/memory_rut_reservation_test.go",
+      "sha256": "45acb83f4aef4eac254fd27d6659b7b6beea74348ad8853d0adf519f5d54110b",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/memory_rut_rotation.go",
+      "sha256": "a91e6ac833a1d37dcd353b6a963ee80e775a4a9f363aa089097766f6afaa77b2",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/memory_rut_rotation_test.go",
+      "sha256": "ec1f1eec3f17a9c2c43b7a9dd802fca971bbd9dcb63011563c3ea86145136daa",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/rut.go",
+      "sha256": "7acb070246978491306c7217626d6c3eaf287fc05cef42c958f6114315a17f98",
+      "kind": "production",
+      "rental_relation": "identical",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/rut_claim_rotation.go",
+      "sha256": "26ddaa3436869ea7afa22af3c34a1376806d74858668d08a28afa92b107e1cb9",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/rut_keyring.go",
+      "sha256": "214ee7b2cbd19c7d43a36e94c3236fb5a3fb34552dbda83d78076eeb0e8bb0fe",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/rut_keyring_contract_test.go",
+      "sha256": "ba8c4012bdf88fc68a25e75c83483350dbfb22e05a14ec800b478de35fa945c0",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/rut_keyring_test.go",
+      "sha256": "bdd3215bf4585efda6c7b88693282b2af6fc45695f25df6c260132249efad67a",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/rut_test.go",
+      "sha256": "b177602bef54aabcfe54c0af84ddcf5e8b94aea2d5970479d43105e8a80015fd",
+      "kind": "test",
+      "rental_relation": "identical",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/service.go",
+      "sha256": "e1ef16d31a9032f75844e440fc6ee006289e74f82fe463cf501419d2b8b65dd9",
+      "kind": "production",
+      "rental_relation": "identical",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/service_boundaries_test.go",
+      "sha256": "d12871049feed6fae2dfcdfbf393c62d53b7a8d5fc364a3076033e3e213ff743",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/service_test.go",
+      "sha256": "09698dec9de5ca583cd01cb177755fb2bc14d48de58c62fec546cbd68ad34487",
+      "kind": "test",
+      "rental_relation": "identical",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/declarationcrypto/keyring.go",
+      "sha256": "ab27c93e3662e39d70fdb10fdd9a2ce5aa60e44f2fc73b1abb5f9f2402333930",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/declarationcrypto/keyring_test.go",
+      "sha256": "77bf5354eb2fe8bc0725e6afae572620f2a6a28c8f036b7b4c05d13ee21703d7",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/rutkeyfile/load.go",
+      "sha256": "4890fc6757a0bb9499e8566ff491e7dd47bc27da55062427ff8daa7dc608006b",
+      "kind": "production",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    },
+    {
+      "path": "internal/verification/rutkeyfile/load_test.go",
+      "sha256": "18e73f1fe55f1c6bdaba7e16d74d012f8b027e35f033246707518424bbab66bb",
+      "kind": "test",
+      "rental_relation": "absent",
+      "import_status": "discovery-only-not-approved"
+    }
+  ],
+  "commercial_candidate": {
+    "name": "V000085__commercial_rental_quote_snapshots.sql",
+    "sha256": "0574033dde36b66efc00f36e20fcedbb424badc20c7109f941f78786fb5d8e14",
+    "applied_native": false,
+    "collides_with": "V000085__identity_encrypted_declarations_and_minimal_events.sql",
+    "next_free_version_observed": 97,
+    "renumbered": false
+  },
+  "imported": false,
+  "executed_ddl": false
+}

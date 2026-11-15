@@ -4,7 +4,18 @@ import argparse
 import json
 from pathlib import Path
 
-REQUIRED = frozenset({
+V97_AUTHORITY_ROOTS = (
+    'TestRentalCombinedFixtureOptIn/v97-upgrade',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/v97-upgrade',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/v97-upgrade',
+)
+V97_AUTHORITY_CASES = (
+    'failure_cleanup', 'migration_failure_cleanup', 'rejects_public_table_grant',
+    'rejects_public_column_grant', 'rejects_other_table_grantee',
+    'rejects_runtime_membership_drift', 'rejects_runtime_grant_option',
+)
+
+KYC_REQUIRED = frozenset({
     'TestRunnerSchemaEvidenceReadonlyBlocksWritingSelect',
     'TestRunnerReleaseCatalogFailureDoesNotReportSuccessAfterDDL',
     'TestCurrentSchemaMigrationFromEmptyAndV75/empty/catalog-read',
@@ -119,6 +130,45 @@ AUTHORITY_WINDOW_REQUIRED = frozenset({
     'TestNativeKYCAuthorityWindowPostgres/v96-wrong-target-no-ddl',
     'TestNativeKYCAuthorityWindowPostgres/v96-prepare-finalize-retry',
 })
+REQUIRED = frozenset(name.replace('TestCurrentSchemaMigrationFromEmptyAndV75', 'TestCurrentSchemaMigrationKYCThroughV96') for name in KYC_REQUIRED) | frozenset({
+    'TestCurrentSchemaMigrationFromEmptyAndV75',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/catalog-read',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/catalog-read',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/api-schema-contract',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/api-schema-contract',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/api-schema-contract/public-gallery-sync',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/api-schema-contract/public-gallery-sync',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/api-schema-contract/commercial-quotes',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/api-schema-contract/commercial-quotes',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/commercial-quote-suppression',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/commercial-quote-suppression',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/commercial-quote-persistence',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/commercial-quote-persistence',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/commercial-quote-persistence/retention-purge-publication-lock',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/commercial-quote-persistence/retention-purge-publication-lock',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/empty/release-noop',
+    'TestCurrentSchemaMigrationFromEmptyAndV75/upgrade-v75/release-noop',
+    'TestRunnerV84AuthorityRecoveryPostgres',
+    'TestRunnerV84AuthorityRecoveryPostgres/failure_cleanup',
+    'TestRunnerV84AuthorityRecoveryPostgres/apply_and_finalize',
+    'TestRentalCombinedFixtureOptIn',
+    'TestRentalCombinedFixtureOptIn/v97-without-authority',
+    'TestRentalCombinedFixtureOptIn/commercial-quote-persistence',
+    'TestRentalCombinedFixtureOptIn/commercial-quote-persistence/retention-purge-publication-lock',
+    'TestRentalCombinedFixtureOptIn/commercial-quote-persistence/admin-local-account-block',
+    'TestRentalCombinedFixtureOptIn/commercial-quote-persistence/authentication-account-lock',
+    'TestRentalCombinedFixtureOptIn/commercial-quote-persistence/authentication-account-lock/email',
+    'TestRentalCombinedFixtureOptIn/commercial-quote-persistence/authentication-account-lock/verification-id',
+    'TestRentalCombinedFixtureOptIn/commercial-quote-persistence/authentication-account-lock/action-token-id',
+    'TestRentalCombinedFixtureOptIn/commercial-quote-persistence/authentication-account-lock/session-hash',
+}) | frozenset(V97_AUTHORITY_ROOTS) | frozenset(
+    root + '/' + case for root in V97_AUTHORITY_ROOTS for case in V97_AUTHORITY_CASES
+) | frozenset(
+    root.removesuffix('/v97-upgrade') + f'/authority-wire-v{version}'
+    for root in V97_AUTHORITY_ROOTS for version in (84, 85, 86, 87, 88, 95, 96)
+)
 FULL_REQUIRED = REQUIRED | V19_REQUIRED
 
 

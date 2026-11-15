@@ -346,6 +346,9 @@ func (s *Service) RevokeAccountSessions(ctx context.Context, actor, target, reas
 }
 
 func lockManagedAccounts(ctx context.Context, tx pgx.Tx, actor, target string) error {
+	if err := accountlock.LockAccountIDs(ctx, tx, actor, target); err != nil {
+		return err
+	}
 	rows, err := tx.Query(ctx, `SELECT id FROM public.usuario WHERE id=$1 OR id=$2 ORDER BY id FOR UPDATE`, actor, target)
 	if err != nil {
 		return err

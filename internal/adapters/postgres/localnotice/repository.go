@@ -3,10 +3,10 @@ package localnotice
 import (
 	"context"
 	"errors"
-	"sort"
 	"sync"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	domain "github.com/HernanEspinozaDev/espaciGo/internal/localnotice"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -233,17 +233,8 @@ func (r *Repository) Reopen(ctx context.Context, id, admin, reason, key, correla
 	if e != nil {
 		return domain.Recovery{}, e
 	}
-	accountIDs := []string{admin, recipient}
-	sort.Strings(accountIDs)
-	lastID := ""
-	for _, accountID := range accountIDs {
-		if accountID == lastID {
-			continue
-		}
-		lastID = accountID
-		if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, accountID); e != nil {
-			return domain.Recovery{}, e
-		}
+	if e = accountlock.LockAccountIDs(ctx, tx, admin, recipient); e != nil {
+		return domain.Recovery{}, e
 	}
 	rows, e := tx.Query(ctx, `SELECT id FROM public.usuario WHERE id=ANY($1::uuid[]) ORDER BY id FOR UPDATE`, []string{admin, recipient})
 	if e != nil {

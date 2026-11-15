@@ -5,14 +5,20 @@ import (
 	"errors"
 	"net/url"
 	"testing"
+	"time"
 
 	documentpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/documentverification"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
 	catalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
-	"github.com/HernanEspinozaDev/espaciGo/internal/dbbootstrap"
+	rentalflowpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/rentalflow"
+
 	dv "github.com/HernanEspinozaDev/espaciGo/internal/documentverification"
+
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identityverification"
+	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
+	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,9 +29,8 @@ import (
 // role; this is not an HTTP E2E or a claim about every previous API image.
 func assertRuntimeAPISchemaContract(t *testing.T, ctx context.Context, adminURL string, admin *pgx.Conn) {
 	t.Helper()
-	if err := dbbootstrap.GrantRuntimePermissions(ctx, admin); err != nil {
-		t.Fatal(err)
-	}
+	// The shared fixture installs baseline ACL before identity tightening.
+	// Replaying the old bootstrap here would conceal revocation regressions.
 	u, err := url.Parse(adminURL)
 	if err != nil {
 		t.Fatal(err)
@@ -199,5 +204,209 @@ VALUES('30000000-0000-4000-8000-000000000096','identity',$1,$2,'unsure','identit
 	}
 	if _, err := admin.Exec(ctx, `DELETE FROM public.identity_declaration_revision WHERE id=$1 AND account_id=$2`, declarationID, ownerID); err != nil {
 		t.Fatalf("terminal case should no longer block declaration retention: %v", err)
+	}
+	t.Run("public-gallery-sync", func(t *testing.T) {
+		assertRuntimePublicGallerySync(t, ctx, admin, pool)
+	})
+	var hasV97 bool
+	if err := admin.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM public.schema_migrations WHERE version=97)`).Scan(&hasV97); err != nil {
+		t.Fatal(err)
+	}
+	if hasV97 {
+		t.Run("commercial-quotes", func(t *testing.T) {
+			assertCommercialQuoteSchemaContract(t, ctx, admin)
+		})
+	}
+}
+
+func assertCommercialQuoteSchemaContract(t *testing.T, ctx context.Context, admin *pgx.Conn) {
+	t.Helper()
+	var tableExists bool
+	if err := admin.QueryRow(ctx, `SELECT to_regclass('public.cotizacion_arriendo_comercial') IS NOT NULL`).Scan(&tableExists); err != nil || !tableExists {
+		t.Fatalf("commercial quote table missing: %v", err)
+	}
+	var owner, hasSelect, hasInsert, hasDelete, hasUpdate bool
+	if err := admin.QueryRow(ctx, `
+SELECT pg_catalog.pg_get_userbyid(c.relowner)='espacigo_schema_owner',
+       has_table_privilege('espacigo_runtime',c.oid,'SELECT'),
+       has_table_privilege('espacigo_runtime',c.oid,'INSERT'),
+       has_table_privilege('espacigo_runtime',c.oid,'DELETE'),
+       has_table_privilege('espacigo_runtime',c.oid,'UPDATE')
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+WHERE n.nspname='public' AND c.relname='cotizacion_arriendo_comercial'`).Scan(&owner, &hasSelect, &hasInsert, &hasDelete, &hasUpdate); err != nil {
+		t.Fatal(err)
+	}
+	if !owner || !hasSelect || !hasInsert || !hasDelete || hasUpdate {
+		t.Fatalf("commercial quote owner/runtime grants differ: owner=%v select=%v insert=%v delete=%v update=%v", owner, hasSelect, hasInsert, hasDelete, hasUpdate)
+	}
+	var titleSnapshot, expiryColumn bool
+	if err := admin.QueryRow(ctx, `SELECT
+       EXISTS(SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid='public.cotizacion_arriendo_comercial'::regclass AND attname='titulo_espacio' AND attnum>0 AND NOT attisdropped),
+       EXISTS(SELECT 1 FROM pg_catalog.pg_attribute WHERE attrelid='public.cotizacion_arriendo_comercial'::regclass AND attname='vence_en' AND attnum>0 AND NOT attisdropped)`).Scan(&titleSnapshot, &expiryColumn); err != nil || !titleSnapshot || !expiryColumn {
+		t.Fatalf("commercial quote snapshot/expiry columns missing: title=%v expiry=%v err=%v", titleSnapshot, expiryColumn, err)
+	}
+	var quoteColumns string
+	if err := admin.QueryRow(ctx, `SELECT string_agg(attname, ',' ORDER BY attnum)
+FROM pg_catalog.pg_attribute
+WHERE attrelid='public.cotizacion_arriendo_comercial'::regclass AND attnum>0 AND NOT attisdropped`).Scan(&quoteColumns); err != nil {
+		t.Fatal(err)
+	}
+	const expectedQuoteColumns = "id,espacio_id,propietario_id,arrendatario_id,titulo_espacio,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,creada_en,vence_en"
+	if quoteColumns != expectedQuoteColumns {
+		t.Fatalf("commercial quote columns are not the minimized allowlist: got=%q want=%q", quoteColumns, expectedQuoteColumns)
+	}
+	var accountCascadeCount, spaceCascadeCount int
+	if err := admin.QueryRow(ctx, `SELECT
+       count(*) FILTER (WHERE confrelid='public.usuario'::regclass),
+       count(*) FILTER (WHERE confrelid='public.espacio'::regclass)
+FROM pg_catalog.pg_constraint
+WHERE conrelid='public.cotizacion_arriendo_comercial'::regclass
+  AND contype='f' AND confdeltype='c'`).Scan(&accountCascadeCount, &spaceCascadeCount); err != nil {
+		t.Fatal(err)
+	}
+	if accountCascadeCount != 2 || spaceCascadeCount != 1 {
+		t.Fatalf("commercial quote cascade FKs differ: account=%d space=%d", accountCascadeCount, spaceCascadeCount)
+	}
+}
+
+func assertCommercialQuoteSuppression(t *testing.T, ctx context.Context, adminURL string, admin *pgx.Conn) {
+	t.Helper()
+	u, err := url.Parse(adminURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.User = url.User("espacigo_api_login")
+	cfg, err := pgxpool.ParseConfig(u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MaxConns = 1
+	cfg.ConnConfig.RuntimeParams["application_name"] = "commercial-quote-suppression-test"
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET ROLE espacigo_runtime")
+		return err
+	}
+	runtime, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.Close()
+
+	ownerID, renterID, adminID, spaceID, quoteID, quoteFirstRenterID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	for _, account := range []struct{ id, email string }{
+		{ownerID, ownerID + "@commercial-quote.invalid"},
+		{renterID, renterID + "@commercial-quote.invalid"},
+		{adminID, adminID + "@commercial-quote.invalid"},
+		{quoteFirstRenterID, quoteFirstRenterID + "@commercial-quote.invalid"},
+	} {
+		if _, err := admin.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic-only','activo')`, account.id, account.email); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO public.rol_usuario(usuario_id,rol) VALUES($1,'administrador')`, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria)
+		VALUES($1,$2,'oficina','Commercial quote suppression fixture',repeat('Descripción sintética. ',5),10,1,'Solo ensayo','hora',8000,'Dirección sintética','activa','UTC')`, spaceID, ownerID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',8000)`, spaceID); err != nil {
+		t.Fatal(err)
+	}
+	// Characterize suppression initiated by the commercial quote's owner with
+	// an independent quote/account fixture; the renter-initiated case below
+	// remains unchanged.
+	ownerActorID, ownerActorRenterID, ownerActorSpaceID, ownerActorQuoteID := uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString()
+	for _, account := range []struct{ id, email string }{
+		{ownerActorID, ownerActorID + "@commercial-quote.invalid"},
+		{ownerActorRenterID, ownerActorRenterID + "@commercial-quote.invalid"},
+	} {
+		if _, err := admin.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'synthetic-only','activo')`, account.id, account.email); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := admin.Exec(ctx, `INSERT INTO public.espacio(id,propietario_id,categoria_codigo,titulo,descripcion,superficie_m2,capacidad_maxima,reglas_uso,modalidad_tarifa,precio_base_clp,direccion,estado,zona_horaria)
+		VALUES($1,$2,'oficina','Owner suppression fixture',repeat('Descripción sintética. ',5),10,1,'Solo ensayo','hora',8000,'Dirección sintética','borrador','UTC')`, ownerActorSpaceID, ownerActorID); err != nil {
+		t.Fatal(err)
+	}
+	ownerActorCreatedAt := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Microsecond)
+	if _, err := admin.Exec(ctx, `INSERT INTO public.cotizacion_arriendo_comercial(
+		id,espacio_id,propietario_id,arrendatario_id,titulo_espacio,tarifa_version,modalidad,precio_unitario_clp,moneda,
+		unidades,subtotal_clp,inicio,termino,zona_horaria,creada_en,vence_en)
+		VALUES($1,$2,$3,$4,'Owner suppression fixture',1,'hora',8000,'CLP',1,8000,$5,$6,'UTC',$7,$8)`,
+		ownerActorQuoteID, ownerActorSpaceID, ownerActorID, ownerActorRenterID, ownerActorCreatedAt.Add(time.Hour), ownerActorCreatedAt.Add(2*time.Hour), ownerActorCreatedAt, ownerActorCreatedAt.Add(15*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	service, err := privacy.NewService(identitypg.NewIdentityRepository(runtime))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerRequest, err := service.RequestRight(ctx, ownerActorID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerReviewAt := time.Now().UTC().Truncate(time.Microsecond)
+	ownerReview, err := service.ReviewSuppression(ctx, adminID, ownerRequest.ID, "commercial-quote-owner-suppression-review", "commercial-quote-owner-suppression", func() time.Time { return ownerReviewAt })
+	if err != nil || ownerReview.Outcome != "elegible" {
+		t.Fatalf("review eligible quote owner suppression: outcome=%s err=%v", ownerReview.Outcome, err)
+	}
+	ownerExecuteAt := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
+	ownerResult, err := service.ExecuteSuppression(ctx, adminID, ownerRequest.ID, "commercial-quote-owner-suppression", "commercial-quote-owner-suppression", func() time.Time { return ownerExecuteAt }, nil)
+	if err != nil || (ownerResult.Status != "completada" && ownerResult.Status != "limpieza_pendiente") {
+		t.Fatalf("execute eligible quote owner suppression: status=%s err=%v", ownerResult.Status, err)
+	}
+	var ownerQuoteRemaining int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.cotizacion_arriendo_comercial WHERE id=$1`, ownerActorQuoteID).Scan(&ownerQuoteRemaining); err != nil || ownerQuoteRemaining != 0 {
+		t.Fatalf("owner suppression retained commercial quote: remaining=%d err=%v", ownerQuoteRemaining, err)
+	}
+
+	createdAt := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Microsecond)
+	if _, err := admin.Exec(ctx, `INSERT INTO public.cotizacion_arriendo_comercial(
+		id,espacio_id,propietario_id,arrendatario_id,titulo_espacio,tarifa_version,modalidad,precio_unitario_clp,moneda,
+		unidades,subtotal_clp,inicio,termino,zona_horaria,creada_en,vence_en)
+		VALUES($1,$2,$3,$4,'Commercial quote suppression fixture',1,'hora',8000,'CLP',1,8000,$5,$6,'UTC',$7,$8)`,
+		quoteID, spaceID, ownerID, renterID, createdAt.Add(time.Hour), createdAt.Add(2*time.Hour), createdAt, createdAt.Add(15*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	request, err := service.RequestRight(ctx, renterID, "supresion", "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewAt := time.Now().UTC().Truncate(time.Microsecond)
+	review, err := service.ReviewSuppression(ctx, adminID, request.ID, "commercial-quote-suppression-review", "commercial-quote-suppression", func() time.Time { return reviewAt })
+	if err != nil || review.Outcome != "elegible" {
+		t.Fatalf("review eligible account suppression: outcome=%s err=%v", review.Outcome, err)
+	}
+	executeAt := time.Now().UTC().Add(time.Minute).Truncate(time.Microsecond)
+	result, err := assertSuppressionSerializesCommercialQuote(t, ctx, adminURL, admin, service, adminID, request.ID, renterID, spaceID, executeAt)
+	if err != nil || (result.Status != "completada" && result.Status != "limpieza_pendiente") {
+		t.Fatalf("execute eligible account suppression: status=%s err=%v", result.Status, err)
+	}
+	var remaining int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.cotizacion_arriendo_comercial WHERE id=$1`, quoteID).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("account suppression retained commercial quote: remaining=%d err=%v", remaining, err)
+	}
+	assertQuoteBeforeSuppressionDeletesCommercialQuote(t, ctx, adminURL, admin, service, adminID, quoteFirstRenterID, spaceID)
+
+	// A request authenticated before suppression may reach quote persistence
+	// afterward. The adapter must revalidate both participant account states
+	// while holding the account advisory locks shared with suppression, rather
+	// than allowing a new quote for a retired account.
+	quoteRepository, err := rentalflowpg.NewRepository(runtime, runtime, func() time.Time { return executeAt })
+	if err != nil {
+		t.Fatal(err)
+	}
+	listing, err := quoteRepository.PublicListing(ctx, spaceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(executeAt.Year(), executeAt.Month(), executeAt.Day()+1, 12, 0, 0, 0, time.UTC)
+	if _, err := quoteRepository.CreateValidatedQuote(ctx, renterID, listing, rentalflow.Interval{StartAt: start, EndAt: start.Add(time.Hour)}, 1, 8000, executeAt); err == nil {
+		t.Fatal("quote creation succeeded for an account after suppression")
+	}
+	var renterQuotes int
+	if err := admin.QueryRow(ctx, `SELECT count(*) FROM public.cotizacion_arriendo_comercial WHERE arrendatario_id=$1`, renterID).Scan(&renterQuotes); err != nil || renterQuotes != 0 {
+		t.Fatalf("quote persisted for suppressed renter: count=%d err=%v", renterQuotes, err)
 	}
 }

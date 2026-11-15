@@ -9,6 +9,8 @@ import type {
   ListingDraftInput,
   ListingState,
   ListingSummary,
+  ManualAvailabilityBlock,
+  ManualAvailabilityBlockInput,
   PhotoUploadInput,
   PricingInput,
   PricingHistoryItem,
@@ -92,6 +94,22 @@ export interface HostListingsPort {
     ifMatch: string,
     signal?: AbortSignal,
   ): Promise<ScheduleData>;
+  listManualBlocks(
+    listingId: string,
+    from: string,
+    to: string,
+    signal?: AbortSignal,
+  ): Promise<ManualAvailabilityBlock[]>;
+  createManualBlock(
+    listingId: string,
+    input: ManualAvailabilityBlockInput,
+    signal?: AbortSignal,
+  ): Promise<ManualAvailabilityBlock>;
+  deleteManualBlock(
+    listingId: string,
+    blockId: string,
+    signal?: AbortSignal,
+  ): Promise<void>;
   listPhotos(listingId: string, signal?: AbortSignal): Promise<GalleryPhoto[]>;
   getPhotoUploadStatus(
     listingId: string,

@@ -425,3 +425,31 @@ test("bindVerificationSession: 503 does NOT purge facade or blobs, does NOT call
   assert.equal(auth.calls.checkSession, 0);
   assert.equal(auth.calls.logout, 0);
 });
+
+test("VerificationsView: session boundary is keyed and actions ignore AbortError", async () => {
+  const source = await readFile(
+    path.join(root, "src/features/verifications/ui/verifications-view.tsx"),
+    "utf8",
+  );
+  const file = ts.createSourceFile(
+    "verifications-view.tsx",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const text = file.getText();
+  assert.match(
+    text,
+    /function VerificationsView\(\)[\s\S]*?JSON\.stringify\(\[[\s\S]*?authSnapshot\.status[\s\S]*?authSnapshot\.expiresAt[\s\S]*?key=\{sessionKey\}/,
+  );
+  assert.match(text, /function SessionVerificationsView/);
+  assert.match(
+    text,
+    /<IdentityDeclarationPanel\s+accessToken=\{accessToken\}\s*\/>/,
+  );
+  assert.match(text, /new AbortController\(\)/);
+  assert.ok(
+    (text.match(/if \(isAbortError\(err\)\) return;/g) ?? []).length >= 7,
+  );
+});

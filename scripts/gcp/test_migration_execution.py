@@ -53,7 +53,7 @@ def tail_fixture():
     after['pending']=[]
     after.pop('identity_ddl_authority')
     report=logs[0]['jsonPayload']
-    report.update(contract=contract(m,b),before=b,after=after,applied=[95,96],identity_ddl_authority=copy.deepcopy(authority))
+    report.update(contract=contract(m,b),before=b,after=after,applied=[row['version'] for row in b['pending']],identity_ddl_authority=copy.deepcopy(authority))
     e['spec']['template']['spec']['containers'][0]['args']=proposal(m,b,BUILD,'1')['args']
     return m,b,e,logs,name
 
@@ -61,7 +61,7 @@ def tail_fixture():
 class MigrationExecutionTests(unittest.TestCase):
     def test_v95_v96_execution_requires_matching_apply_time_authority(self):
         m,b,e,logs,name=tail_fixture()
-        self.assertEqual(verify(m,b,e,logs,name)['applied'],[95,96])
+        self.assertEqual(verify(m,b,e,logs,name)['applied'],[row['version'] for row in b['pending']])
         for mutate,reason in [
             (lambda report:report.pop('identity_ddl_authority'),'authority is missing'),
             (lambda report:report['identity_ddl_authority'].update(event_owner='postgres'),'differs from reviewed preflight'),

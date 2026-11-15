@@ -21,8 +21,18 @@ variable "enable_foundation" {
   description = "Explicit apply gate for APIs, network, identities, registry, buckets and secret containers."
   default     = false
   validation {
-    condition     = !var.enable_foundation || (var.project_id != "" && can(regex("^[0-9]{6,20}$", var.project_number)) && var.confirm_project_inventory && var.confirm_cost_policy_review)
-    error_message = "Foundation requires an existing project ID/number and explicit confirmations of isolated resource inventory and reviewed organization-policy/cost gates."
+    condition     = !var.enable_foundation || (var.project_id != "" && can(regex("^[0-9]{6,20}$", var.project_number)) && can(regex("^[a-z0-9][a-z0-9-]{2,20}$", var.bucket_suffix)) && var.confirm_project_inventory && var.confirm_cost_policy_review)
+    error_message = "Foundation requires an existing project ID/number, a privately checked unique bucket suffix, and explicit confirmations of isolated resource inventory and reviewed organization-policy/cost gates."
+  }
+}
+
+variable "enable_data_class_buckets" {
+  type        = bool
+  description = "Separate opt-in for private profile/space media, contracts, and identity-evidence buckets."
+  default     = false
+  validation {
+    condition     = !var.enable_data_class_buckets || (var.project_id == "espacigo-testprod" && var.project_number == "447373903153" && var.region == "southamerica-west1" && var.bucket_suffix == "447373903153" && var.confirm_project_inventory && var.confirm_cost_policy_review)
+    error_message = "Data-class buckets require the reviewed testprod project number and bucket suffix 447373903153, plus explicit inventory/cost confirmations."
   }
 }
 
@@ -120,10 +130,6 @@ variable "bucket_suffix" {
   type        = string
   description = "Globally unique suffix, supplied only after inventory confirms bucket name availability."
   default     = ""
-  validation {
-    condition     = !var.enable_foundation || can(regex("^[a-z0-9][a-z0-9-]{2,20}$", var.bucket_suffix))
-    error_message = "When foundation is enabled, use a privately checked unique lowercase bucket suffix."
-  }
 }
 
 variable "github_repository" {

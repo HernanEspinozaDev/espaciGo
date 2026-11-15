@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useRef,
   useEffect,
   useState,
@@ -23,6 +24,7 @@ import {
   CheckCircle2,
   Loader2,
   History,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -39,6 +41,8 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/features/auth/ui/use-auth";
 import { ApiError } from "@/lib/api/errors";
 import { listingErrorMessage } from "../domain/listing-error-message";
+import { timeZoneOptionsForCurrentValue } from "../domain/chile-time-zones";
+import { localDateTimeToUtcISOString } from "../domain/local-date-time";
 import { useHostListings } from "./use-host-listings";
 import {
   hostListingsFacade,
@@ -53,6 +57,8 @@ import {
 } from "../domain/validation";
 import type {
   CategoryProfileSchema,
+  ManualAvailabilityBlock,
+  ManualAvailabilityBlockInput,
   PricingHistoryItem,
   RateUnit,
   ScheduleSlot,
@@ -65,7 +71,34 @@ interface ListingEditorProps {
   readonly listingId: string;
 }
 
-type TabKey = "info" | "pricing" | "schedule" | "photos";
+type TabKey = "info" | "pricing" | "schedule" | "availability" | "photos";
+const weeklyScheduleUnavailableMessage =
+  "No se pudo cargar el horario semanal. Recarga la página antes de editarlo.";
+
+function localDateInputValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function shiftDateInputValue(value: string, days: number): string {
+  const date = new Date(`${value}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function manualBlockErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === "occupancy_conflict") {
+      return "El intervalo coincide con una ocupación activa. Elige otro rango.";
+    }
+    if (error.code === "time_zone_required") {
+      return "Configura y guarda primero la zona horaria del espacio en Calendario y horarios.";
+    }
+  }
+  return listingErrorMessage(error);
+}
 
 function mapDraftServerFieldErrors(
   error: unknown,
@@ -171,6 +204,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     updateContent,
     updatePricing,
     loadPricingHistory,
+    loadManualBlocks,
+    createManualBlock,
+    deleteManualBlock,
     updateWeeklySchedule,
     configureTimeZone,
     uploadPhoto,
@@ -212,9 +248,12 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     authSnapshot.roles,
     authSnapshot.capabilities,
     authSnapshot.restrictedMode,
+    authSnapshot.expiresAt,
   ]);
+  const calendarScope = JSON.stringify([sessionScope, listingId]);
   const returnsBusy =
     returnsSnapshot.uncertain || returnsSnapshot.pendingReservationId !== null;
+  const currentListing = snapshot.selectedListing;
 
   // Pestaña 1: Información
   const [title, setTitle] = useState("");
@@ -235,6 +274,113 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
   const [timeZone, setTimeZone] = useState("America/Santiago");
   const [scheduleEnabled, setScheduleEnabled] = useState(true);
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlot[]>([]);
+  const [weeklyScheduleLoadState, setWeeklyScheduleLoadState] = useState<{
+    listingId: string;
+    available: boolean;
+  } | null>(null);
+
+  // Pestaña 4: Bloqueos manuales por fecha (no reservas ni ocupación).
+  const [calendarFrom, setCalendarFrom] = useState(() =>
+    localDateInputValue(new Date()),
+  );
+  const [calendarTo, setCalendarTo] = useState(() =>
+    shiftDateInputValue(localDateInputValue(new Date()), 89),
+  );
+  const [manualBlockState, setManualBlockState] = useState<{
+    scope: string;
+    items: ManualAvailabilityBlock[];
+  }>({ scope: calendarScope, items: [] });
+  const manualBlocks =
+    manualBlockState.scope === calendarScope ? manualBlockState.items : [];
+  const [calendarStart, setCalendarStart] = useState("");
+  const [calendarEnd, setCalendarEnd] = useState("");
+  const [calendarReason, setCalendarReason] = useState("");
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarSaving, setCalendarSaving] = useState(false);
+  const [calendarDeletingId, setCalendarDeletingId] = useState<string | null>(
+    null,
+  );
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [calendarNotice, setCalendarNotice] = useState<string | null>(null);
+  const [calendarRevisionStaleScope, setCalendarRevisionStaleScope] = useState<
+    string | null
+  >(null);
+  const calendarRevisionStale = calendarRevisionStaleScope === calendarScope;
+  const calendarLoadController = useRef<AbortController | null>(null);
+
+  const markCalendarRevisionStale = () => {
+    calendarLoadController.current?.abort();
+    calendarLoadController.current = null;
+    setCalendarLoading(false);
+    setCalendarRevisionStaleScope(calendarScope);
+  };
+
+  const refreshManualBlocks = useCallback(async () => {
+    if (!accessToken) return;
+    if (
+      !currentListing?.time_zone ||
+      !isValidIanaTimeZone(currentListing.time_zone)
+    ) {
+      setCalendarError(
+        "Configura y guarda primero una zona horaria IANA válida en Calendario y horarios.",
+      );
+      return;
+    }
+    calendarLoadController.current?.abort();
+    const controller = new AbortController();
+    calendarLoadController.current = controller;
+    setCalendarLoading(true);
+    setCalendarError(null);
+    const fromEpoch = Date.parse(`${calendarFrom}T00:00:00Z`);
+    const calendarToEpoch = Date.parse(`${calendarTo}T00:00:00Z`);
+    const toEpoch = Number.isFinite(calendarToEpoch)
+      ? calendarToEpoch + 24 * 60 * 60 * 1000
+      : Number.NaN;
+    if (
+      !Number.isFinite(fromEpoch) ||
+      !Number.isFinite(toEpoch) ||
+      toEpoch <= fromEpoch
+    ) {
+      setCalendarError("Selecciona un rango de fechas válido.");
+      calendarLoadController.current = null;
+      setCalendarLoading(false);
+      return;
+    }
+    try {
+      const items = await loadManualBlocks(
+        accessToken,
+        listingId,
+        new Date(fromEpoch - 24 * 60 * 60 * 1000).toISOString(),
+        new Date(toEpoch + 24 * 60 * 60 * 1000).toISOString(),
+        controller.signal,
+      );
+      if (calendarLoadController.current === controller) {
+        setManualBlockState({ scope: calendarScope, items });
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      if (calendarLoadController.current === controller)
+        setCalendarError(manualBlockErrorMessage(err));
+    } finally {
+      if (calendarLoadController.current === controller) {
+        calendarLoadController.current = null;
+        setCalendarLoading(false);
+      }
+    }
+  }, [
+    accessToken,
+    calendarFrom,
+    calendarScope,
+    calendarTo,
+    currentListing,
+    listingId,
+    loadManualBlocks,
+  ]);
+
+  useEffect(
+    () => () => calendarLoadController.current?.abort(),
+    [calendarScope],
+  );
 
   // Carga inicial de datos del espacio
   useEffect(() => {
@@ -243,6 +389,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     selectListing(accessToken, listingId)
       .then(async (detail) => {
         if (detail) {
+          setFeedbackError(null);
           setTitle(detail.title);
           setDescription(detail.description);
           setCapacity(detail.capacity);
@@ -265,6 +412,13 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           }
 
           const sched = hostListingsFacade.getSnapshot().weeklySchedule;
+          setWeeklyScheduleLoadState({
+            listingId,
+            available: detail.rate_unit !== "hora" || sched !== null,
+          });
+          if (detail.rate_unit === "hora" && sched === null) {
+            setFeedbackError(weeklyScheduleUnavailableMessage);
+          }
           if (sched) {
             setScheduleEnabled(sched.enabled);
             if (sched.time_zone) {
@@ -300,7 +454,6 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     loadPricingHistory,
   ]);
 
-  const currentListing = snapshot.selectedListing;
   useEffect(() => {
     if (
       !accessToken ||
@@ -316,6 +469,10 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         `${currentListing.category_code}@${currentListing.attribute_schema_version}`
       ] || snapshot.categorySchemas[currentListing.category_code]
     : null;
+  const weeklyScheduleUnavailable =
+    currentListing?.rate_unit === "hora" &&
+    (weeklyScheduleLoadState?.listingId !== listingId ||
+      !weeklyScheduleLoadState.available);
 
   // Guardar Pestaña 1: Contenido y atributos
   const handleSaveContent = async (e: React.FormEvent) => {
@@ -445,6 +602,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           );
           return;
         }
+        if (err instanceof ApiError && err.status === 412) {
+          markCalendarRevisionStale();
+        }
         setFeedbackError(listingErrorMessage(err));
       }
     });
@@ -494,6 +654,9 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         await loadPricingHistory(accessToken, listingId);
         setFeedbackSuccess("Tarifa actualizada y registrada en el historial.");
       } catch (err) {
+        if (err instanceof ApiError && err.status === 412) {
+          markCalendarRevisionStale();
+        }
         setFeedbackError(listingErrorMessage(err));
       }
     });
@@ -505,6 +668,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     if (!accessToken || returnsBusy || galleryBusy) return;
     setFeedbackError(null);
     setFeedbackSuccess(null);
+
+    if (weeklyScheduleUnavailable) {
+      setFeedbackError(weeklyScheduleUnavailableMessage);
+      return;
+    }
 
     if (!isValidIanaTimeZone(timeZone)) {
       setFeedbackError(
@@ -532,6 +700,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
     }
 
     startTransition(async () => {
+      let timeZoneConfigured = false;
       try {
         const configured = await configureTimeZone(
           accessToken,
@@ -539,6 +708,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           timeZone,
           listingEtag,
         );
+        timeZoneConfigured = true;
         if (hourlySchedule) {
           await updateWeeklySchedule(
             accessToken,
@@ -559,9 +729,115 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           );
         }
       } catch (err) {
-        setFeedbackError(listingErrorMessage(err));
+        if (err instanceof ApiError && err.status === 412) {
+          markCalendarRevisionStale();
+        }
+        const message =
+          timeZoneConfigured && hourlySchedule
+            ? err instanceof ApiError && err.status === 412
+              ? "La zona horaria se guardó. Este espacio cambió. Actualiza la información antes de volver a guardar. El horario semanal no pudo confirmarse. Recarga para verificar el estado."
+              : "La zona horaria se guardó, pero no se pudo confirmar el horario semanal. Recarga para verificar su estado antes de volver a guardar."
+            : listingErrorMessage(err);
+        setFeedbackError(message);
       }
     });
+  };
+
+  const handleCreateManualBlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accessToken || calendarSaving || calendarLoading) return;
+    if (calendarRevisionStale) return;
+    setCalendarError(null);
+    setCalendarNotice(null);
+    if (
+      !currentListing?.time_zone ||
+      !isValidIanaTimeZone(currentListing.time_zone)
+    ) {
+      setCalendarError(
+        "Configura y guarda primero una zona horaria IANA válida en Calendario y horarios.",
+      );
+      return;
+    }
+
+    const reason = calendarReason.trim();
+    if (!reason || Array.from(reason).length > 500) {
+      setCalendarError(
+        "El motivo es obligatorio y no puede superar 500 caracteres.",
+      );
+      return;
+    }
+    try {
+      const startAt = localDateTimeToUtcISOString(
+        calendarStart,
+        currentListing.time_zone,
+      );
+      const endAt = localDateTimeToUtcISOString(
+        calendarEnd,
+        currentListing.time_zone,
+      );
+      if (Date.parse(endAt) <= Date.parse(startAt)) {
+        setCalendarError(
+          "La fecha y hora de término debe ser posterior al inicio.",
+        );
+        return;
+      }
+      const input: ManualAvailabilityBlockInput = {
+        start_at: startAt,
+        end_at: endAt,
+        reason,
+      };
+      setCalendarSaving(true);
+      const created = await createManualBlock(accessToken, listingId, input);
+      setManualBlockState((current) => ({
+        scope: calendarScope,
+        items: [
+          created,
+          ...(current.scope === calendarScope ? current.items : []).filter(
+            (block) => block.id !== created.id,
+          ),
+        ],
+      }));
+      setCalendarReason("");
+      setCalendarNotice("Bloqueo manual guardado.");
+      await refreshManualBlocks();
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      if (err instanceof RangeError) {
+        setCalendarError(
+          err.message.includes("inexistente o ambigua")
+            ? "La hora local no existe o se repite por un cambio horario. Elige otra hora."
+            : "Ingresa fechas y horas válidas para este espacio.",
+        );
+        return;
+      }
+      setCalendarError(manualBlockErrorMessage(err));
+    } finally {
+      setCalendarSaving(false);
+    }
+  };
+
+  const handleDeleteManualBlock = async (blockId: string) => {
+    if (!accessToken || calendarSaving || calendarDeletingId) return;
+    setCalendarDeletingId(blockId);
+    setCalendarError(null);
+    setCalendarNotice(null);
+    try {
+      await deleteManualBlock(accessToken, listingId, blockId);
+      setManualBlockState((current) => ({
+        scope: calendarScope,
+        items:
+          current.scope === calendarScope
+            ? current.items.filter((block) => block.id !== blockId)
+            : [],
+      }));
+      setCalendarNotice("Bloqueo manual eliminado.");
+      await refreshManualBlocks();
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") return;
+      setCalendarError(manualBlockErrorMessage(err));
+    } finally {
+      setCalendarDeletingId(null);
+    }
   };
 
   // Acciones Globales: Publicar / Archivar / Eliminar
@@ -744,16 +1020,24 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
           )}
 
           {currentListing.state === "activa" && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={galleryBusy || returnsUncertainBusy || isPending}
-              onClick={handleGlobalArchive}
-              className="gap-1.5 text-amber-700 hover:bg-amber-50"
-            >
-              <Archive className="size-4" aria-hidden="true" />
-              Archivar
-            </Button>
+            <>
+              <Button asChild variant="outline" size="sm" className="gap-1.5">
+                <Link href={`/espacios/${listingId}`}>
+                  <ExternalLink className="size-4" aria-hidden="true" />
+                  Ver publicación
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={galleryBusy || returnsUncertainBusy || isPending}
+                onClick={handleGlobalArchive}
+                className="gap-1.5 text-amber-700 hover:bg-amber-50"
+              >
+                <Archive className="size-4" aria-hidden="true" />
+                Archivar
+              </Button>
+            </>
           )}
 
           {currentListing.state === "oculta" && (
@@ -904,6 +1188,32 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         >
           <Calendar className="size-4" aria-hidden="true" />
           Calendario y horarios
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          id="tab-availability"
+          aria-controls="panel-availability"
+          aria-selected={activeTab === "availability"}
+          disabled={
+            galleryBusy ||
+            returnsUncertainBusy ||
+            !accessToken ||
+            !currentListing
+          }
+          onClick={() => {
+            setActiveTab("availability");
+            void refreshManualBlocks();
+          }}
+          className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+            activeTab === "availability"
+              ? "border-primary text-primary font-semibold"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Calendar className="size-4" aria-hidden="true" />
+          Disponibilidad por fecha
         </button>
 
         <button
@@ -1699,19 +2009,20 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                           htmlFor="editor-sched-enable"
                           className="text-sm font-semibold text-foreground cursor-pointer"
                         >
-                          Calendario habilitado
+                          Habilitar horario semanal
                         </Label>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Permite a los usuarios seleccionar turnos según este
-                          horario habitual.
+                          Define los tramos habituales; no bloquea fechas ni
+                          confirma disponibilidad.
                         </p>
                       </div>
                       <input
                         type="checkbox"
                         id="editor-sched-enable"
-                        aria-label="Calendario habilitado"
+                        aria-label="Habilitar horario semanal"
                         checked={scheduleEnabled}
                         onChange={(e) => setScheduleEnabled(e.target.checked)}
+                        disabled={isPending || weeklyScheduleUnavailable}
                         className="size-5 rounded text-primary focus:ring-primary"
                       />
                     </div>
@@ -1723,6 +2034,7 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                         returnsBusy ||
                         returnsUncertainBusy ||
                         galleryBusy ||
+                        weeklyScheduleUnavailable ||
                         !accessToken ||
                         !currentListing
                       }
@@ -1731,25 +2043,34 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                   </>
                 )}
                 <div className="space-y-2">
-                  <Label htmlFor="editor-timezone">Zona horaria IANA *</Label>
-                  <Input
+                  <Label htmlFor="editor-timezone">
+                    Zona horaria de Chile *
+                  </Label>
+                  <select
                     id="editor-timezone"
                     value={timeZone}
                     onChange={(e) => setTimeZone(e.target.value)}
-                    placeholder="America/Santiago"
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     required
                     disabled={
                       isPending ||
                       returnsBusy ||
                       returnsUncertainBusy ||
                       galleryBusy ||
+                      weeklyScheduleUnavailable ||
                       !accessToken ||
                       !currentListing
                     }
-                  />
+                  >
+                    {timeZoneOptionsForCurrentValue(timeZone).map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                   <p className="text-xs text-muted-foreground">
-                    Requerido para activar la publicación. Ejemplo:{" "}
-                    <code>America/Santiago</code>.
+                    Se conserva la zona horaria ya guardada hasta que elijas
+                    otra opción.
                   </p>
                 </div>
                 {currentListing?.rate_unit !== "hora" && (
@@ -1761,7 +2082,11 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
                 )}
               </CardContent>
               <CardFooter className="border-t pt-4 flex justify-end">
-                <Button type="submit" disabled={isPending} className="gap-2">
+                <Button
+                  type="submit"
+                  disabled={isPending || weeklyScheduleUnavailable}
+                  className="gap-2"
+                >
                   {isPending ? (
                     <Loader2
                       className="size-4 animate-spin"
@@ -1780,7 +2105,246 @@ export function ListingEditor({ listingId }: ListingEditorProps) {
         )}
       </div>
 
-      {/* PESTAÑA 4: Fotografías y Portada */}
+      <div
+        role="tabpanel"
+        id="panel-availability"
+        aria-labelledby="tab-availability"
+        hidden={activeTab !== "availability"}
+      >
+        {activeTab === "availability" && accessToken && currentListing && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">
+                Bloqueos manuales por fecha
+              </CardTitle>
+              <CardDescription>
+                Consulta y registra bloqueos privados en la zona horaria del
+                espacio ({currentListing.time_zone ?? "sin configurar"}). Estos
+                bloqueos no son reservas ni representan ocupación confirmada.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {calendarRevisionStale && (
+                <div
+                  role="alert"
+                  className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900"
+                >
+                  Este espacio cambió. Recarga la página antes de crear bloqueos
+                  manuales.
+                </div>
+              )}
+              <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="calendar-from">Desde</Label>
+                  <Input
+                    id="calendar-from"
+                    type="date"
+                    value={calendarFrom}
+                    onChange={(event) => setCalendarFrom(event.target.value)}
+                    disabled={calendarLoading || calendarSaving}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="calendar-to">Hasta</Label>
+                  <Input
+                    id="calendar-to"
+                    type="date"
+                    value={calendarTo}
+                    onChange={(event) => setCalendarTo(event.target.value)}
+                    disabled={calendarLoading || calendarSaving}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void refreshManualBlocks()}
+                  disabled={
+                    calendarLoading ||
+                    calendarSaving ||
+                    !accessToken ||
+                    !isValidIanaTimeZone(currentListing.time_zone)
+                  }
+                >
+                  {calendarLoading ? "Actualizando…" : "Actualizar fechas"}
+                </Button>
+              </div>
+
+              {(!currentListing.time_zone ||
+                !isValidIanaTimeZone(currentListing.time_zone)) && (
+                <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                  <p>
+                    Guarda una zona horaria IANA válida antes de consultar o
+                    crear bloqueos por fecha.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setActiveTab("schedule")}
+                  >
+                    Configurar zona horaria
+                  </Button>
+                </div>
+              )}
+
+              <form
+                onSubmit={handleCreateManualBlock}
+                className="space-y-4 rounded-xl border p-4"
+              >
+                <h3 className="font-semibold">Agregar bloqueo manual</h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="calendar-block-start">
+                      Fecha y hora de inicio *
+                    </Label>
+                    <Input
+                      id="calendar-block-start"
+                      type="datetime-local"
+                      value={calendarStart}
+                      onChange={(event) => setCalendarStart(event.target.value)}
+                      required
+                      disabled={
+                        isPending ||
+                        calendarSaving ||
+                        calendarLoading ||
+                        !accessToken
+                      }
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="calendar-block-end">
+                      Fecha y hora de término *
+                    </Label>
+                    <Input
+                      id="calendar-block-end"
+                      type="datetime-local"
+                      value={calendarEnd}
+                      onChange={(event) => setCalendarEnd(event.target.value)}
+                      required
+                      disabled={
+                        isPending ||
+                        calendarSaving ||
+                        calendarLoading ||
+                        !accessToken
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="calendar-block-reason">Motivo *</Label>
+                  <Input
+                    id="calendar-block-reason"
+                    value={calendarReason}
+                    onChange={(event) => setCalendarReason(event.target.value)}
+                    required
+                    aria-describedby="calendar-block-reason-hint"
+                    disabled={
+                      isPending ||
+                      calendarSaving ||
+                      calendarLoading ||
+                      !accessToken
+                    }
+                  />
+                  <p
+                    id="calendar-block-reason-hint"
+                    className="text-xs text-muted-foreground"
+                  >
+                    Obligatorio, hasta 500 caracteres.
+                  </p>
+                </div>
+                <Button
+                  type="submit"
+                  disabled={
+                    isPending ||
+                    calendarSaving ||
+                    calendarLoading ||
+                    returnsBusy ||
+                    returnsUncertainBusy ||
+                    galleryBusy ||
+                    !accessToken ||
+                    calendarRevisionStale ||
+                    !isValidIanaTimeZone(currentListing.time_zone)
+                  }
+                >
+                  {calendarSaving ? "Guardando…" : "Crear bloqueo"}
+                </Button>
+              </form>
+
+              {calendarError && (
+                <p role="alert" className="text-sm text-red-800">
+                  {calendarError}
+                </p>
+              )}
+              {calendarNotice && (
+                <p role="status" className="text-sm text-emerald-700">
+                  {calendarNotice}
+                </p>
+              )}
+
+              <section
+                aria-labelledby="calendar-blocks-heading"
+                className="space-y-3"
+              >
+                <h3 id="calendar-blocks-heading" className="font-semibold">
+                  Bloqueos del período
+                </h3>
+                {calendarLoading ? (
+                  <p role="status" className="text-sm text-muted-foreground">
+                    Cargando bloqueos…
+                  </p>
+                ) : manualBlocks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No hay bloqueos manuales para mostrar en este período.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-border rounded-xl border">
+                    {manualBlocks.map((block) => (
+                      <li
+                        key={block.id}
+                        className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <p className="font-medium">{block.reason}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(block.start_at).toLocaleString("es-CL", {
+                              timeZone: block.time_zone,
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}{" "}
+                            –{" "}
+                            {new Date(block.end_at).toLocaleString("es-CL", {
+                              timeZone: block.time_zone,
+                              dateStyle: "medium",
+                              timeStyle: "short",
+                            })}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          aria-label={`Eliminar bloqueo ${block.reason}`}
+                          onClick={() => void handleDeleteManualBlock(block.id)}
+                          disabled={
+                            calendarSaving ||
+                            calendarLoading ||
+                            calendarDeletingId !== null ||
+                            !accessToken
+                          }
+                        >
+                          {calendarDeletingId === block.id
+                            ? "Eliminando…"
+                            : "Eliminar"}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* PESTAÑA 5: Fotografías y Portada */}
       <div
         role="tabpanel"
         id="panel-photos"

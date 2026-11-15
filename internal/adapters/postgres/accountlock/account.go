@@ -3,6 +3,7 @@ package accountlock
 import (
 	"context"
 	"errors"
+	"sort"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -17,10 +18,34 @@ func LockGlobalAdministratorSet(ctx context.Context, tx pgx.Tx) error {
 	return err
 }
 
-// LockActive serializes owner writes with privacy suppression and returns
-// active=false when the account is absent or already retired. Callers must
-// acquire this lock before locking domain rows or writing owner-scoped data.
+// LockAccountIDs serializes account-scoped transactions in the same stable
+// order used by commercial quotes and privacy suppression. Call it before
+// taking account or domain-row locks.
+func LockAccountIDs(ctx context.Context, tx pgx.Tx, accountIDs ...string) error {
+	ids := append([]string(nil), accountIDs...)
+	sort.Strings(ids)
+	previous := ""
+	for _, id := range ids {
+		if id == "" {
+			return errors.New("accountlock: empty account id")
+		}
+		if id == previous {
+			continue
+		}
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1::text,0))`, id); err != nil {
+			return err
+		}
+		previous = id
+	}
+	return nil
+}
+
+// LockActive takes the shared account advisory lock before the row lock, then
+// returns active=false when the account is absent or already retired.
 func LockActive(ctx context.Context, tx pgx.Tx, accountID string) (bool, error) {
+	if err := LockAccountIDs(ctx, tx, accountID); err != nil {
+		return false, err
+	}
 	var state string
 	err := tx.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, accountID).Scan(&state)
 	if errors.Is(err, pgx.ErrNoRows) {

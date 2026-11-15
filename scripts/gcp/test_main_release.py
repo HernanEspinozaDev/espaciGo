@@ -42,8 +42,12 @@ class FakeCloud:
             uri=str(args[2]);self.assert_generation(uri,args[3]);del self.objects[uri];return ''
         if args[:2]==('run','deploy'):
             service=args[2];image=next(a.split('=',1)[1] for a in args if a.startswith('--image='));suffix=next(a.split('=',1)[1] for a in args if a.startswith('--revision-suffix='));revision=service+'-'+suffix
-            self.services[service]['spec']['template']['spec']['containers'][0]['image']=image
-            self.revisions[revision]={'metadata':{'labels':{'source-commit':SHA,'cloud-build-id':BUILD}},'status':{'imageDigest':image,'conditions':[{'type':'Ready','status':'False' if self.fail_ready else 'True'}]}}
+            container=self.services[service]['spec']['template']['spec']['containers'][0]
+            container['image']=image
+            update_env=next((a.split('=',1)[1] for a in args if a.startswith('--update-env-vars=')), '')
+            for entry in update_env.split(',') if update_env else []:
+                name,value=entry.split('=',1);env=container.setdefault('env',[]);env[:]=[item for item in env if item.get('name')!=name];env.append({'name':name,'value':value})
+            self.revisions[revision]={'metadata':{'labels':{'source-commit':SHA,'cloud-build-id':BUILD}},'spec':{'containers':[copy.deepcopy(container)]},'status':{'imageDigest':image,'conditions':[{'type':'Ready','status':'False' if self.fail_ready else 'True'}]}}
             return ''
         if args[:3]==('run','services','update-traffic'):
             revision=args[4].split('=',1)[1].rsplit('=',1)[0];self.services[args[3]]['status']['traffic']=[{'revisionName':revision,'percent':100}];return ''
@@ -96,8 +100,12 @@ class MainReleaseTests(unittest.TestCase):
             if call[:2]==('run','deploy'):
                 self.assertIn('--no-traffic',call);self.assertIn('--update-labels=source-commit='+SHA+',cloud-build-id='+BUILD,call)
                 self.assertFalse(any(x.startswith(('--max','--set-env-vars','--set-secrets','--service-account')) for x in call))
+                if call[2]==release.ALL_SERVICES[0]:self.assertIn('--update-env-vars=CLOUD_STORAGE_MEDIA_BUCKET='+release.MEDIA_BUCKET,call)
+                else:self.assertFalse(any(x.startswith('--update-env-vars=CLOUD_STORAGE_MEDIA_BUCKET=') for x in call))
         for service in release.ALL_SERVICES:
             self.assertEqual(self.cloud.services[service]['spec']['template']['metadata']['annotations']['autoscaling.knative.dev/maxScale'],'10')
+        api_env={item['name']:item.get('value') for item in self.cloud.services[release.ALL_SERVICES[0]]['spec']['template']['spec']['containers'][0]['env']}
+        self.assertEqual(api_env['CLOUD_STORAGE_MEDIA_BUCKET'],release.MEDIA_BUCKET)
         self.assertTrue(any('/success.json' in x for x in self.cloud.objects))
     def test_job_failure_or_backup_failure_never_deploys_and_retains_owned_lock(self):
         for job,backup in [(True,False),(False,True)]:
@@ -192,6 +200,33 @@ class MainReleaseTests(unittest.TestCase):
         self.assertNotIn(row['name'],policy['automatic_migrations'])
         with self.assertRaisesRegex(GuardError,'reviewed expand policy'):
             release.migration_policy(self.root,{'pending':[row]})
+    def test_rental_v97_remains_held_until_combined_release_gates_pass(self):
+        entries=release.SCHEMA.migration_inventory(self.root/'db/migrations')
+        rental=next(entry for entry in entries if entry['name']=='V000097__commercial_rental_quote_snapshots.sql')
+        with self.assertRaises(GuardError):release.migration_policy(self.root,{'pending':[rental]})
+        policy=json.loads((self.root/'db/release-policy.json').read_text())
+        self.assertNotIn('V000085__commercial_rental_quote_snapshots.sql',policy['review_required_migrations'])
+        self.assertNotIn(rental['name'],policy['automatic_migrations'])
+        self.assertIn(rental['name'],policy['review_required_migrations'])
+        held=policy['review_required_migrations'][rental['name']]
+        self.assertEqual(held['checksum'],rental['checksum'])
+        self.assertIs(held['automatic'],False)
+        drifted=dict(rental);drifted['checksum']='0'*64
+        with self.assertRaises(GuardError):release.migration_policy(self.root,{'pending':[drifted]})
+
+    def test_combined_identity_history_preserves_review_required_policy(self):
+        entries=release.SCHEMA.migration_inventory(self.root/'db/migrations')
+        policy=json.loads((self.root/'db/release-policy.json').read_text())
+        for entry in entries:
+            if 85 <= entry['version'] <= 96:
+                with self.subTest(version=entry['version']):
+                    self.assertNotIn(entry['name'],policy['automatic_migrations'])
+                    self.assertIn(entry['name'],policy['review_required_migrations'])
+                    held=policy['review_required_migrations'][entry['name']]
+                    self.assertEqual(held['checksum'],entry['checksum'])
+                    self.assertEqual(held['strategy'],'security-tightening')
+                    self.assertIs(held['automatic'],False)
+                    with self.assertRaises(GuardError):release.migration_policy(self.root,{'pending':[entry]})
 
 
 class JobBoundaryTests(unittest.TestCase):

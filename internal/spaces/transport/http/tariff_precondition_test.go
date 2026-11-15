@@ -35,6 +35,7 @@ func TestTariffPreconditions(t *testing.T) {
 		{"wrong-resource", draftETag(spaces.Draft{ID: ownerB, UpdatedAt: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}), `{"rate_unit":"hora","base_price":9000}`, 412},
 		{"stale", draftETag(spaces.Draft{ID: draftID, UpdatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}), `{"rate_unit":"hora","base_price":9000}`, 412},
 		{"current", "current", `{"rate_unit":"hora","base_price":9000}`, 200},
+		{"minimum-rate-rejected", "current", `{"rate_unit":"hora","base_price":5000}`, 422},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)

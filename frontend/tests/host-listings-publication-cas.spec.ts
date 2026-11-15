@@ -130,6 +130,10 @@ test("@phase7 listado publica y oculta con ETag; 412 y GET fallido no reintentan
   ).toBeVisible();
   expect(mutations).toHaveLength(1);
   expect(detailGets).toBe(1);
+  const publicLink = page.getByRole("link", {
+    name: `Ver publicación de ${space.title}`,
+  });
+  await expect(publicLink).toHaveAttribute("href", `/espacios/${id}`);
   await page
     .getByRole("button", { name: `Archivar ${space.title}`, exact: true })
     .click();
@@ -139,6 +143,7 @@ test("@phase7 listado publica y oculta con ETag; 412 y GET fallido no reintentan
       { exact: true },
     ),
   ).toBeVisible();
+  await expect(publicLink).toHaveCount(0);
   expect(mutations).toHaveLength(2);
   expect(mutations[1]?.tag).not.toBe(mutations[0]?.tag);
   const reactivate = page.getByRole("button", {
@@ -153,6 +158,7 @@ test("@phase7 listado publica y oculta con ETag; 412 y GET fallido no reintentan
   expect(mutations).toHaveLength(3);
   expect(detailGets).toBe(3);
   await expect(reactivate).toBeEnabled();
+  await expect(publicLink).toHaveCount(0);
   expect(space.state).toBe("oculta");
   rejectRead = true;
   await reactivate.click();
@@ -162,4 +168,5 @@ test("@phase7 listado publica y oculta con ETag; 412 y GET fallido no reintentan
   expect(mutations).toHaveLength(3);
   expect(detailGets).toBe(4);
   await expect(reactivate).toBeEnabled();
+  await expect(publicLink).toHaveCount(0);
 });

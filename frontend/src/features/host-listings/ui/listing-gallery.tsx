@@ -155,11 +155,16 @@ export function ListingGallery(props: ListingGalleryProps) {
     for (const photo of photos) {
       const controller = new AbortController();
       controllers.set(photo.id, controller);
+      const variant = photo.variants?.some((item) => item.name === "thumbnail")
+        ? "thumbnail"
+        : photo.variants?.some((item) => item.name === "display")
+          ? "display"
+          : "thumbnail";
       void loadPhotoVariant(
         token,
         listingId,
         photo.id,
-        "thumbnail",
+        variant,
         controller.signal,
       )
         .then((blob) => {
@@ -385,10 +390,10 @@ export function ListingGallery(props: ListingGalleryProps) {
     <div className="space-y-6">
       <div
         role="note"
-        className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900"
+        className="rounded-lg border border-border bg-muted/40 p-4 text-xs text-muted-foreground"
       >
-        Entorno de ensayo de galería privada. Las fotografías de este entorno
-        son para ensayos locales.
+        Puedes agregar imágenes JPG, PNG o WebP. Cada archivo se valida en el
+        servidor antes de quedar disponible en la galería.
       </div>
       <Card>
         <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

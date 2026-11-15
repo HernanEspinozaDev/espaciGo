@@ -172,13 +172,16 @@ func (s *Service) UnblockAccount(ctx context.Context, actor, accountID, reason, 
 }
 
 func lockAccounts(ctx context.Context, tx pgx.Tx, ids ...string) error {
-	// One ordered query acquires the same usuario row locks as booking creation
-	// and KYC/suppression, preventing a block/new-reservation race.
 	if len(ids) == 1 {
 		ids = append(ids, ids[0])
 	}
 	if len(ids) != 2 {
 		return ErrInvalid
+	}
+	// Share the quote/suppression account-lock protocol before row locks so a
+	// block change cannot race the transaction that validates a new quote.
+	if err := accountlock.LockAccountIDs(ctx, tx, ids...); err != nil {
+		return err
 	}
 	rows, err := tx.Query(ctx, `SELECT id::text FROM public.usuario WHERE id=$1 OR id=$2 ORDER BY id FOR UPDATE`, ids[0], ids[1])
 	if err != nil {

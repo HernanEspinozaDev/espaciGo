@@ -222,7 +222,7 @@ test("@phase7 @native authorized synthetic accounts verify persisted listing CRU
   await expect(
     page.getByText("Paso 4: Disponibilidad semanal y zona horaria"),
   ).toBeVisible();
-  await page.locator("#wizard-timezone").fill("America/Santiago");
+  await page.locator("#wizard-timezone").selectOption("America/Santiago");
   await page.getByRole("button", { name: "Siguiente" }).click();
   await expect(
     page.getByText("Paso 5: Resumen y confirmación de alta"),

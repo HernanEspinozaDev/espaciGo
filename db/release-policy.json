@@ -79,7 +79,13 @@
       "strategy": "security-tightening",
       "automatic": false,
       "reason": "Persists only the allowlisted identity format/expiry observations and reviewer checklist with the same decision event, checks the case/event match, and grants only the required column writes. Requires exact-target migration review and fresh/upgrade/atomicity evidence; never automatic expand."
+    },
+    "V000097__commercial_rental_quote_snapshots.sql": {
+      "checksum": "0574033dde36b66efc00f36e20fcedbb424badc20c7109f941f78786fb5d8e14",
+      "strategy": "expand",
+      "automatic": false,
+      "reason": "Version collision reconciled only in isolated combined candidate. Preserve applied identity V1-V96. Applying release remains disabled until combined fresh/upgrade tests, V97 authority lifecycle, legal identity reader, commercial authentication and UI integration gates pass."
     }
   },
-  "notes": "Future SQL requires an exact name/checksum entry with strategy=expand, corresponding compatibility tests and review in Git. Applied SQL stays immutable. Destructive repairs are separate operations."
+  "notes": "Future SQL requires an exact name/checksum entry classified by its real effect, compatibility tests and review. Only reviewed compatible expansion can be eligible under automatic_migrations; security tightening, revocation and destructive changes remain review_required with automatic=false until their exact-target gates pass. A retained expand entry does not enable applying. Applied SQL stays immutable; repairs are separately scoped."
 }

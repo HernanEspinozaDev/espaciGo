@@ -127,6 +127,32 @@ test("static upload-status keeps its own header and method policy instead of the
   assert.equal(calls, 1);
 });
 
+test("contract preview without a session is denied before upstream dispatch", async () => {
+  const quoteID = "11111111-1111-4111-8111-111111111111";
+  const path = ["rental-quotes", quoteID, "contract-preview"];
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ data: {} });
+  };
+
+  const response = await POST(
+    new Request(`https://127.0.0.1:3000/api/backend/${path.join("/")}`, {
+      method: "POST",
+      headers: {
+        host: "127.0.0.1:3000",
+        origin: "https://127.0.0.1:3000",
+      },
+    }),
+    { params: Promise.resolve({ path }) },
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(calls, 0);
+  assert.match(response.headers.get("set-cookie") ?? "", /Max-Age=0/);
+  assert.equal((await response.json()).error.code, "unauthenticated");
+});
+
 test("all six document operations forward Bearer without browser credentials", async () => {
   const caseID = "11111111-1111-4111-8111-111111111111";
   const fileID = "22222222-2222-4222-8222-222222222222";
@@ -253,6 +279,95 @@ test("all six document operations forward Bearer without browser credentials", a
       assert.deepEqual(new Uint8Array(await response.arrayBuffer()), pdfBytes);
     }
   }
+});
+
+test("space gallery variant BFF streams private WebP bytes without browser credentials", async () => {
+  const spaceID = "33333333-3333-4333-8333-333333333333";
+  const photoID = "44444444-4444-4444-8444-444444444444";
+  const path = ["spaces", spaceID, "gallery", photoID, "variants", "thumbnail"];
+  const mediaBytes = new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 0x10, 0x20, 0x30, 0x40, 0x57, 0x45, 0x42, 0x50,
+    0x00, 0xff, 0x01, 0x80,
+  ]);
+  let upstreamURL;
+  let upstreamOptions;
+  globalThis.fetch = async (url, options) => {
+    upstreamURL = url;
+    upstreamOptions = options;
+    return new Response(mediaBytes, {
+      status: 200,
+      headers: {
+        "content-type": "image/webp",
+        "x-request-id": "gallery-variant-request-1",
+      },
+    });
+  };
+
+  const response = await GET(
+    requestWithSession(`http://127.0.0.1:3000/api/backend/${path.join("/")}`),
+    { params: Promise.resolve({ path }) },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "image/webp");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.equal(
+    response.headers.get("x-request-id"),
+    "gallery-variant-request-1",
+  );
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), mediaBytes);
+  assert.equal(new URL(upstreamURL).pathname, `/api/v1/${path.join("/")}`);
+  assert.equal(
+    upstreamOptions.headers.get("authorization"),
+    "Bearer synthetic-opaque-token",
+  );
+  assert.equal(upstreamOptions.headers.has("cookie"), false);
+  assert.equal(upstreamOptions.credentials, "omit");
+  assert.equal(upstreamOptions.cache, "no-store");
+  assert.equal(upstreamOptions.redirect, "manual");
+});
+
+test("published media variant BFF does not forward a browser session", async () => {
+  const spaceID = "55555555-5555-4555-8555-555555555555";
+  const imageID = "66666666-6666-4666-8666-666666666666";
+  const path = [
+    "public",
+    "spaces",
+    spaceID,
+    "images",
+    imageID,
+    "variants",
+    "thumbnail",
+  ];
+  const mediaBytes = new Uint8Array([
+    0x52, 0x49, 0x46, 0x46, 0x10, 0x20, 0x30, 0x40, 0x57, 0x45, 0x42, 0x50,
+    0x00, 0xff, 0x01, 0x80,
+  ]);
+  let upstreamURL;
+  let upstreamOptions;
+  globalThis.fetch = async (url, options) => {
+    upstreamURL = url;
+    upstreamOptions = options;
+    return new Response(mediaBytes, {
+      headers: { "content-type": "image/webp" },
+    });
+  };
+
+  const response = await GET(
+    requestWithSession(`http://127.0.0.1:3000/api/backend/${path.join("/")}`),
+    { params: Promise.resolve({ path }) },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "image/webp");
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), mediaBytes);
+  assert.equal(new URL(upstreamURL).pathname, `/api/v1/${path.join("/")}`);
+  assert.equal(upstreamOptions.headers.has("authorization"), false);
+  assert.equal(upstreamOptions.headers.has("cookie"), false);
+  assert.equal(upstreamOptions.credentials, "omit");
+  assert.equal(upstreamOptions.cache, "no-store");
+  assert.equal(upstreamOptions.redirect, "manual");
 });
 
 test("BFF preserves upstream auth and CAS statuses without exposing text errors", async () => {
@@ -484,4 +599,22 @@ test("BFF detail GET passes owner copy and ETag with no-store", async () => {
   assert.equal(response.headers.get("etag"), '"9"');
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(await response.json(), payload);
+});
+
+test("product gateway never forwards the isolated rental demo with product credentials", async () => {
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response("[]", {
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const response = await GET(
+    requestWithSession(
+      "http://127.0.0.1:3000/api/backend/local/rental-demo/spaces",
+    ),
+    { params: Promise.resolve({ path: ["local", "rental-demo", "spaces"] }) },
+  );
+  assert.equal(response.status, 404);
+  assert.equal(calls, 0);
 });

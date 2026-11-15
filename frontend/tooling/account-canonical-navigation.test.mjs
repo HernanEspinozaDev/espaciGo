@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -8,18 +8,20 @@ import test from "node:test";
 import ts from "typescript";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const require = createRequire(import.meta.url);
 
 async function invokePageRedirect(path, destination) {
   const source = await readFile(resolve(root, path), "utf8");
   const javascript = ts.transpileModule(source, {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      jsx: ts.JsxEmit.ReactJSX,
+    },
   }).outputText;
   let redirectedTo;
-  const module = { exports: {} };
+  const compiledModule = { exports: {} };
   vm.runInNewContext(javascript, {
-    module,
-    exports: module.exports,
+    module: compiledModule,
+    exports: compiledModule.exports,
     require: (name) => {
       if (name === "next/navigation") {
         return {
@@ -30,11 +32,12 @@ async function invokePageRedirect(path, destination) {
         };
       }
       return new Proxy(function stub() {}, {
-        get: () => new Proxy(function stub() {}, { get: () => function stub() {} }),
+        get: () =>
+          new Proxy(function stub() {}, { get: () => function stub() {} }),
       });
     },
   });
-  assert.throws(() => module.exports.default(), /NEXT_REDIRECT/);
+  assert.throws(() => compiledModule.exports.default(), /NEXT_REDIRECT/);
   assert.equal(redirectedTo, destination);
 }
 

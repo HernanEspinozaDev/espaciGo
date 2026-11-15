@@ -39,7 +39,17 @@ await compile(
 const returnPath = await compile(
   "src/features/auth/domain/return-target.ts",
   "return-target.mjs",
-  [["@/features/public-catalog/domain/query-state", "./query-state.mjs"]],
+  [
+    ["@/features/public-catalog/domain/query-state", "./query-state.mjs"],
+    [
+      "@/features/public-catalog/domain/availability-return",
+      "./availability-return.mjs",
+    ],
+  ],
+);
+await compile(
+  "src/features/public-catalog/domain/availability-return.ts",
+  "availability-return.mjs",
 );
 const credentialPath = await compile(
   "src/features/auth/domain/action-credential.ts",
@@ -134,10 +144,12 @@ test("return_to accepts only allowlisted same-origin routes", () => {
     "/dashboard/general",
     "/dashboard/security",
     "/dashboard/activity",
+    `/mi-cuenta/revisiones/${uuid}`,
     `/anfitrion/espacios/${uuid}`,
     `/anfitrion/espacios/${uuid}/editar`,
     "/categorias/inmuebles",
     `/espacios/${uuid}`,
+    `/espacios/${uuid}?rental_date=2026-11-16&rental_duration=1&rental_start_at=2026-11-16T12%3A00%3A00Z&rental_end_at=2026-11-16T13%3A00%3A00Z`,
   ])
     assert.equal(returnTarget.resolveReturnTarget(target), target);
   assert.equal(
@@ -166,6 +178,7 @@ test("return_to rejects open redirects, traversal, auth/API paths, fragments, an
     "/explorar#fragment",
     "/%2f%2foutside.invalid",
     "/espacios/not-a-uuid",
+    "/mi-cuenta/revisiones/not-a-uuid",
     "/anfitrion/espacios/not-a-uuid",
     "/anfitrion/espacios/not-a-uuid/editar",
     "/categorias/InvalidCode",
@@ -173,6 +186,10 @@ test("return_to rejects open redirects, traversal, auth/API paths, fragments, an
     "/explorar?page_size=99",
     "/explorar?region_code=1",
     `/espacios/${uuid.toUpperCase()}`,
+    `/espacios/${uuid}?rental_date=2026-02-30&rental_duration=1&rental_start_at=2026-11-16T12%3A00%3A00Z&rental_end_at=2026-11-16T13%3A00%3A00Z`,
+    `/espacios/${uuid}?rental_date=2026-11-16&rental_duration=1&rental_duration=2&rental_start_at=2026-11-16T12%3A00%3A00Z&rental_end_at=2026-11-16T13%3A00%3A00Z`,
+    `/espacios/${uuid}?rental_date=2026-11-16&rental_duration=1&rental_start_at=2026-11-16T13%3A00%3A00Z&rental_end_at=2026-11-16T12%3A00%3A00Z`,
+    `/espacios/${uuid}?rental_date=2026-11-16&rental_duration=1&rental_start_at=2026-11-16T12%3A00%3A00Z&rental_end_at=2026-11-16T13%3A00%3A00Z&unknown=`,
   ])
     assert.equal(returnTarget.resolveReturnTarget(target), "/", target);
   assert.equal(

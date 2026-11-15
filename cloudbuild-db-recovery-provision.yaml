@@ -1,0 +1,37 @@
+# Dedicated child provisioner. It is invoked by the recovery parent only.
+serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-release-job-builder@espacigo-testprod.iam.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+  substitutionOption: MUST_MATCH
+  requestedVerifyOption: VERIFIED
+timeout: 600s
+substitutions:
+  _PARENT_BUILD_ID: ""
+  _SOURCE_ARCHIVE_SHA256: ""
+  _REQUEST_URI: ""
+  _REQUEST_GENERATION: ""
+  _REQUEST_SHA256: ""
+steps:
+  - id: create-recovery-inspection-job-only
+    name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:1855ee6031f03bb7d4b251cfd0e5b88a18fd9a2552a742cf86d269810832c80b
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        [[ "${_PARENT_BUILD_ID}" =~ ^[a-f0-9-]{36}$ ]]
+        [[ "${_SOURCE_ARCHIVE_SHA256}" =~ ^[a-f0-9]{64}$ ]]
+        [[ "${_REQUEST_GENERATION}" =~ ^[1-9][0-9]*$ ]]
+        [[ "${_REQUEST_SHA256}" =~ ^[a-f0-9]{64}$ ]]
+        [[ "${_REQUEST_URI}" == gs://espacigo-testprod-cloud-build-447373903153/recovery-inspections/*/job-request.json ]]
+        export PYTHONDONTWRITEBYTECODE=1
+        [[ -s /usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem ]]
+        export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem
+        inspection_python=$$(gcloud info --format='value(basic.python_location)')
+        [[ "$$inspection_python" == /* && -x "$$inspection_python" ]]
+        "$$inspection_python" scripts/gcp/provision_recovery_inspection.py \
+          --build-id="${BUILD_ID}" \
+          --parent-build-id="${_PARENT_BUILD_ID}" \
+          --source-archive-sha256="${_SOURCE_ARCHIVE_SHA256}" \
+          --request-uri="${_REQUEST_URI}" \
+          --request-generation="${_REQUEST_GENERATION}" \
+          --request-sha256="${_REQUEST_SHA256}"

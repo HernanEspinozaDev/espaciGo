@@ -9,16 +9,8 @@ export type DocumentVerificationFile = Readable<
 export type IdentityEvidenceRole = NonNullable<
   DocumentVerificationFile["evidence_role"]
 >;
-export const identityEvidenceRoles = [
-  "identity_front",
-  "identity_back",
-  "identity_selfie",
-] as const satisfies readonly IdentityEvidenceRole[];
 export type DocumentVerificationCreate =
   components["schemas"]["DocumentVerificationCaseCreate"];
-
-export const IDENTITY_CAPTURE_CONSENT_VERSION =
-  "identity-capture-local-v1" as const;
 
 export interface OwnerSpaceOption {
   readonly id: string;
@@ -42,18 +34,19 @@ export function normalizeDocumentVerificationCreate(
             "capture_consent_version",
           ].includes(key),
       ) ||
-      (value.document_format_declared !== "legacy" &&
-        value.document_format_declared !== "new" &&
-        value.document_format_declared !== "unsure") ||
+      !["legacy", "new", "unsure"].includes(
+        value.document_format_declared as string,
+      ) ||
       value.capture_consent_given !== true ||
-      value.capture_consent_version !== IDENTITY_CAPTURE_CONSENT_VERSION
+      value.capture_consent_version !== "identity-capture-local-v1"
     )
       throw new TypeError("Invalid identity document verification payload");
     return {
       purpose: "identity",
-      document_format_declared: value.document_format_declared,
+      document_format_declared: value.document_format_declared as
+        "legacy" | "new" | "unsure",
       capture_consent_given: true,
-      capture_consent_version: IDENTITY_CAPTURE_CONSENT_VERSION,
+      capture_consent_version: "identity-capture-local-v1",
     };
   }
   if (value.purpose === "space") {

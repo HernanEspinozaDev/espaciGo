@@ -7,8 +7,8 @@ import re
 import time
 from migration_job_plan import proposal as plan_proposal,SERVICE_ACCOUNT
 from migration_execution import proposal as apply_proposal,verify_execution
-from migration_release_manifest import check_plan
-from verify_web_backend import PROJECT,REGION,SA,UUID,require
+from migration_release_manifest import check_plan,is_plan_report_shape
+from verify_web_backend import PROJECT,REGION,SA,UUID,GuardError,require
 
 PROVISIONER=f'projects/{PROJECT}/serviceAccounts/espacigo-release-job-builder@{PROJECT}.iam.gserviceaccount.com'
 
@@ -87,8 +87,7 @@ def execute_job(cloud,job,r,record):
     deadline=time.monotonic()+90
     while True:
         logs=cloud.json('logging','read',query,'--limit=100')
-        plan_fields={'database','server_version','read_only','history_exists','applied','pending'}
-        reports=[x for x in logs if isinstance(x.get('jsonPayload'),dict) and (x['jsonPayload'].get('format')==wanted if wanted else plan_fields<=set(x['jsonPayload']))]
+        reports=[x for x in logs if isinstance(x.get('jsonPayload'),dict) and (x['jsonPayload'].get('format')==wanted if wanted else is_plan_report_shape(x['jsonPayload']))]
         if reports:break
         require(time.monotonic()<deadline,'execution succeeded but log is missing; do not replay SQL')
         time.sleep(5)
@@ -109,3 +108,14 @@ def remove_job(cloud,job,r):
     require(current['metadata']['uid']==job['metadata']['uid'],'refusing cleanup of replaced Job')
     verify_job(current,r)
     cloud.run('run','jobs','delete',job['metadata']['name'])
+    name=job['metadata']['name']
+    try:
+        cloud.json('run','jobs','describe',name)
+    except GuardError as error:
+        # Same-name pinned-SDK not-found only; never infer absence from a
+        # denied list, transport error or another resource. Never retry DELETE.
+        absent=f'gcloud run jobs failed: ERROR: (gcloud.run.jobs.describe) Cannot find job [{name}].'
+        if str(error)==absent:
+            return
+        raise
+    raise GuardError('Job name still present after cleanup; preserve evidence and do not retry DELETE')

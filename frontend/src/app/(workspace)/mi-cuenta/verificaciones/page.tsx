@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
-import { VerificationFlow } from "@/features/verifications/verification-flow";
 import { VerificationsView } from "@/features/verifications/ui/verifications-view";
 
 export const metadata: Metadata = {
-  title: "Verificación de Cuenta y Espacios | Mi Cuenta | EspaciGo",
+  title: "Verificaciones | Mi Cuenta",
   description:
-    "Verifica tu identidad de usuario y acredita tus espacios de manera fácil y segura en EspaciGo.",
+    "Gestiona tu declaración de identidad y consulta verificaciones de usuario y espacios.",
   robots: {
     index: false,
     follow: false,
@@ -13,20 +12,5 @@ export const metadata: Metadata = {
 };
 
 export default function VerificacionesPage() {
-  return (
-    <div className="space-y-8">
-      <div className="border-b border-border/60 pb-5">
-        <h2 className="text-2xl font-bold tracking-tight text-foreground">
-          Verificación de cuenta y espacios
-        </h2>
-        <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
-          Gestiona la verificación de tu identidad personal y la revisión
-          documental de tus espacios de forma separada.
-        </p>
-      </div>
-
-      <VerificationFlow />
-      <VerificationsView />
-    </div>
-  );
+  return <VerificationsView />;
 }

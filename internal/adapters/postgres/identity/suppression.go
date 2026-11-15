@@ -108,13 +108,9 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	var accountID string
-	// Serialize suppression with local outbox delivery. The notice worker holds
-	// the matching session advisory lock from claim through SMTP result commit.
-	var advisoryKey int64
-	if err := tx.QueryRow(ctx, `SELECT hashtextextended($1::text,0)`, subjectID).Scan(&advisoryKey); err != nil {
-		return privacy.SuppressionExecution{}, suppressionError(err)
-	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, advisoryKey); err != nil {
+	// Share the canonical account lock with quotes and local outbox delivery.
+	// The notice worker holds the same UUID-derived key until SMTP completion.
+	if err := accountlock.LockAccountIDs(ctx, tx, subjectID); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if err := tx.QueryRow(ctx, `SELECT id::text FROM public.usuario WHERE id=$1 FOR UPDATE`, subjectID).Scan(&accountID); err != nil {
@@ -275,7 +271,7 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 		}
 	}
 	evidenceIDs = uniqueEvidenceIDs
-	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "medios_reales_con_revocacion_y_limpieza_por_generacion", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02", "texto_libre_reclamo_descargo_y_operaciones_sinteticas", "blobs_evidencia_operativa_sintetica_con_limpieza_recuperable", "estado_vigente_bloqueo_administrativo_del_titular"}
+	removed := []string{"sesiones_y_tokens", "hash_vigente_e_historial_claves", "roles_activos", "perfil_y_preferencia", "foto_sintetica_con_limpieza_recuperable", "galeria_sintetica_privada_con_limpieza_recuperable", "medios_reales_con_revocacion_y_limpieza_por_generacion", "referencias_cuenta_cobro_fake", "contenido_de_borradores", "fixtures_del_titular", "cotizaciones_comerciales", "cotizaciones_no_convertidas", "mensajes_de_reservas_terminales_sinteticas", "simulaciones_privadas", "avisos_de_credenciales_sin_finalidad", "claves_idempotentes_m02", "texto_libre_reclamo_descargo_y_operaciones_sinteticas", "blobs_evidencia_operativa_sintetica_con_limpieza_recuperable", "estado_vigente_bloqueo_administrativo_del_titular"}
 	retained := []string{"ancla_tecnica_usuario", "metadata_minima_de_galeria_sintetica_sin_binario", "metadata_minima_de_medios_retirados_sin_hash_de_entrada", "aceptaciones_terminos_5_anios", "solicitud_y_decision_5_anios", "metadata_verificacion_2_anios", "reservas_pagos_devoluciones_y_reclamos_24_meses_desde_ultimo_cierre", "historiales_transaccionales_minimizados", "historial_bloqueo_cuenta_motivo_fecha_sin_actor_personal_plazo_pendiente_de_ratificacion", "auditoria_5_anios", "copias_locales_no_eliminadas"}
 	detail := suppressionDetail{Obligations: []string{}, Removed: removed, Retained: retained, Decision: "baja_elegible_privacidad_local_v1"}
 	encoded, err := json.Marshal(detail)
@@ -427,6 +423,9 @@ func (r *IdentityRepository) ExecuteSuppression(ctx context.Context, actorID, re
 	}
 	termExpiry := identity.AddCalendarMonthsUTC(checkedAt, 60)
 	if _, err = tx.Exec(ctx, `UPDATE public.aceptacion_terminos SET retirar_en=$2 WHERE usuario_id=$1`, subjectID, termExpiry); err != nil {
+		return privacy.SuppressionExecution{}, suppressionError(err)
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM public.cotizacion_arriendo_comercial WHERE propietario_id=$1 OR arrendatario_id=$1`, subjectID); err != nil {
 		return privacy.SuppressionExecution{}, suppressionError(err)
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM public.cotizacion_reserva_ensayo q WHERE (q.arrendatario_id=$1 OR q.anfitrion_id=$1) AND NOT EXISTS (SELECT 1 FROM public.reserva_ensayo_local r WHERE r.cotizacion_id=q.id)`, subjectID); err != nil {

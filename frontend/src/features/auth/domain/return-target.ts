@@ -2,6 +2,10 @@ import {
   parseCatalogQuery,
   serializeCatalogQuery,
 } from "@/features/public-catalog/domain/query-state";
+import {
+  parseRentalReturnSelection,
+  serializeRentalReturnSelection,
+} from "@/features/public-catalog/domain/availability-return";
 import type { RawCatalogParams } from "@/features/public-catalog/domain/types";
 
 const categoryCode = /^[a-z][a-z0-9_-]{0,79}$/;
@@ -40,6 +44,7 @@ const fixedPaths = new Set([
   "/mi-cuenta/seguridad",
   "/mi-cuenta/verificaciones",
   "/mi-cuenta/documentos",
+  "/mi-cuenta/revisiones",
   "/mi-cuenta/revision-documental",
   "/anfitrion",
   "/anfitrion/espacios",
@@ -110,13 +115,21 @@ export function resolveReturnTarget(
     return home;
   if (pathname === "/explorar")
     return (parseExploreQuery(search) ?? "/") as ReturnTarget;
+  const space = /^\/espacios\/([^/]+)$/.exec(pathname);
+  if (space && canonicalUuid.test(space[1] ?? "")) {
+    if (!search) return pathname as ReturnTarget;
+    const selection = parseRentalReturnSelection(search);
+    return selection
+      ? (`${pathname}?${serializeRentalReturnSelection(selection)}` as ReturnTarget)
+      : home;
+  }
   if (search) return home;
   if (fixedPaths.has(pathname)) return pathname as ReturnTarget;
+  const reviewerCase = /^\/mi-cuenta\/revisiones\/([^/]+)$/.exec(pathname);
+  if (reviewerCase && canonicalUuid.test(reviewerCase[1] ?? ""))
+    return pathname as ReturnTarget;
   const category = /^\/categorias\/([^/]+)$/.exec(pathname);
   if (category && categoryCode.test(category[1] ?? ""))
-    return pathname as ReturnTarget;
-  const space = /^\/espacios\/([^/]+)$/.exec(pathname);
-  if (space && canonicalUuid.test(space[1] ?? ""))
     return pathname as ReturnTarget;
   const booking = /^\/reservas\/([^/]+)$/.exec(pathname);
   if (

@@ -5,8 +5,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/accountlock"
 	dbgen "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity/dbgen"
 	"github.com/HernanEspinozaDev/espaciGo/internal/identity"
+	"github.com/jackc/pgx/v5"
 )
 
 var _ identity.AuthenticationRepository = (*IdentityRepository)(nil)
@@ -29,6 +31,13 @@ func (r *IdentityRepository) WithLockedAccount(ctx context.Context, lookup ident
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	q := r.queries.WithTx(tx)
+	accountID, err := authenticationAccountID(ctx, tx, lookup)
+	if err != nil {
+		return mapError(err)
+	}
+	if err := accountlock.LockAccountIDs(ctx, tx, accountID); err != nil {
+		return err
+	}
 	var account identity.Account
 	switch {
 	case lookup.Email != "":
@@ -60,6 +69,24 @@ func (r *IdentityRepository) WithLockedAccount(ctx context.Context, lookup ident
 		return err
 	}
 	return mapError(tx.Commit(ctx))
+}
+
+func authenticationAccountID(ctx context.Context, tx pgx.Tx, lookup identity.AccountLookup) (string, error) {
+	var query string
+	var value string
+	switch {
+	case lookup.Email != "":
+		query, value = `SELECT id::text FROM public.usuario WHERE correo_normalizado=$1`, lookup.Email
+	case lookup.VerificationID != "":
+		query, value = `SELECT usuario_id::text FROM public.token_accion WHERE id=$1 AND proposito='verificar_correo'`, lookup.VerificationID
+	case lookup.ActionTokenID != "":
+		query, value = `SELECT usuario_id::text FROM public.token_accion WHERE id=$1`, lookup.ActionTokenID
+	default:
+		query, value = `SELECT usuario_id::text FROM public.sesion WHERE token_hash=$1`, lookup.SessionHash
+	}
+	var accountID string
+	err := tx.QueryRow(ctx, query, value).Scan(&accountID)
+	return accountID, err
 }
 
 func (t *authenticationTransaction) Roles(ctx context.Context, id string) ([]identity.Role, error) {

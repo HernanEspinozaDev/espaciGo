@@ -93,7 +93,7 @@ func TestPlanOnlyDoesNotInitializeLedgerOrExecutePendingMigrations(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !plan.ReadOnly || plan.HistoryExists || len(plan.Applied) != 0 || len(plan.Pending) != 1 || plan.Pending[0].Version != 1 {
+		if !plan.ReadOnly || plan.SessionUser == "" || plan.CurrentUser == "" || plan.SessionUser != plan.CurrentUser || plan.HistoryExists || len(plan.Applied) != 0 || len(plan.Pending) != 1 || plan.Pending[0].Version != 1 {
 			t.Fatalf("unexpected read-only plan: %#v", plan)
 		}
 		conn := connectTestDB(t, ctx, databaseURL)

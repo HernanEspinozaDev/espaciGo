@@ -4,7 +4,6 @@ import "client-only";
 
 import type { AccessToken } from "@/features/auth/application/auth.port";
 import { isAbortError } from "@/lib/api/errors";
-import { identityEvidenceRoles } from "../domain/document-verification";
 import type {
   DocumentVerificationCase,
   DocumentVerificationCreate,
@@ -160,7 +159,6 @@ export class DocumentVerificationFacade {
   async #runLatest<T>(
     key: string,
     operation: (token: AccessToken, signal: AbortSignal) => Promise<T>,
-    clearCaseListLoadingOnCompletion = false,
   ): Promise<T> {
     const generation = (this.#requestGenerations.get(key) ?? 0) + 1;
     this.#requestGenerations.set(key, generation);
@@ -175,15 +173,6 @@ export class DocumentVerificationFacade {
         throw abortError();
       }
       throw error;
-    } finally {
-      if (
-        key === "cases" &&
-        clearCaseListLoadingOnCompletion &&
-        this.#requestGenerations.get(key) === generation &&
-        this.#snapshot.loading
-      ) {
-        this.#setSnapshot({ loading: false });
-      }
     }
   }
 
@@ -271,10 +260,8 @@ export class DocumentVerificationFacade {
     id: string,
   ): Promise<VersionedDocumentVerificationCase["value"] | null> {
     return this.#perform("load-case", async () => {
-      const selected = await this.#runLatest(
-        "cases",
-        (token, signal) => this.#port.getOwnCase(token, id, signal),
-        true,
+      const selected = await this.#runLatest("cases", (token, signal) =>
+        this.#port.getOwnCase(token, id, signal),
       );
       this.#setSnapshot({
         selected,
@@ -288,10 +275,8 @@ export class DocumentVerificationFacade {
     input: DocumentVerificationCreate,
   ): Promise<VersionedDocumentVerificationCase> {
     return this.#perform("create", async () => {
-      const created = await this.#runLatest(
-        "cases",
-        (token, signal) => this.#port.create(token, input, signal),
-        true,
+      const created = await this.#runLatest("cases", (token, signal) =>
+        this.#port.create(token, input, signal),
       );
       this.#setSnapshot({
         selected: created,
@@ -304,10 +289,8 @@ export class DocumentVerificationFacade {
   async submit(id: string): Promise<VersionedDocumentVerificationCase> {
     return this.#perform("submit", async () => {
       const selected = this.#requireSelected(id);
-      const updated = await this.#runLatest(
-        "cases",
-        (token, signal) => this.#port.submit(token, id, selected.etag, signal),
-        true,
+      const updated = await this.#runLatest("cases", (token, signal) =>
+        this.#port.submit(token, id, selected.etag, signal),
       );
       this.#setSnapshot({
         selected: updated,
@@ -324,43 +307,35 @@ export class DocumentVerificationFacade {
   ): Promise<UploadedDocumentVerificationFile> {
     return this.#perform("upload", async () => {
       const selected = this.#requireSelected(id);
+      const identityRoles = new Set<IdentityEvidenceRole>([
+        "identity_front",
+        "identity_back",
+        "identity_selfie",
+      ]);
       if (
         (selected.value.purpose === "identity" &&
-          (!evidenceRole || !identityEvidenceRoles.includes(evidenceRole))) ||
+          (!evidenceRole || !identityRoles.has(evidenceRole))) ||
         (selected.value.purpose === "space" && evidenceRole !== undefined)
       ) {
-        throw new TypeError("Evidence role does not match document purpose.");
+        throw new TypeError("Evidence role does not match the case purpose.");
       }
-      const uploaded = await this.#runLatest(
-        "cases",
-        (token, signal) =>
-          this.#port.upload(
-            token,
-            id,
-            selected.etag,
-            file,
-            evidenceRole,
-            signal,
-          ),
-        true,
+      const uploaded = await this.#runLatest("cases", (token, signal) =>
+        this.#port.upload(token, id, selected.etag, file, evidenceRole, signal),
       );
       if (
-        (selected.value.purpose === "identity" &&
-          uploaded.file.evidence_role !== evidenceRole) ||
-        (selected.value.purpose === "space" &&
-          uploaded.file.evidence_role !== undefined)
+        selected.value.purpose === "identity" &&
+        uploaded.file.evidence_role !== evidenceRole
       ) {
-        throw new TypeError("Uploaded evidence role does not match purpose.");
+        throw new TypeError("Unexpected identity evidence role in response.");
       }
       const value: DocumentVerificationCase = {
         ...selected.value,
         revision: uploaded.revision,
         files: [
-          ...selected.value.files.filter(
-            (item) =>
-              item.id !== uploaded.file.id &&
-              (selected.value.purpose !== "identity" ||
-                item.evidence_role !== evidenceRole),
+          ...selected.value.files.filter((item) =>
+            selected.value.purpose === "identity"
+              ? item.evidence_role !== evidenceRole
+              : item.id !== uploaded.file.id,
           ),
           uploaded.file,
         ],

@@ -3,15 +3,16 @@ import Link from "next/link";
 import { AuthLegalFooter } from "@/features/auth/ui/auth-legal-footer";
 import { PrivateSessionBoundary } from "@/features/auth/ui/private-session-boundary";
 import { SessionControls } from "@/features/auth/ui/session-controls";
+import { PartialDraftRecoveryRouteReset } from "@/features/host-listings/ui/partial-draft-recovery-route-reset";
 
 function Header() {
   return (
     <header className="border-b border-gray-200 bg-white">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap sm:flex-nowrap justify-between items-center gap-y-3">
         <Link
-          href="/mi-cuenta"
+          href="/"
           className="flex shrink-0 items-center"
-          aria-label="EspaciGo, volver a mi cuenta"
+          aria-label="EspaciGo, volver al inicio"
         >
           <Image
             src="/espacigo-mark.svg"
@@ -43,6 +44,7 @@ export default function WorkspaceLayout({
   return (
     <div className="flex flex-col min-h-screen bg-white">
       <Header />
+      <PartialDraftRecoveryRouteReset />
       <div id="main-content" className="flex-1" tabIndex={-1}>
         <PrivateSessionBoundary>{children}</PrivateSessionBoundary>
       </div>

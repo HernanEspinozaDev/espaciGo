@@ -14,6 +14,7 @@ import {
   MapPin,
   Users,
   Maximize2,
+  ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/workspace/ui/button";
 import {
@@ -458,24 +459,43 @@ export function HostListingsList() {
                     )}
 
                     {listing.state === "activa" && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={isOperating}
-                        onClick={() => handleArchive(listing.id)}
-                        className="gap-1 text-xs text-amber-700 hover:bg-amber-50"
-                        aria-label={`Archivar ${listing.title}`}
-                      >
-                        {isOperating ? (
-                          <Loader2
-                            className="size-3.5 animate-spin"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <Archive className="size-3.5" aria-hidden="true" />
-                        )}
-                        Archivar
-                      </Button>
+                      <>
+                        <Button
+                          asChild
+                          variant="outline"
+                          size="sm"
+                          className="gap-1 text-xs"
+                        >
+                          <Link
+                            href={`/espacios/${listing.id}`}
+                            aria-label={`Ver publicación de ${listing.title}`}
+                          >
+                            <ExternalLink
+                              className="size-3.5"
+                              aria-hidden="true"
+                            />
+                            Ver publicación
+                          </Link>
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isOperating}
+                          onClick={() => handleArchive(listing.id)}
+                          className="gap-1 text-xs text-amber-700 hover:bg-amber-50"
+                          aria-label={`Archivar ${listing.title}`}
+                        >
+                          {isOperating ? (
+                            <Loader2
+                              className="size-3.5 animate-spin"
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <Archive className="size-3.5" aria-hidden="true" />
+                          )}
+                          Archivar
+                        </Button>
+                      </>
                     )}
 
                     {listing.state === "oculta" && (

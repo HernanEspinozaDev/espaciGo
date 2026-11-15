@@ -55,3 +55,17 @@ func (r *ownerWeeklyHoursRepoFake) SaveWeeklyHoursForOwnerCAS(_ context.Context,
 	v.SpaceID = space
 	return v, nil
 }
+
+type repositoryWithoutOwnerWeeklyHours struct {
+	Repository
+}
+
+func TestServiceOwnerWeeklyHoursFailsClosedWithoutOwnerScopedRepository(t *testing.T) {
+	svc := &Service{repo: repositoryWithoutOwnerWeeklyHours{}}
+	if _, err := svc.OwnerWeeklyHours(context.Background(), ownerWeeklyOwner, ownerWeeklySpace); err != ErrNotFound {
+		t.Fatalf("OwnerWeeklyHours() error = %v, want %v", err, ErrNotFound)
+	}
+	if _, err := svc.SaveOwnerWeeklyHoursCAS(context.Background(), ownerWeeklyOwner, ownerWeeklySpace, ownerWeeklyValue(), time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)); err != ErrNotFound {
+		t.Fatalf("SaveOwnerWeeklyHoursCAS() error = %v, want %v", err, ErrNotFound)
+	}
+}

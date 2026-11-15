@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   Download,
   FileCheck2,
@@ -21,22 +21,25 @@ import { useAuth } from "@/features/auth/ui/use-auth";
 import { ApiError, isAbortError } from "@/lib/api/errors";
 import { privateBlobUrls } from "@/lib/api/private-blob-urls";
 import { useDocumentVerification } from "./use-document-verification";
-import {
-  IDENTITY_CAPTURE_CONSENT_VERSION,
-  identityEvidenceRoles,
-} from "../domain/document-verification";
 import type {
   DocumentVerificationCase,
-  DocumentVerificationCreate,
   IdentityEvidenceRole,
 } from "../domain/document-verification";
 
 const maxFileBytes = 10 * 1024 * 1024;
 const allowedMimes = new Set(["application/pdf", "image/jpeg", "image/png"]);
 const identityAllowedMimes = new Set(["image/jpeg", "image/png"]);
-const identityEvidenceLabels: Record<IdentityEvidenceRole, string> = {
-  identity_front: "Anverso de la cédula",
-  identity_back: "Reverso de la cédula",
+const identityCaptureConsentVersion = "identity-capture-local-v1";
+const identityEvidenceRoles: readonly IdentityEvidenceRole[] = [
+  "identity_front",
+  "identity_back",
+  "identity_selfie",
+];
+const identityEvidenceRoleLabels: Readonly<
+  Record<IdentityEvidenceRole, string>
+> = {
+  identity_front: "Anverso",
+  identity_back: "Reverso",
   identity_selfie: "Selfie",
 };
 
@@ -78,19 +81,28 @@ function isEditable(value: DocumentVerificationCase): boolean {
 
 function canSubmit(value: DocumentVerificationCase): boolean {
   if (!isEditable(value)) return false;
-  if (value.purpose === "identity") {
+  if (value.purpose === "space") {
     return (
-      value.files.length === identityEvidenceRoles.length &&
-      identityEvidenceRoles.every((role) => {
-        const files = value.files.filter((file) => file.evidence_role === role);
-        return files.length === 1 && files[0]?.state === "limpio";
-      })
+      value.files.length > 0 &&
+      value.files.every((file) => file.state === "limpio")
     );
   }
-  return (
-    value.files.length > 0 &&
-    value.files.every((file) => file.state === "limpio")
-  );
+  if (value.files.length !== identityEvidenceRoles.length) return false;
+  const seenRoles = new Set<IdentityEvidenceRole>();
+  return value.files.every((file) => {
+    const role = file.evidence_role;
+    if (
+      !role ||
+      !identityEvidenceRoles.includes(role) ||
+      seenRoles.has(role) ||
+      file.state !== "limpio" ||
+      !identityAllowedMimes.has(file.mime)
+    ) {
+      return false;
+    }
+    seenRoles.add(role);
+    return true;
+  });
 }
 
 export function DocumentVerificationView() {
@@ -122,19 +134,20 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
   const purposeId = useId();
   const spaceId = useId();
   const expirationId = useId();
+  const declaredFormatId = useId();
+  const evidenceRoleId = useId();
   const fileId = useId();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [purpose, setPurpose] = useState<"identity" | "space">("identity");
-  const [documentFormatDeclared, setDocumentFormatDeclared] = useState<
-    "" | "legacy" | "new" | "unsure"
-  >("");
-  const [captureNoticeConfirmed, setCaptureNoticeConfirmed] = useState(false);
   const [spaceID, setSpaceID] = useState("");
   const [expiration, setExpiration] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [identityEvidenceRole, setIdentityEvidenceRole] =
+  const [declaredFormat, setDeclaredFormat] = useState<
+    "legacy" | "new" | "unsure"
+  >("unsure");
+  const [captureConsentGiven, setCaptureConsentGiven] = useState(false);
+  const [identityRole, setIdentityRole] =
     useState<IdentityEvidenceRole>("identity_front");
+  const [file, setFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [needsRefresh, setNeedsRefresh] = useState(false);
@@ -168,15 +181,8 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
     setError(null);
     setMessage(null);
     const documentExpiresAt = toRfc3339(expiration);
-    if (
-      purpose === "identity" &&
-      (!documentFormatDeclared || !captureNoticeConfirmed)
-    ) {
-      setError(
-        !documentFormatDeclared
-          ? "Selecciona el formato declarado de la cédula."
-          : "Confirma el aviso de prueba local antes de crear el expediente.",
-      );
+    if (purpose === "identity" && !captureConsentGiven) {
+      setError("Confirma el uso exclusivo de datos sintéticos para continuar.");
       return;
     }
     if (
@@ -187,38 +193,28 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
       return;
     }
     try {
-      let input: DocumentVerificationCreate;
-      if (purpose === "identity") {
-        input = {
-          purpose,
-          document_format_declared: documentFormatDeclared as Exclude<
-            typeof documentFormatDeclared,
-            ""
-          >,
-          capture_consent_given: true,
-          capture_consent_version: IDENTITY_CAPTURE_CONSENT_VERSION,
-        };
-      } else {
-        input = documentExpiresAt
-          ? {
+      const input =
+        purpose === "identity"
+          ? ({
               purpose,
-              space_id: spaceID,
-              document_expires_at: documentExpiresAt,
-            }
-          : { purpose, space_id: spaceID };
-      }
+              document_format_declared: declaredFormat,
+              capture_consent_given: true,
+              capture_consent_version: identityCaptureConsentVersion,
+            } as const)
+          : documentExpiresAt
+            ? {
+                purpose,
+                space_id: spaceID,
+                document_expires_at: documentExpiresAt,
+              }
+            : { purpose, space_id: spaceID };
       const created = await create(input);
       setSelectedCaseId(created.value.id);
       setNeedsRefresh(false);
-      setMessage(
-        purpose === "identity"
-          ? "Expediente sintético creado. Puedes cargar evidencias sintéticas locales."
-          : "Expediente creado. Puedes cargar los documentos requeridos.",
-      );
+      setMessage("Expediente creado. Puedes cargar los documentos requeridos.");
       setExpiration("");
       setSpaceID("");
-      setDocumentFormatDeclared("");
-      setCaptureNoticeConfirmed(false);
+      setCaptureConsentGiven(false);
     } catch (cause) {
       if (isAbortError(cause)) return;
       setError(
@@ -231,8 +227,6 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
     setError(null);
     setMessage(null);
     setFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    setIdentityEvidenceRole("identity_front");
     setSelectedCaseId(id);
     setNeedsRefresh(false);
     privateBlobUrls.revoke("document-verification-download");
@@ -244,24 +238,19 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
     }
   }
 
-  async function handleUpload(evidenceRole?: IdentityEvidenceRole) {
+  async function handleUpload() {
     if (!selected || !file) return;
     setError(null);
     setMessage(null);
-    const isIdentity = selected.value.purpose === "identity";
-    if ((isIdentity && !evidenceRole) || (!isIdentity && evidenceRole)) {
-      setError("Selecciona un rol de evidencia válido para este expediente.");
-      return;
-    }
-    const acceptedMimes = isIdentity ? identityAllowedMimes : allowedMimes;
+    const identityCase = selected.value.purpose === "identity";
     if (
-      !acceptedMimes.has(file.type) ||
+      !(identityCase ? identityAllowedMimes : allowedMimes).has(file.type) ||
       file.size <= 0 ||
       file.size > maxFileBytes
     ) {
       setError(
-        isIdentity
-          ? "Usa una imagen JPEG o PNG de hasta 10 MiB."
+        identityCase
+          ? "Para identidad usa solo una imagen JPEG o PNG de hasta 10 MiB."
           : "Usa un PDF, JPEG o PNG de hasta 10 MiB.",
       );
       return;
@@ -270,12 +259,11 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
       await upload(
         selected.value.id,
         file,
-        isIdentity ? evidenceRole : undefined,
+        identityCase ? identityRole : undefined,
       );
       setFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = "";
       setMessage(
-        isIdentity
+        identityCase
           ? "Evidencia recibida y pendiente de inspección."
           : "Documento recibido y pendiente de inspección.",
       );
@@ -333,7 +321,6 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
         }
         if (!isEditable(refreshedCase)) {
           setFile(null);
-          if (fileInputRef.current) fileInputRef.current.value = "";
         }
       }
       setNeedsRefresh(false);
@@ -442,9 +429,9 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
         <CardHeader>
           <CardTitle>Crear expediente</CardTitle>
           <CardDescription>
-            El servidor valida la titularidad del espacio y determina al titular
-            desde la sesión. Los expedientes de identidad de este corte son
-            únicamente sintéticos.
+            {purpose === "identity"
+              ? "Ensayo local únicamente con datos sintéticos. No ingreses documentos ni datos reales."
+              : "El servidor valida la titularidad del espacio y determina al titular desde la sesión."}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -456,9 +443,10 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
               <select
                 id={purposeId}
                 value={purpose}
-                onChange={(event) =>
-                  setPurpose(event.target.value as "identity" | "space")
-                }
+                onChange={(event) => {
+                  setPurpose(event.target.value as "identity" | "space");
+                  setCaptureConsentGiven(false);
+                }}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="identity">Identidad</option>
@@ -493,53 +481,50 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                 </p>
               </div>
             )}
-            {purpose === "identity" && (
-              <div className="space-y-4 sm:col-span-2">
-                <div className="space-y-2">
+            {purpose === "identity" ? (
+              <>
+                <div className="space-y-2 sm:col-span-2">
                   <label
-                    htmlFor="identity-format"
+                    htmlFor={declaredFormatId}
                     className="text-sm font-medium"
                   >
-                    Formato declarado de la cédula
+                    Formato declarado del documento
                   </label>
                   <select
-                    id="identity-format"
-                    value={documentFormatDeclared}
+                    id={declaredFormatId}
+                    value={declaredFormat}
                     onChange={(event) =>
-                      setDocumentFormatDeclared(
-                        event.target.value as "" | "legacy" | "new" | "unsure",
+                      setDeclaredFormat(
+                        event.target.value as "legacy" | "new" | "unsure",
                       )
                     }
+                    required
                     className="h-10 w-full max-w-sm rounded-md border border-input bg-background px-3 text-sm"
                   >
-                    <option value="">Selecciona una opción</option>
                     <option value="legacy">Formato anterior</option>
                     <option value="new">Formato nuevo</option>
                     <option value="unsure">No estoy seguro</option>
                   </select>
+                  <p className="text-xs text-muted-foreground">
+                    La revisión humana determina el formato observado; esta
+                    selección no acredita autenticidad.
+                  </p>
                 </div>
-                <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-                  En este corte solo se usan expedientes sintéticos locales; no
-                  cargues documentos ni datos reales. El aviso definitivo para
-                  captura real aún no está aprobado.
-                </div>
-                <label className="flex items-start gap-3 text-sm">
+                <label className="flex items-start gap-2 text-sm sm:col-span-2">
                   <input
                     type="checkbox"
-                    checked={captureNoticeConfirmed}
+                    checked={captureConsentGiven}
                     onChange={(event) =>
-                      setCaptureNoticeConfirmed(event.target.checked)
+                      setCaptureConsentGiven(event.target.checked)
                     }
-                    className="mt-1 size-4 rounded border-border text-primary focus:ring-ring"
+                    required
+                    className="mt-1"
                   />
-                  <span>
-                    Confirmo el aviso de prueba local para un expediente
-                    sintético
-                  </span>
+                  Confirmo que usaré solo datos sintéticos en este ensayo local;
+                  no autorizo el uso de datos personales reales.
                 </label>
-              </div>
-            )}
-            {purpose === "space" && (
+              </>
+            ) : (
               <div className="space-y-2 sm:col-span-2">
                 <label htmlFor={expirationId} className="text-sm font-medium">
                   Vencimiento del documento (opcional)
@@ -652,64 +637,13 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                 ? "Expediente de identidad"
                 : "Expediente documental de espacio"}{" "}
               · {stateLabels[selected.value.state]}
-              {selected.value.purpose === "space" &&
-                ` · Vence ${displayDate(selected.value.document_expires_at)}`}
+              {selected.value.purpose === "space" && (
+                <> · Vence {displayDate(selected.value.document_expires_at)}</>
+              )}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            {selected.value.purpose === "identity" &&
-              selected.value.state === "requiere_antecedentes" &&
-              selected.value.owner_decision_message && (
-                <p
-                  role="status"
-                  className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900"
-                >
-                  {selected.value.owner_decision_message}
-                </p>
-              )}
-            {selected.value.purpose === "identity" ? (
-              <div className="space-y-3">
-                <p className="text-sm text-muted-foreground">
-                  La revisión humana ocurre en un flujo separado para revisores
-                  autorizados. Usa solo archivos sintéticos locales; no cargues
-                  documentos reales.
-                </p>
-                <ul
-                  aria-label="Estado de evidencias de identidad"
-                  className="space-y-2"
-                >
-                  {identityEvidenceRoles.map((role) => {
-                    const matchingFiles = selected.value.files.filter(
-                      (item) => item.evidence_role === role,
-                    );
-                    const [matchingFile] = matchingFiles;
-                    const statusLabel =
-                      matchingFiles.length === 0
-                        ? "Pendiente de carga"
-                        : matchingFiles.length === 1 && matchingFile
-                          ? fileStateLabels[matchingFile.state]
-                          : "Revisar archivos";
-                    return (
-                      <li key={role} className="rounded-md border p-3 text-sm">
-                        {identityEvidenceLabels[role]} · {statusLabel}
-                      </li>
-                    );
-                  })}
-                </ul>
-                {selected.value.files.some(
-                  (item) =>
-                    item.evidence_role === undefined ||
-                    !identityEvidenceRoles.some(
-                      (role) => role === item.evidence_role,
-                    ),
-                ) && (
-                  <p className="text-sm text-amber-900">
-                    Hay archivos sin un rol reconocido; no se podrá enviar este
-                    expediente.
-                  </p>
-                )}
-              </div>
-            ) : selected.value.files.length === 0 ? (
+            {selected.value.files.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Todavía no hay documentos cargados.
               </p>
@@ -721,6 +655,13 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                     className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
                   >
                     <span className="min-w-0">
+                      {selected.value.purpose === "identity" && (
+                        <span className="block text-sm font-semibold">
+                          {item.evidence_role
+                            ? identityEvidenceRoleLabels[item.evidence_role]
+                            : "Rol no disponible"}
+                        </span>
+                      )}
                       <span className="block text-sm font-medium">
                         {item.mime === "application/pdf"
                           ? "PDF"
@@ -763,26 +704,55 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
               </ul>
             )}
 
+            {selected.value.purpose === "identity" && (
+              <div className="space-y-2 rounded-md border p-3">
+                <p className="text-sm">
+                  Carga un anverso, un reverso y una selfie. Puedes reemplazar
+                  un rol volviendo a seleccionarlo; solo se aceptan imágenes
+                  JPEG o PNG.
+                </p>
+                <ul className="space-y-1 text-sm">
+                  {identityEvidenceRoles.map((role) => {
+                    const roleFiles = selected.value.files.filter(
+                      (item) => item.evidence_role === role,
+                    );
+                    const status =
+                      roleFiles.length > 1
+                        ? "Revisar archivos"
+                        : roleFiles.length === 1
+                          ? fileStateLabels[roleFiles[0].state]
+                          : "Pendiente de carga";
+                    return (
+                      <li key={role} className="flex justify-between gap-3">
+                        <span>{identityEvidenceRoleLabels[role]}</span>
+                        <span className="text-muted-foreground">{status}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
             {isEditable(selected.value) && (
               <div className="space-y-3 border-t pt-4">
                 <h3 className="text-sm font-semibold">
                   {selected.value.purpose === "identity"
-                    ? "Agregar evidencia sintética"
+                    ? "Agregar evidencia"
                     : "Agregar documento"}
                 </h3>
                 {selected.value.purpose === "identity" && (
                   <div className="space-y-2">
                     <label
-                      htmlFor={`${fileId}-evidence-role`}
+                      htmlFor={evidenceRoleId}
                       className="text-sm font-medium"
                     >
-                      Evidencia a cargar
+                      Tipo de evidencia
                     </label>
                     <select
-                      id={`${fileId}-evidence-role`}
-                      value={identityEvidenceRole}
+                      id={evidenceRoleId}
+                      value={identityRole}
                       onChange={(event) =>
-                        setIdentityEvidenceRole(
+                        setIdentityRole(
                           event.target.value as IdentityEvidenceRole,
                         )
                       }
@@ -790,7 +760,7 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                     >
                       {identityEvidenceRoles.map((role) => (
                         <option key={role} value={role}>
-                          {identityEvidenceLabels[role]}
+                          {identityEvidenceRoleLabels[role]}
                         </option>
                       ))}
                     </select>
@@ -799,11 +769,10 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                 <div className="space-y-2">
                   <label htmlFor={fileId} className="text-sm font-medium">
                     {selected.value.purpose === "identity"
-                      ? "JPEG o PNG · máximo 10 MiB"
+                      ? "Imagen JPEG o PNG · máximo 10 MiB"
                       : "PDF, JPEG o PNG · máximo 10 MiB"}
                   </label>
                   <input
-                    ref={fileInputRef}
                     id={fileId}
                     type="file"
                     accept={
@@ -821,13 +790,7 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() =>
-                      void handleUpload(
-                        selected.value.purpose === "identity"
-                          ? identityEvidenceRole
-                          : undefined,
-                      )
-                    }
+                    onClick={() => void handleUpload()}
                     disabled={!file || busy || needsRefresh}
                   >
                     {snapshot.action === "upload" ? (
@@ -860,7 +823,7 @@ function DocumentVerificationContent({ auth }: { auth: AuthSnapshot }) {
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {selected.value.purpose === "identity"
-                    ? "Solo se envía con exactamente una evidencia limpia por rol. Actualiza el expediente para consultar el resultado de la inspección."
+                    ? "El envío requiere exactamente un archivo validado por cada uno de los tres roles. Actualiza el expediente para consultar la inspección."
                     : "El expediente puede enviarse cuando todos sus documentos estén validados. Actualiza el expediente para consultar el resultado de la inspección."}
                 </p>
               </div>

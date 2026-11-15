@@ -2,6 +2,8 @@ package media
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -158,5 +160,183 @@ func TestCleanOnceCompletesTerminalMissingWriteAndIsIdempotent(t *testing.T) {
 	}
 	if repo.completed != 1 {
 		t.Fatalf("repeat cleanup completed %d times", repo.completed)
+	}
+}
+
+type cleanupBoundaryRepository struct {
+	Repository
+	items                      []CleanupItem
+	claimErr, failErr, doneErr error
+	claims, failures, done     int
+}
+
+func (r *cleanupBoundaryRepository) ClaimCleanup(context.Context, int, time.Time) ([]CleanupItem, error) {
+	r.claims++
+	return r.items, r.claimErr
+}
+
+func (r *cleanupBoundaryRepository) FailCleanup(context.Context, string, int64, time.Time) error {
+	r.failures++
+	return r.failErr
+}
+
+func (r *cleanupBoundaryRepository) CompleteCleanup(context.Context, string, int64, time.Time) error {
+	r.done++
+	return r.doneErr
+}
+
+type cleanupBoundaryStore struct {
+	ObjectStore
+	generation    int64
+	generationErr error
+	deleteErr     error
+	lookups       []string
+	deletions     []struct {
+		key        string
+		generation int64
+	}
+}
+
+func (s *cleanupBoundaryStore) Generation(_ context.Context, key string) (int64, error) {
+	s.lookups = append(s.lookups, key)
+	return s.generation, s.generationErr
+}
+
+func (s *cleanupBoundaryStore) Delete(_ context.Context, key string, generation int64) error {
+	s.deletions = append(s.deletions, struct {
+		key        string
+		generation int64
+	}{key: key, generation: generation})
+	return s.deleteErr
+}
+
+func TestCleanOnceMarksGenerationAndObjectDeleteFailuresForRetry(t *testing.T) {
+	generationErr := errors.New("synthetic generation lookup failure")
+	deleteErr := errors.New("synthetic object deletion failure")
+	cases := []struct {
+		name    string
+		item    CleanupItem
+		store   cleanupBoundaryStore
+		wantGet []string
+		wantDel []struct {
+			key        string
+			generation int64
+		}
+	}{
+		{
+			name:    "generation lookup failure",
+			item:    CleanupItem{AssetID: "asset", Token: 4, Intents: []ObjectIntent{{ObjectKey: "intent-key", WriteComplete: true}}},
+			store:   cleanupBoundaryStore{generationErr: generationErr},
+			wantGet: []string{"intent-key"},
+		},
+		{
+			name:  "intent delete failure",
+			item:  CleanupItem{AssetID: "asset", Token: 4, Intents: []ObjectIntent{{ObjectKey: "intent-key", Generation: 41, WriteComplete: true}}},
+			store: cleanupBoundaryStore{deleteErr: deleteErr},
+			wantDel: []struct {
+				key        string
+				generation int64
+			}{{key: "intent-key", generation: 41}},
+		},
+		{
+			name:  "variant delete failure",
+			item:  CleanupItem{AssetID: "asset", Token: 4, Variants: []Variant{{ObjectKey: "variant-key", Generation: 42}}},
+			store: cleanupBoundaryStore{deleteErr: deleteErr},
+			wantDel: []struct {
+				key        string
+				generation int64
+			}{{key: "variant-key", generation: 42}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &cleanupBoundaryRepository{items: []CleanupItem{tc.item}}
+			store := tc.store
+			svc, err := NewService(repo, &store, cleanupIDs{}, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.CleanOnce(context.Background(), 1); err != nil {
+				t.Fatalf("CleanOnce returned error: %v", err)
+			}
+			if repo.claims != 1 || repo.failures != 1 || repo.done != 0 {
+				t.Fatalf("claims=%d failures=%d completed=%d, want 1/1/0", repo.claims, repo.failures, repo.done)
+			}
+			if len(store.lookups) != len(tc.wantGet) || len(store.deletions) != len(tc.wantDel) {
+				t.Fatalf("generation lookups=%v deletions=%v", store.lookups, store.deletions)
+			}
+			for i := range tc.wantGet {
+				if store.lookups[i] != tc.wantGet[i] {
+					t.Fatalf("generation lookups=%v, want %v", store.lookups, tc.wantGet)
+				}
+			}
+			for i := range tc.wantDel {
+				if store.deletions[i] != tc.wantDel[i] {
+					t.Fatalf("deletions=%v, want %v", store.deletions, tc.wantDel)
+				}
+			}
+		})
+	}
+}
+
+func TestCleanOncePropagatesRepositoryBoundaryFailures(t *testing.T) {
+	claimErr := errors.New("synthetic claim failure")
+	failErr := errors.New("synthetic fail-cleanup failure")
+	doneErr := errors.New("synthetic complete-cleanup failure")
+	cases := []struct {
+		name        string
+		repo        cleanupBoundaryRepository
+		store       cleanupBoundaryStore
+		wantErr     error
+		wantFails   int
+		wantDone    int
+		wantDeletes int
+	}{
+		{name: "claim failure", repo: cleanupBoundaryRepository{claimErr: claimErr}, store: cleanupBoundaryStore{}, wantErr: claimErr},
+		{
+			name:  "fail cleanup failure",
+			repo:  cleanupBoundaryRepository{items: []CleanupItem{{AssetID: "asset", Token: 5, Intents: []ObjectIntent{{ObjectKey: "key", Generation: 7}}}}, failErr: failErr},
+			store: cleanupBoundaryStore{deleteErr: errors.New("synthetic delete failure")}, wantErr: failErr, wantFails: 1, wantDeletes: 1,
+		},
+		{
+			name:  "complete cleanup failure",
+			repo:  cleanupBoundaryRepository{items: []CleanupItem{{AssetID: "asset", Token: 5, Variants: []Variant{{ObjectKey: "key", Generation: 7}}}}, doneErr: doneErr},
+			store: cleanupBoundaryStore{}, wantErr: doneErr, wantDone: 1, wantDeletes: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := tc.repo
+			store := tc.store
+			svc, err := NewService(&repo, &store, cleanupIDs{}, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = svc.CleanOnce(context.Background(), 1)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("CleanOnce error=%v, want %v", err, tc.wantErr)
+			}
+			if repo.claims != 1 || repo.failures != tc.wantFails || repo.done != tc.wantDone || len(store.deletions) != tc.wantDeletes {
+				t.Fatalf("claims=%d failures=%d completed=%d deletions=%d", repo.claims, repo.failures, repo.done, len(store.deletions))
+			}
+		})
+	}
+}
+
+func TestCleanOnceRejectsInvalidBatchLimitsBeforeClaiming(t *testing.T) {
+	for _, limit := range []int{0, 501} {
+		t.Run(fmt.Sprint(limit), func(t *testing.T) {
+			repo := &cleanupBoundaryRepository{}
+			svc, err := NewService(repo, &cleanupBoundaryStore{}, cleanupIDs{}, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.CleanOnce(context.Background(), limit); !errors.Is(err, ErrInvalid) {
+				t.Fatalf("CleanOnce error=%v, want ErrInvalid", err)
+			}
+			if repo.claims != 0 {
+				t.Fatalf("invalid limit caused %d cleanup claims", repo.claims)
+			}
+		})
 	}
 }

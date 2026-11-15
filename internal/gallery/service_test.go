@@ -2,6 +2,8 @@ package gallery
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -106,5 +108,101 @@ func TestSetPublicInCatalogCASRejectsUnsupportedRepository(t *testing.T) {
 	_, _, err := s.SetPublicInCatalogCAS(context.Background(), ownerID, ownerID, ownerID, true, "2026-10-28T12:00:00Z")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+type scopedReadRepo struct {
+	Repository
+	listItems                    []Photo
+	listErr, getErr              error
+	getItem                      Photo
+	listOwner, listSpace         string
+	getOwner, getSpace, getPhoto string
+	listCalls, getCalls          int
+}
+
+func (r *scopedReadRepo) List(_ context.Context, owner, spaceID string) ([]Photo, error) {
+	r.listCalls++
+	r.listOwner, r.listSpace = owner, spaceID
+	return append([]Photo(nil), r.listItems...), r.listErr
+}
+
+func (r *scopedReadRepo) Get(_ context.Context, owner, spaceID, photoID string) (Photo, error) {
+	r.getCalls++
+	r.getOwner, r.getSpace, r.getPhoto = owner, spaceID, photoID
+	return r.getItem, r.getErr
+}
+
+type contentFileStore struct {
+	blob []byte
+	err  error
+	id   string
+}
+
+func (*contentFileStore) Put(context.Context, string, []byte) error { return nil }
+func (f *contentFileStore) Get(_ context.Context, id string) ([]byte, error) {
+	f.id = id
+	return append([]byte(nil), f.blob...), f.err
+}
+func (*contentFileStore) Delete(context.Context, string) error { return nil }
+
+func TestListAndContentUseOwnerScopedRepositoryAndVerifyStoredBytes(t *testing.T) {
+	const spaceID = "123e4567-e89b-42d3-a456-426614174001"
+	const photoID = "123e4567-e89b-42d3-a456-426614174002"
+	blob := []byte("synthetic private gallery bytes")
+	digest := sha256.Sum256(blob)
+	photo := Photo{ID: photoID, Size: int64(len(blob)), SHA256: hex.EncodeToString(digest[:])}
+	repo := &scopedReadRepo{listItems: []Photo{photo}, getItem: photo}
+	files := &contentFileStore{blob: blob}
+	s, err := NewService(repo, files, ids{}, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	items, err := s.List(context.Background(), ownerID, spaceID)
+	if err != nil || len(items) != 1 || items[0].ID != photoID {
+		t.Fatalf("List() items=%+v err=%v", items, err)
+	}
+	if repo.listCalls != 1 || repo.listOwner != ownerID || repo.listSpace != spaceID {
+		t.Fatalf("List() scope/calls = %q/%q/%d", repo.listOwner, repo.listSpace, repo.listCalls)
+	}
+
+	gotPhoto, gotBlob, err := s.Content(context.Background(), ownerID, spaceID, photoID)
+	if err != nil || gotPhoto.ID != photoID || string(gotBlob) != string(blob) {
+		t.Fatalf("Content() photo=%+v bytes=%q err=%v", gotPhoto, gotBlob, err)
+	}
+	if repo.getCalls != 1 || repo.getOwner != ownerID || repo.getSpace != spaceID || repo.getPhoto != photoID || files.id != photoID {
+		t.Fatalf("Content() repository/file scope = %q/%q/%q/%q calls=%d", repo.getOwner, repo.getSpace, repo.getPhoto, files.id, repo.getCalls)
+	}
+}
+
+func TestContentRejectsUnavailableOrInconsistentStoredBytes(t *testing.T) {
+	const spaceID = "123e4567-e89b-42d3-a456-426614174001"
+	const photoID = "123e4567-e89b-42d3-a456-426614174002"
+	blob := []byte("expected private gallery bytes")
+	digest := sha256.Sum256(blob)
+	photo := Photo{ID: photoID, Size: int64(len(blob)), SHA256: hex.EncodeToString(digest[:])}
+	changedBytes := append([]byte(nil), blob...)
+	changedBytes[0] ^= 1
+	cases := []struct {
+		name  string
+		files *contentFileStore
+	}{
+		{name: "file store failure", files: &contentFileStore{err: errors.New("private store unavailable")}},
+		{name: "size mismatch", files: &contentFileStore{blob: []byte("short")}},
+		{name: "digest mismatch", files: &contentFileStore{blob: changedBytes}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &scopedReadRepo{getItem: photo}
+			s, err := NewService(repo, tc.files, ids{}, time.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _, err = s.Content(context.Background(), ownerID, spaceID, photoID)
+			if !errors.Is(err, ErrFileStore) {
+				t.Fatalf("Content() error=%v; want %v", err, ErrFileStore)
+			}
+		})
 	}
 }

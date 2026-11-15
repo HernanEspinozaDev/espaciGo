@@ -77,7 +77,7 @@ func assertPackagedCatalogRead(t *testing.T, ctx context.Context, databaseURL st
 		t.Fatal(err)
 	}
 	digest := sha256.Sum256(source)
-	if d.Query != hex.EncodeToString(digest[:]) || d.Target.Readonly != "on" || d.Target.User != "espacigo_schema_owner" || d.Ledger.Count != 96 {
+	if d.Query != hex.EncodeToString(digest[:]) || d.Target.Readonly != "on" || d.Target.User != "espacigo_schema_owner" || d.Ledger.Count != 97 {
 		t.Fatalf("incomplete restricted catalog: %+v", d)
 	}
 }

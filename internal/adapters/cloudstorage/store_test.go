@@ -2,6 +2,7 @@ package cloudstorage
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -276,5 +277,126 @@ func TestValidatePrefixRejectsTraversalAndAcceptsExactRunPrefix(t *testing.T) {
 	}
 	if err := validatePrefix("runs/g03o-1017"); err != nil {
 		t.Fatalf("validatePrefix rejected reviewed run prefix: %v", err)
+	}
+}
+
+func TestStoreMetadataRoundTripAndBoundedRead(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	want := []byte("encrypted synthetic document")
+	wantMetadata := map[string]string{"key_version": "v1"}
+	var stored []byte
+	var storedMetadata map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/upload/storage/v1/b/private-bucket/o"):
+			if r.URL.Query().Get("ifGenerationMatch") != "0" {
+				http.Error(w, "missing create-only precondition", http.StatusBadRequest)
+				return
+			}
+			_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil {
+				http.Error(w, "invalid multipart", http.StatusBadRequest)
+				return
+			}
+			parts := multipart.NewReader(r.Body, params["boundary"])
+			metadataPart, err := parts.NextPart()
+			if err != nil {
+				http.Error(w, "missing metadata", http.StatusBadRequest)
+				return
+			}
+			var upload struct {
+				Metadata map[string]string `json:"metadata"`
+			}
+			if err := json.NewDecoder(metadataPart).Decode(&upload); err != nil {
+				http.Error(w, "invalid metadata", http.StatusBadRequest)
+				return
+			}
+			storedMetadata = upload.Metadata
+			objectPart, err := parts.NextPart()
+			if err != nil {
+				http.Error(w, "missing object bytes", http.StatusBadRequest)
+				return
+			}
+			stored, _ = io.ReadAll(objectPart)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"bucket": "private-bucket", "name": id + ".blob", "generation": "7",
+				"size": strconv.Itoa(len(stored)), "metadata": storedMetadata,
+			})
+		case r.Method == http.MethodGet && r.URL.Query().Get("alt") == "json":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"name": id + ".blob", "generation": "7", "size": strconv.Itoa(len(stored)),
+				"metageneration": "1", "metadata": storedMetadata,
+			})
+		case r.Method == http.MethodGet:
+			if r.Header.Get("x-goog-if-generation-match") != "7" || r.Header.Get("x-goog-if-metageneration-match") != "1" {
+				http.Error(w, "read did not pin the observed object and metadata generations", http.StatusPreconditionFailed)
+				return
+			}
+			w.Header().Set("Content-Type", "application/octet-stream")
+			_, _ = w.Write(stored)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	store := newStoreWithClient(client, "private-bucket")
+	if err := store.PutWithMetadata(context.Background(), id, want, wantMetadata); err != nil {
+		t.Fatal(err)
+	}
+	if string(stored) != string(want) || storedMetadata["key_version"] != "v1" {
+		t.Fatalf("stored object = %q metadata=%v", stored, storedMetadata)
+	}
+	got, metadata, err := store.GetWithMetadata(context.Background(), id, int64(len(want)))
+	if err != nil || string(got) != string(want) || metadata["key_version"] != "v1" {
+		t.Fatalf("GetWithMetadata() = %q, %v, %v", got, metadata, err)
+	}
+	got, metadata, err = store.GetWithMetadata(context.Background(), id, int64(len(want)-1))
+	if err == nil || got != nil || metadata != nil {
+		t.Fatalf("bounded GetWithMetadata() = %q, %v, %v; want size rejection", got, metadata, err)
+	}
+}
+
+func TestValidateMetadataRejectsUnsafeValuesAndBounds(t *testing.T) {
+	tooMany := make(map[string]string)
+	for i := 0; i < 33; i++ {
+		tooMany["key"+strconv.Itoa(i)] = "v"
+	}
+	tooLarge := make(map[string]string)
+	for i := 0; i < 9; i++ {
+		tooLarge["k"+strconv.Itoa(i)] = strings.Repeat("x", 1000)
+	}
+	for name, metadata := range map[string]map[string]string{
+		"uppercase key":       {"Key": "v1"},
+		"empty value":         {"key": ""},
+		"line break":          {"key": "v1\nother"},
+		"delete control":      {"key": "v1\x7f"},
+		"non-ascii":           {"key": "versión"},
+		"oversized value":     {"key": strings.Repeat("x", 1025)},
+		"too many entries":    tooMany,
+		"oversized aggregate": tooLarge,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := validateMetadata(metadata); err == nil {
+				t.Fatalf("validateMetadata(%q) accepted unsafe metadata", name)
+			}
+		})
+	}
+
+	input := map[string]string{"key_version": "v1"}
+	clone, err := validateMetadata(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input["key_version"] = "v2"
+	if clone["key_version"] != "v1" {
+		t.Fatalf("validated metadata aliases caller map: %v", clone)
 	}
 }

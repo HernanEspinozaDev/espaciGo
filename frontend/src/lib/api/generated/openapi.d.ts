@@ -39,7 +39,7 @@ export type Writable<T> =
             }
           : T;
 export interface paths {
-  "/verifications/identity-declaration": {
+  "/local/rental-demo/session": {
     parameters: {
       query?: never;
       header?: never;
@@ -47,16 +47,280 @@ export interface paths {
       cookie?: never;
     };
     /**
-     * Leer la declaración de identidad propia guardada
-     * @description Devuelve solo la declaración vigente de la cuenta autenticada; no expone la declaración de otra cuenta ni datos cifrados.
+     * getRentalDemoSession
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
      */
-    get: operations["getOwnIdentityDeclaration"];
+    get: operations["getRentalDemoSession"];
     put?: never;
     /**
-     * Guardar una nueva revisión de identidad y consentimiento
-     * @description La cuenta se deriva de la sesión. Solo confirma el guardado tras commit y lectura independiente. No inicia una verificación externa ni modifica el perfil público.
+     * createRentalDemoSession
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
      */
-    post: operations["saveOwnIdentityDeclaration"];
+    post: operations["createRentalDemoSession"];
+    /**
+     * deleteRentalDemoSession
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    delete: operations["deleteRentalDemoSession"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/spaces": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * listRentalDemoSpaces
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    get: operations["listRentalDemoSpaces"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/owner/spaces": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * listOwnerRentalDemoSpaces
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    get: operations["listOwnerRentalDemoSpaces"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/spaces/{spaceID}/month": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * getPublicRentalDemoMonth
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    get: operations["getPublicRentalDemoMonth"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/owner/spaces/{spaceID}/month": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * getOwnerRentalDemoMonth
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    get: operations["getOwnerRentalDemoMonth"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/owner/spaces/{spaceID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * updateRentalDemoSpace
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    put: operations["updateRentalDemoSpace"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/owner/spaces/{spaceID}/blocks": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * createRentalDemoBlock
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    post: operations["createRentalDemoBlock"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/owner/spaces/{spaceID}/blocks/{blockID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * deleteRentalDemoBlock
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    delete: operations["deleteRentalDemoBlock"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/quotes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * createRentalDemoQuote
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    post: operations["createRentalDemoQuote"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/quotes/{quoteID}/confirm": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * confirmRentalDemoQuote
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    post: operations["confirmRentalDemoQuote"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/local/rental-demo/attempts/{intentID}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * getRentalDemoAttempt
+     * @description Solo composición local explícita y loopback. Estado sintético reiniciable. No verifica identidad, no genera ni firma contrato, no cobra fondos y no confirma reserva comercial.
+     */
+    get: operations["getRentalDemoAttempt"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/spaces/{spaceID}/rental-availability": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Consultar intervalos informativos de arriendo de una publicación activa
+     * @description Devuelve únicamente intervalos que la fuente autoritativa de disponibilidad declara consultables en este instante. No deriva disponibilidad únicamente del horario semanal ni revela bloqueos, ocupantes, razones o reservas. La consulta es informativa, no retiene ni garantiza un intervalo; cotizar vuelve a validar.
+     */
+    get: operations["listPublicRentalAvailability"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-quotes": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Crear una cotización autenticada sin retener el intervalo
+     * @description Deriva al arrendatario de la sesión. Go revalida publicación activa, intervalo, ocupación, tarifa y zona horaria. La cotización es una instantánea de precio; no crea reserva, ocupación, bloqueo, firma ni pago. No acepta return_url ni datos de identidad en el cuerpo.
+     */
+    post: operations["createRentalQuote"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/rental-quotes/{quoteID}/contract-preview": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Preparar la vista previa de condiciones contractuales esenciales
+     * @description Requiere sesión autenticada como participante, cotización vigente, intervalo todavía disponible e identidad documental vigente de ambas partes según el contrato vigente del servicio de identidad documental; una lectura privada autorizada de nombre legal y RUT es una dependencia separada que debe revalidar la identidad y el ámbito del participante. No persiste un contrato ni crea reserva/ocupación; no firma, acepta ni cobra. El servicio de identidad conserva la autoridad y los datos de evidencia nunca salen.
+     */
+    post: operations["previewRentalContract"];
     delete?: never;
     options?: never;
     head?: never;
@@ -574,7 +838,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Revalida elegibilidad pública del espacio, visibilidad explícita de la foto y estado ready. Solo display/thumbnail WebP; responde con caché de 60 segundos para limitar la ventana de revocación y no revela claves internas. */
+    /** @description Revalida elegibilidad pública del espacio, visibilidad explícita de la foto y estado ready en cada solicitud. Solo display/thumbnail WebP con Cache-Control no-store; no revela claves internas. */
     get: operations["getPublishedSpaceMediaVariant"];
     put?: never;
     post?: never;
@@ -1213,7 +1477,10 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Solo asignaciones vigentes por persona, capacidad y ámbito; excluye conflictos de interés y capacidades incompatibles. No revela identidad ni claves de storage. */
+    /**
+     * Listar expedientes documentales asignados al revisor
+     * @description Solo asignaciones vigentes por persona, capacidad y ámbito; excluye conflictos de interés y capacidades incompatibles. No revela identidad ni claves de storage.
+     */
     get: operations["listAssignedDocumentCases"];
     put?: never;
     post?: never;
@@ -1232,6 +1499,10 @@ export interface paths {
       };
       cookie?: never;
     };
+    /**
+     * Leer el detalle de un expediente documental asignado
+     * @description Revalida en el servidor la asignación vigente y titularidad antes de devolver el DTO minimizado del expediente.
+     */
     get: operations["getAssignedDocumentCase"];
     put?: never;
     post?: never;
@@ -1251,7 +1522,10 @@ export interface paths {
       };
       cookie?: never;
     };
-    /** @description Binario limpio no vencido; asignación vigente bloqueada durante lectura privada, sin caché ni URLs firmadas. Revocar asignación impide nuevas lecturas. */
+    /**
+     * Descargar evidencia limpia de un expediente asignado
+     * @description Binario limpio no vencido; asignación vigente bloqueada durante lectura privada, sin caché ni URLs firmadas. Revocar asignación impide nuevas lecturas.
+     */
     get: operations["downloadAssignedCleanDocument"];
     put?: never;
     post?: never;
@@ -1272,7 +1546,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** @description Reutiliza decisión documental existente, CAS y auditoría. No asigna permisos ni permite autorrevisión. */
+    /**
+     * Registrar la decisión de un expediente asignado
+     * @description Reutiliza decisión documental existente, CAS y auditoría. No asigna permisos ni permite autorrevisión.
+     */
     post: operations["reviewAssignedDocumentCase"];
     delete?: never;
     options?: never;
@@ -1311,7 +1588,7 @@ export interface paths {
     put?: never;
     /**
      * Crear un expediente documental propio
-     * @description El actor se deriva de la sesión. Para identity, Go enlaza dentro de la transacción la revisión legal vigente del titular; el cliente no elige el ID. Para space, Go valida titularidad actual.
+     * @description El actor se deriva de la sesión. El expediente pertenece al titular autenticado; Go valida el propósito y la titularidad del espacio cuando corresponde.
      */
     post: operations["createOwnDocumentVerificationCase"];
     delete?: never;
@@ -1355,7 +1632,7 @@ export interface paths {
     put?: never;
     /**
      * Enviar un expediente documental propio a revisión
-     * @description Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto. Para purpose identity exige un archivo limpio vigente por cada rol identity_front, identity_back e identity_selfie.
+     * @description Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto y no aplica la transición.
      */
     post: operations["submitOwnDocumentVerificationCase"];
     delete?: never;
@@ -1380,7 +1657,7 @@ export interface paths {
     put?: never;
     /**
      * Cargar un documento al expediente propio
-     * @description La sesión determina al titular y el espacio autorizado. Para identity, evidence_role es obligatorio; el mismo rol reemplaza el slot mediante CAS en borrador/requiere_antecedentes, y el anterior queda inaccesible con borrado encolado. Para space, evidence_role se omite. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.
+     * @description La sesión determina al titular y el espacio autorizado. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.
      */
     post: operations["uploadOwnDocumentVerificationFile"];
     delete?: never;
@@ -3124,51 +3401,322 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/verifications/identity-declaration": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Leer la declaración de identidad propia guardada
+     * @description Devuelve solo la declaración vigente de la cuenta autenticada; no expone la declaración de otra cuenta ni datos cifrados.
+     */
+    get: operations["getOwnIdentityDeclaration"];
+    put?: never;
+    /**
+     * Guardar una nueva revisión de identidad y consentimiento
+     * @description La cuenta se deriva de la sesión. Solo confirma el guardado tras commit y lectura independiente. No inicia una verificación externa ni modifica el perfil público.
+     */
+    post: operations["saveOwnIdentityDeclaration"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    IdentityDeclarationRequest: {
-      /** @description Nombres legales declarados. */
-      first_name: string;
-      /** @description Apellidos legales declarados. */
-      last_name: string;
-      /**
-       * Format: date
-       * @description Fecha civil YYYY-MM-DD.
-       */
-      date_of_birth: string;
-      /** @description RUN/RUT con dígito verificador; no es el número de serie documental. */
-      rut: string;
-      /** @constant */
-      id_country: "CHL";
-      /** @constant */
-      document_type: "ID";
-      /**
-       * @description Consentimiento explícito
-       * @constant
-       */
-      consent_given: true;
-      /** @description Debe coincidir con la versión vigente configurada en el servidor. */
-      consent_version: string;
-    };
-    IdentityDeclarationResponse: {
+    DemoPublicSpace: {
       /** Format: uuid */
       id: string;
-      /** Format: int64 */
-      revision: number | string;
-      first_name: string;
-      last_name: string;
-      /** Format: date */
-      date_of_birth: string;
-      rut: string;
+      title: string;
       /** @constant */
-      id_country: "CHL";
-      /** @constant */
-      document_type: "ID";
-      consent_version: string;
+      state: "activa";
+      time_zone: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      unit_price_clp: string;
+    };
+    DemoInterval: {
       /** Format: date-time */
-      consent_given_at: string;
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+    };
+    DemoSession: {
+      /** @enum {string} */
+      actor: "host" | "renter" | "renter2";
+      /** Format: date-time */
+      expires_at: string;
+    };
+    DemoLogin: {
+      /** @enum {string} */
+      actor: "host" | "renter" | "renter2";
+    };
+    DemoSpace: {
+      /** Format: uuid */
+      id: string;
+      title: string;
+      /** @enum {string} */
+      state: "activa" | "borrador" | "oculta";
+      time_zone: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      unit_price_clp: string;
+      revision: string;
+      open_hour: number;
+      close_hour: number;
+    };
+    DemoDay: {
+      /** Format: date */
+      date: string;
+      /** @enum {string} */
+      status: "available" | "partial" | "unavailable" | "outside_horizon";
+      intervals: components["schemas"]["DemoInterval"][];
+    };
+    DemoBlock: {
+      /** Format: uuid */
+      id: string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+    };
+    DemoBlockRequest: {
+      expected_revision: string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+    };
+    DemoBlockCreated: {
+      /** Format: uuid */
+      id: string;
+    };
+    DemoConfig: {
+      expected_revision: string;
+      /** @enum {string} */
+      state: "activa" | "borrador" | "oculta";
+      unit_price_clp: string;
+      open_hour: number;
+      close_hour: number;
+    };
+    DemoQuoteRequest: {
+      /** Format: uuid */
+      space_id: string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+    };
+    DemoConfirmRequest: {
+      /** @constant */
+      approved_contract: true;
+      /** Format: uuid */
+      intent_id: string;
+    };
+    DemoError: {
+      error: {
+        /** @enum {string} */
+        code:
+          | "invalid_request"
+          | "unauthenticated"
+          | "forbidden"
+          | "not_found"
+          | "conflict"
+          | "unavailable"
+          | "method_not_allowed";
+      };
+    };
+    DemoMonth: {
+      /** Format: uuid */
+      space_id: string;
+      title: string;
+      time_zone: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      unit_price_clp: string;
+      month: string;
+      /** Format: date */
+      today: string;
+      days: components["schemas"]["DemoDay"][];
+    };
+    DemoOwnerMonth: {
+      /** Format: uuid */
+      space_id: string;
+      title: string;
+      time_zone: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      unit_price_clp: string;
+      month: string;
+      /** Format: date */
+      today: string;
+      days: components["schemas"]["DemoDay"][];
+      revision: string;
+      blocks: components["schemas"]["DemoBlock"][];
+    };
+    DemoQuote: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      time_zone: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      unit_price_clp: string;
+      units: number;
+      subtotal_clp: string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      expires_at: string;
+    };
+    DemoConfirmation: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      time_zone: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      unit_price_clp: string;
+      units: number;
+      subtotal_clp: string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      expires_at: string;
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      intent_id: string;
+      /** @constant */
+      status: "confirmed_demo";
+      /** @constant */
+      payment_status: "paid_simulated";
+    };
+    RentalInterval: {
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+    };
+    PublicRentalAvailability: {
+      /** Format: uuid */
+      space_id: string;
+      /** @description Zona IANA configurada en la publicación. */
+      time_zone: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      /** Format: date-time */
+      checked_at: string;
+      items: components["schemas"]["RentalInterval"][];
+    };
+    RentalAvailabilityEnvelope: {
+      data: components["schemas"]["PublicRentalAvailability"];
+    };
+    CreateRentalQuoteRequest: {
+      /** Format: uuid */
+      space_id: string;
+      /**
+       * Format: date-time
+       * @description Instante del intervalo devuelto por el calendario público.
+       */
+      start_at: string;
+      /**
+       * Format: date-time
+       * @description Fin exclusivo del intervalo seleccionado.
+       */
+      end_at: string;
+    };
+    RentalQuote: {
+      /** Format: uuid */
+      id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      /** Format: int64 */
+      unit_price_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: int64 */
+      units: number | string;
+      /** Format: int64 */
+      subtotal_clp: number | string;
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      /** @description Zona IANA autoritativa de la publicación. */
+      time_zone: string;
+      /** Format: date-time */
+      created_at: string;
+      /**
+       * Format: date-time
+       * @description Vencimiento de la cotización; no retiene el intervalo.
+       */
+      expires_at: string;
+    };
+    RentalQuoteEnvelope: {
+      data: components["schemas"]["RentalQuote"];
+    };
+    RentalContractPartyPreview: {
+      /** @enum {string} */
+      role: "arrendador" | "arrendatario";
+      legal_name: string;
+      /** @description RUT canónico validado; se devuelve solo a un participante autenticado después del gate de ambas identidades. */
+      rut: string;
+    };
+    /** @description Resumen regenerable de las condiciones esenciales para revisión previa; no contiene plantilla jurídica final ni se persiste. */
+    RentalContractPreview: {
+      /**
+       * @description Vista regenerable; no es aceptación
+       * @constant
+       */
+      state: "preview";
+      /** Format: uuid */
+      quote_id: string;
+      /** Format: uuid */
+      space_id: string;
+      space_title: string;
+      /** @enum {string} */
+      rate_unit: "hora" | "dia" | "mes";
+      /** Format: int64 */
+      unit_price_clp: number | string;
+      /** Format: int64 */
+      units: number | string;
+      /** Format: int64 */
+      subtotal_clp: number | string;
+      /** @constant */
+      currency: "CLP";
+      /** Format: date-time */
+      start_at: string;
+      /** Format: date-time */
+      end_at: string;
+      /** @description Zona IANA autoritativa. */
+      time_zone: string;
+      parties: components["schemas"]["RentalContractPartyPreview"][];
+      /** Format: date-time */
+      generated_at: string;
+    };
+    RentalContractPreviewEnvelope: {
+      data: components["schemas"]["RentalContractPreview"];
     };
     /** @enum {string} */
     AdminCapability:
@@ -4706,7 +5254,7 @@ export interface components {
     };
     SpaceMediaVariant: {
       /** @enum {string} */
-      name: "display" | "thumbnail" | "avatar";
+      name: "display" | "thumbnail";
       /** Format: uri-reference */
       url: string;
       /** @constant */
@@ -5020,17 +5568,17 @@ export interface components {
           /** @constant */
           purpose: "identity";
           /**
-           * @description Formato físico declarado; legacy incluye diseños anteriores al formato emitido desde 2024-12-16. No acredita autenticidad.
+           * @description Formato físico declarado; no acredita autenticidad.
            * @enum {string}
            */
           document_format_declared: "legacy" | "new" | "unsure";
           /**
-           * @description Acknowledgement of the local synthetic-test notice; not authorization for real personal data.
+           * @description Acknowledgement for local synthetic testing only; not authorization for real personal data.
            * @constant
            */
           capture_consent_given: true;
           /**
-           * @description Versioned local synthetic-test notice identifier; the live-data notice is not ratified.
+           * @description Versioned local synthetic-test notice; live-data notice is not ratified.
            * @constant
            */
           capture_consent_version: "identity-capture-local-v1";
@@ -5042,7 +5590,7 @@ export interface components {
           space_id: string;
           /**
            * Format: date-time
-           * @description Si se proporciona, debe ser posterior al instante de recepción en el servidor.
+           * @description Si se informa, la fecha RFC 3339 debe ser estrictamente posterior al instante de recepción.
            */
           document_expires_at?: string;
         };
@@ -5085,66 +5633,13 @@ export interface components {
       owner_decision_message?: string;
       /** @enum {string} */
       document_format_declared?: "legacy" | "new" | "unsure";
-      /**
-       * Format: date-time
-       * @description Solo para purpose space; el vencimiento observado de identidad se devuelve únicamente al revisor.
-       */
+      /** Format: date-time */
       document_expires_at?: string;
       /** Format: date-time */
       verified_at?: string;
       /** Format: date-time */
       verified_until?: string;
       files: components["schemas"]["DocumentVerificationOwnerFile"][];
-    };
-    DocumentVerificationReviewerCase: {
-      /** Format: uuid */
-      id: string;
-      /** @enum {string} */
-      purpose: "identity" | "space";
-      /** Format: uuid */
-      space_id?: string;
-      /** @enum {string} */
-      state:
-        | "borrador"
-        | "enviada"
-        | "en_revision"
-        | "requiere_antecedentes"
-        | "aprobada"
-        | "rechazada"
-        | "vencida"
-        | "revocada";
-      /** Format: int64 */
-      revision: number | string;
-      /**
-       * Format: date-time
-       * @description Fecha observada por revisor para identidad; no es dato declarado por el solicitante.
-       */
-      document_expires_at_observed?: string;
-      /** @enum {string} */
-      document_format_declared?: "legacy" | "new" | "unsure";
-      /** @enum {string} */
-      document_format_observed?: "legacy" | "new" | "undetermined";
-      identity_declaration?: {
-        first_name: string;
-        last_name: string;
-        rut: string;
-        /** Format: date */
-        date_of_birth: string;
-      };
-      /** Format: date-time */
-      verified_at?: string;
-      /** Format: date-time */
-      verified_until?: string;
-      files: components["schemas"]["DocumentVerificationOwnerFile"][];
-    };
-    IdentityReviewChecklist: {
-      names_match: boolean | null;
-      rut_matches: boolean | null;
-      birth_date_and_majority_match: boolean | null;
-      portrait_matches_selfie: boolean | null;
-      evidence_legible: boolean | null;
-      document_unexpired: boolean | null;
-      issue_date_and_format_verified: boolean | null;
     };
     VerificationCase: {
       /** Format: uuid */
@@ -5420,8 +5915,213 @@ export interface components {
       status: "accepted";
       message: string;
     };
+    IdentityDeclarationRequest: {
+      /** @description Nombres legales declarados. */
+      first_name: string;
+      /** @description Apellidos legales declarados. */
+      last_name: string;
+      /**
+       * Format: date
+       * @description Fecha civil YYYY-MM-DD.
+       */
+      date_of_birth: string;
+      /** @description RUN/RUT con dígito verificador; no es el número de serie documental. */
+      rut: string;
+      /** @constant */
+      id_country: "CHL";
+      /** @constant */
+      document_type: "ID";
+      /**
+       * @description Consentimiento explícito
+       * @constant
+       */
+      consent_given: true;
+      /** @description Debe coincidir con la versión vigente configurada en el servidor. */
+      consent_version: string;
+    };
+    IdentityDeclarationResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: int64 */
+      revision: number | string;
+      first_name: string;
+      last_name: string;
+      /** Format: date */
+      date_of_birth: string;
+      rut: string;
+      /** @constant */
+      id_country: "CHL";
+      /** @constant */
+      document_type: "ID";
+      consent_version: string;
+      /** Format: date-time */
+      consent_given_at: string;
+    };
+    DocumentVerificationReviewerCase: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      purpose: "identity" | "space";
+      /** Format: uuid */
+      space_id?: string;
+      /** @enum {string} */
+      state:
+        | "borrador"
+        | "enviada"
+        | "en_revision"
+        | "requiere_antecedentes"
+        | "aprobada"
+        | "rechazada"
+        | "vencida"
+        | "revocada";
+      /** Format: int64 */
+      revision: number | string;
+      /**
+       * Format: date
+       * @description Fecha civil YYYY-MM-DD observada por el revisor para identidad; válida durante ese día en America/Santiago y no declarada por el solicitante.
+       */
+      document_expires_at_observed?: string;
+      /** @enum {string} */
+      document_format_declared?: "legacy" | "new" | "unsure";
+      /** @enum {string} */
+      document_format_observed?: "legacy" | "new" | "undetermined";
+      identity_declaration?: {
+        first_name: string;
+        last_name: string;
+        rut: string;
+        /** Format: date */
+        date_of_birth: string;
+      };
+      /** Format: date-time */
+      verified_at?: string;
+      /** Format: date-time */
+      verified_until?: string;
+      files: components["schemas"]["DocumentVerificationOwnerFile"][];
+    };
+    IdentityReviewChecklist: {
+      names_match: boolean | null;
+      rut_matches: boolean | null;
+      birth_date_and_majority_match: boolean | null;
+      portrait_matches_selfie: boolean | null;
+      evidence_legible: boolean | null;
+      document_unexpired: boolean | null;
+      issue_date_and_format_verified: boolean | null;
+    };
   };
   responses: {
+    /** @description Solicitud de arriendo mal formada o parámetros inválidos; no almacenar la respuesta. */
+    RentalBadRequest: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Credencial ausente, inválida o expirada; no almacenar la respuesta. */
+    RentalUnauthorized: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        "WWW-Authenticate": components["headers"]["WWW-Authenticate"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Identidad autenticada sin permiso para la acción; no almacenar la respuesta. */
+    RentalForbidden: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Recurso inexistente o no visible para esta identidad; no almacenar la respuesta. */
+    RentalNotFound: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description La disponibilidad, cotización o estado cambió; no almacenar la respuesta. */
+    RentalConflict: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Usar Content-Type application/json; no almacenar la respuesta. */
+    RentalUnsupportedMediaType: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Método no admitido para esta ruta; usar los métodos indicados en Allow y no almacenar la respuesta. */
+    RentalMethodNotAllowed: {
+      headers: {
+        /** @description Métodos admitidos por la ruta. */
+        Allow?: string;
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Regla semántica de arriendo no satisfecha; no almacenar la respuesta. */
+    RentalUnprocessableEntity: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Error inesperado; no se exponen detalles internos y la respuesta no se almacena. */
+    RentalInternalServerError: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Servicio de arriendo temporalmente no disponible; no almacenar la respuesta. */
+    RentalServiceUnavailable: {
+      headers: {
+        "Cache-Control": components["headers"]["Cache-Control-NoStore"];
+        "X-Request-ID": components["headers"]["X-Request-ID"];
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
     /** @description Solicitud mal formada o parámetros inválidos. */
     BadRequest: {
       headers: {
@@ -5561,6 +6261,8 @@ export interface components {
   };
   requestBodies: never;
   headers: {
+    /** @description La respuesta no debe almacenarse en caché. */
+    "Cache-Control-NoStore": "no-store";
     /** @description Identificador de correlación generado o propagado por el servidor. */
     "X-Request-ID": string;
     /**
@@ -5575,7 +6277,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-  getOwnIdentityDeclaration: {
+  getRentalDemoSession: {
     parameters: {
       query?: never;
       header?: never;
@@ -5584,21 +6286,82 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Declaración propia descifrada desde el repositorio autorizado. */
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
       200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoSession"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["IdentityDeclarationResponse"];
+          "application/json": components["schemas"]["DemoError"];
         };
       };
-      401: components["responses"]["Unauthorized"];
-      404: components["responses"]["NotFound"];
-      503: components["responses"]["ServiceUnavailable"];
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
     };
   };
-  saveOwnIdentityDeclaration: {
+  createRentalDemoSession: {
     parameters: {
       query?: never;
       header?: never;
@@ -5607,26 +6370,1146 @@ export interface operations {
     };
     requestBody: {
       content: {
-        "application/json": components["schemas"]["IdentityDeclarationRequest"];
+        "application/json": components["schemas"]["DemoLogin"];
       };
     };
     responses: {
-      /** @description Revisión cifrada guardada y leída de nuevo bajo la misma cuenta. */
-      201: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoSession"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["IdentityDeclarationResponse"];
+          "application/json": components["schemas"]["DemoError"];
         };
       };
-      400: components["responses"]["BadRequest"];
-      401: components["responses"]["Unauthorized"];
-      409: components["responses"]["Conflict"];
-      415: components["responses"]["UnsupportedMediaType"];
-      422: components["responses"]["UnprocessableEntity"];
-      500: components["responses"]["InternalServerError"];
-      503: components["responses"]["ServiceUnavailable"];
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  deleteRentalDemoSession: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      204: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  listRentalDemoSpaces: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoPublicSpace"][];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  listOwnerRentalDemoSpaces: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoSpace"][];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  getPublicRentalDemoMonth: {
+    parameters: {
+      query: {
+        month: string;
+        duration: number;
+      };
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoMonth"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  getOwnerRentalDemoMonth: {
+    parameters: {
+      query: {
+        month: string;
+        duration: number;
+      };
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoOwnerMonth"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  updateRentalDemoSpace: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DemoConfig"];
+      };
+    };
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoSpace"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  createRentalDemoBlock: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DemoBlockRequest"];
+      };
+    };
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      201: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoBlockCreated"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  deleteRentalDemoBlock: {
+    parameters: {
+      query?: never;
+      header: {
+        "If-Match": string;
+      };
+      path: {
+        spaceID: string;
+        blockID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      204: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  createRentalDemoQuote: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DemoQuoteRequest"];
+      };
+    };
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      201: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoQuote"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  confirmRentalDemoQuote: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["DemoConfirmRequest"];
+      };
+    };
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoConfirmation"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  getRentalDemoAttempt: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        intentID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resultado exclusivo de demostración en memoria; sin efecto comercial. */
+      200: {
+        headers: {
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoConfirmation"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+      /** @description Error demo genérico; no-store. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DemoError"];
+        };
+      };
+    };
+  };
+  listPublicRentalAvailability: {
+    parameters: {
+      query: {
+        date: string;
+        /** @description Duración admitida por unidad tarifaria; Go aplica la combinación exacta. */
+        duration: number;
+      };
+      header?: never;
+      path: {
+        spaceID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Intervalos consultables, minimizados y con instante de lectura. */
+      200: {
+        headers: {
+          /** @description Evita reutilizar una lectura de disponibilidad vencida. */
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RentalAvailabilityEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      405: components["responses"]["RentalMethodNotAllowed"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      500: components["responses"]["RentalInternalServerError"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  createRentalQuote: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateRentalQuoteRequest"];
+      };
+    };
+    responses: {
+      /** @description Cotización actual con snapshot CLP y vigencia autoritativa. */
+      201: {
+        headers: {
+          /** @description La cotización está limitada a los participantes y no debe almacenarse en caché. */
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RentalQuoteEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      405: components["responses"]["RentalMethodNotAllowed"];
+      409: components["responses"]["RentalConflict"];
+      415: components["responses"]["RentalUnsupportedMediaType"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      500: components["responses"]["RentalInternalServerError"];
+      503: components["responses"]["RentalServiceUnavailable"];
+    };
+  };
+  previewRentalContract: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        quoteID: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Resumen privado de condiciones esenciales; no es el documento contractual final ni representa aceptación o firma. */
+      200: {
+        headers: {
+          /** @description Contiene datos de identidad legal; no debe almacenarse en caché. */
+          "Cache-Control"?: "no-store";
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["RentalContractPreviewEnvelope"];
+        };
+      };
+      400: components["responses"]["RentalBadRequest"];
+      401: components["responses"]["RentalUnauthorized"];
+      403: components["responses"]["RentalForbidden"];
+      404: components["responses"]["RentalNotFound"];
+      405: components["responses"]["RentalMethodNotAllowed"];
+      409: components["responses"]["RentalConflict"];
+      422: components["responses"]["RentalUnprocessableEntity"];
+      500: components["responses"]["RentalInternalServerError"];
+      503: components["responses"]["RentalServiceUnavailable"];
     };
   };
   getGlobalAdminMe: {
@@ -8140,9 +10023,10 @@ export interface operations {
     };
     requestBody?: never;
     responses: {
-      /** @description Expediente minimizado; se revalida asignación y titularidad. */
+      /** @description Expediente asignado y minimizado. */
       200: {
         headers: {
+          ETag: string;
           [name: string]: unknown;
         };
         content: {
@@ -8207,8 +10091,8 @@ export interface operations {
            */
           document_format_observed?: "legacy" | "new" | "undetermined";
           /**
-           * Format: date-time
-           * @description Requerido para aprobar identidad; fecha leída manualmente por el revisor.
+           * Format: date
+           * @description Fecha civil YYYY-MM-DD leída manualmente por el revisor; válida durante ese día en America/Santiago. Requerida para aprobar identidad.
            */
           document_expires_at_observed?: string;
           identity_review_checklist?: components["schemas"]["IdentityReviewChecklist"];
@@ -8401,7 +10285,7 @@ export interface operations {
           /** Format: binary */
           file: string;
           /**
-           * @description Obligatorio para identity y prohibido para space; cargar el mismo rol reemplaza el slot mediante If-Match.
+           * @description Requerido para purpose identity; ausente para purpose space.
            * @enum {string}
            */
           evidence_role?:
@@ -8430,9 +10314,6 @@ export interface operations {
               /** @enum {string} */
               mime: "image/jpeg" | "image/png" | "application/pdf";
               pages: number;
-              /** @enum {string} */
-              evidence_role?:
-                "identity_front" | "identity_back" | "identity_selfie";
             };
           };
         };
@@ -9287,6 +11168,15 @@ export interface operations {
       403: components["responses"]["Forbidden"];
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
+      /** @description La imagen o el cuerpo multipart supera el tamaño permitido; la operación no se reserva. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
       422: components["responses"]["UnprocessableEntity"];
       /** @description Storage privado temporalmente no disponible. */
       503: {
@@ -12123,6 +14013,60 @@ export interface operations {
       404: components["responses"]["NotFound"];
       409: components["responses"]["Conflict"];
       422: components["responses"]["UnprocessableEntity"];
+    };
+  };
+  getOwnIdentityDeclaration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Declaración propia descifrada desde el repositorio autorizado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityDeclarationResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  saveOwnIdentityDeclaration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["IdentityDeclarationRequest"];
+      };
+    };
+    responses: {
+      /** @description Revisión cifrada guardada y leída de nuevo bajo la misma cuenta. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityDeclarationResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      415: components["responses"]["UnsupportedMediaType"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+      503: components["responses"]["ServiceUnavailable"];
     };
   };
 }

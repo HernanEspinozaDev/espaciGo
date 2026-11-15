@@ -7,6 +7,7 @@ import {
 } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { createBffFixtureState } from "./helpers/bff-fixture";
+import { identityDeclarationConsentVersion } from "../src/features/identity-declaration/domain/identity-declaration";
 
 test.use({ trace: "off", screenshot: "off", video: "off" });
 
@@ -913,7 +914,11 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: visualización de elegibili
   const detailButtons = page.getByRole("button", { name: "Ver detalle" });
   await detailButtons.first().click();
   await expect(
-    page.getByText("Detalle de Verificación: Usuario (Identidad)"),
+    page.getByRole("heading", {
+      level: 2,
+      name: "Detalle de Verificación: Usuario (Identidad)",
+      exact: true,
+    }),
   ).toBeVisible();
   await expect(page.getByText("documento_borroso")).toBeVisible();
   await expect(page.getByText("REVISION_DOCUMENTAL")).toBeVisible();
@@ -1379,6 +1384,15 @@ test("@phase6 @a11y account routes fit both viewports and have no Axe violations
       await page.waitForURL((url) => url.pathname === route);
     }
 
+    if (route === "/mi-cuenta/verificaciones") {
+      await expect(
+        page.getByRole("heading", {
+          level: 2,
+          name: "Verificación de cuenta y espacios",
+          exact: true,
+        }),
+      ).toBeVisible();
+    }
     await expect(page.locator("h1")).toHaveCount(1);
     for (const viewport of [
       { width: 1365, height: 900 },
@@ -1563,6 +1577,8 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: aislamiento A->logout->B->l
   let activeAccount: string | null = accountA;
   let providerApiRequests = 0;
   const legacyAttemptId = "7c9e6679-7425-40de-944b-e07fc1f90ae8";
+  let rejectedClaims = 0;
+  const sessionExpiresAt = new Date(Date.now() + 3600_000).toISOString();
 
   const declarationsByAccount = new Map<
     string,
@@ -1595,7 +1611,7 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: aislamiento A->logout->B->l
           account_id: activeAccount,
           roles: ["arrendatario", "anfitrion"],
           capabilities: [],
-          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          expires_at: sessionExpiresAt,
           restricted_mode: false,
         },
       };
@@ -1613,7 +1629,7 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: aislamiento A->logout->B->l
           roles: ["arrendatario", "anfitrion"],
           capabilities: [],
           restricted_mode: false,
-          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          expires_at: sessionExpiresAt,
         },
       };
     }
@@ -1658,14 +1674,8 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: aislamiento A->logout->B->l
       if (!activeAccount) return apiError(401, "unauthorized");
       const payload = JSON.parse(request.postData() ?? "{}");
       if (activeAccount === accountB && payload.rut === "12345678-5") {
-        return {
-          status: 409,
-          body: {
-            code: "rut_already_claimed",
-            message:
-              "No se pudo registrar este RUT. Revisa los datos ingresados o solicita ayuda.",
-          },
-        };
+        rejectedClaims += 1;
+        return apiError(409, "rut_already_claimed");
       }
       const saved = {
         id: "550e8400-e29b-41d4-a716-446655440088",
@@ -1688,15 +1698,23 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: aislamiento A->logout->B->l
 
   // 1. Cuenta A guarda su declaración
   await loginAndNavigate(page, "/mi-cuenta/verificaciones");
-  await page.getByLabel("Nombres legales completos").fill("Matías Ignacio");
-  await page.getByLabel("Apellidos legales completos").fill("Rojas Díaz");
-  await page.getByLabel("Fecha de nacimiento").fill("1991-04-20");
-  await page.getByLabel("RUN / RUT chileno").fill("12345678-5");
-  await page.locator('input[name="consent"]').check();
   await page
-    .getByRole("button", { name: "Guardar datos de identidad" })
+    .getByLabel("Nombres legales", { exact: true })
+    .fill("Matías Ignacio");
+  await page
+    .getByLabel("Apellidos legales", { exact: true })
+    .fill("Rojas Díaz");
+  await page.getByLabel("Fecha de nacimiento").fill("1991-04-20");
+  await page.getByLabel("RUN/RUT", { exact: true }).fill("12345678-5");
+  await page
+    .getByRole("checkbox", { name: /Confirmo que usaré solo datos sintéticos/ })
+    .check();
+  await page
+    .getByRole("button", { name: "Guardar declaración", exact: true })
     .click();
-  await expect(page.getByText("Datos guardados (revisión #1)")).toBeVisible();
+  await expect(
+    page.getByText("Declaración guardada.", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Matías Ignacio")).toBeVisible();
 
   // Verificar que no se persiste RUT ni fecha en localStorage/sessionStorage
@@ -1719,30 +1737,39 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: aislamiento A->logout->B->l
 
   // Cuenta B no ve los datos de Cuenta A; formulario vacío
   await expect(page.getByText("Matías Ignacio")).toHaveCount(0);
-  await expect(page.getByLabel("Nombres legales completos")).toHaveValue("");
-  await expect(page.getByLabel("RUN / RUT chileno")).toHaveValue("");
+  await expect(page.getByLabel("Nombres legales", { exact: true })).toHaveValue(
+    "",
+  );
+  await expect(page.getByLabel("RUN/RUT", { exact: true })).toHaveValue("");
 
   // Cuenta B intenta registrar el mismo RUT de Cuenta A -> 409 sin redirección ni llamada a Didit
-  await page.getByLabel("Nombres legales completos").fill("Borrador Cuenta B");
-  await page.getByLabel("Apellidos legales completos").fill("Pérez");
-  await page.getByLabel("Fecha de nacimiento").fill("1992-08-10");
-  await page.getByLabel("RUN / RUT chileno").fill("12345678-5");
-  await page.locator('input[name="consent"]').check();
   await page
-    .getByRole("button", { name: "Guardar datos de identidad" })
+    .getByLabel("Nombres legales", { exact: true })
+    .fill("Borrador Cuenta B");
+  await page.getByLabel("Apellidos legales", { exact: true }).fill("Pérez");
+  await page.getByLabel("Fecha de nacimiento").fill("1992-08-10");
+  await page.getByLabel("RUN/RUT", { exact: true }).fill("12345678-5");
+  await page
+    .getByRole("checkbox", { name: /Confirmo que usaré solo datos sintéticos/ })
+    .check();
+  await page
+    .getByRole("button", { name: "Guardar declaración", exact: true })
     .click();
   await expect(
     page.getByText(
-      "No se pudo registrar este RUT. Revisa los datos ingresados o solicita ayuda.",
+      "No pudimos confirmar el guardado. Consulta el estado antes de volver a intentarlo.",
     ),
   ).toBeVisible();
+  expect(rejectedClaims).toBe(1);
   expect(providerApiRequests).toBe(0);
   expect(new URL(page.url()).pathname).toBe("/mi-cuenta/verificaciones");
 
   // 3. Logout de Cuenta B -> Re-login de Cuenta A recupera su declaración desde Go sin rastro de B
   await page.getByRole("button", { name: "Cerrar sesión" }).click();
   await loginAndNavigate(page, "/mi-cuenta/verificaciones");
-  await expect(page.getByText("Datos guardados (revisión #1)")).toBeVisible();
+  await expect(
+    page.getByText("Declaración guardada.", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText("Matías Ignacio")).toBeVisible();
   await expect(page.getByText("Borrador Cuenta B")).toHaveCount(0);
 
@@ -1768,21 +1795,25 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: status card is isolated acr
   let activeAccount: string | null = accountA;
   let providerRouteRequests = 0;
   const caseListReads = new Map<string, number>();
+  const sessionExpiresAt = new Date(Date.now() + 3600_000).toISOString();
   const declarationFor = (firstName: string, id: string) => ({
     id,
     revision: 1,
     first_name: firstName,
     last_name: "Synthetic",
     date_of_birth: "1990-01-01",
-    rut: id,
+    rut: "12345678-5",
     id_country: "CHL" as const,
     document_type: "ID" as const,
-    consent_version: "synthetic-consent-v1",
+    consent_version: identityDeclarationConsentVersion,
     consent_given_at: "2026-11-11T12:00:00Z",
   });
   const declarations = new Map([
-    [accountA, declarationFor("Ada A", "declaration-a")],
-    [accountB, declarationFor("Beto B", "declaration-b")],
+    [accountA, declarationFor("Ada A", "550e8400-e29b-41d4-a716-446655440091")],
+    [
+      accountB,
+      declarationFor("Beto B", "550e8400-e29b-41d4-a716-446655440092"),
+    ],
   ]);
   const states = new Map([
     [accountA, "en_revision"],
@@ -1804,7 +1835,7 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: status card is isolated acr
           account_id: activeAccount,
           roles: ["arrendatario"],
           capabilities: [],
-          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          expires_at: sessionExpiresAt,
           restricted_mode: false,
         },
       };
@@ -1822,7 +1853,7 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: status card is isolated acr
           roles: ["arrendatario"],
           capabilities: [],
           restricted_mode: false,
-          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          expires_at: sessionExpiresAt,
         },
       };
     }
@@ -1877,6 +1908,9 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: status card is isolated acr
     absent: string,
   ) => {
     await expect(page.getByText(firstName, { exact: true })).toBeVisible();
+    await expect(page.getByText(absent, { exact: true })).toHaveCount(0);
+    // Main presents the documentary status in General, separate from the declaration.
+    await page.goto("/mi-cuenta");
     await expect(
       page.getByRole("status").filter({ hasText: message }),
     ).toBeVisible();

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -17,6 +18,41 @@ import (
 type Handler struct {
 	service *publiccatalog.Service
 	origins map[string]bool
+}
+
+type headResponseWriter struct {
+	http.ResponseWriter
+	status int
+	length int64
+}
+
+func (w *headResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *headResponseWriter) Write(p []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	w.length += int64(len(p))
+	return len(p), nil
+}
+
+func (w *headResponseWriter) flush() {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	if w.Header().Get("Content-Length") == "" && w.status >= 200 && w.status != http.StatusNoContent && w.status != http.StatusNotModified {
+		w.Header().Set("Content-Length", strconv.FormatInt(w.length, 10))
+	}
+	w.ResponseWriter.WriteHeader(w.status)
+}
+
+type publicSpaceDetailResponse struct {
+	publiccatalog.Space
+	UsageRules string `json:"usage_rules"`
 }
 
 var (
@@ -34,30 +70,44 @@ func New(service *publiccatalog.Service, allowedOrigins ...string) http.Handler 
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodHead {
+		headWriter := &headResponseWriter{ResponseWriter: w}
+		defer headWriter.flush()
+		w = headWriter
+		r = r.Clone(r.Context())
+		r.Method = http.MethodGet
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Add("Vary", "Origin")
 	rid, err := (credentials.Generator{}).ID()
 	if err != nil {
 		publicError(w, http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("X-Request-ID", rid)
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Add("Vary", "Origin")
-	if origin := r.Header.Get("Origin"); origin != "" {
+	origins := r.Header.Values("Origin")
+	if len(origins) > 1 {
+		publicError(w, http.StatusForbidden)
+		return
+	}
+	if len(origins) == 1 && origins[0] != "" {
+		origin := origins[0]
 		if !h.origins[origin] {
 			publicError(w, http.StatusForbidden)
 			return
 		}
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET, HEAD, OPTIONS")
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
@@ -117,7 +167,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case r.URL.Path == "/api/v1/public/space-categories":
-		if len(r.URL.Query()) != 0 {
+		query, validQuery := strictQuery(r)
+		if !validQuery || len(query) != 0 {
 			publicError(w, 422)
 			return
 		}
@@ -126,9 +177,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			publicError(w, 500)
 			return
 		}
+		if v == nil {
+			v = []publiccatalog.Category{}
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": v})
 	case strings.HasPrefix(r.URL.Path, "/api/v1/public/space-categories/") && strings.HasSuffix(r.URL.Path, "/filters"):
-		if len(r.URL.Query()) != 0 {
+		query, validQuery := strictQuery(r)
+		if !validQuery || len(query) != 0 {
 			publicError(w, 422)
 			return
 		}
@@ -146,6 +201,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			publicError(w, 500)
 			return
 		}
+		if filters == nil {
+			filters = []publiccatalog.AttributeFilter{}
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"category_code": category, "items": filters})
 	case r.URL.Path == "/api/v1/public/locations":
 		query, region, limit, ok := publicLocationFilters(r)
@@ -161,6 +219,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			publicError(w, 500)
 			return
+		}
+		if locations == nil {
+			locations = []publiccatalog.Location{}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": locations})
 	case r.URL.Path == "/api/v1/public/spaces":
@@ -178,6 +239,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			publicError(w, 500)
 			return
 		}
+		if v.Items == nil {
+			v.Items = []publiccatalog.Space{}
+		}
+		for i := range v.Items {
+			v.Items[i] = normalizePublicSpaceListItem(v.Items[i])
+		}
 		_ = json.NewEncoder(w).Encode(v)
 	case strings.HasPrefix(r.URL.Path, "/api/v1/public/spaces/"):
 		id := strings.TrimPrefix(r.URL.Path, "/api/v1/public/spaces/")
@@ -194,14 +261,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			publicError(w, 500)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"data": v})
+		v = normalizePublicSpace(v)
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": publicSpaceDetailResponse{Space: v, UsageRules: v.UsageRules}})
 	default:
 		publicError(w, 404)
 	}
 }
 
 func publicFilters(r *http.Request) (publiccatalog.Filters, bool) {
-	q := r.URL.Query()
+	q, validQuery := strictQuery(r)
+	if !validQuery {
+		return publiccatalog.Filters{}, false
+	}
 	allowed := map[string]bool{
 		"category_code": true, "rate_unit": true, "min_unit_price_clp": true, "max_unit_price_clp": true,
 		"sort": true, "page_size": true, "cursor": true, "q": true, "region_code": true,
@@ -347,7 +418,10 @@ func parsePublicAttributeFilters(entries []string) (map[string]bool, map[string]
 }
 
 func publicLocationFilters(r *http.Request) (query, region string, limit int, ok bool) {
-	q := r.URL.Query()
+	q, validQuery := strictQuery(r)
+	if !validQuery {
+		return "", "", 0, false
+	}
 	allowed := map[string]bool{"q": true, "region_code": true, "limit": true}
 	for key, values := range q {
 		if !allowed[key] || len(values) != 1 {
@@ -363,6 +437,28 @@ func publicLocationFilters(r *http.Request) (query, region string, limit int, ok
 		limit = value
 	}
 	return q.Get("q"), q.Get("region_code"), limit, true
+}
+
+func strictQuery(r *http.Request) (url.Values, bool) {
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	return query, err == nil
+}
+
+func normalizePublicSpace(space publiccatalog.Space) publiccatalog.Space {
+	if space.Features == nil {
+		space.Features = []publiccatalog.PublicFeature{}
+	}
+	if space.Images == nil {
+		space.Images = []publiccatalog.PublicImageRef{}
+	}
+	return space
+}
+
+func normalizePublicSpaceListItem(space publiccatalog.Space) publiccatalog.Space {
+	space = normalizePublicSpace(space)
+	space.UsageRules = ""
+	space.WeeklySchedule = nil
+	return space
 }
 
 func publicError(w http.ResponseWriter, status int) {
