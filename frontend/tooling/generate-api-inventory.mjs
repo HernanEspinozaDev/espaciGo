@@ -95,7 +95,7 @@ const authPrototypeRange = sourceRange(
   "\n\tserver := newHTTPServer",
 );
 const localTrialRange = sourceRange(
-  'if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {',
+  "if localBookingTrialEnabled {",
   '\n\t\tmux.HandleFunc("GET /openapi.yaml"',
 );
 

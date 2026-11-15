@@ -8,7 +8,7 @@ import time
 from migration_job_plan import proposal as plan_proposal,SERVICE_ACCOUNT
 from migration_execution import proposal as apply_proposal,verify_execution
 from migration_release_manifest import check_plan,is_plan_report_shape
-from verify_web_backend import PROJECT,REGION,SA,UUID,require
+from verify_web_backend import PROJECT,REGION,SA,UUID,GuardError,require
 
 PROVISIONER=f'projects/{PROJECT}/serviceAccounts/espacigo-release-job-builder@{PROJECT}.iam.gserviceaccount.com'
 
@@ -108,3 +108,14 @@ def remove_job(cloud,job,r):
     require(current['metadata']['uid']==job['metadata']['uid'],'refusing cleanup of replaced Job')
     verify_job(current,r)
     cloud.run('run','jobs','delete',job['metadata']['name'])
+    name=job['metadata']['name']
+    try:
+        cloud.json('run','jobs','describe',name)
+    except GuardError as error:
+        # Same-name pinned-SDK not-found only; never infer absence from a
+        # denied list, transport error or another resource. Never retry DELETE.
+        absent=f'gcloud run jobs failed: ERROR: (gcloud.run.jobs.describe) Cannot find job [{name}].'
+        if str(error)==absent:
+            return
+        raise
+    raise GuardError('Job name still present after cleanup; preserve evidence and do not retry DELETE')

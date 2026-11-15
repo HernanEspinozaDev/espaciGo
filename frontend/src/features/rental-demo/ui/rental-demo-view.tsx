@@ -49,12 +49,18 @@ export function RentalDemoView() {
   } | null>(null);
   const [intentId, setIntentId] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState("");
   const generation = useRef(0);
+  const sessionGeneration = useRef(0);
+  const spacesGeneration = useRef(0);
+  const monthGeneration = useRef(0);
   const controllers = useRef<AbortController[]>([]);
   const fence = useCallback(() => {
     generation.current++;
+    spacesGeneration.current++;
+    monthGeneration.current++;
     controllers.current.forEach((c) => c.abort());
     controllers.current = [];
   }, []);
@@ -69,14 +75,15 @@ export function RentalDemoView() {
 
   useEffect(() => {
     let active = true;
+    const op = sessionGeneration.current;
     const c = new AbortController();
     rentalDemoAdapter
       .session(c.signal)
       .then((s) => {
-        if (active) setSession(s);
+        if (active && sessionGeneration.current === op) setSession(s);
       })
       .catch(() => {
-        if (active) setError(genericError);
+        if (active && sessionGeneration.current === op) setError(genericError);
       });
     return () => {
       active = false;
@@ -84,12 +91,12 @@ export function RentalDemoView() {
     };
   }, []);
   useEffect(() => {
-    const op = ++generation.current;
+    const op = ++spacesGeneration.current;
     const c = new AbortController();
     rentalDemoAdapter
       .spaces(owner, c.signal)
       .then((items) => {
-        if (generation.current !== op) return;
+        if (spacesGeneration.current !== op) return;
         setCalendar(null);
         setSpaces([...items]);
         clearJourney();
@@ -97,24 +104,24 @@ export function RentalDemoView() {
         if (selected && selected.id !== spaceId) setSpaceId(selected.id);
       })
       .catch(() => {
-        if (generation.current === op) setError(genericError);
+        if (spacesGeneration.current === op) setError(genericError);
       });
     return () => c.abort();
   }, [owner, session?.actor, spaceId, clearJourney]);
   useEffect(() => {
     if (!spaceId) return;
-    const op = ++generation.current;
+    const op = ++monthGeneration.current;
     const c = new AbortController();
     rentalDemoAdapter
       .month(spaceId, month, duration, owner, c.signal)
       .then((value) => {
-        if (generation.current === op) {
+        if (monthGeneration.current === op) {
           setCalendar(value);
           clearJourney();
         }
       })
       .catch(() => {
-        if (generation.current === op) setError(genericError);
+        if (monthGeneration.current === op) setError(genericError);
       });
     return () => c.abort();
   }, [spaceId, month, duration, owner, session?.actor, clearJourney]);
@@ -129,14 +136,20 @@ export function RentalDemoView() {
     month?: string;
     date?: string | null;
   }) => {
-    fence();
-    clearJourney();
-    setCalendar(null);
-    setError("");
     const m = patch.mode ?? mode;
     const s = patch.space ?? spaceId;
     const mo = patch.month ?? month;
     const d = patch.date === undefined ? date : patch.date;
+    const modeChanged = m !== mode;
+    const spaceChanged = s !== spaceId;
+    const monthChanged = mo !== month;
+    const dateChanged = d !== date;
+    if (!modeChanged && !spaceChanged && !monthChanged && !dateChanged) return;
+    fence();
+    setBusy(false);
+    clearJourney();
+    if (modeChanged || spaceChanged || monthChanged) setCalendar(null);
+    setError("");
     if (patch.space !== undefined) setSpaceId(patch.space);
     if (patch.month !== undefined) setMonth(patch.month);
     if (patch.date !== undefined) setDate(patch.date);
@@ -147,28 +160,43 @@ export function RentalDemoView() {
   };
   const signIn = async (actor: DemoActor) => {
     fence();
+    const op = ++sessionGeneration.current;
     clearJourney();
     setBusy(true);
+    setSessionBusy(true);
     setError("");
     try {
-      setSession(await rentalDemoAdapter.login(actor));
+      const nextSession = await rentalDemoAdapter.login(actor);
+      if (sessionGeneration.current === op) setSession(nextSession);
     } catch {
-      setError(genericError);
+      if (sessionGeneration.current === op) setError(genericError);
     } finally {
-      setBusy(false);
+      if (sessionGeneration.current === op) {
+        setSessionBusy(false);
+        setBusy(false);
+      }
     }
   };
   const signOut = async () => {
     fence();
+    const op = ++sessionGeneration.current;
     setBusy(true);
+    setSessionBusy(true);
     clearJourney();
     try {
       await rentalDemoAdapter.logout();
-      setSession(null);
+      if (sessionGeneration.current === op) {
+        setSession(null);
+        setSpaces([]);
+        setCalendar(null);
+      }
     } catch {
-      setError(genericError);
+      if (sessionGeneration.current === op) setError(genericError);
     } finally {
-      setBusy(false);
+      if (sessionGeneration.current === op) {
+        setSessionBusy(false);
+        setBusy(false);
+      }
     }
   };
   const refresh = async () => {
@@ -345,7 +373,7 @@ export function RentalDemoView() {
             propietario.
           </p>
           <button
-            disabled={busy}
+            disabled={busy || sessionBusy}
             onClick={() => signIn("host")}
             className="min-h-11 rounded border px-3"
           >
@@ -397,7 +425,7 @@ export function RentalDemoView() {
               <div className="grid gap-2">
                 <p>Usa una sesión sintética para administrar espacios.</p>
                 <button
-                  disabled={busy}
+                  disabled={busy || sessionBusy}
                   onClick={() => signIn("host")}
                   className="min-h-11 rounded border px-3"
                 >
@@ -409,14 +437,14 @@ export function RentalDemoView() {
               <div className="grid gap-2">
                 <p>Esta sesión no administra espacios.</p>
                 <button
-                  disabled={busy}
+                  disabled={busy || sessionBusy}
                   onClick={() => signIn("host")}
                   className="min-h-11 rounded border px-3"
                 >
                   Entrar como propietario de demostración
                 </button>
                 <button
-                  disabled={busy}
+                  disabled={busy || sessionBusy}
                   onClick={signOut}
                   className="min-h-11 rounded border px-3"
                 >
@@ -426,6 +454,16 @@ export function RentalDemoView() {
             )}
             {owner && session?.actor === "host" && (
               <>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p>Sesión sintética: host</p>
+                  <button
+                    disabled={busy || sessionBusy}
+                    onClick={signOut}
+                    className="min-h-11 rounded border px-3"
+                  >
+                    Cerrar sesión de demostración
+                  </button>
+                </div>
                 <label className="grid gap-1 text-sm">
                   Estado demo
                   <select
@@ -481,6 +519,7 @@ export function RentalDemoView() {
                   className="min-h-11 rounded-md border px-3"
                   onClick={async () => {
                     if (!ownerSpace) return;
+                    let op: number | null = null;
                     try {
                       const state = (
                         document.getElementById(
@@ -516,6 +555,7 @@ export function RentalDemoView() {
                       )
                         throw new Error();
                       fence();
+                      op = generation.current;
                       clearJourney();
                       setBusy(true);
                       await rentalDemoAdapter.updateSpace(spaceId, {
@@ -525,19 +565,24 @@ export function RentalDemoView() {
                         open_hour,
                         close_hour,
                       });
+                      if (generation.current !== op) return;
                       const [nextSpace, nextMonth] = await Promise.all([
                         rentalDemoAdapter.spaces(true),
                         rentalDemoAdapter.month(spaceId, month, duration, true),
                       ]);
+                      if (generation.current !== op) return;
                       setSpaces([...nextSpace]);
                       setCalendar(nextMonth);
                     } catch {
-                      setUncertain(true);
-                      setError(
-                        "No se pudo confirmar la configuración. Actualiza antes de volver a guardar.",
-                      );
+                      if (op === null || generation.current === op) {
+                        setUncertain(true);
+                        setError(
+                          "No se pudo confirmar la configuración. Actualiza antes de volver a guardar.",
+                        );
+                      }
                     } finally {
-                      setBusy(false);
+                      if (op === null || generation.current === op)
+                        setBusy(false);
                     }
                   }}
                 >
@@ -564,6 +609,7 @@ export function RentalDemoView() {
                   disabled={!date || busy || uncertain}
                   className="min-h-11 rounded-md border px-3"
                   onClick={async () => {
+                    let op: number | null = null;
                     try {
                       if (!("revision" in calendar)) throw new Error();
                       const a = (
@@ -589,27 +635,32 @@ export function RentalDemoView() {
                         throw new Error();
                       clearJourney();
                       fence();
+                      op = generation.current;
                       setBusy(true);
                       await rentalDemoAdapter.createBlock(spaceId, {
                         expected_revision: calendar.revision,
                         start_at: start,
                         end_at: end,
                       });
-                      setCalendar(
-                        await rentalDemoAdapter.month(
-                          spaceId,
-                          month,
-                          duration,
-                          true,
-                        ),
+                      if (generation.current !== op) return;
+                      const nextMonth = await rentalDemoAdapter.month(
+                        spaceId,
+                        month,
+                        duration,
+                        true,
                       );
+                      if (generation.current !== op) return;
+                      setCalendar(nextMonth);
                     } catch {
-                      setUncertain(true);
-                      setError(
-                        "No se guardó con certeza. Actualiza antes de volver a escribir; revisa fecha y hora.",
-                      );
+                      if (op === null || generation.current === op) {
+                        setUncertain(true);
+                        setError(
+                          "No se guardó con certeza. Actualiza antes de volver a escribir; revisa fecha y hora.",
+                        );
+                      }
                     } finally {
-                      setBusy(false);
+                      if (op === null || generation.current === op)
+                        setBusy(false);
                     }
                   }}
                 >
@@ -629,26 +680,33 @@ export function RentalDemoView() {
                         disabled={busy || uncertain}
                         className="min-h-11 rounded border px-2"
                         onClick={async () => {
+                          let op: number | null = null;
                           try {
+                            fence();
+                            op = generation.current;
                             setBusy(true);
                             await rentalDemoAdapter.deleteBlock(
                               spaceId,
                               block.id,
                               calendar.revision,
                             );
-                            setCalendar(
-                              await rentalDemoAdapter.month(
-                                spaceId,
-                                month,
-                                duration,
-                                true,
-                              ),
+                            if (generation.current !== op) return;
+                            const nextMonth = await rentalDemoAdapter.month(
+                              spaceId,
+                              month,
+                              duration,
+                              true,
                             );
+                            if (generation.current !== op) return;
+                            setCalendar(nextMonth);
                           } catch {
-                            setUncertain(true);
-                            setError(genericError);
+                            if (op === null || generation.current === op) {
+                              setUncertain(true);
+                              setError(genericError);
+                            }
                           } finally {
-                            setBusy(false);
+                            if (op === null || generation.current === op)
+                              setBusy(false);
                           }
                         }}
                       >
@@ -693,14 +751,14 @@ export function RentalDemoView() {
                   <div className="grid gap-2">
                     <p>Para continuar, entra con un actor sintético.</p>
                     <button
-                      disabled={busy}
+                      disabled={busy || sessionBusy}
                       onClick={() => signIn("renter")}
                       className="min-h-11 rounded border px-3"
                     >
                       Entrar como arrendatario de demostración
                     </button>
                     <button
-                      disabled={busy}
+                      disabled={busy || sessionBusy}
                       onClick={() => signIn("renter2")}
                       className="min-h-11 rounded border px-3"
                     >
@@ -712,21 +770,25 @@ export function RentalDemoView() {
                     <p>Sesión sintética: {session.actor}</p>
                     <div className="flex flex-wrap gap-2">
                       <button
-                        disabled={busy || session.actor === "renter"}
+                        disabled={
+                          busy || sessionBusy || session.actor === "renter"
+                        }
                         onClick={() => signIn("renter")}
                         className="min-h-11 rounded border px-3"
                       >
                         Entrar como arrendatario de demostración
                       </button>
                       <button
-                        disabled={busy || session.actor === "renter2"}
+                        disabled={
+                          busy || sessionBusy || session.actor === "renter2"
+                        }
                         onClick={() => signIn("renter2")}
                         className="min-h-11 rounded border px-3"
                       >
                         Entrar como segundo arrendatario de demostración
                       </button>
                       <button
-                        disabled={busy}
+                        disabled={busy || sessionBusy}
                         onClick={signOut}
                         className="min-h-11 rounded border px-3"
                       >

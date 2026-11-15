@@ -48,11 +48,12 @@ def classify(current,prior):
     return 'full'
 
 
-def parent_identity(parent,sha,bid):
+def parent_identity(parent,sha,bid,preflight_only=False):
     require(re.fullmatch('[a-f0-9]{40}',sha) is not None and re.fullmatch(UUID,bid) is not None,'full source SHA/build UUID required')
     require(parent.get('id')==bid and parent.get('buildTriggerId')==TRIGGER and parent.get('serviceAccount')==SA and parent.get('status')=='WORKING','not the active canonical main trigger build')
     subs=parent.get('substitutions',{})
     require(subs.get('COMMIT_SHA')==sha and subs.get('BRANCH_NAME')=='main' and subs.get('REPO_FULL_NAME')=='HernanEspinozaDev/espaciGo' and subs.get('_DEPLOY_SCOPE')=='full','parent source/branch/repository/scope differs')
+    require(subs.get('_DB_PREFLIGHT_ONLY','false')==('true' if preflight_only else 'false'),'parent preflight-only mode differs; refusing applying fallthrough')
     return int(datetime.fromisoformat(parent['createTime'].replace('Z','+00:00')).timestamp())
 
 
@@ -243,13 +244,14 @@ def rollout(cloud,images,sha,bid,baseline,record):
         raise
 
 
-def execute(cloud,root,sha,bid):
-    epoch=parent_identity(cloud.json('builds','describe',bid),sha,bid)
+def execute(cloud,root,sha,bid,preflight_only=False):
+    require(type(preflight_only) is bool,'preflight-only mode must be explicit boolean')
+    epoch=parent_identity(cloud.json('builds','describe',bid),sha,bid,preflight_only)
     inventory=source_inventory(root)
     prior=json.loads(cloud.run('storage','cat',WATERMARK));scope=classify(inventory,prior)
-    if scope=='docs':
+    if not preflight_only and scope=='docs':
         print('DOCS ONLY: no lock, Job, SQL or rollout',flush=True);return {'scope':'docs','source_sha':sha}
-    if scope=='web':return web_release(cloud,root,sha,bid,source_inventory=inventory,allow_full_parent=True)
+    if not preflight_only and scope=='web':return web_release(cloud,root,sha,bid,source_inventory=inventory,allow_full_parent=True)
     work=root/'.local'/'release'/bid;work.mkdir(parents=True,mode=0o700);os.chmod(work,0o700)
     lock_text=json.dumps({'source_sha':sha,'build_id':bid},sort_keys=True)+'\n';lock_file=work/'lock.json';lock_file.write_text(lock_text)
     # A busy/failed release fails closed. No orphan lock is removed automatically.
@@ -272,6 +274,14 @@ def execute(cloud,root,sha,bid):
         manifest=validate_manifest({'format':'espacigo.database-release.v1','source_sha':sha,'target':TARGET.copy(),'images':{'api':outputs['espacigo-api'],'web':outputs['espacigo-web'],'migrator':migrator['espacigo-db-migrator']},'migration_inventory':mi});record('manifest',manifest)
         plan_request=request(manifest,bid,'plan');plan_job=provision(cloud,root,plan_request,record)
         plan=execute_job(cloud,plan_job,plan_request,record);record('preflight',plan)
+        if preflight_only:
+            report={'format':'espacigo.database-preflight.v1','mode':'preflight-only','source_sha':sha,'build_id':bid,'target':TARGET.copy(),'manifest':manifest,'plan':plan,'sql_applied':False,'backup_created':False,'rollout':False,'evidence':records.copy()}
+            record('preflight-only-completed',report)
+            remove_job(cloud,plan_job,plan_request)
+            assert_lock(cloud,generation,lock_text)
+            cloud.run('storage','rm',LOCK,'--if-generation-match='+generation)
+            print('PREFLIGHT ONLY VERIFIED: no backup, applying Job, SQL or rollout',flush=True)
+            return report
         migration_policy(root,plan)
         receipt=backup(cloud,bool(plan['pending']),locked_at,bid,record)
         apply_request=request(manifest,bid,'apply',plan);apply_job=provision(cloud,root,apply_request,record)
@@ -301,9 +311,9 @@ def execute(cloud,root,sha,bid):
 
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--execute',action='store_true');p.add_argument('--sha',required=True);p.add_argument('--build-id',required=True);a=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--execute',action='store_true');p.add_argument('--sha',required=True);p.add_argument('--build-id',required=True);p.add_argument('--preflight-only',action='store_true');a=p.parse_args()
     if not a.execute:p.error('explicit Cloud Build execution required')
-    try:execute(Cloud(),Path(__file__).resolve().parents[2],a.sha,a.build_id)
+    try:execute(Cloud(),Path(__file__).resolve().parents[2],a.sha,a.build_id,preflight_only=a.preflight_only)
     except (ValueError,OSError,KeyError,TypeError) as e:p.exit(1,'Main release failed; inspect recorded execution and owned lock: '+str(e)+'\n')
 
 

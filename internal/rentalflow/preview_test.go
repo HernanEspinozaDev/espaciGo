@@ -204,7 +204,7 @@ func TestContractPreviewStopsAtExpiredOrUnavailableDependencies(t *testing.T) {
 		wantCalendar         int
 		wantGate             int
 	}{
-		{name: "expired quote", expired: true, wantErr: ErrConflict},
+		{name: "expired quote", expired: true, wantErr: ErrNotFound},
 		{name: "quote reader unavailable", quoteErr: errors.New("private quote store failure"), wantErr: ErrUnavailable},
 		{name: "listing disappeared", listingErr: ErrNotFound, wantErr: ErrConflict, wantListings: 1},
 		{name: "malformed listing time zone", mutateListing: func(v *Listing) { v.TimeZone = "Local" }, wantErr: ErrConflict, wantListings: 1},

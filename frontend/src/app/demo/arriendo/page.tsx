@@ -32,14 +32,16 @@ export default async function RentalDemoPage() {
   )
     notFound();
   return (
-    <Suspense
-      fallback={
-        <p className="p-6" role="status">
-          Cargando demostración…
-        </p>
-      }
-    >
-      <RentalDemoView />
-    </Suspense>
+    <main id="main-content" tabIndex={-1}>
+      <Suspense
+        fallback={
+          <p className="p-6" role="status">
+            Cargando demostración…
+          </p>
+        }
+      >
+        <RentalDemoView />
+      </Suspense>
+    </main>
   );
 }

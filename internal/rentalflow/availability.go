@@ -154,7 +154,10 @@ func validateListing(listing Listing) (*time.Location, error) {
 	return loc, nil
 }
 
-func validDuration(unit string, duration int) bool {
+func validDuration(unit string, duration int) bool { return ValidDuration(unit, duration) }
+
+// ValidDuration reports whether duration is supported for the rental unit.
+func ValidDuration(unit string, duration int) bool {
 	switch unit {
 	case "hora":
 		return duration == 1 || duration == 2 || duration == 4

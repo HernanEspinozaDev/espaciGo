@@ -106,7 +106,7 @@ func (s *ContractPreviewService) Preview(ctx context.Context, actorID, quoteID s
 		return ContractPreview{}, ErrNotFound
 	}
 	if !quote.ExpiresAt.After(now) {
-		return ContractPreview{}, ErrConflict
+		return ContractPreview{}, ErrNotFound
 	}
 	listing, err := s.listings.PublicListing(ctx, quote.SpaceID)
 	if ctx.Err() != nil {

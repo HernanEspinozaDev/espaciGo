@@ -49,7 +49,7 @@
      - `rental-demo-calendar.test.mjs` (cuadrícula civil lunes-domingo, formato español, independencia de zona horaria del host)
      - `rental-demo-gateway.test.mjs` (seguridad BFF loopback, aislamiento de cookies, rechazo CSRF y no-store)
      - `rental-demo-openapi.test.mjs` (separación estricta entre operaciones demo `/local/rental-demo` y producción)
-     - `rental-demo-e2e.test.mjs` (recorrido completo extremo a extremo Go + BFF + Adaptador).
+     - `rental-demo-e2e.test.mjs` (flujo API directo contra el demonio Go; no ejercita BFF, adaptador ni UI visible).
   4. **Higiene de código:**
      `git diff --check` -> PASS (limpio, sin espacios en blanco residuales ni marcadores de conflicto).
 
@@ -58,3 +58,9 @@
 ## 2. Límites y Estado Final
 - El flujo comercial de producción (KYC real, contratos notariales/legales vinculantes, pasarela de pago real y persistencia PostgreSQL en `cmd/api`) permanece diferido y sin tocar según lo instruido por el usuario.
 - Las fases DEMO-00 a DEMO-05 quedan plenamente implementadas, verificadas y respaldadas en el candidato aislado.
+
+## 3. Corrección de clasificación y revalidación posterior (2026-11-15)
+
+La descripción anterior del test `rental-demo-e2e.test.mjs` como recorrido Go+BFF+adaptador era incorrecta: el archivo ejecuta solicitudes HTTP directamente contra `cmd/rentaldemo`. No recorre Next.js, el BFF ni la UI. Además, el test dependía de un binario de scratch y una ruta absoluta a otro worktree; al ejecutarlo desde el candidato sincronizado con main falló con `ENOENT`. Por eso, los resultados de 2026-11-14 se conservan como evidencia histórica de suites/API y no como prueba del recorrido visible integrado.
+
+La cobertura visible actual y los cambios correctivos se registran por separado en [`demo-05-visible-e2e-20261115.md`](demo-05-visible-e2e-20261115.md). No se infiere integración a `main`, despliegue ni aceptación final del producto.

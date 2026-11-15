@@ -76,9 +76,9 @@ func TestSyntheticHTTPPreviewRejectsQuoteExpiredAtCurrentInstant(t *testing.T) {
 	if err := json.Unmarshal(envelope["error"], &errorDetails); err != nil {
 		t.Fatalf("decode expired preview error: %v; envelope=%v", err, envelope)
 	}
-	if response.Code != http.StatusConflict || response.Header().Get("Cache-Control") != "no-store" ||
-		len(envelope) != 1 || envelope["error"] == nil || errorDetails.Code != "conflict" || errorDetails.Message == "" || errorDetails.RequestID == "" {
-		t.Fatalf("expired quote response status=%d cache=%q error=%+v envelope=%v body=%s; want 409/no-store generic conflict error only", response.Code, response.Header().Get("Cache-Control"), errorDetails, envelope, response.Body.String())
+	if response.Code != http.StatusNotFound || response.Header().Get("Cache-Control") != "no-store" ||
+		len(envelope) != 1 || envelope["error"] == nil || errorDetails.Code != "not_found" || errorDetails.Message == "" || errorDetails.RequestID == "" {
+		t.Fatalf("expired quote response status=%d cache=%q error=%+v envelope=%v body=%s; want 404/no-store generic not-found error only", response.Code, response.Header().Get("Cache-Control"), errorDetails, envelope, response.Body.String())
 	}
 	for _, forbidden := range []string{title, ownerID, renterID, testQuoteID, ownerName, renterName, "11.111.111-1", "22.222.222-2", "8000"} {
 		if strings.Contains(errorDisclosureBody(t, response.Body.Bytes()), forbidden) {

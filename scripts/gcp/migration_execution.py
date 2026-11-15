@@ -8,7 +8,8 @@ import re
 from backup_readiness import check as check_backup
 from schema_release_gate import validate_catalog
 from migration_job_plan import PROJECT,REGION,SECRET,SERVICE_ACCOUNT,proposal as plan_proposal
-from migration_release_manifest import TARGET,check_plan,validate
+from migration_release_manifest import TARGET,IDENTITY_DDL_MIGRATIONS,check_plan,validate
+from identity_tail_authority import IDENTITY_TAIL_DDL_MIGRATIONS
 
 UUID=r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}'
 
@@ -42,6 +43,18 @@ def parse_time(value):
     except (AttributeError,ValueError):raise ValueError('execution timestamps are invalid') from None
     if t.tzinfo is None:raise ValueError('execution timestamp needs timezone')
     return t
+
+
+def check_execution_authority(preflight,report):
+    needs_identity=any(row['name'] in IDENTITY_DDL_MIGRATIONS for row in preflight['pending'])
+    needs_tail=any(row['name'] in IDENTITY_TAIL_DDL_MIGRATIONS for row in preflight['pending'])
+    for field,needed in (('ddl_authority',needs_identity),('identity_ddl_authority',needs_tail)):
+        if needed:
+            if field not in report or report[field]!=preflight.get(field):
+                raise ValueError('apply-time authority is missing or differs from reviewed preflight: '+field)
+        elif field in report:
+            raise ValueError('unexpected apply-time authority: '+field)
+    return needs_identity,needs_tail
 
 
 def verify_execution(manifest,preflight,build_id,secret_version,job_uid,execution_name,execution,logs,now=None):
@@ -82,7 +95,9 @@ def verify_execution(manifest,preflight,build_id,secret_version,job_uid,executio
         reports.append(report)
     if len(reports)!=1:raise ValueError('exactly one structured success report required; wait for logs without rerunning SQL')
     report=reports[0]
-    if set(report)!={'format','contract','before','after','applied','schema_evidence'} or report['contract']!=expected['contract'] or report['before']!=preflight:raise ValueError('release report differs from reviewed preflight/contract')
+    identity_authority,tail_authority=check_execution_authority(preflight,report)
+    fields={'format','contract','before','after','applied','schema_evidence'}|({'ddl_authority'} if identity_authority else set())|({'identity_ddl_authority'} if tail_authority else set())
+    if set(report)!=fields or report['contract']!=expected['contract'] or report['before']!=preflight:raise ValueError('release report differs from reviewed preflight/contract')
     check_plan(manifest,report['after'],True)
     if report['applied']!=[m['version'] for m in preflight['pending']]:raise ValueError('release applied set differs from reviewed pending suffix')
     catalog=report['schema_evidence']

@@ -71,13 +71,14 @@ func TestRunnerV84AuthorityRecoveryPostgres(t *testing.T) {
 	databaseURL.Path = "/" + target
 	targetURL := databaseURL.String()
 	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
-	if err != nil || len(all) != 84 || inventoryFingerprint(all) != v84AuthorityInventory {
+	if err != nil || len(all) != 97 || inventoryFingerprint(all[:84]) != v84AuthorityInventory {
 		t.Fatalf("pinned V84 migration inventory unavailable: %v", err)
 	}
+	v84Inventory := all[:84]
 	prefix := func(last int) string {
 		t.Helper()
 		dir := t.TempDir()
-		for _, m := range all[:last] {
+		for _, m := range v84Inventory[:last] {
 			if err := os.WriteFile(filepath.Join(dir, m.Name), m.SQL, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -174,6 +175,7 @@ REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;`)
 		if err := independent.QueryRow(ctx, `SELECT NOT EXISTS(SELECT 1 FROM public.usuario)`).Scan(&empty); err != nil || !empty {
 			t.Fatalf("fixture unexpectedly contains account data: %v", err)
 		}
+
 	})
 }
 

@@ -127,6 +127,32 @@ test("static upload-status keeps its own header and method policy instead of the
   assert.equal(calls, 1);
 });
 
+test("contract preview without a session is denied before upstream dispatch", async () => {
+  const quoteID = "11111111-1111-4111-8111-111111111111";
+  const path = ["rental-quotes", quoteID, "contract-preview"];
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ data: {} });
+  };
+
+  const response = await POST(
+    new Request(`https://127.0.0.1:3000/api/backend/${path.join("/")}`, {
+      method: "POST",
+      headers: {
+        host: "127.0.0.1:3000",
+        origin: "https://127.0.0.1:3000",
+      },
+    }),
+    { params: Promise.resolve({ path }) },
+  );
+
+  assert.equal(response.status, 401);
+  assert.equal(calls, 0);
+  assert.match(response.headers.get("set-cookie") ?? "", /Max-Age=0/);
+  assert.equal((await response.json()).error.code, "unauthenticated");
+});
+
 test("all six document operations forward Bearer without browser credentials", async () => {
   const caseID = "11111111-1111-4111-8111-111111111111";
   const fileID = "22222222-2222-4222-8222-222222222222";

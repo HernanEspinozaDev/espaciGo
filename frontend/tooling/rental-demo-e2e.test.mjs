@@ -1,15 +1,56 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
+import { execFileSync, spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = "/home/nandev/Documentos/projects/espaciGo-rental-demo-reconciled";
-const goBinary = "/home/nandev/.hermes/cache/scratch/espacigo-rentaldemo";
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
+const isolatedEnv = {
+  PATH: process.env.PATH ?? "",
+  HOME: process.env.HOME ?? os.homedir(),
+  TMPDIR: process.env.TMPDIR ?? os.tmpdir(),
+  GOPROXY: "off",
+  GOTOOLCHAIN: "local",
+};
 
-test("Full DEMO-02 to DEMO-05 flow: Go daemon + BFF + Adapter full journey", async (t) => {
-  // 1. Build and start Go rentaldemo daemon on isolated port
-  const port = 18129;
+async function freeLoopbackPort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      if (!address || typeof address === "string") {
+        probe.close();
+        reject(new Error("Could not allocate a loopback port"));
+        return;
+      }
+      probe.close((error) => (error ? reject(error) : resolve(address.port)));
+    });
+  });
+}
+
+test("Rental demo API flow: calendars, quote and simulated confirmation", async (t) => {
+  const tempDir = await mkdtemp(
+    path.join(isolatedEnv.TMPDIR, "rental-demo-api-e2e-"),
+  );
+  const goBinary = path.join(tempDir, "rentaldemo");
+  t.after(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+  execFileSync("go", ["build", "-o", goBinary, "./cmd/rentaldemo"], {
+    cwd: repoRoot,
+    env: isolatedEnv,
+    stdio: "inherit",
+    timeout: 120_000,
+  });
+
+  const port = await freeLoopbackPort();
   const addr = `127.0.0.1:${port}`;
   const baseUrl = `http://${addr}/api/v1/local/rental-demo`;
 
@@ -18,13 +59,34 @@ test("Full DEMO-02 to DEMO-05 flow: Go daemon + BFF + Adapter full journey", asy
     ["-addr", addr, "-now", "2030-01-15T12:00:00Z"],
     {
       stdio: "ignore",
+      cwd: repoRoot,
+      env: isolatedEnv,
     },
   );
+  const exited = new Promise((resolve) => {
+    proc.once("exit", resolve);
+    proc.once("error", resolve);
+  });
+  t.after(async () => {
+    if (proc.exitCode !== null || proc.signalCode !== null) return;
+    proc.kill("SIGTERM");
+    const stopped = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve(false), 5_000);
+      exited.then(() => {
+        clearTimeout(timer);
+        resolve(true);
+      });
+    });
+    if (!stopped) {
+      proc.kill("SIGKILL");
+      await exited;
+    }
+  });
 
   try {
     // Wait for daemon to be ready
     let ready = false;
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 100; i++) {
       try {
         const res = await fetch(`${baseUrl}/spaces`);
         if (res.ok) {
@@ -328,6 +390,7 @@ test("Full DEMO-02 to DEMO-05 flow: Go daemon + BFF + Adapter full journey", asy
       "Logged out session must return 401",
     );
   } finally {
-    proc.kill("SIGTERM");
+    if (proc.exitCode === null && proc.signalCode === null)
+      proc.kill("SIGTERM");
   }
 });

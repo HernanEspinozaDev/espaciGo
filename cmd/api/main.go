@@ -34,6 +34,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/ownerexport"
 	pricingpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/pricing"
 	publiccatalogpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/publiccatalog"
+	rentalflowpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/rentalflow"
 	reputationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/reputation"
 	spacespg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/spaces"
 	verificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/verification"
@@ -72,6 +73,8 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/privacy"
 	"github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog"
 	publiccataloghttp "github.com/HernanEspinozaDev/espaciGo/internal/publiccatalog/transport/http"
+	"github.com/HernanEspinozaDev/espaciGo/internal/rentalflow"
+	rentalflowhttp "github.com/HernanEspinozaDev/espaciGo/internal/rentalflow/transport/http"
 	"github.com/HernanEspinozaDev/espaciGo/internal/reputation"
 	reputationhttp "github.com/HernanEspinozaDev/espaciGo/internal/reputation/transport/http"
 	spacesdomain "github.com/HernanEspinozaDev/espaciGo/internal/spaces"
@@ -199,6 +202,10 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API profile configuration")
 	}
+	commercialFlowEnabled, err := commercialRentalFlowEnabled(os.Getenv, runtimeProfileValue, prototypeEnabled, isolatedDatasetClock)
+	if err != nil {
+		return errors.New("invalid commercial rental flow configuration")
+	}
 
 	pool, closeConnector, err := newDatabasePool(context.Background(), cfg)
 	if err != nil {
@@ -216,6 +223,7 @@ func run() error {
 	var localMediaService *media.Service
 	var documentScanProcessor *documentverificationpg.ScanProcessor
 	var documentRetentionProcessor *documentverificationpg.RetentionProcessor
+	var commercialQuoteRepository *rentalflowpg.Repository
 	var localContractService *contract.Service
 	var localOperationService *operation.Service
 	var localNoticeService *localnotice.Service
@@ -259,10 +267,43 @@ func run() error {
 		if err != nil {
 			return errors.New("local document verification initialization failed")
 		}
+		if commercialFlowEnabled {
+			declarationKeys, keyringErr := loadRentalContractDeclarationKeyring(os.Getenv)
+			if keyringErr != nil {
+				return errors.New("commercial rental identity initialization failed")
+			}
+			commercialQuoteRepository, err = rentalflowpg.NewRepositoryWithDeclarationKeyring(pool, pool, time.Now, declarationKeys)
+			if err != nil {
+				return errors.New("commercial rental persistence initialization failed")
+			}
+			availabilityService, serviceErr := rentalflow.NewAvailabilityService(commercialQuoteRepository, commercialQuoteRepository, time.Now)
+			if serviceErr != nil {
+				return errors.New("commercial rental availability initialization failed")
+			}
+			quoteService, serviceErr := rentalflow.NewQuoteService(commercialQuoteRepository, commercialQuoteRepository, commercialQuoteRepository, time.Now)
+			if serviceErr != nil {
+				return errors.New("commercial rental quote initialization failed")
+			}
+			identityVerifier, serviceErr := identityverification.NewService(documentVerificationRepository)
+			if serviceErr != nil {
+				return errors.New("commercial rental identity gate initialization failed")
+			}
+			previewService, serviceErr := rentalflow.NewContractPreviewService(commercialQuoteRepository, commercialQuoteRepository, commercialQuoteRepository, identityVerifier, commercialQuoteRepository, time.Now)
+			if serviceErr != nil {
+				return errors.New("commercial rental preview initialization failed")
+			}
+			rentalHandler := rentalflowhttp.New(service, availabilityService, quoteService, previewService, cfg.allowedOrigins)
+			if err := mountCommercialRentalFlowRoutes(mux, rentalHandler); err != nil {
+				return errors.New("commercial rental route registration failed")
+			}
+		}
 		evidenceRoot := os.Getenv("M03_EVIDENCE_DIR")
 		documentStore, err := newRuntimeDocumentStore(os.Getenv, evidenceRoot)
 		if err != nil {
 			return errors.New("private document storage is unavailable")
+		}
+		if closer, ok := any(documentStore).(interface{ Close() error }); ok {
+			defer closer.Close()
 		}
 		var documentUploadService *documentverification.UploadService
 		var documentDownloadHandler http.Handler
@@ -439,25 +480,22 @@ func run() error {
 			}
 			registerLocalRepublicationRoutes(mux, operationhttp.NewHandler(service, returnService, cfg.allowedOrigins))
 		}
-		if publicCatalogEnabled || os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
-			if publicCatalogEnabled {
-				publicCatalogMasterKey, err = localPublicCatalogKey(os.Getenv("LOCAL_PUBLIC_CATALOG_CURSOR_KEY_FILE"))
-				if err != nil {
-					return err
-				}
+		localBookingTrialEnabled := os.Getenv("LOCAL_BOOKING_TRIAL") == "1"
+		if publicCatalogEnabled || localBookingTrialEnabled || commercialFlowEnabled {
+			publicCatalogMasterKey, err = localPublicCatalogKey(os.Getenv("LOCAL_PUBLIC_CATALOG_CURSOR_KEY_FILE"))
+			if err != nil {
+				return err
 			}
 			publicCatalogService, err := publiccatalog.NewWithImageAndMediaStore(publiccatalogpg.New(pool), publicCatalogMasterKey, evidenceStore, mediaStore)
 			if err != nil {
 				return errors.New("public catalog initialization failed")
 			}
 			publicCatalogHandler := publiccataloghttp.New(publicCatalogService, cfg.allowedOrigins...)
-			mux.Handle("/api/v1/public/spaces", publicCatalogHandler)
-			mux.Handle("/api/v1/public/spaces/", publicCatalogHandler)
-			mux.Handle("/api/v1/public/space-categories", publicCatalogHandler)
-			mux.Handle("/api/v1/public/space-categories/", publicCatalogHandler)
-			mux.Handle("/api/v1/public/locations", publicCatalogHandler)
+			if err := mountPublicCatalogRoutes(mux, publicCatalogHandler, publicCatalogEnabled, localBookingTrialEnabled, commercialFlowEnabled); err != nil {
+				return errors.New("public catalog route registration failed")
+			}
 		}
-		if os.Getenv("LOCAL_BOOKING_TRIAL") == "1" {
+		if localBookingTrialEnabled {
 			quoteTTL, err := localTrialDuration("LOCAL_BOOKING_QUOTE_TTL", 15*time.Minute)
 			if err != nil {
 				return errors.New("invalid local quote lifetime")
@@ -567,12 +605,21 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	documentWorkers := newTrackedWorkerGroup(ctx)
-	defer documentWorkers.StopAndWait()
+	trackedWorkers := newTrackedWorkerGroup(ctx)
+	defer trackedWorkers.StopAndWait()
 
 	// Keep every mutating background loop in this registry so the explicit
 	// worker-free profile can suppress them as one enforceable startup gate.
-	workers := make([]namedWorker, 0, 13)
+	workers := make([]namedWorker, 0, 14)
+	if commercialQuoteRepository != nil {
+		workers = append(workers, namedWorker{"commercial-rental-quote-expiry", func() {
+			startCommercialQuoteExpiryWorker(trackedWorkers, commercialQuoteRepository, time.Minute, 100, time.Now, func(error) {
+				log.Print("commercial rental quote expiry pass failed")
+			}, func() {
+				log.Print("commercial rental quote expiry worker stopped")
+			})
+		}})
+	}
 	if localPaymentService != nil && !isolatedDatasetClock {
 		workers = append(workers,
 			namedWorker{"payment-reconciler", func() { go localPaymentService.RunPaymentReconciler(ctx, 5*time.Second) }},
@@ -702,7 +749,7 @@ func run() error {
 	}
 	if documentScanProcessor != nil {
 		workers = append(workers, namedWorker{"document-verification-scan", func() {
-			documentWorkers.Go(func(workerCtx context.Context) {
+			trackedWorkers.Go(func(workerCtx context.Context) {
 				if err := documentScanProcessor.Run(workerCtx, time.Second, func(error) {
 					log.Print("document verification scan pass failed")
 				}); err != nil {
@@ -711,7 +758,7 @@ func run() error {
 			})
 		}})
 		workers = append(workers, namedWorker{"document-verification-retention", func() {
-			documentWorkers.Go(func(workerCtx context.Context) {
+			trackedWorkers.Go(func(workerCtx context.Context) {
 				if err := documentRetentionProcessor.Run(workerCtx, time.Second, func(error) {
 					log.Print("document verification retention pass failed")
 				}); err != nil {

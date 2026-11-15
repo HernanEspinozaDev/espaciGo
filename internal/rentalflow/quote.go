@@ -9,6 +9,9 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/pricing"
 )
 
+// QuoteLifetime is the validity window assigned when a quote is created.
+const QuoteLifetime = 15 * time.Minute
+
 type QuoteRequest struct {
 	SpaceID string `json:"space_id"`
 	StartAt string `json:"start_at"`

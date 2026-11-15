@@ -17,6 +17,9 @@ export interface MonthCalendarProps {
   onMonthChange: (month: string) => void;
   today: string;
   disabled?: boolean;
+  allowUnqueriedDates?: boolean;
+  minDate?: string;
+  maxDate?: string;
 }
 
 const WEEKDAYS = [
@@ -52,6 +55,9 @@ export function MonthCalendar({
   onMonthChange,
   today,
   disabled = false,
+  allowUnqueriedDates = false,
+  minDate,
+  maxDate,
 }: MonthCalendarProps) {
   const titleId = useId();
   const byDate = new Map(days.map((day) => [day.date, day]));
@@ -111,8 +117,19 @@ export function MonthCalendar({
         {grid.map(({ date, inMonth }) => {
           const day = byDate.get(date);
           const selected = selectedDate === date;
-          const unavailable = !day || day.status === "outside_horizon";
-          const label = day ? STATUS_TEXT[day.status] : "Sin información";
+          const outsideDateRange =
+            (minDate !== undefined && date < minDate) ||
+            (maxDate !== undefined && date > maxDate);
+          const unavailable =
+            outsideDateRange ||
+            day?.status === "outside_horizon" ||
+            (!day && !allowUnqueriedDates);
+          const label =
+            outsideDateRange || day?.status === "outside_horizon"
+              ? STATUS_TEXT.outside_horizon
+              : day
+                ? STATUS_TEXT[day.status]
+                : "Sin información";
           const dayNumber = Number(date.slice(-2));
           return (
             <div key={date} className="min-w-0">

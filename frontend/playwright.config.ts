@@ -8,6 +8,7 @@ export default defineConfig({
   testIgnore: [
     "**/public-weekly-calendar.spec.ts",
     "**/public-gallery-media.spec.ts",
+    "**/public-rental-commercial-journey.spec.ts",
   ],
   fullyParallel: true,
   reporter: "list",

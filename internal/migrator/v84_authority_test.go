@@ -2,6 +2,7 @@ package migrator
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -17,9 +18,18 @@ func TestV84AuthorityManifestConstants(t *testing.T) {
 }
 
 func TestV84AuthorityHelperRejectsUnknownModeAfterManifestCheck(t *testing.T) {
-	dir, err := filepath.Abs(filepath.Join("..", "..", "db", "migrations"))
+	all, err := DiscoverMigrations(filepath.Join("..", "..", "db", "migrations"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if len(all) != 97 {
+		t.Fatalf("expected shared V1..V97 candidate inventory, got %d migrations", len(all))
+	}
+	dir := t.TempDir()
+	for _, migration := range all[:84] {
+		if err := os.WriteFile(filepath.Join(dir, migration.Name), migration.SQL, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	_, err = manageV84AuthorityWithConn(context.Background(), nil, dir, "unknown", "")
 	if err == nil || !strings.Contains(err.Error(), "invalid V84 authority mode") {

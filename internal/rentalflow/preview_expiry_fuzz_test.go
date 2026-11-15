@@ -32,8 +32,8 @@ func FuzzContractPreviewExpiryUsesNanosecondBoundary(f *testing.F) {
 
 		preview, err := service.Preview(context.Background(), testRenterID, testQuoteID)
 		if delta <= 0 {
-			if !errors.Is(err, ErrConflict) || preview.State != "" {
-				t.Fatalf("expired quote delta=%s preview=%+v err=%v; want conflict without preview", delta, preview, err)
+			if !errors.Is(err, ErrNotFound) || preview.State != "" {
+				t.Fatalf("expired quote delta=%s preview=%+v err=%v; want not-found without preview", delta, preview, err)
 			}
 			if quotes.calls != 1 || catalog.calls != 0 || calendar.checkCalls != 0 || gate.calls != 0 || len(identities.calls) != 0 {
 				t.Fatalf("expired quote reached later stages: quote=%d listing=%d calendar=%d gate=%d identities=%d", quotes.calls, catalog.calls, calendar.checkCalls, gate.calls, len(identities.calls))

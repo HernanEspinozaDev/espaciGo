@@ -12,6 +12,12 @@ import {
   rateUnitLabel,
   safePublicText,
 } from "@/features/public-catalog/domain/presentation";
+import {
+  addCivilDays,
+  localDateISO,
+} from "@/features/public-catalog/domain/local-date";
+import { parseRentalReturnSelection } from "@/features/public-catalog/domain/availability-return";
+import type { RentalReturnSelection } from "@/features/public-catalog/domain/availability-return";
 import { publicCatalog } from "@/features/public-catalog/infrastructure/catalog-runtime";
 import { CatalogUnavailable } from "@/features/public-catalog/ui/catalog-states";
 import { PublicVerificationBadges } from "@/features/public-catalog/ui/public-verification-badges";
@@ -19,7 +25,10 @@ import { PublicWeeklySchedule } from "@/features/public-catalog/ui/public-weekly
 import { PublicSpaceRentalAvailability } from "@/features/public-catalog/ui/public-space-rental-availability";
 
 export const dynamic = "force-dynamic";
-type PageProps = { params: Promise<{ id: string }> };
+type PageProps = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
 function categoryHref(code: string) {
   return `/categorias/${encodeURIComponent(code)}`;
@@ -55,7 +64,10 @@ export async function generateMetadata({
   };
 }
 
-export default async function PublicSpacePage({ params }: PageProps) {
+export default async function PublicSpacePage({
+  params,
+  searchParams,
+}: PageProps) {
   const { id } = await params;
   if (!isPublicUuid(id)) notFound();
   const result = await publicCatalog.space(id);
@@ -71,6 +83,32 @@ export default async function PublicSpacePage({ params }: PageProps) {
     );
   }
   const space = result.value;
+  const rentalTimeZone = space.weekly_schedule?.time_zone ?? "America/Santiago";
+  const rentalToday = localDateISO(new Date(), rentalTimeZone);
+  const query = new URLSearchParams();
+  const rawSearchParams = await searchParams;
+  for (const [key, value] of Object.entries(rawSearchParams ?? {})) {
+    for (const item of Array.isArray(value)
+      ? value
+      : value === undefined
+        ? []
+        : [value])
+      query.append(key, item);
+  }
+  const candidateRentalSelection = parseRentalReturnSelection(query.toString());
+  const validDurations =
+    space.rate_unit === "hora"
+      ? [1, 2, 4]
+      : space.rate_unit === "dia"
+        ? [1, 2, 3]
+        : [1];
+  const rentalSelection: RentalReturnSelection | undefined =
+    candidateRentalSelection &&
+    candidateRentalSelection.date >= rentalToday &&
+    candidateRentalSelection.date <= addCivilDays(rentalToday, 90) &&
+    validDurations.includes(candidateRentalSelection.duration)
+      ? candidateRentalSelection
+      : undefined;
   const title = safePublicText(space.title);
   const description = safePublicText(space.description);
   const rules = safePublicText(space.usage_rules);
@@ -181,9 +219,12 @@ export default async function PublicSpacePage({ params }: PageProps) {
           ) : null}
           <PublicWeeklySchedule schedule={space.weekly_schedule} />
           <PublicSpaceRentalAvailability
+            key={space.space_id}
             spaceId={space.space_id}
             rateUnit={space.rate_unit}
             basePriceCLP={space.base_price_clp}
+            today={rentalToday}
+            initialSelection={rentalSelection}
           />
           <p className="border-t border-border pt-5 text-xs leading-relaxed text-muted-foreground">
             La ficha muestra únicamente información pública minimizada. No

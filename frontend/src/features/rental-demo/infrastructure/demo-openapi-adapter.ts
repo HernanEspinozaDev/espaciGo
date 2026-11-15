@@ -15,7 +15,7 @@ import type { DemoPort } from "../application/demo.port";
 
 export function createRentalDemoTransport(fetcher: typeof fetch = fetch) {
   return {
-    fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+    fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
       const request =
         input instanceof Request ? input : new Request(input, init);
       const url = new URL(request.url);
@@ -26,16 +26,18 @@ export function createRentalDemoTransport(fetcher: typeof fetch = fetch) {
         );
       const headers = new Headers(request.headers);
       headers.delete("authorization");
+      // Keep these small JSON writes buffered when rebuilding the same-origin
+      // request; streaming uploads are not supported by the local BFF flow.
+      const body = request.body ? await request.arrayBuffer() : undefined;
       return fetcher(
         new Request(url, {
           method: request.method,
           headers,
-          body: request.body,
+          body,
           signal: request.signal,
           credentials: "same-origin",
           redirect: "error",
-          ...(request.body ? { duplex: "half" } : {}),
-        } as RequestInit),
+        }),
       );
     },
   };

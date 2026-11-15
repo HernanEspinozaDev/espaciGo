@@ -148,6 +148,34 @@ class MainReleaseTests(unittest.TestCase):
         with self.assertRaises(GuardError):release.execute(self.cloud,self.root,SHA,BUILD)
         with self.assertRaises(GuardError):release.migration_policy(self.root,{'pending':[{'name':'V000084__unreviewed.sql','checksum':'c'*64}]})
 
+    def test_rental_v97_remains_held_until_combined_release_gates_pass(self):
+        entries=release.SCHEMA.migration_inventory(self.root/'db/migrations')
+        rental=next(entry for entry in entries if entry['name']=='V000097__commercial_rental_quote_snapshots.sql')
+        with self.assertRaises(GuardError):release.migration_policy(self.root,{'pending':[rental]})
+        policy=json.loads((self.root/'db/release-policy.json').read_text())
+        self.assertNotIn('V000085__commercial_rental_quote_snapshots.sql',policy['review_required_migrations'])
+        self.assertNotIn(rental['name'],policy['automatic_migrations'])
+        self.assertIn(rental['name'],policy['review_required_migrations'])
+        held=policy['review_required_migrations'][rental['name']]
+        self.assertEqual(held['checksum'],rental['checksum'])
+        self.assertIs(held['automatic'],False)
+        drifted=dict(rental);drifted['checksum']='0'*64
+        with self.assertRaises(GuardError):release.migration_policy(self.root,{'pending':[drifted]})
+
+    def test_combined_identity_history_preserves_review_required_policy(self):
+        entries=release.SCHEMA.migration_inventory(self.root/'db/migrations')
+        policy=json.loads((self.root/'db/release-policy.json').read_text())
+        for entry in entries:
+            if 85 <= entry['version'] <= 96:
+                with self.subTest(version=entry['version']):
+                    self.assertNotIn(entry['name'],policy['automatic_migrations'])
+                    self.assertIn(entry['name'],policy['review_required_migrations'])
+                    held=policy['review_required_migrations'][entry['name']]
+                    self.assertEqual(held['checksum'],entry['checksum'])
+                    self.assertEqual(held['strategy'],'security-tightening')
+                    self.assertIs(held['automatic'],False)
+                    with self.assertRaises(GuardError):release.migration_policy(self.root,{'pending':[entry]})
+
 
 class JobBoundaryTests(unittest.TestCase):
     def test_job_config_readback_rejects_overrides_before_execution(self):

@@ -155,6 +155,35 @@ test("MonthCalendar disables boundary buttons at extreme years 0001 and 9999", (
   assert.match(htmlMax, /aria-label="Mes siguiente" disabled=""/);
 });
 
+test("MonthCalendar can expose only unqueried dates inside the public horizon", () => {
+  const html = renderToStaticMarkup(
+    createElement(MonthCalendar, {
+      month: "2030-01",
+      days: [],
+      selectedDate: null,
+      onSelect: () => {},
+      onMonthChange: () => {},
+      today: "2030-01-15",
+      allowUnqueriedDates: true,
+      minDate: "2030-01-15",
+      maxDate: "2030-01-20",
+    }),
+  );
+  const dayButton = (day) =>
+    [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].find(
+      ([, , content]) => content.includes(`<span>${day}</span>`),
+    );
+  const pastDay = dayButton(14);
+  const inRangeDay = dayButton(15);
+  const beyondHorizonDay = dayButton(21);
+  assert.ok(pastDay);
+  assert.match(pastDay[1], /disabled=""/);
+  assert.ok(inRangeDay);
+  assert.doesNotMatch(inRangeDay[1], /disabled=""/);
+  assert.ok(beyondHorizonDay);
+  assert.match(beyondHorizonDay[1], /disabled=""/);
+});
+
 test("MonthCalendar disables all navigation and day buttons when disabled prop is true", () => {
   const html = renderToStaticMarkup(
     createElement(MonthCalendar, {

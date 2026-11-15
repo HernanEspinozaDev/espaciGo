@@ -2,29 +2,9 @@
 
 import { useEffect, useId, useState } from "react";
 import Link from "next/link";
-
-interface Party {
-  role: "arrendador" | "arrendatario";
-  legal_name: string;
-  rut: string;
-}
-
-interface ContractPreviewData {
-  state: "preview";
-  quote_id: string;
-  space_id: string;
-  space_title: string;
-  rate_unit: "hora" | "dia" | "mes";
-  unit_price_clp: number | string;
-  units: number | string;
-  subtotal_clp: number | string;
-  currency: "CLP";
-  start_at: string;
-  end_at: string;
-  time_zone: string;
-  parties: Party[];
-  generated_at: string;
-}
+import type { RentalContractPreview } from "../domain/contract-preview";
+import { formatRentalCLP } from "../domain/contract-preview-format";
+import { publicRentalContractPreview } from "../infrastructure/contract-preview-runtime";
 
 interface PublicRentalContractPreviewProps {
   quoteId: string;
@@ -36,50 +16,76 @@ export function PublicRentalContractPreview({
   onClose,
 }: PublicRentalContractPreviewProps) {
   const dialogId = useId();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [preview, setPreview] = useState<ContractPreviewData | null>(null);
-  const [kycRequired, setKycRequired] = useState(false);
+  const [state, setState] = useState({
+    quoteId,
+    loading: true,
+    error: null as string | null,
+    preview: null as RentalContractPreview | null,
+    identityRequired: false,
+  });
+  const visibleState =
+    state.quoteId === quoteId
+      ? state
+      : {
+          quoteId,
+          loading: true,
+          error: null,
+          preview: null,
+          identityRequired: false,
+        };
+  const { loading, error, preview, identityRequired } = visibleState;
 
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
 
-    fetch(
-      `/api/backend/rental-quotes/${encodeURIComponent(quoteId)}/contract-preview`,
-      {
-        method: "POST",
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      },
-    )
-      .then(async (res) => {
+    publicRentalContractPreview
+      .getPreview(quoteId, controller.signal)
+      .then((result) => {
         if (!active) return;
-        if (res.status === 409) {
-          setKycRequired(true);
-          setError(
-            "Se requiere verificación de identidad vigente (RUT y cédula oficial) para preparar el borrador del contrato.",
-          );
+        if (!result.ok) {
+          let message: string;
+          if (result.error.kind === "identity_required") {
+            message =
+              "Se requiere verificación de identidad vigente para preparar el borrador del contrato.";
+          } else if (result.error.kind === "not_found") {
+            message =
+              "La cotización ya no está disponible. Cierra esta ventana y solicita una cotización actualizada.";
+          } else if (result.error.kind === "conflict") {
+            message =
+              "La disponibilidad o las condiciones cambiaron. Solicita una cotización actualizada antes de continuar.";
+          } else {
+            message =
+              "No fue posible generar el borrador de contrato en este momento.";
+          }
+          setState({
+            quoteId,
+            loading: false,
+            error: message,
+            preview: null,
+            identityRequired: result.error.kind === "identity_required",
+          });
           return;
         }
-        if (!res.ok) {
-          setError(
-            "No fue posible generar el borrador de contrato en este momento.",
-          );
-          return;
-        }
-        const json = await res.json();
-        if (active && json?.data) {
-          setPreview(json.data);
-        }
+        setState({
+          quoteId,
+          loading: false,
+          error: null,
+          preview: result.value,
+          identityRequired: false,
+        });
       })
       .catch(() => {
         if (active && !controller.signal.aborted) {
-          setError("Error de conexión al cargar la vista previa del contrato.");
+          setState({
+            quoteId,
+            loading: false,
+            error:
+              "No fue posible cargar la vista previa del contrato en este momento.",
+            preview: null,
+            identityRequired: false,
+          });
         }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
       });
 
     return () => {
@@ -98,12 +104,6 @@ export function PublicRentalContractPreview({
     } catch {
       return iso;
     }
-  };
-
-  const formatCLP = (val: number | string) => {
-    const num = typeof val === "number" ? val : parseInt(val, 10);
-    if (Number.isNaN(num)) return `$${val} CLP`;
-    return `$${num.toLocaleString("es-CL")} CLP`;
   };
 
   return (
@@ -141,7 +141,7 @@ export function PublicRentalContractPreview({
           <div className="py-12 text-center text-sm text-muted-foreground animate-pulse">
             Validando identidades y preparando borrador del contrato...
           </div>
-        ) : kycRequired ? (
+        ) : identityRequired ? (
           <div className="space-y-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-5 text-sm">
             <h3 className="font-semibold text-amber-700 dark:text-amber-400">
               Verificación de identidad requerida
@@ -154,7 +154,7 @@ export function PublicRentalContractPreview({
             </p>
             <div className="pt-2">
               <Link
-                href="/verificacion"
+                href="/mi-cuenta/verificaciones"
                 className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
               >
                 Ir a verificación de identidad (KYC)
@@ -220,7 +220,7 @@ export function PublicRentalContractPreview({
                 </dd>
                 <dt className="text-muted-foreground">Subtotal estimado:</dt>
                 <dd className="font-bold text-foreground text-base">
-                  {formatCLP(preview.subtotal_clp)}
+                  {formatRentalCLP(preview.subtotal_clp)}
                 </dd>
               </dl>
             </section>

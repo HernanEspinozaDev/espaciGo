@@ -23,6 +23,7 @@ var aclRoleIdent = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 var aclFunctionTypes = map[string]struct{}{
 	"bigint":      {},
 	"integer":     {},
+	"text":        {},
 	"timestamptz": {},
 	"uuid":        {},
 }

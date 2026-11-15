@@ -478,6 +478,31 @@ func TestConfiguredOriginCanReadPrivatePreviewAuthenticationChallenge(t *testing
 	}
 }
 
+func TestPrivateContractPreviewRejectsMissingIdentityBeforeServiceCall(t *testing.T) {
+	auth := &authStub{err: identity.ErrUnauthorized}
+	preview := &previewStub{}
+	h := newTestHandler(auth, &availabilityStub{}, &quoteStub{}, preview)
+	r := httptest.NewRequest(http.MethodPost, "/api/v1/rental-quotes/"+testQuoteID+"/contract-preview", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid error envelope: %v body=%s", err, w.Body.String())
+	}
+	if w.Code != http.StatusUnauthorized || envelope.Error.Code != "unauthenticated" ||
+		w.Header().Get("WWW-Authenticate") != "Bearer" || w.Header().Get("Cache-Control") != "no-store" ||
+		auth.calls != 1 || preview.calls != 0 || strings.Contains(w.Body.String(), "preview") {
+		t.Fatalf("status=%d code=%q challenge=%q cache=%q auth=%d preview=%d body=%s",
+			w.Code, envelope.Error.Code, w.Header().Get("WWW-Authenticate"), w.Header().Get("Cache-Control"),
+			auth.calls, preview.calls, w.Body.String())
+	}
+}
+
 type failingEntropyReader struct{}
 
 func (failingEntropyReader) Read([]byte) (int, error) {

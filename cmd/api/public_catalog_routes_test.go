@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,6 +43,47 @@ func TestStandaloneCatalogKeyRequiresPrivateRegularStableFile(t *testing.T) {
 	}
 	if _, err = localPublicCatalogKey("relative"); err == nil {
 		t.Fatal("relative key accepted")
+	}
+}
+
+func TestPublicCatalogRoutesMountForCommercialRentalFlow(t *testing.T) {
+	paths := []string{
+		"/api/v1/public/spaces",
+		"/api/v1/public/spaces/11111111-1111-4111-8111-111111111111",
+		"/api/v1/public/space-categories",
+		"/api/v1/public/locations",
+	}
+	for _, test := range []struct {
+		name                string
+		standalone, booking bool
+		commercial          bool
+		wantMounted         bool
+	}{
+		{name: "disabled", wantMounted: false},
+		{name: "commercial flow", commercial: true, wantMounted: true},
+		{name: "standalone catalog", standalone: true, wantMounted: true},
+		{name: "booking trial", booking: true, wantMounted: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+			if err := mountPublicCatalogRoutes(mux, handler, test.standalone, test.booking, test.commercial); err != nil {
+				t.Fatalf("mountPublicCatalogRoutes() error = %v", err)
+			}
+			for _, path := range paths {
+				response := httptest.NewRecorder()
+				mux.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+				want := http.StatusNotFound
+				if test.wantMounted {
+					want = http.StatusNoContent
+				}
+				if response.Code != want {
+					t.Errorf("GET %s status = %d, want %d", path, response.Code, want)
+				}
+			}
+		})
 	}
 }
 

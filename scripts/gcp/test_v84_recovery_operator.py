@@ -94,6 +94,10 @@ class V84RecoveryOperatorTests(unittest.TestCase):
 
     def test_unlock_rejects_other_migration_result_before_cloud(self):
         args = operator.parse_args(self.args('release-lock'))
+        # This recovery operator is pinned to the V1..V84 source prefix even
+        # when the task branch contains a later migration such as V85.
+        inventory = [entry for entry in operator.inspection.local_migrations(Path.cwd())
+                     if entry['version'] <= 84]
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             for mode, report in (
@@ -105,8 +109,9 @@ class V84RecoveryOperatorTests(unittest.TestCase):
                     ('inspect', {}), ('catalog', {})):
                 operator.write_receipt(directory, 'phase-' + mode, {'mode': mode, 'report': report})
             cloud = Mock()
-            with self.assertRaisesRegex(ValueError, 'exact single-version'):
-                operator.release_lock(cloud, directory, args)
+            with patch.object(operator.inspection, 'local_migrations', return_value=inventory):
+                with self.assertRaisesRegex(ValueError, 'exact single-version'):
+                    operator.release_lock(cloud, directory, args)
             self.assertEqual(cloud.mock_calls, [])
 
     def test_failed_source_sql_must_match_new_recovery_inventory(self):

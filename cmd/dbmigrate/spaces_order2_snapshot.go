@@ -12,7 +12,7 @@ import (
 )
 
 // The independently reviewed pin hashes ordered `version filename sha256(contents)\n` lines.
-const spacesOrder2InventorySHA256 = "4b4757ae2975e8a72c817ecc02fbcb89b38b6d6d8c8bc0688c4d6bed7ba87907"
+const spacesOrder2InventorySHA256 = "8cd1df8818afffed5899e09153e2ea541d0b8944a145e16b31539401637dc686"
 
 // stageSpacesOrder2Snapshot validates the complete reviewed source inventory before staging V1..V61.
 func stageSpacesOrder2Snapshot(source string) (string, func(), error) {
@@ -20,13 +20,13 @@ func stageSpacesOrder2Snapshot(source string) (string, func(), error) {
 	if err != nil {
 		return "", nil, err
 	}
-	if len(all) != 84 {
-		return "", nil, errors.New("source migration inventory differs from reviewed V1..V84 inventory")
+	if len(all) != 97 {
+		return "", nil, errors.New("source migration inventory differs from reviewed V1..V97 inventory")
 	}
 	fingerprint := sha256.New()
 	for i, migration := range all {
 		if migration.Version != int64(i+1) {
-			return "", nil, errors.New("source migration sequence is not contiguous V1..V84")
+			return "", nil, errors.New("source migration sequence is not contiguous V1..V97")
 		}
 		fmt.Fprintf(fingerprint, "%d %s %s\n", migration.Version, migration.Name, migration.Checksum)
 	}

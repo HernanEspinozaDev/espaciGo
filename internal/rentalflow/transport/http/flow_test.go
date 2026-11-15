@@ -455,7 +455,7 @@ func TestSyntheticHTTPFlowAvailabilityQuoteAndContractPreview(t *testing.T) {
 	expiredQuoteRequest.Header.Set("Authorization", "Bearer synthetic-session")
 	expiredQuoteResponse := httptest.NewRecorder()
 	handler.ServeHTTP(expiredQuoteResponse, expiredQuoteRequest)
-	if expiredQuoteResponse.Code != http.StatusConflict || gate.calls != 2 || identities.calls != 4 ||
+	if expiredQuoteResponse.Code != http.StatusNotFound || gate.calls != 2 || identities.calls != 4 ||
 		strings.Contains(expiredQuoteResponse.Body.String(), "Arrendador de prueba") ||
 		strings.Contains(expiredQuoteResponse.Body.String(), "Arrendataria de prueba") {
 		t.Fatalf("expired quote reached identity gate/disclosure: status=%d gate=%d reads=%d body=%s", expiredQuoteResponse.Code, gate.calls, identities.calls, expiredQuoteResponse.Body.String())

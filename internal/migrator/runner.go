@@ -30,7 +30,9 @@ func validDatabaseRoleName(value string) bool {
 }
 
 type Result struct {
-	Applied []int64
+	Applied              []int64
+	DDLAuthority         *V84DDLAuthority
+	IdentityDDLAuthority *IdentityTailDDLAuthority
 }
 
 type MigrationSummary struct {
@@ -40,14 +42,16 @@ type MigrationSummary struct {
 }
 
 type PlanResult struct {
-	Database      string             `json:"database"`
-	SessionUser   string             `json:"session_user"`
-	CurrentUser   string             `json:"current_user"`
-	ServerVersion string             `json:"server_version"`
-	ReadOnly      bool               `json:"read_only"`
-	HistoryExists bool               `json:"history_exists"`
-	Applied       []HistoryEntry     `json:"applied"`
-	Pending       []MigrationSummary `json:"pending"`
+	Database             string                    `json:"database"`
+	SessionUser          string                    `json:"session_user"`
+	CurrentUser          string                    `json:"current_user"`
+	ServerVersion        string                    `json:"server_version"`
+	ReadOnly             bool                      `json:"read_only"`
+	HistoryExists        bool                      `json:"history_exists"`
+	Applied              []HistoryEntry            `json:"applied"`
+	Pending              []MigrationSummary        `json:"pending"`
+	DDLAuthority         *V84DDLAuthority          `json:"ddl_authority,omitempty"`
+	IdentityDDLAuthority *IdentityTailDDLAuthority `json:"identity_ddl_authority,omitempty"`
 }
 
 func Run(ctx context.Context, databaseURL, migrationDir string) (Result, error) {
@@ -184,6 +188,30 @@ func planWithConn(ctx context.Context, conn *pgx.Conn, migrations []Migration, s
 	for _, migration := range migrations[len(history):] {
 		report.Pending = append(report.Pending, MigrationSummary{Version: migration.Version, Name: migration.Name, Checksum: migration.Checksum})
 	}
+	var needsV84Authority, needsIdentityTailAuthority bool
+	for _, pending := range report.Pending {
+		needsV84Authority = needsV84Authority || needsIdentityDDLAuthority(pending.Version, pending.Name)
+		needsIdentityTailAuthority = needsIdentityTailAuthority || needsIdentityTailDDLAuthority(pending.Version, pending.Name)
+	}
+	if needsV84Authority || needsIdentityTailAuthority {
+		if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
+			return PlanResult{}, fmt.Errorf("set reviewed identity migration search path: %w", err)
+		}
+	}
+	if needsV84Authority {
+		authority, err := readV84DDLAuthority(ctx, tx)
+		if err != nil {
+			return PlanResult{}, err
+		}
+		report.DDLAuthority = &authority
+	}
+	if needsIdentityTailAuthority {
+		authority, err := readIdentityTailDDLAuthority(ctx, tx)
+		if err != nil {
+			return PlanResult{}, err
+		}
+		report.IdentityDDLAuthority = &authority
+	}
 	if report.Applied == nil {
 		report.Applied = []HistoryEntry{}
 	}
@@ -316,6 +344,43 @@ func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migration
 		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return result, fmt.Errorf("begin migration V%06d: %w", migration.Version, err)
+		}
+		if needsIdentityDDLAuthority(migration.Version, migration.Name) {
+			if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
+				_ = tx.Rollback(context.Background())
+				return result, fmt.Errorf("set safe identity migration search path: %w", err)
+			}
+			authority, authorityErr := readV84DDLAuthority(ctx, tx)
+			if authorityErr == nil {
+				switch migration.Version {
+				case 86, 88:
+					authorityErr = requireV86DDLAuthority(authority)
+				case 87:
+					authorityErr = requireV87DDLAuthority(authority)
+				default:
+					authorityErr = requireV84DDLAuthority(authority)
+				}
+			}
+			if authorityErr != nil {
+				_ = tx.Rollback(context.Background())
+				return result, authorityErr
+			}
+			result.DDLAuthority = &authority
+		}
+		if needsIdentityTailDDLAuthority(migration.Version, migration.Name) {
+			if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
+				_ = tx.Rollback(context.Background())
+				return result, fmt.Errorf("set V%d safe migration search path: %w", migration.Version, err)
+			}
+			authority, authorityErr := readIdentityTailDDLAuthority(ctx, tx)
+			if authorityErr == nil {
+				authorityErr = ValidateIdentityTailDDLAuthority(authority, migration.Version)
+			}
+			if authorityErr != nil {
+				_ = tx.Rollback(context.Background())
+				return result, authorityErr
+			}
+			result.IdentityDDLAuthority = &authority
 		}
 		if _, err := tx.Conn().PgConn().Exec(ctx, string(migration.SQL)).ReadAll(); err != nil {
 			_ = tx.Rollback(context.Background())

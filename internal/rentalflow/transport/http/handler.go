@@ -369,7 +369,9 @@ func writeDomainError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_request")
 	case errors.Is(err, rentalflow.ErrNotFound):
 		writeError(w, http.StatusNotFound, "not_found")
-	case errors.Is(err, rentalflow.ErrConflict), errors.Is(err, rentalflow.ErrIdentityRequired):
+	case errors.Is(err, rentalflow.ErrIdentityRequired):
+		writeError(w, http.StatusConflict, "identity_required")
+	case errors.Is(err, rentalflow.ErrConflict):
 		writeError(w, http.StatusConflict, "conflict")
 	case errors.Is(err, rentalflow.ErrUnavailable), errors.Is(err, rentalflow.ErrIdentityUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "service_unavailable")

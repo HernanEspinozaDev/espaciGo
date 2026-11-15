@@ -17,7 +17,7 @@ Main es la única rama permanente. Desarrollar/probar/revisar en una rama tempor
 
 Los datos permanecen en Cloud SQL; Git transporta código y SQL versionado. No exportar/restaurar la base local sobre la compartida. Cambiar structs o tablas locales no genera automáticamente una migración.
 
-Conservar SQL aplicado byte a byte. Para SQL nuevo, revisar `db/release-policy.json` y añadir la migración con nombre/checksum exactos y `strategy=expand`; probar base vacía y actualización en PostgreSQL aislado, compatibilidad con el backend activo y autoridad DDL por objeto. No inventar migraciones para un release sin delta. Repairs, cambios destructivos y permisos nuevos necesitan su corte acotado y revisado; no editar ledger, saltar guards ni elevar runtime.
+Conservar SQL aplicado byte a byte. Registrar SQL nuevo con nombre/checksum exactos en `db/release-policy.json`, clasificando su efecto real: solo expansiones compatibles revisadas pueden optar a `automatic_migrations/strategy=expand`; revocaciones, endurecimientos y cambios destructivos quedan en `review_required_migrations`, `automatic=false`, hasta cerrar sus gates. Una expansión retenida tampoco es automáticamente elegible. Probar base vacía/upgrade, compatibilidad con el backend activo y autoridad DDL real por objeto/destino; no reclasificar un cambio de seguridad para satisfacer el pipeline. No inventar migraciones para un release sin delta. Repairs y permisos nuevos requieren su corte acotado y revisado; no editar ledger, saltar guards ni elevar runtime.
 
 ## Publicación automática
 

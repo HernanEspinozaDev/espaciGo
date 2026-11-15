@@ -6,37 +6,165 @@ import {
   MonthCalendar,
   type RentalDemoCalendarDay,
 } from "@/features/rental-demo/ui/month-calendar";
+import { addCivilDays } from "../domain/local-date";
+import { publicAvailabilityNotice } from "../domain/availability-notice";
+import { publicAvailabilityExceptionMessage } from "../domain/availability-error";
+import { publicSpaceLoginHref } from "../domain/availability-return";
+import type { RentalReturnSelection } from "../domain/availability-return";
+import type { PublicRentalAvailability } from "../domain/rental-availability";
+import { publicRentalAvailability } from "../infrastructure/rental-availability-runtime";
+import { publicRentalQuote } from "../infrastructure/rental-quote-runtime";
+import { formatRentalCLP } from "../domain/contract-preview-format";
+import type { RentalQuote } from "../domain/rental-quote";
+import { useAuth } from "@/features/auth/ui/use-auth";
+import { PublicRentalContractPreview } from "./public-rental-contract-preview";
 
-interface Interval {
-  start_at: string;
-  end_at: string;
-}
+type Interval = PublicRentalAvailability["items"][number];
 
 interface PublicSpaceRentalAvailabilityProps {
   spaceId: string;
   rateUnit: "hora" | "dia" | "mes";
   basePriceCLP: number | string | null;
+  today: string;
+  initialSelection?: RentalReturnSelection;
 }
 
 export function PublicSpaceRentalAvailability({
   spaceId,
   rateUnit,
+  today,
+  initialSelection,
 }: PublicSpaceRentalAvailabilityProps) {
   const headingId = useId();
-  const today = new Date().toISOString().slice(0, 10);
-  const [currentMonth, setCurrentMonth] = useState(today.slice(0, 7));
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [duration, setDuration] = useState<number>(1);
+  const [currentMonth, setCurrentMonth] = useState(
+    initialSelection?.date.slice(0, 7) ?? today.slice(0, 7),
+  );
+  const [selectedDate, setSelectedDate] = useState<string | null>(
+    initialSelection?.date ?? null,
+  );
+  const [duration, setDuration] = useState<number>(
+    initialSelection?.duration ?? 1,
+  );
   const [intervals, setIntervals] = useState<Interval[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(initialSelection));
   const [error, setError] = useState<string | null>(null);
   const [selectedInterval, setSelectedInterval] = useState<Interval | null>(
     null,
   );
+  const { snapshot: authSnapshot, checkSession } = useAuth();
+  const [quote, setQuote] = useState<RentalQuote | null>(null);
+  const [quoteScope, setQuoteScope] = useState<string | null>(null);
+  const [quotePending, setQuotePending] = useState(false);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [blockedAttempt, setBlockedAttempt] = useState<string | null>(null);
+  const quoteController = useRef<AbortController | null>(null);
+  const pendingRentalSelection = useRef(initialSelection);
   const generation = useRef(0);
+  const selectionKey = `${selectedDate ?? ""}|${duration}|${selectedInterval?.start_at ?? ""}|${selectedInterval?.end_at ?? ""}`;
+  const sessionKey =
+    authSnapshot.status === "authenticated"
+      ? JSON.stringify([authSnapshot.accountId, authSnapshot.expiresAt])
+      : authSnapshot.status;
+  const visibleQuote = quoteScope === sessionKey ? quote : null;
+  const previousSession = useRef(sessionKey);
+
+  useEffect(() => {
+    if (previousSession.current !== sessionKey) {
+      quoteController.current?.abort();
+      quoteController.current = null;
+      setQuote(null);
+      setQuoteScope(sessionKey);
+      setQuotePending(false);
+      setQuoteError(null);
+      setPreviewOpen(false);
+      setBlockedAttempt(null);
+      previousSession.current = sessionKey;
+    }
+  }, [sessionKey]);
+
+  useEffect(() => () => quoteController.current?.abort(), []);
+
+  const clearQuoteForSelection = () => {
+    quoteController.current?.abort();
+    quoteController.current = null;
+    setQuote(null);
+    setQuoteScope(sessionKey);
+    setQuoteError(null);
+    setPreviewOpen(false);
+    setBlockedAttempt(null);
+  };
+
+  const requestQuote = async () => {
+    if (
+      !selectedInterval ||
+      authSnapshot.status !== "authenticated" ||
+      quotePending ||
+      quoteController.current !== null ||
+      blockedAttempt === selectionKey
+    )
+      return;
+    const controller = new AbortController();
+    quoteController.current = controller;
+    setQuotePending(true);
+    setQuoteError(null);
+    const requestKey = selectionKey;
+    const requestSessionKey = sessionKey;
+    setQuoteScope(requestSessionKey);
+    try {
+      const result = await publicRentalQuote.createQuote(
+        {
+          space_id: spaceId,
+          start_at: selectedInterval.start_at,
+          end_at: selectedInterval.end_at,
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if (result.ok) setQuote(result.value);
+      else {
+        const messages = {
+          unauthenticated:
+            "Tu sesión ya no está disponible. Inicia sesión nuevamente.",
+          forbidden:
+            "Tu cuenta no tiene acceso para solicitar esta cotización.",
+          not_found: "La publicación o el intervalo ya no está disponible.",
+          conflict: "La disponibilidad cambió. Selecciona otro intervalo.",
+          invalid:
+            "La selección no es válida. Actualiza fecha, duración o intervalo.",
+          unavailable:
+            "El servicio no está disponible temporalmente. Cambia la selección antes de intentar otra vez.",
+          other:
+            "No se pudo confirmar el resultado de la solicitud. Cambia fecha, duración o intervalo antes de volver a intentarlo.",
+        } as const;
+        setQuoteError(messages[result.error.kind]);
+        setBlockedAttempt(requestKey);
+        if (result.error.kind === "unauthenticated")
+          void checkSession().catch(() => false);
+      }
+    } catch {
+      if (!controller.signal.aborted) {
+        setQuoteError(
+          "No se pudo confirmar el resultado de la solicitud. Cambia fecha, duración o intervalo antes de volver a intentarlo.",
+        );
+        setBlockedAttempt(requestKey);
+      }
+    } finally {
+      if (!controller.signal.aborted) setQuotePending(false);
+      if (quoteController.current === controller)
+        quoteController.current = null;
+    }
+  };
 
   const durations =
     rateUnit === "hora" ? [1, 2, 4] : rateUnit === "dia" ? [1, 2, 3] : [1];
+
+  const beginAvailabilityQuery = () => {
+    setLoading(true);
+    setError(null);
+    setIntervals([]);
+    setSelectedInterval(null);
+  };
 
   useEffect(() => {
     if (!selectedDate) {
@@ -45,37 +173,37 @@ export function PublicSpaceRentalAvailability({
     const currentOp = ++generation.current;
     const controller = new AbortController();
 
-    fetch(
-      `/api/backend/spaces/${encodeURIComponent(spaceId)}/rental-availability?date=${encodeURIComponent(selectedDate)}&duration=${duration}`,
-      {
-        method: "GET",
-        headers: { Accept: "application/json" },
-        signal: controller.signal,
-      },
-    )
-      .then(async (res) => {
+    publicRentalAvailability
+      .getAvailability(spaceId, selectedDate, duration, controller.signal)
+      .then((result) => {
         if (generation.current !== currentOp) return;
-        if (!res.ok) {
-          if (res.status === 404) {
-            setError(
-              "Publicación no encontrada o no disponible para arriendo.",
-            );
-          } else {
-            setError("No se pudo consultar la disponibilidad en este momento.");
-          }
+        if (!result.ok) {
+          setError(
+            result.error.kind === "not-found"
+              ? "Publicación no encontrada o no disponible para arriendo."
+              : result.error.kind === "invalid"
+                ? "La fecha o duración seleccionada no es válida."
+                : "No se pudo consultar la disponibilidad en este momento.",
+          );
           setIntervals([]);
           return;
         }
-        const json = await res.json();
-        if (generation.current !== currentOp) return;
-        const items: Interval[] = json?.data?.items ?? [];
-        setIntervals(items);
-        setError(null);
+        setIntervals(result.value.items);
+        const pending = pendingRentalSelection.current;
+        if (pending?.date === selectedDate && pending.duration === duration) {
+          const matchingInterval = result.value.items.find(
+            (item) =>
+              item.start_at === pending.startAt &&
+              item.end_at === pending.endAt,
+          );
+          if (matchingInterval) setSelectedInterval(matchingInterval);
+          pendingRentalSelection.current = undefined;
+        }
       })
       .catch(() => {
         if (controller.signal.aborted || generation.current !== currentOp)
           return;
-        setError("Error de conexión al consultar disponibilidad.");
+        setError(publicAvailabilityExceptionMessage());
         setIntervals([]);
       })
       .finally(() => {
@@ -92,7 +220,7 @@ export function PublicSpaceRentalAvailability({
   // Days for calendar projection
   const days: RentalDemoCalendarDay[] = [];
   // If a date is selected and has intervals, mark it as available
-  if (selectedDate) {
+  if (selectedDate && !loading && !error) {
     days.push({
       date: selectedDate,
       status: intervals.length > 0 ? "available" : "unavailable",
@@ -113,8 +241,17 @@ export function PublicSpaceRentalAvailability({
     }
   };
 
-  const returnUrl = `/espacios/${encodeURIComponent(spaceId)}`;
-  const loginUrl = `/acceso?returnTo=${encodeURIComponent(returnUrl)}`;
+  const loginUrl = publicSpaceLoginHref(
+    spaceId,
+    selectedDate && selectedInterval
+      ? {
+          date: selectedDate,
+          duration,
+          startAt: selectedInterval.start_at,
+          endAt: selectedInterval.end_at,
+        }
+      : undefined,
+  );
 
   return (
     <section
@@ -129,8 +266,7 @@ export function PublicSpaceRentalAvailability({
           Disponibilidad para arriendo
         </h2>
         <p className="text-sm text-muted-foreground leading-relaxed">
-          Consulta los intervalos disponibles en tiempo real. La consulta es
-          meramente informativa, no congela ni reserva el horario.
+          {publicAvailabilityNotice}
         </p>
       </header>
 
@@ -144,7 +280,14 @@ export function PublicSpaceRentalAvailability({
               <button
                 key={d}
                 type="button"
-                onClick={() => setDuration(d)}
+                disabled={quotePending}
+                onClick={() => {
+                  if (duration === d || quotePending) return;
+                  pendingRentalSelection.current = undefined;
+                  clearQuoteForSelection();
+                  beginAvailabilityQuery();
+                  setDuration(d);
+                }}
                 className={`min-h-11 px-4 py-2 rounded-md border text-sm font-medium transition-colors ${
                   duration === d
                     ? "border-primary bg-primary text-primary-foreground"
@@ -170,10 +313,19 @@ export function PublicSpaceRentalAvailability({
           month={currentMonth}
           days={days}
           selectedDate={selectedDate}
-          onSelect={(date) => setSelectedDate(date)}
+          onSelect={(date) => {
+            if (selectedDate === date || quotePending) return;
+            pendingRentalSelection.current = undefined;
+            clearQuoteForSelection();
+            beginAvailabilityQuery();
+            setSelectedDate(date);
+          }}
           onMonthChange={(m) => setCurrentMonth(m)}
           today={today}
-          disabled={loading}
+          disabled={loading || quotePending}
+          allowUnqueriedDates
+          minDate={today}
+          maxDate={addCivilDays(today, 90)}
         />
       </div>
 
@@ -202,7 +354,13 @@ export function PublicSpaceRentalAvailability({
                   <button
                     key={it.start_at}
                     type="button"
-                    onClick={() => setSelectedInterval(it)}
+                    disabled={quotePending}
+                    onClick={() => {
+                      if (quotePending) return;
+                      if (selectedInterval?.start_at !== it.start_at)
+                        clearQuoteForSelection();
+                      setSelectedInterval(it);
+                    }}
                     className={`min-h-11 rounded-lg border p-2 text-center text-xs sm:text-sm font-medium transition-colors ${
                       selected
                         ? "border-primary bg-primary text-primary-foreground"
@@ -218,21 +376,89 @@ export function PublicSpaceRentalAvailability({
 
           {selectedInterval ? (
             <div className="mt-6 space-y-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
-              <p className="text-sm font-medium text-foreground">
-                Para continuar, inicia sesión o crea una cuenta
-              </p>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Al iniciar sesión volverás directamente a esta publicación con
-                tu intervalo seleccionado para revisar la cotización y verificar
-                tu identidad antes de ver el borrador de contrato.
-              </p>
-              <Link
-                href={loginUrl}
-                className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
-              >
-                Iniciar sesión o registrarse
-              </Link>
+              {authSnapshot.status === "authenticated" ? (
+                <>
+                  {!visibleQuote && (
+                    <button
+                      type="button"
+                      onClick={requestQuote}
+                      disabled={quotePending || blockedAttempt === selectionKey}
+                      className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                    >
+                      {quotePending
+                        ? "Solicitando cotización..."
+                        : "Solicitar cotización"}
+                    </button>
+                  )}
+                  {quotePending && <p role="status">Guardando cotización...</p>}
+                  {quoteError && (
+                    <p role="alert" className="text-sm text-destructive">
+                      {quoteError}
+                    </p>
+                  )}
+                  {blockedAttempt === selectionKey && (
+                    <p className="text-xs text-muted-foreground">
+                      Resultado no confirmado; cambia fecha, duración o
+                      intervalo antes de otra solicitud.
+                    </p>
+                  )}
+                  {visibleQuote && (
+                    <div className="space-y-2" role="status">
+                      <p className="font-medium">Cotización creada</p>
+                      <p>{visibleQuote.space_title}</p>
+                      <p>{formatRentalCLP(visibleQuote.subtotal_clp)}</p>
+                      <p>
+                        Válida hasta{" "}
+                        {new Intl.DateTimeFormat("es-CL", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                          timeZone: visibleQuote.time_zone,
+                        }).format(new Date(visibleQuote.expires_at))}{" "}
+                        ({visibleQuote.time_zone}).
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Cotización no vinculante; no constituye reserva, pago ni
+                        firma.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewOpen(true)}
+                        className="inline-flex min-h-11 items-center justify-center rounded-lg border px-5 py-2"
+                      >
+                        Vista previa del contrato
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : authSnapshot.status === "checking" ? (
+                <p role="status" className="text-sm text-muted-foreground">
+                  Verificando sesión...
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm font-medium text-foreground">
+                    Para continuar, inicia sesión o crea una cuenta
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Al iniciar sesión volverás a esta publicación. La
+                    disponibilidad puede cambiar después de esta consulta; el
+                    horario no queda congelado ni reservado.
+                  </p>
+                  <Link
+                    href={loginUrl}
+                    className="inline-flex min-h-11 items-center justify-center rounded-lg bg-primary px-6 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
+                  >
+                    Iniciar sesión o registrarse
+                  </Link>
+                </>
+              )}
             </div>
+          ) : null}
+          {previewOpen && visibleQuote ? (
+            <PublicRentalContractPreview
+              quoteId={visibleQuote.id}
+              onClose={() => setPreviewOpen(false)}
+            />
           ) : null}
         </div>
       ) : (

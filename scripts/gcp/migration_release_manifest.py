@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import re
 from verify_migration_inventory import validate as validate_inventory
+from v84_authority import IDENTITY_DDL_MIGRATIONS,validate_authority as validate_identity_authority
+from identity_tail_authority import IDENTITY_TAIL_DDL_MIGRATIONS,validate_authority as validate_identity_tail_authority
 
 FORMAT='espacigo.database-release.v1'
 TARGET={'project':'espacigo-testprod','region':'southamerica-west1','instance':'espacigo-testprod-db','database':'espacigo_dms_stage_20261020'}
@@ -42,10 +44,26 @@ def is_plan_report_shape(report):
 
 
 def validate_plan_contract(plan):
-    if not isinstance(plan,dict) or set(plan) not in (PLAN_KEYS,PLAN_KEYS|PLAN_IDENTITY_KEYS):
+    if not isinstance(plan,dict) or not isinstance(plan.get('pending'),list):
+        raise ValueError('invalid migration plan contract')
+    for field in ('applied','pending'):
+        if not isinstance(plan.get(field),list):
+            raise ValueError('invalid migration row array')
+        for row in plan[field]:
+            if not isinstance(row,dict) or set(row)!={'version','name','checksum'} or type(row['version']) is not int or row['version']<1 or not isinstance(row['name'],str) or not re.fullmatch(r'V[0-9]{6}__[a-z0-9]+(?:_[a-z0-9]+)*\.sql',row['name']) or not isinstance(row['checksum'],str) or not re.fullmatch('[a-f0-9]{64}',row['checksum']):
+                raise ValueError('invalid migration history/pending row')
+    names={row['name'] for row in plan['pending']}
+    identity_names=names&IDENTITY_DDL_MIGRATIONS
+    tail_names=names&IDENTITY_TAIL_DDL_MIGRATIONS
+    authority_keys=({'ddl_authority'} if identity_names else set())|({'identity_ddl_authority'} if tail_names else set())
+    if set(plan) not in (PLAN_KEYS|authority_keys,PLAN_KEYS|PLAN_IDENTITY_KEYS|authority_keys):
         raise ValueError('invalid migration plan contract')
     if PLAN_IDENTITY_KEYS.issubset(plan) and (plan['session_user']!=PLAN_SESSION_USER or plan['current_user']!=PLAN_CURRENT_USER):
         raise ValueError('plan database identities differ from the reviewed migrator contract')
+    if identity_names:
+        validate_identity_authority(plan['ddl_authority'],identity_names)
+    if tail_names:
+        validate_identity_tail_authority(plan['identity_ddl_authority'],tail_names)
 
 
 def check_plan(manifest,plan,postcheck=False):
