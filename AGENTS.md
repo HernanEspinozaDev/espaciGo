@@ -83,6 +83,17 @@ Estas instrucciones se aplican al monorepo. Se complementan con `frontend/AGENTS
 
 ## Pruebas y entornos
 
+### KYC en desarrollo — alcance actualizado por instrucción humana de 2026-11-14
+
+- Para el corte KYC de `codex/marketplace/fix/kyc-06-save-identity-first`, se autoriza avanzar con integración y SQL/DDL versionado en los destinos del plan: PostgreSQL nativo local `127.0.0.1:5432/espacigo_dms_stage_20261020` (socket `/var/run/postgresql`) y Cloud SQL del proyecto `espacigo-testprod`, región `southamerica-west1`, instancia `espacigo-testprod-db`, base `espacigo_dms_stage_20261020`. No volver a solicitar esta autorización por cada fase del mismo plan.
+- En el destino nativo, usar el procedimiento de migración vigente del repositorio. En Cloud SQL, usar exclusivamente `planning/gcp/cloudsql_migraciones_incrementales.md` y la ruta canónica de release/Job privado; no usar bastión, SSH, DMS ni DDL manual desde el portátil. Esta autorización no habilita otros proyectos, instancias, bases, recursos GCP, IAM/Terraform, ni usos ajenos a KYC.
+- La autorización permite SQL/DDL necesario para KYC, incluyendo migraciones append-only y datos sintéticos propios. No permite alterar el ledger, reescribir migraciones aplicadas, saltar guards, bajar privilegios de forma indiscriminada, elevar runtime a superusuario ni transferir ownership por conveniencia. Si el preflight detecta que el owner/ACL/lock requerido no satisface los guards, detener esa operación y resolver el requisito mediante el flujo versionado y revisión de autoridad; no falsificar ni debilitar el guard.
+- Registrar cada operación y su readback; conservar un backup privado verificado antes de cambios de esquema/destructivos. La autorización no exige ni justifica vaciar una base ni borrar información ajena al corte.
+- Usar únicamente identidades y datos sintéticos autorizados; no usar documentos ni datos personales reales. Política, inventario y secretos bajo `.local/testing/`, directorios 0700 y archivos 0600, excluidos de Git. No imprimir sus valores ni recuperar/reutilizar credenciales ajenas.
+- Mantener separados login de aplicación, owner/migrador y preflight administrativo. No alterar contraseñas existentes como atajo. Para operaciones locales ya autorizadas que requieran `sudo`, usar `SUDO_PASSWORD` inyectada al entorno de Hermes de manera no imprimible; si no está disponible, reportar el bloqueo de autenticación sin pedir ni adivinar credenciales.
+- No se autoriza por esta instrucción Didit externo, datos reales, publicación, integración a `main` ni despliegue de producto. No arrancar workers generales que reclamen trabajo ajeno. La QA online del producto continúa reservada al usuario.
+- Estado y tareas KYC anteriores: §25 de `planning/kyc_didit/plan_kyc_didit.md`; para verificación propia, prevalece `planning/verificacion_identidad/plan_verificacion_identidad_espacigo.md` y su actualización humana más reciente. Los cierres con mocks/DB desechable no sustituyen integración en los destinos nombrados.
+
 ## Política local de cuentas de ensayo — LOCAL PRIVADA
 
 - Antes de crear, verificar, recuperar o configurar una cuenta de ensayo local, consulta `.local/testing/test-account-policy.json` (política **LOCAL PRIVADA**, excluida de Git). La política es la autoridad exacta para alcance y credenciales; no la copies a worktrees compartidos, tickets, prompts, PR, capturas ni logs.

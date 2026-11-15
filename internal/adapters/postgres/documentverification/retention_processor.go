@@ -49,7 +49,7 @@ func NewRetentionProcessor(j retentionProcessorJobs, d retentionDocuments, lease
 	return &RetentionProcessor{j, d, lease, retry}
 }
 func (p *RetentionProcessor) ProcessOne(ctx context.Context) error {
-	if p == nil || p.jobs == nil || p.documents == nil {
+	if p == nil || p.jobs == nil || p.documents == nil || ctx == nil {
 		return dv.ErrInvalid
 	}
 	if err := ctx.Err(); err != nil {

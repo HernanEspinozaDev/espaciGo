@@ -1,0 +1,206 @@
+{
+  "title": "Auditoría manual source-only V036–V040",
+  "root": "/home/nandev/Documentos/projects/espaciGo-main-sync",
+  "rows": [
+    {
+      "version": 36,
+      "filename": "V000036__local_communication_reviews_and_notices.sql",
+      "sha256": "322fd98a8b921b905832bd75b4006d5fbed3f233334d400a6863c3a03aea2b09",
+      "behavior": "Reviews enforce reservation/author uniqueness, 1–5 scores and 24-month removal; reports retain pending cases and 24 months after resolution. Triggers enqueue deduplicated per-recipient check-in, claim, cancellation and review-report notice intents; bounded purge removes due resolved reports/reviews/notices and recovery audit. No address/body/SMTP response is stored.",
+      "objects": [
+        "resena_ensayo_local",
+        "reporte_resena_ensayo_local",
+        "reporte_resena_historial_local",
+        "aviso_local",
+        "aviso_local_ciclo",
+        "aviso_local_recuperacion_auditoria"
+      ],
+      "dependencies": [
+        "reserva_ensayo_local",
+        "espacio",
+        "usuario",
+        "operacion_arriendo_ensayo_local",
+        "reclamo_dano_ensayo_local",
+        "rol_usuario",
+        "evento_auditoria_local"
+      ],
+      "authority": "Ownership efectivo no fue inspeccionado. SQL crea/altera objetos en public; no define aquí ACL de tabla para runtime ni destino de default privileges. La función de purga V36 es SECURITY DEFINER con search_path fijo y revoca EXECUTE a PUBLIC; privilegio efectivo runtime/bootstrap debe distinguirse de PUBLIC, sin inferirlo como consumidor.",
+      "data_preconditions": "V36–V40 aplican en orden sobre prefijo de esquema compatible; restricciones validan filas existentes. V39 solo cambia nulabilidad, sin backfill/limpieza automática. V40 snapshots existentes permanecen NULL.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "line": 95,
+          "excerpt": "\tif e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_autoria_marca_local WHERE huella_autoria=$1 AND (retirar_en IS NULL OR retirar_en>$2))`, marker[:], at).Scan(&marked); e != nil {",
+          "reason": "Consulta/actualiza el objeto mediante una ruta de aplicación concreta; no es bootstrap ACL."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "line": 34,
+          "excerpt": "func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *testing.T) {",
+          "reason": "TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions: prueba de integración pertinente; fuente de cobertura, no consumidor de producto."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "No se ejecutaron tests, SQL, DB, red ni cloud; referencias indicadas son evidencia de fuente, no verificación de efectos en base."
+    },
+    {
+      "version": 37,
+      "filename": "V000037__local_communication_privacy_coordination.sql",
+      "sha256": "ad45697b244bac64d5713145b89cadf1f1522fa723f99f63feda8aa497ffd665",
+      "behavior": "Expands review recipient type for retired renters and backfills an opaque SHA-256 authorship marker from reservation+author UUIDs; marker expiry is the later review/reservation-link deadline or NULL while links remain open. Replaces the bounded communication purger to also delete due markers. It coordinates privacy retention; does not itself null business rows.",
+      "objects": [
+        "resena_autoria_marca_local"
+      ],
+      "dependencies": [
+        "resena_ensayo_local",
+        "reserva_ensayo_local",
+        "reporte_resena_ensayo_local",
+        "reporte_resena_historial_local",
+        "aviso_local",
+        "aviso_local_ciclo",
+        "aviso_local_recuperacion_auditoria"
+      ],
+      "authority": "Ownership efectivo no fue inspeccionado. SQL crea/altera objetos en public; no define aquí ACL de tabla para runtime ni destino de default privileges. La función de purga V36 es SECURITY DEFINER con search_path fijo y revoca EXECUTE a PUBLIC; privilegio efectivo runtime/bootstrap debe distinguirse de PUBLIC, sin inferirlo como consumidor.",
+      "data_preconditions": "V36–V40 aplican en orden sobre prefijo de esquema compatible; restricciones validan filas existentes. V39 solo cambia nulabilidad, sin backfill/limpieza automática. V40 snapshots existentes permanecen NULL.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "line": 95,
+          "excerpt": "\tif e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_autoria_marca_local WHERE huella_autoria=$1 AND (retirar_en IS NULL OR retirar_en>$2))`, marker[:], at).Scan(&marked); e != nil {",
+          "reason": "Consulta/actualiza el objeto mediante una ruta de aplicación concreta; no es bootstrap ACL."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "line": 249,
+          "excerpt": "func TestV37BackfillsV36ReviewAuthorshipMarker(t *testing.T) {",
+          "reason": "TestV37BackfillsV36ReviewAuthorshipMarker: prueba de integración pertinente; fuente de cobertura, no consumidor de producto."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "No se ejecutaron tests, SQL, DB, red ni cloud; referencias indicadas son evidencia de fuente, no verificación de efectos en base."
+    },
+    {
+      "version": 38,
+      "filename": "V000038__local_damage_claim_resolution.sql",
+      "sha256": "88000b1e3f94e68efca57e36a38914483cbf0d10c62741c75f57b282a7291b25",
+      "behavior": "Allows damage claims to transition open→resolved and adds a one-resolution-per-claim administrative decision with constrained outcome/reason, idempotency and request digest. Adds history action and audit idempotency allowance; insert trigger emits resolution notices to host and renter. Explicitly no guarantee amount or capture/release/refund/settlement.",
+      "objects": [
+        "reclamo_dano_resolucion_ensayo_local"
+      ],
+      "dependencies": [
+        "reclamo_dano_ensayo_local",
+        "reclamo_dano_historial_ensayo_local",
+        "usuario",
+        "evento_auditoria_local",
+        "aviso_local"
+      ],
+      "authority": "Ownership efectivo no fue inspeccionado. SQL crea/altera objetos en public; no define aquí ACL de tabla para runtime ni destino de default privileges. La función de purga V36 es SECURITY DEFINER con search_path fijo y revoca EXECUTE a PUBLIC; privilegio efectivo runtime/bootstrap debe distinguirse de PUBLIC, sin inferirlo como consumidor.",
+      "data_preconditions": "V36–V40 aplican en orden sobre prefijo de esquema compatible; restricciones validan filas existentes. V39 solo cambia nulabilidad, sin backfill/limpieza automática. V40 snapshots existentes permanecen NULL.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 346,
+          "excerpt": "\tupdated, err := tx.Exec(ctx, `UPDATE public.reclamo_dano_ensayo_local SET estado='resuelta' WHERE id=$1 AND estado='abierto'`, claimID)",
+          "reason": "Consulta/actualiza el objeto mediante una ruta de aplicación concreta; no es bootstrap ACL."
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 345,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `UPDATE public.reclamo_dano_ensayo_local",
+          "reason": "Consulta/actualiza el objeto mediante una ruta de aplicación concreta; no es bootstrap ACL."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "line": 729,
+          "excerpt": "func TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifiedDeadline(t *testing.T) {",
+          "reason": "TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifiedDeadline: prueba de integración pertinente; fuente de cobertura, no consumidor de producto."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "No se ejecutaron tests, SQL, DB, red ni cloud; referencias indicadas son evidencia de fuente, no verificación de efectos en base."
+    },
+    {
+      "version": 39,
+      "filename": "V000039__local_damage_claim_privacy_retention.sql",
+      "sha256": "86bd6b0d684c33d4213eb47d68763f00edc8b5716e2fe5e85d46fbaf1916e083",
+      "behavior": "Makes identifying FKs nullable on claims, defenses, claim history/resolution, rental operations/history/file candidates, allowing the existing retention cleanup to unlink identities while preserving facts. Does not scrub existing rows at migration time. Consumer identity/retention.go executes NULL updates for claim and operation records only when eligible cleanup executes; deadlines govern unlinking.",
+      "objects": [],
+      "dependencies": [
+        "reclamo_dano_ensayo_local",
+        "reclamo_dano_descargo_ensayo_local",
+        "reclamo_dano_historial_ensayo_local",
+        "reclamo_dano_resolucion_ensayo_local",
+        "operacion_arriendo_ensayo_local",
+        "operacion_arriendo_historial_ensayo_local",
+        "operacion_arriendo_archivo_candidato_local"
+      ],
+      "authority": "Ownership efectivo no fue inspeccionado. SQL crea/altera objetos en public; no define aquí ACL de tabla para runtime ni destino de default privileges. La función de purga V36 es SECURITY DEFINER con search_path fijo y revoca EXECUTE a PUBLIC; privilegio efectivo runtime/bootstrap debe distinguirse de PUBLIC, sin inferirlo como consumidor.",
+      "data_preconditions": "V36–V40 aplican en orden sobre prefijo de esquema compatible; restricciones validan filas existentes. V39 solo cambia nulabilidad, sin backfill/limpieza automática. V40 snapshots existentes permanecen NULL.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "line": 208,
+          "excerpt": "\t\t{`UPDATE public.reclamo_dano_ensayo_local SET reserva_id=NULL,anfitrion_id=NULL,arrendatario_id=NULL,checkout_operacion_id=NULL,checkout_evidencia_id=NULL WHERE reserva_id=$1`, []any{candidate.id}},",
+          "reason": "Consulta/actualiza el objeto mediante una ruta de aplicación concreta; no es bootstrap ACL."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "line": 729,
+          "excerpt": "func TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifiedDeadline(t *testing.T) {",
+          "reason": "TestResolvedDamageClaimPrivacyEvaluationMinimizesTextAndPurgesLinksAtRatifiedDeadline: prueba de integración pertinente; fuente de cobertura, no consumidor de producto."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "No se ejecutaron tests, SQL, DB, red ni cloud; referencias indicadas son evidencia de fuente, no verificación de efectos en base."
+    },
+    {
+      "version": 40,
+      "filename": "V000040__local_guarantee_and_dispute_finance.sql",
+      "sha256": "c749f178824ff5c1695483d2c32cde6b7c76794e247a5d423101ce7486058b0d",
+      "behavior": "Adds nullable, constrained policy snapshots to quotes/reservations (existing rows remain unset), fixed synthetic CLP 50,000 guarantee state and durable operation/result/event/application records, plus financial decision and history records. Enforces idempotency and amount/state constraints; these are simulation records, not real funds/provider execution.",
+      "objects": [
+        "reserva_garantia_ensayo_local",
+        "reserva_garantia_operacion_ensayo_local",
+        "reserva_garantia_resultado_fake_ensayo_local",
+        "reserva_garantia_evento_ensayo_local",
+        "reserva_garantia_evento_aplicacion_ensayo_local",
+        "reserva_decision_financiera_ensayo_local",
+        "reserva_finanzas_historial_ensayo_local"
+      ],
+      "dependencies": [
+        "cotizacion_reserva_ensayo",
+        "reserva_ensayo_local",
+        "reclamo_dano_ensayo_local",
+        "operacion_arriendo_evidencia_ensayo_local",
+        "usuario"
+      ],
+      "authority": "Ownership efectivo no fue inspeccionado. SQL crea/altera objetos en public; no define aquí ACL de tabla para runtime ni destino de default privileges. La función de purga V36 es SECURITY DEFINER con search_path fijo y revoca EXECUTE a PUBLIC; privilegio efectivo runtime/bootstrap debe distinguirse de PUBLIC, sin inferirlo como consumidor.",
+      "data_preconditions": "V36–V40 aplican en orden sobre prefijo de esquema compatible; restricciones validan filas existentes. V39 solo cambia nulabilidad, sin backfill/limpieza automática. V40 snapshots existentes permanecen NULL.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/guarantee.go",
+          "line": 55,
+          "excerpt": "\t\t\t_, err = tx.Exec(ctx, `INSERT INTO public.reserva_garantia_operacion_ensayo_local(id,garantia_id,tipo,clave_idempotencia,huella_solicitud,importe_clp,resultado_solicitado,estado,primer_intento_en,ultimo_resultado,completada_en,creada_en,actualizada_en) VALUES(gen_random_uuid(),$1,'liberacion',$2,$3,$4,'exito','pendiente',$5,NULL,NULL,$5,$5) ON CONFLICT(garantia_id,tipo) DO NOTHING`, gid, \"cancelacion-libera:\"+reservationID, sum[:], remaining, now)",
+          "reason": "Consulta/actualiza el objeto mediante una ruta de aplicación concreta; no es bootstrap ACL."
+        },
+        {
+          "path": "internal/adminlocal/service.go",
+          "line": 364,
+          "excerpt": " UNION ALL SELECT CASE tipo WHEN 'autorizacion' THEN 'garantia_autorizada' WHEN 'captura' THEN 'garantia_capturada' ELSE 'garantia_liberada' END,'confirmado',count(*)::bigint,COALESCE(sum(importe_clp),0)::bigint FROM public.reserva_garantia_operacion_ensayo_local WHERE estado='confirmada' AND completada_en >= $1 AND completada_en < $2 GROUP BY tipo",
+          "reason": "Consulta/actualiza el objeto mediante una ruta de aplicación concreta; no es bootstrap ACL."
+        }
+      ],
+      "test_refs": [],
+      "status": "source-only; no ejecución",
+      "issues": "No se ejecutaron tests, SQL, DB, red ni cloud; referencias indicadas son evidencia de fuente, no verificación de efectos en base."
+    }
+  ]
+}

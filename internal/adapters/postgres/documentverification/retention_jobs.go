@@ -157,6 +157,9 @@ func (r *Repository) finishRetention(ctx context.Context, c RetentionClaim, dele
 		return dv.ErrConflict
 	}
 	if e = deleteObject(ctx); e != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		tag, updateErr := tx.Exec(ctx, `UPDATE public.document_verification_job SET state='reintentar',available_at=clock_timestamp()+$3::interval,lease_until=NULL,last_error_code=$4,updated_at=clock_timestamp() WHERE id=$1 AND file_id=$2 AND kind='retention_delete' AND state='procesando' AND lease_until=$5`, c.JobID, c.FileID, retry.String(), retentionStoreError, c.LeaseUntil)
 		e = updateErr
 		if e != nil {
@@ -167,17 +170,26 @@ func (r *Repository) finishRetention(ctx context.Context, c RetentionClaim, dele
 		}
 		return tx.Commit(ctx)
 	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	// The job row remains FOR UPDATE-locked, so no later claimant can steal
 	// this exact lease while storage deletion is in progress.
 	tag, e := tx.Exec(ctx, `UPDATE public.document_verification_job SET state='completado',lease_until=NULL,last_error_code=NULL,updated_at=clock_timestamp() WHERE id=$1 AND file_id=$2 AND kind='retention_delete' AND state='procesando' AND lease_until=$3`, c.JobID, c.FileID, c.LeaseUntil)
 	if e != nil {
 		return e
 	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
 	if tag.RowsAffected() != 1 {
 		return dv.ErrConflict
 	}
 	if _, e = tx.Exec(ctx, `INSERT INTO public.document_verification_event(case_id,purpose,subject_id,file_id,actor_kind,action,from_state,to_state,result_code,reason_code,revision) VALUES($1,$2,$3,$4,'system','retention_deleted',$5,$5,'eliminado','retencion_vencida',$6)`, c.CaseID, purpose, subject, c.FileID, caseState, revision); e != nil {
 		return e
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
 	}
 	return tx.Commit(ctx)
 }

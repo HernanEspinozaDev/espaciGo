@@ -1,0 +1,1351 @@
+{
+  "title": "Final semantic source audit V001–V030",
+  "root": "/home/nandev/Documentos/projects/espaciGo-main-sync",
+  "canonical_input": "planning/gcp/matriz_semantica_consolidada_v001_v084_20261107.json",
+  "scope": "Only V001–V030 SQL source semantics and traced repository references. No database/cloud/network/credentials/tests/git operations. Does not assert target state, all84 review, or closure.",
+  "canonical_matrix_head": "274f37e483a078890e92382a159fa49fd23c2fe8",
+  "rows_reviewed": 30,
+  "verdict_counts": {
+    "accepted_source": 29,
+    "unresolved": 1
+  },
+  "rows": [
+    {
+      "version": 1,
+      "filename": "V000001__m01_identity.sql",
+      "sha256": "34736e22df35ffbd88bb43a1071788ba88ac9e6b35f2a5aeba83b9b87bf161f8",
+      "verdict": "accepted_source",
+      "semantic_correction": "Source confirms six tables and three explicitly synthetic term rows; no ACL statements. V1 is a base schema, not evidence of access policy.",
+      "exact_objects_and_dependencies": [
+        "usuario",
+        "rol_usuario",
+        "sesion",
+        "token_accion",
+        "version_terminos",
+        "aceptacion_terminos"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "public.usuario"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Empty schema; UUID keys supplied by application; three synthetic term codes must not be mistaken for legal text.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/accountlock/account.go",
+          "line": 25,
+          "raw_line": "\terr := tx.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, accountID).Scan(&state)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "line": 214,
+          "raw_line": "\t\tif _, err = setup.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'x','activo')`, id, fmt.Sprintf(\"payment-%d@example.test\", index)); err != nil {",
+          "test_definition_line": 117,
+          "test_definition_raw_line": "func TestDurableFakePaymentInboxDeduplicatesTimeoutAndRecoversAfterRestart(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 2,
+      "filename": "V000002__m02_profile_rights.sql",
+      "sha256": "e3f9c0b9e60244490ef40230b5af6a452deb63cd475b43b7378d9a3895877ec2",
+      "verdict": "accepted_source",
+      "semantic_correction": "Two tables FK to usuario; no deletion/retention behavior is implemented by this DDL. Draft accurately identifies V1 dependency.",
+      "exact_objects_and_dependencies": [
+        "perfil_usuario",
+        "solicitud_titular"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "public.usuario"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V001 usuario exists; existing rows are not required.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/privacy.go",
+          "line": 142,
+          "raw_line": "\t\tFROM public.perfil_usuario WHERE usuario_id=$1`, accountID).Scan(&profile.Name, &profile.Phone, &profile.UpdatedAt); err == nil {",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 2783,
+          "raw_line": "\tif err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.sesion WHERE usuario_id=$1),(SELECT count(*) FROM public.perfil_usuario WHERE usuario_id=$1),(SELECT count(*) FROM public.token_accion WHERE usuario_id=$1),(SELECT count(*) FROM public.historial_clave_local WHERE usuario_id=$1),(SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1)`, targetID).Scan(&originalSession, &originalProfile, &originalToken, &oldKeys, &activeRole); err != nil {",
+          "test_definition_line": 2560,
+          "test_definition_raw_line": "func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 3,
+      "filename": "V000003__m03_verification.sql",
+      "sha256": "161a2fc06b46eb181b6ddec78eac4ff8e3020b48553429f435ce81c08ce4814f",
+      "verdict": "accepted_source",
+      "semantic_correction": "Synthetic fixture-only evidence ref and reviewer/retry self-FKs; state check couples decision/reviewer/reason/time. No real identity proof.",
+      "exact_objects_and_dependencies": [
+        "verificacion"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "public.usuario"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V001 usuario exists; no real identity evidence permitted by this prototype schema.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 415,
+          "raw_line": "EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=q.anfitrion_id LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND (((f.habilitada AND e.estado='borrador')) OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local eligibility JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada' JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo' WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible'))))`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available, &rateCurrent, &listingCurrent)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 643,
+          "raw_line": "\t\tif err := setup.QueryRow(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,proveedor_ref,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en)",
+          "test_definition_line": 311,
+          "test_definition_raw_line": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 4,
+      "filename": "V000004__m03_reason_codes.sql",
+      "sha256": "f3942ba61513556253650fabc962843350e9c441fd384d8d5b8bd59ecf7362d1",
+      "verdict": "accepted_source",
+      "semantic_correction": "Only adds CHECK; NULL remains admissible by SQL CHECK three-valued logic. Consumer must write motivo_codigo on verificacion.",
+      "exact_objects_and_dependencies": [
+        "verificacion_reason_code_ck"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "V003 public.verificacion"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V003 must have created public.verificacion.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/verification/repository.go",
+          "line": 149,
+          "raw_line": "\t_, err = tx.Exec(ctx, `UPDATE public.verificacion SET estado=$1,revisor_id=$2,motivo_codigo=NULLIF($3,''),resuelta_en=$4 WHERE id=$5 AND estado='en_revision'`, newState, reviewer, reason, dbTime(resolvedAt), id)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Transición de revisión escribe motivo_codigo validado por constraint; reemplaza referencia que solo consultaba elegibilidad."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 643,
+          "raw_line": "\t\tif err := setup.QueryRow(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,proveedor_ref,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en)",
+          "test_definition_line": 311,
+          "test_definition_raw_line": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 5,
+      "filename": "V000005__m04_space_drafts.sql",
+      "sha256": "f5ca7a06da755c8bbf8adba1ed7c539c69fb50743b3f58012079eb565b564f86",
+      "verdict": "accepted_source",
+      "semantic_correction": "Seeds eight categories and draft-only espacio. Owner/category FKs RESTRICT; estado is fixed to borrador. No public listing semantics.",
+      "exact_objects_and_dependencies": [
+        "categoria_espacio",
+        "espacio"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "public.usuario"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V001 usuario exists; category seed codes are assumed unique on fresh install.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 20,
+          "raw_line": "\trows, err := r.pool.Query(ctx, `SELECT codigo,nombre,orden FROM public.categoria_espacio WHERE activa ORDER BY orden,codigo`)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 5166,
+          "raw_line": "  JOIN LATERAL (SELECT codigo FROM public.categoria_espacio ORDER BY orden OFFSET ((series.n-1)%8) LIMIT 1) cats ON true",
+          "test_definition_line": 5086,
+          "test_definition_raw_line": "func TestLocalPublicCatalogQueryPlanAndSitemapPaging(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 6,
+      "filename": "V000006__m04_extensible_category_attributes.sql",
+      "sha256": "67bf11f666e9c3f2687e7bd6c3c0fcd82f075c51ff012f874ed3638b64cf2968",
+      "verdict": "accepted_source",
+      "semantic_correction": "Adds profile and characteristics plus composite category-consistency FK; alters espacio with UNIQUE(id,categoria_codigo). Seeds profiles. Need retain ALTER target as dependency/object.",
+      "exact_objects_and_dependencies": [
+        "categoria_perfil_atributos",
+        "espacio_caracteristicas"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "V005 public.categoria_espacio",
+        "V005 public.espacio"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V005 category and space tables exist; seeded category codes must match V005.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 116,
+          "raw_line": "\tif err := r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 AND version=$2`, category, version).Scan(&raw); err != nil {",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 577,
+          "raw_line": "\tif _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'sala_multiproposito',1,'{}')`, space); err != nil {",
+          "test_definition_line": 311,
+          "test_definition_raw_line": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 7,
+      "filename": "V000007__m04_profile_attribute_order.sql",
+      "sha256": "c39bc8c2c3a7161bec0dd0b01b1f7cb04ff87c70aae15ea6db46a6054b1780c5",
+      "verdict": "accepted_source",
+      "semantic_correction": "UPDATE-only JSON backfill on V6 perfil; relies on attributes array structure. No table/schema/ACL change.",
+      "exact_objects_and_dependencies": [
+        "categoria_perfil_atributos.perfil"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "V006 public.categoria_perfil_atributos"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Profiles exist and perfil.attributes is a JSON array; UPDATE affects only profiles containing an attribute without order.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 116,
+          "raw_line": "\tif err := r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 AND version=$2`, category, version).Scan(&raw); err != nil {",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 2159,
+          "raw_line": "\t\tif _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) SELECT $1,$2,max(version),'{}' FROM public.categoria_perfil_atributos WHERE categoria_codigo=$2`, fixture.id, fixture.category); err != nil {",
+          "test_definition_line": 311,
+          "test_definition_raw_line": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 8,
+      "filename": "V000008__m03_synthetic_evidence.sql",
+      "sha256": "896d0808f925f44f5bb82222b56fde369723b3579fae510c3bd3b1a84002113d",
+      "verdict": "accepted_source",
+      "semantic_correction": "Metadata row references V3 verification; no blob store. FK cascades/retention claims must not be inferred absent from this DDL.",
+      "exact_objects_and_dependencies": [
+        "verificacion_evidencia_sintetica"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "V003 public.verificacion",
+        "public.verificacion(id)"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V003 verification table exists; actual blob is explicitly outside repository/database.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 205,
+          "raw_line": "\trows, err := tx.Query(ctx, `SELECT e.id::text FROM public.verificacion_evidencia_sintetica e JOIN public.verificacion v ON v.id=e.verificacion_id WHERE v.usuario_id=$1 ORDER BY e.id`, subjectID)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 837,
+          "raw_line": "\t (SELECT count(*) FROM public.verificacion_evidencia_sintetica),",
+          "test_definition_line": 692,
+          "test_definition_raw_line": "func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppression(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 9,
+      "filename": "V000009__m06_draft_manual_occupancy.sql",
+      "sha256": "e3fd2c98930f3d44280406a1698aa6d4594aa7b7e8ae708157c81ed4103ed900",
+      "verdict": "unresolved",
+      "semantic_correction": "Adds btree_gist, espacio.zona_horaria and occupancy exclusion over active ranges. Matrix test_refs empty is incomplete: seedPaymentReservation helper is called from the payment inbox test(s); assertion/test caller chain not proven in this audit, so unresolved.",
+      "exact_objects_and_dependencies": [
+        "btree_gist extension",
+        "espacio.zona_horaria",
+        "ocupacion",
+        "ocupacion_no_solapa_excl"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "V005 public.espacio",
+        "public.espacio(id)"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V005 space exists; btree_gist extension available/creatable; ranges are finite, nonempty, [lower,upper).",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/expiry/expire.go",
+          "line": 50,
+          "raw_line": "\tif _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_id=$1 AND activo`, reservationID, now); err != nil {",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "unresolved_reason": "V9 test reference unresolved: test fixture helper seedPaymentReservation is located at internal/adapters/postgres/booking/payment_inbox_integration_test.go:51 and inserts ocupacion at lines 69-70, but this is helper code rather than a named Test; its callers/assertions were not fully established. No test coverage claim."
+    },
+    {
+      "version": 10,
+      "filename": "V000010__m05_versioned_rates_and_private_simulations.sql",
+      "sha256": "291748cd18b0ff3424066c322e570a9ff206a386a92e08ad714a9d0709ef212b",
+      "verdict": "accepted_source",
+      "semantic_correction": "Adds composite unique constraint on espacio(id,propietario_id), tarifa version table/backfill, private simulations. Backfill requires valid existing space modality/price; authority is DDL only.",
+      "exact_objects_and_dependencies": [
+        "espacio_id_propietario_uk",
+        "tarifa_espacio",
+        "simulacion_precio_privada"
+      ],
+      "dependencies_as_corrected_from_sql": [
+        "V005 public.espacio",
+        "public.usuario",
+        "V005 public.espacio(id,propietario_id)"
+      ],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V005 space/user tables exist; existing spaces must have valid modality and price; each gets rate version 1.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "line": 351,
+          "raw_line": "\terr = tx.QueryRow(ctx, `SELECT e.estado,e.actualizado_en,e.zona_horaria,t.modalidad FROM public.espacio e JOIN LATERAL(SELECT modalidad FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true WHERE e.id=$1 AND e.propietario_id=$2 FOR UPDATE OF e`, spaceID, owner).Scan(&state, &updatedAt, &zone, &rateUnit)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Repository SQL directly reads or writes this migration object."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "line": 230,
+          "raw_line": "\t\t_, err = tx.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',8000)`, spaceID)",
+          "test_definition_line": 117,
+          "test_definition_raw_line": "func TestDurableFakePaymentInboxDeduplicatesTimeoutAndRecoversAfterRestart(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Test coverage reference for this schema object."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 11,
+      "filename": "V000011__m06_local_booking_trial.sql",
+      "sha256": "7d6e5dfda683164f434c70b415c7383a48d16120abc4d2d10ef0c64db710f452",
+      "verdict": "accepted_source",
+      "semantic_correction": "Creates synthetic booking fixture schema and circular deferred occupancy/reservation references; records fixture allowlist and payment structures. Existing objects altered; ACL is external, not specified.",
+      "exact_objects_and_dependencies": [
+        "cotizacion_reserva_ensayo",
+        "cotizacion_reserva_ensayo_titular_idx",
+        "ocupacion",
+        "reserva_ensayo_local",
+        "reserva_ensayo_local_anfitrion_idx",
+        "reserva_ensayo_local_arrendatario_idx",
+        "reserva_ensayo_local_fixture",
+        "reserva_ensayo_transicion",
+        "reserva_ensayo_transicion_historial_idx",
+        "reserva_pago_ensayo"
+      ],
+      "dependencies_as_corrected_from_sql": "Fixture allowlist singleton, cotización, reserva, transiciones, pagos simulados; FKs diferidas circulares ocupacion/reserva.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adminlocal/service.go",
+          "line": 319,
+          "raw_line": "\trows, err := tx.Query(ctx, `SELECT estado,count(*) FROM public.reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2 GROUP BY estado ORDER BY estado`, p.From.UTC(), p.Until.UTC())",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adminglobal/reports.go",
+          "line": 99,
+          "raw_line": "\tif err = tx.QueryRow(ctx, `SELECT count(*) FROM reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2`, p.From, p.Until).Scan(&cohortCount); err != nil {",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/gcp03scratch/restore_rehearsal_integration_test.go",
+          "line": 183,
+          "raw_line": "\tif _, err := source.Exec(ctx, \"ALTER TABLE public.ocupacion OWNER TO \"+pgx.Identifier{ownerRole}.Sanitize()); err != nil {",
+          "test_definition_line": 58,
+          "test_definition_raw_line": "func TestSyntheticRestoreRehearsalPostgres18(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de ocupacion"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 380,
+          "raw_line": "\tif _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {",
+          "test_definition_line": 37,
+          "test_definition_raw_line": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 12,
+      "filename": "V000012__m06_local_booking_conditions_snapshot.sql",
+      "sha256": "daa604294fbab0c9d3ac027e3e2629a366c93c78795ea7f5edd75733dfd3a1cd",
+      "verdict": "accepted_source",
+      "semantic_correction": "ALTERs quote and reservation snapshots, backfills, drops defaults. Must preserve these altered objects and the exact quote→reservation snapshot semantics.",
+      "exact_objects_and_dependencies": [
+        "cotizacion_reserva_ensayo",
+        "reserva_ensayo_local"
+      ],
+      "dependencies_as_corrected_from_sql": "Añade condiciones_snapshot a quote/reserva; backfill por espacio/quote y elimina defaults.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Tablas y FKs referidas ya existentes; backfills dependen de las filas coincidentes descritas.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 291,
+          "raw_line": "\t_, err = tx.Exec(ctx, `INSERT INTO public.cotizacion_reserva_ensayo(id,espacio_id,anfitrion_id,arrendatario_id,tarifa_version,modalidad,precio_unitario_clp,moneda,unidades,subtotal_clp,inicio,termino,zona_horaria,condiciones_snapshot,creada_en,vence_en,categoria_codigo,perfil_version,perfil_valores_snapshot,politica_cancelacion_version,retirar_en,garantia_politica_version,garantia_moneda,garantia_prevista_clp,liquidacion_politica_version,liquidacion_comision_bps) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`, id, q.SpaceID, hostID, renterID, q.RateVersion, q.RateUnit, q.UnitPrice, q.Currency, units, amount, start, end, q.TimeZone, q.Conditions, now, expires, q.CategoryCode, q.ProfileVersion, q.ProfileValues, q.CancellationPolicyVersion, retireAt, q.GuaranteePolicyVersion, q.GuaranteeCurrency, q.GuaranteeExpectedCLP, q.SettlementPolicyVersion, q.SettlementCommissionBPS)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Quote inserta condiciones_snapshot de reglas de uso."
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 439,
+          "raw_line": "SELECT $1,q.id,q.espacio_id,q.anfitrion_id,q.arrendatario_id,$4,$5,$6,'pendiente_de_pago',q.precio_unitario_clp,q.unidades,q.subtotal_clp,q.modalidad,q.moneda,q.inicio,q.termino,q.zona_horaria,q.condiciones_snapshot,q.politica_cancelacion_version,$7,$8,$8,q.garantia_politica_version,q.garantia_moneda,q.garantia_prevista_clp,q.liquidacion_politica_version,q.liquidacion_comision_bps",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Request copia condiciones_snapshot de cotización a reserva, no condiciones actuales."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 380,
+          "raw_line": "\tif _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {",
+          "test_definition_line": 37,
+          "test_definition_raw_line": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 338,
+          "raw_line": "\tif err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, raceQuote.ID).Scan(&racedReservations); err != nil || racedReservations != 0 {",
+          "test_definition_line": 113,
+          "test_definition_raw_line": "func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 13,
+      "filename": "V000013__m06_booking_history_sequence.sql",
+      "sha256": "8aaa68c5b3f06a8b363bc8332bb7574e937417616610d5dc4df8ac26365f30de",
+      "verdict": "accepted_source",
+      "semantic_correction": "Adds history sequence, deterministic row_number backfill, uniqueness/index replacement; tie semantics differ from later V14.",
+      "exact_objects_and_dependencies": [
+        "reserva_ensayo_transicion",
+        "reserva_ensayo_transicion_historial_idx"
+      ],
+      "dependencies_as_corrected_from_sql": "Añade secuencia, backfill row_number por fecha,id, NOT NULL/unique; recrea índice.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Tablas y FKs referidas ya existentes; backfills dependen de las filas coincidentes descritas.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adminglobal/reports.go",
+          "line": 181,
+          "raw_line": "\t\tFROM reserva_ensayo_transicion",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "line": 237,
+          "raw_line": "\t\tif _, err = w.tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 478,
+          "raw_line": "\tif _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)",
+          "test_definition_line": 37,
+          "test_definition_raw_line": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 795,
+          "raw_line": "\tif _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) VALUES('90000000-0000-4000-8000-000000000005',$1,(SELECT COALESCE(max(secuencia),0)+1 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),'cancelada_por_pago','finalizada',$2,'ensayo_terminal_para_prueba_de_eliminacion',clock_timestamp())`, reservation.ID, other); err != nil {",
+          "test_definition_line": 113,
+          "test_definition_raw_line": "func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_transicion"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 14,
+      "filename": "V000014__m06_deterministic_history_backfill.sql",
+      "sha256": "c5b25c4d450f7ff5f60ebac401e85506a8835ade8e80c3043d0ddd2706682ccb",
+      "verdict": "accepted_source",
+      "semantic_correction": "Rewrites sequence with incomplete tie-breaker (same timestamp/status/motive can remain tied); reported native zero ties is dated external evidence, not source guarantee.",
+      "exact_objects_and_dependencies": [
+        "reserva_ensayo_transicion"
+      ],
+      "dependencies_as_corrected_from_sql": "Quita unique temporal; row_number por fecha, prioridad estado anterior, estado nuevo, anterior y motivo; vuelve a unique.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V14: esquema/tablas V11–V13 y conteo de ties nativo reportado 0; sin inferir mutación.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adminglobal/reports.go",
+          "line": 181,
+          "raw_line": "\t\tFROM reserva_ensayo_transicion",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "line": 237,
+          "raw_line": "\t\tif _, err = w.tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 478,
+          "raw_line": "\tif _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)",
+          "test_definition_line": 37,
+          "test_definition_raw_line": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 795,
+          "raw_line": "\tif _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) VALUES('90000000-0000-4000-8000-000000000005',$1,(SELECT COALESCE(max(secuencia),0)+1 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),'cancelada_por_pago','finalizada',$2,'ensayo_terminal_para_prueba_de_eliminacion',clock_timestamp())`, reservation.ID, other); err != nil {",
+          "test_definition_line": 113,
+          "test_definition_raw_line": "func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_transicion"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 15,
+      "filename": "V000015__m05_local_synthetic_catalog.sql",
+      "sha256": "55c2641621ca6dcba8c00108fb0d3bd607730a1544417f79388d2942c2a18525",
+      "verdict": "accepted_source",
+      "semantic_correction": "Changes fixture key shape and quote profile/category snapshots; backfill JOIN can omit unmatched historical quotes and NOT NULL/FK then fail. Explicit data prerequisite.",
+      "exact_objects_and_dependencies": [
+        "cotizacion_reserva_ensayo",
+        "reserva_ensayo_local_fixture",
+        "reserva_ensayo_local_fixture_enabled_idx"
+      ],
+      "dependencies_as_corrected_from_sql": "Transforma fixture singleton a PK espacio/habilitada; añade snapshots categoría/perfil a quotes, backfill JOIN espacio_caracteristicas, luego NOT NULL/FK/check.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "V15: espacio_caracteristicas para cada quote previo; ledger secuencial, no se salta fallo previo.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adminglobal/publications.go",
+          "line": 29,
+          "raw_line": "const publicCatalogVisibleExpr = `(e.estado='activa' AND c.activa AND u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local bl WHERE bl.cuenta_id=u.id) AND EXISTS(SELECT 1 FROM public.tarifa_espacio tr WHERE tr.espacio_id=e.id) AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local el JOIN public.verificacion v ON v.id=el.verificacion_id AND v.usuario_id=el.usuario_id AND v.tipo=el.tipo AND v.estado='aprobada' WHERE el.usuario_id=u.id AND el.tipo='kyc' AND el.estado='elegible') AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture fx WHERE fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.habilitada))`",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 269,
+          "raw_line": "\terr = tx.QueryRow(ctx, `SELECT habilitada FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1 FOR UPDATE`, id).Scan(&fixtureEnabled)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 380,
+          "raw_line": "\tif _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {",
+          "test_definition_line": 37,
+          "test_definition_raw_line": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 365,
+          "raw_line": "\tif _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, fixtureDraft.ID, owner, other); err != nil {",
+          "test_definition_line": 113,
+          "test_definition_raw_line": "func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 16,
+      "filename": "V000016__m09_local_reservation_messages.sql",
+      "sha256": "21772b55240bd9e42dcee9a0c60267f87e0c5652e9d20a2d4d84526994cc4a06",
+      "verdict": "accepted_source",
+      "semantic_correction": "Creates message table/identity sequence and index; no TTL/delete lifecycle encoded by this migration.",
+      "exact_objects_and_dependencies": [
+        "mensaje_reserva_ensayo",
+        "mensaje_reserva_ensayo_hilo_idx"
+      ],
+      "dependencies_as_corrected_from_sql": "mensaje_reserva_ensayo con secuencia identity, idempotencia, reserva/autor y cuerpo; índice hilo.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "line": 41,
+          "raw_line": "\trows, err := r.pool.Query(ctx, `SELECT `+messageColumns+` FROM public.mensaje_reserva_ensayo",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/conversation/privacy_export.go",
+          "line": 11,
+          "raw_line": "\t\t\"messages_written_by_owner\": `SELECT COALESCE(jsonb_agg(jsonb_build_object('reservation_id',m.reserva_id::text,'sequence',m.secuencia,'body',m.cuerpo,'created_at',m.creada_en) ORDER BY m.reserva_id,m.secuencia),'[]'::jsonb) FROM public.mensaje_reserva_ensayo m WHERE m.autor_id=$1`,",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 503,
+          "raw_line": "(SELECT count(*) FROM public.mensaje_reserva_ensayo m",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 537,
+          "raw_line": "\tif err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.mensaje_reserva_ensayo','SELECT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','INSERT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','UPDATE'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','DELETE')`).Scan(&messagesRead, &messagesInsert, &messagesUpdate, &messagesDelete); err != nil {",
+          "test_definition_line": 311,
+          "test_definition_raw_line": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de mensaje_reserva_ensayo"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 783,
+          "raw_line": "\t\tif _, err := h.pool.Exec(h.ctx, `INSERT INTO public.mensaje_reserva_ensayo(id,reserva_id,autor_id,clave_idempotencia,huella_solicitud,cuerpo,creada_en) VALUES ($1,$2,$3,$4,decode(repeat('44',32),'hex'),$5,$6)`, \"82000000-0000-4000-8000-\"+key[len(key)-12:], reservationID, actor, \"archive-message-\"+actor, \"Mensaje propio de prueba \"+actor, h.now); err != nil {",
+          "test_definition_line": 692,
+          "test_definition_raw_line": "func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppression(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de mensaje_reserva_ensayo"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 17,
+      "filename": "V000017__m09_reservation_message_read_cursor.sql",
+      "sha256": "d22702994f854621e3eca912ce07a320a3b83e7c9bf1ad2910f82d8ef3cfe127",
+      "verdict": "accepted_source",
+      "semantic_correction": "Cursor table FK/PK only; membership in reservation and upper-bound sequence are not enforced in this SQL.",
+      "exact_objects_and_dependencies": [
+        "reserva_mensaje_lectura"
+      ],
+      "dependencies_as_corrected_from_sql": "reserva_mensaje_lectura cursor por reserva/participante, FKs.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "line": 85,
+          "raw_line": "\terr := r.pool.QueryRow(ctx, `INSERT INTO public.reserva_mensaje_lectura(reserva_id,participante_id,ultima_secuencia_leida,actualizada_en)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/conversation/privacy_export.go",
+          "line": 12,
+          "raw_line": "\t\t\"conversation_read_cursors\": `SELECT COALESCE(jsonb_agg(jsonb_build_object('reservation_id',c.reserva_id::text,'last_sequence_read',c.ultima_secuencia_leida,'updated_at',c.actualizada_en) ORDER BY c.reserva_id),'[]'::jsonb) FROM public.reserva_mensaje_lectura c WHERE c.participante_id=$1`,",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 505,
+          "raw_line": " AND m.secuencia>COALESCE((SELECT c.ultima_secuencia_leida FROM public.reserva_mensaje_lectura c",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 544,
+          "raw_line": "\tif err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_mensaje_lectura','SELECT'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','INSERT'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','UPDATE'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','DELETE')`).Scan(&cursorRead, &cursorInsert, &cursorUpdate, &cursorDelete); err != nil {",
+          "test_definition_line": 311,
+          "test_definition_raw_line": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_mensaje_lectura"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 791,
+          "raw_line": "\tif _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_mensaje_lectura(reserva_id,participante_id,ultima_secuencia_leida,actualizada_en) VALUES ($1,$2,$3,$4)`, reservationID, hostID, hostSeq, h.now); err != nil {",
+          "test_definition_line": 692,
+          "test_definition_raw_line": "func TestLocalCompleteExportZIPIsOwnerScopedReadOnlyAndAvailableWithBlockedSuppression(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_mensaje_lectura"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 18,
+      "filename": "V000018__m05_synthetic_fixture_locations.sql",
+      "sha256": "65ff0d76bafb9b7e78207aac40172cb45443291b2903c71165650174c9eac89b",
+      "verdict": "accepted_source",
+      "semantic_correction": "PostGIS synthetic-location table, generated spatial value/index and fixture backfill. Extension and fixture predicates are prerequisites; index-name observer is not a behavioral test.",
+      "exact_objects_and_dependencies": [
+        "reserva_ensayo_local_ubicacion_gist",
+        "reserva_ensayo_local_ubicacion_sintetica"
+      ],
+      "dependencies_as_corrected_from_sql": "postgis; tabla ubicación sintética geography generada; índice gist; backfill coordenadas por categoría para fixtures habilitados, conflict ignore.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 68,
+          "raw_line": "LEFT JOIN public.reserva_ensayo_local_ubicacion_sintetica g ON g.espacio_id=e.id AND f.habilitada AND g.es_sintetica",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL consumidor/fixture de reserva_ensayo_local_ubicacion_sintetica"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/gcp03scratch/lifecycle_integration_test.go",
+          "line": 187,
+          "raw_line": "\t\tobservation.Spatial.ExpectedIndex != \"public.reserva_ensayo_local_ubicacion_gist\" {",
+          "test_definition_line": 24,
+          "test_definition_raw_line": "func TestScratchLifecyclePostgres18(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local_ubicacion_gist"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 551,
+          "raw_line": "\tif err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','SELECT'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','INSERT'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','UPDATE'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','DELETE')`).Scan(&fixtureLocationRead, &fixtureLocationInsert, &fixtureLocationUpdate, &fixtureLocationDelete); err != nil {",
+          "test_definition_line": 311,
+          "test_definition_raw_line": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local_ubicacion_sintetica"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 19,
+      "filename": "V000019__m06_local_weekly_hours.sql",
+      "sha256": "99d516ecae702fd158204d985662d1cc0c70104a9cd520a926009860dc160d57",
+      "verdict": "accepted_source",
+      "semantic_correction": "Creates weekly hours/tranches, exclusion and four trigger-function protections. Go write path is an indirect trigger consumer; the query-plan test is not DDL evidence, while TestCurrentSchemaMigrationV19WeeklyHours applies V1–V19 and exercises the original PostgreSQL trigger/constraint behavior in an isolated disposable database.",
+      "exact_objects_and_dependencies": [
+        "espacio_horario_semanal",
+        "espacio_horario_semanal_tramo",
+        "espacio_modalidad_horario_semanal_guard",
+        "espacio_zona_horario_semanal_guard",
+        "guardar_modalidad_horario_activo",
+        "guardar_zona_sin_horario_activo",
+        "horario_semanal_fixture_hora_guard",
+        "rechazar_cambio_tarifa_con_horario_activo",
+        "tarifa_horario_semanal_guard",
+        "validar_horario_semanal_fixture_hora"
+      ],
+      "dependencies_as_corrected_from_sql": "horario semanal y tramos no solapados; funciones/4 triggers para zona, modalidad y fixture/tarifa.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "line": 369,
+          "raw_line": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.espacio_horario_semanal(espacio_id,activo,actualizado_en) VALUES($1,$2,now()) ON CONFLICT (espacio_id) DO UPDATE SET activo=EXCLUDED.activo,actualizado_en=now()`, spaceID, value.Enabled); err != nil {",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Guarda horario semanal; dispara función histórica instalada en V19 y luego reemplazada en V61."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/publiccatalog/weekly_schedule_query_test.go",
+          "line": 15,
+          "raw_line": "\tif strings.Index(query, \"LEFT JOIN public.espacio_horario_semanal\") >= 0 {",
+          "test_definition_line": 9,
+          "test_definition_raw_line": "func TestDetailWeeklyScheduleSubqueryPrecedesEligibilityWhere(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de espacio_horario_semanal"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/migrator/current_schema_integration_test.go",
+          "line": 598,
+          "raw_line": "\t\t\t\t\"23514\", \"zona_horaria_horario_semanal_activo\", validFixture)",
+          "test_definition_line": 472,
+          "test_definition_raw_line": "func TestCurrentSchemaMigrationV19WeeklyHours(t *testing.T) {",
+          "semantic_role": "Aserción PostgreSQL del guard de zona, dentro del test que aplica V1–V19; el scope v19 registró 11 resultados PASS sin skips."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 20,
+      "filename": "V000020__m06_local_flexible_cancellation.sql",
+      "sha256": "a594aa744d8fa8ffcf1884561d4e0f0730ea1a35098f422b55b46b4e933570d0",
+      "verdict": "accepted_source",
+      "semantic_correction": "Adds cancellation policy snapshots/payment amount backfill plus cancellation/refund tables. Preserve all altered tables, not only new tables.",
+      "exact_objects_and_dependencies": [
+        "cotizacion_reserva_ensayo",
+        "reserva_cancelacion_ensayo",
+        "reserva_devolucion_ensayo",
+        "reserva_devolucion_intento_ensayo",
+        "reserva_devolucion_intento_historial_idx",
+        "reserva_ensayo_local",
+        "reserva_ensayo_local_fixture",
+        "reserva_pago_ensayo"
+      ],
+      "dependencies_as_corrected_from_sql": "Añade política cancelación snapshots; importe pago default 0 y backfill éxitos; tablas cancelación/devolución/intentos.",
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Tablas y FKs referidas ya existentes; backfills dependen de las filas coincidentes descritas.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 741,
+          "raw_line": "\t_, err = tx.Exec(ctx, `INSERT INTO public.reserva_cancelacion_ensayo(id,reserva_id,arrendatario_id,clave_idempotencia,huella_solicitud,motivo,creada_en) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6)`, id, renter, key, fingerprint, reason, now)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Cancelación flexible inserta hecho idempotente de reserva_cancelacion_ensayo."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 380,
+          "raw_line": "\tif _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {",
+          "test_definition_line": 37,
+          "test_definition_raw_line": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 338,
+          "raw_line": "\tif err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, raceQuote.ID).Scan(&racedReservations); err != nil || racedReservations != 0 {",
+          "test_definition_line": 113,
+          "test_definition_raw_line": "func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 21,
+      "filename": "V000021__m06_local_payment_inbox.sql",
+      "sha256": "3c3e72a6fcf9e1b6570362c7254a65cd6024c2838792898dfee5daeebd088a86",
+      "verdict": "accepted_source",
+      "semantic_correction": "Payment inbox schema includes existing booking dependencies; matrix omits exact FK parents and authority distinction. No ACL SQL here.",
+      "exact_objects_and_dependencies": [
+        "reserva_pago_ensayo_operacion",
+        "reserva_pago_fake_resultado_ensayo",
+        "reserva_pago_evento_ensayo",
+        "reserva_pago_evento_aplicacion_ensayo"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adminlocal/service.go",
+          "line": 365,
+          "raw_line": " UNION ALL SELECT 'cobro_arriendo',o.estado,count(*)::bigint,COALESCE(sum(r.subtotal_clp),0)::bigint FROM public.reserva_pago_ensayo_operacion o JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id WHERE o.estado='pendiente' GROUP BY o.estado",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 1415,
+          "raw_line": "\t\t(SELECT count(*) FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1 AND estado='aplicada' AND resultado_final='exito_simulado')`, rejectedReservation.ID).Scan(&rejectedRentNotices, &confirmedRentPayments); err != nil {",
+          "test_definition_line": 311,
+          "test_definition_raw_line": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 22,
+      "filename": "V000022__local_identity_history_and_outbox.sql",
+      "sha256": "f2166790c2500956a2cbbf4bc16280a7bec11d3d36bf6096cc5ae666f9b5b4a8",
+      "verdict": "accepted_source",
+      "semantic_correction": "Alters usuario and adds credential history/outbox/audit; not duplicate usuario object creation. Exact authority/ACL is not defined by SQL.",
+      "exact_objects_and_dependencies": [
+        "usuario",
+        "usuario",
+        "historial_clave_local",
+        "outbox_evento_local",
+        "evento_auditoria_local"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/dbgen/identity.sql.go",
+          "line": 1454,
+          "raw_line": "INSERT INTO public.historial_clave_local (",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Definición SQL de inserción en historial creado en V22; no se leen valores de credenciales."
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/auth_transaction.go",
+          "line": 119,
+          "raw_line": "\treturn mapError(t.queries.StorePreviousPasswordHash(ctx, dbgen.StorePreviousPasswordHashParams{ID: id, AccountID: accountID, PasswordHash: string(hash), NoLongerCurrentAt: dbTime(noLongerCurrentAt), RemoveAt: dbTime(removeAt), CreatedAt: dbTime(createdAt)}))",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "La transacción real invoca StorePreviousPasswordHash, no un grant de bootstrap."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 3518,
+          "raw_line": "func TestLocalCredentialHistoryPreferenceAndDurableNoticeRecovery(t *testing.T) {",
+          "test_definition_line": 3518,
+          "test_definition_raw_line": "func TestLocalCredentialHistoryPreferenceAndDurableNoticeRecovery(t *testing.T) {",
+          "semantic_role": "Historial/preferencia/aviso durable."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 23,
+      "filename": "V000023__local_privacy_suppression_review.sql",
+      "sha256": "b38c23af4953e46c6d6c3b145d7c1c8212b0408ddc39e7eb434cd945ed355f2c",
+      "verdict": "accepted_source",
+      "semantic_correction": "Alters audit constraints for suppression review; no new table. Consumer line must be tied to audit insert, not merely a lexical action token.",
+      "exact_objects_and_dependencies": [
+        "evento_auditoria_local",
+        "evento_auditoria_local"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/privacy.go",
+          "line": 293,
+          "raw_line": "\t) VALUES ($1,$2,'solicitud_titular',$3,'privacy.suppression.review',$4,$5,$6,$7,$8,$9,$10::jsonb)`,",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Persiste la evaluación de supresión en auditoría con acción/recurso y detalle estructurado."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 1331,
+          "raw_line": "func TestM02SuppressionReviewRequiresAdminAndReusesPersistedIncompleteAssessment(t *testing.T) {",
+          "test_definition_line": 1331,
+          "test_definition_raw_line": "func TestM02SuppressionReviewRequiresAdminAndReusesPersistedIncompleteAssessment(t *testing.T) {",
+          "semantic_role": "Evaluación incompleta persistida y autorización."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 24,
+      "filename": "V000024__local_dispute_privacy_blocker.sql",
+      "sha256": "ed27af7effe2c16f13896a4a6240cb62da46333158588755c4f835c6ded66e29",
+      "verdict": "accepted_source",
+      "semantic_correction": "Adds dispute tables and audit constraint changes; dispute is a privacy blocker only, not financial resolution.",
+      "exact_objects_and_dependencies": [
+        "evento_auditoria_local",
+        "evento_auditoria_local",
+        "disputa_ensayo_local",
+        "disputa_ensayo_historial"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/dispute/repository.go",
+          "line": 67,
+          "raw_line": "\terr = tx.QueryRow(ctx, `SELECT `+disputeColumns+`,huella_solicitud FROM public.disputa_ensayo_local WHERE anfitrion_id=$1 AND clave_idempotencia=$2 FOR UPDATE`, actorID, idempotencyKey).Scan(",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Lee la disputa idempotente del anfitrión con FOR UPDATE; consumidor de tablas de V24."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 1755,
+          "raw_line": "func TestLocalDisputeOpenAndCloseSerializeWithSuppressionReview(t *testing.T) {",
+          "test_definition_line": 1755,
+          "test_definition_raw_line": "func TestLocalDisputeOpenAndCloseSerializeWithSuppressionReview(t *testing.T) {",
+          "semantic_role": "Serialización disputa con evaluación de baja."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 25,
+      "filename": "V000025__local_synthetic_privacy_suppression.sql",
+      "sha256": "cf390257626036c35d4f0ca4715ca977a4ceab2b3032ced3e789f4a4098ded19",
+      "verdict": "accepted_source",
+      "semantic_correction": "Broadly alters identity, terms, verification, booking and outbox; creates suppression execution and pending file cleanup. Trigger binding is on verificacion; no blob persistence.",
+      "exact_objects_and_dependencies": [
+        "usuario",
+        "aceptacion_terminos",
+        "solicitud_titular",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "cotizacion_reserva_ensayo",
+        "reserva_ensayo_local",
+        "outbox_evento_local",
+        "evento_auditoria_local",
+        "evento_auditoria_local",
+        "ejecucion_baja_local",
+        "set_local_verification_retention_deadline",
+        "verificacion_retencion_sintetica_trg",
+        "baja_archivo_pendiente_local"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 285,
+          "raw_line": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.ejecucion_baja_local(id,solicitud_id,usuario_id,actor_id,clave_idempotencia,estado,motivo_codigo,iniciada_en,detalle) VALUES($1,$2,$3,$4,$5,'limpieza_pendiente','baja_local_minimizada',$6,$7::jsonb)`, executionID, requestID, subjectID, actorID, key, checkedAt, string(encoded)); err != nil {",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Crea la ejecución durable de baja en limpieza_pendiente; no es un permiso declarativo."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 2560,
+          "raw_line": "func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *testing.T) {",
+          "test_definition_line": 2560,
+          "test_definition_raw_line": "func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *testing.T) {",
+          "semantic_role": "Baja minimiza cuenta y conserva limpieza recuperable."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 26,
+      "filename": "V000026__local_privacy_retention_purge_and_replay.sql",
+      "sha256": "38eaed77c3421a34c1c3361e33d281d5ea1418bfc1c0d0c2d57ac8e8c6846e7b",
+      "verdict": "accepted_source",
+      "semantic_correction": "Makes historical participant links nullable across listed tables, adds retention trigger and replay tables; does not delete transaction facts. Backfill only selected terminal states.",
+      "exact_objects_and_dependencies": [
+        "reserva_ensayo_local",
+        "cotizacion_reserva_ensayo",
+        "reserva_pago_ensayo_operacion",
+        "reserva_cancelacion_ensayo",
+        "reserva_ensayo_local_fixture",
+        "disputa_ensayo_local",
+        "disputa_ensayo_historial",
+        "mensaje_reserva_ensayo",
+        "disputa_ensayo_local",
+        "schedule_local_reservation_link_retention",
+        "reserva_vinculos_retencion_trg",
+        "reserva_vinculo_purgado_local",
+        "reaplicacion_baja_local"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "line": 228,
+          "raw_line": "\tif _, err := tx.Exec(ctx, `INSERT INTO public.reserva_vinculo_purgado_local(reserva_id,vencio_en,purgado_en,campos_retirados) VALUES($1,$2,$3,$4) ON CONFLICT (reserva_id) DO NOTHING`, candidate.id, deadline, now, fields); err != nil {",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Registra purga de vínculos de reserva idempotentemente al terminar su retención."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "line": 920,
+          "raw_line": "func TestLocalReservationRetentionPurgeRespectsDeadlineAndKeepsHistoricalFacts(t *testing.T) {",
+          "test_definition_line": 920,
+          "test_definition_raw_line": "func TestLocalReservationRetentionPurgeRespectsDeadlineAndKeepsHistoricalFacts(t *testing.T) {",
+          "semantic_role": "Deadline y hechos históricos de vínculos."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 27,
+      "filename": "V000027__local_credential_notice_terminal_recovery.sql",
+      "sha256": "a30512e5efcf43b47426ef2a771b8899104d65aad4851058e990915a81ef94ec",
+      "verdict": "accepted_source",
+      "semantic_correction": "Alters outbox/audit constraints, backfills terminal retries, adds cycle table/function. Function explicitly REVOKEs PUBLIC execute; default ACL remains separate and not globally characterized.",
+      "exact_objects_and_dependencies": [
+        "outbox_evento_local",
+        "outbox_evento_ciclo_local",
+        "evento_auditoria_local",
+        "evento_auditoria_local",
+        "evento_auditoria_local",
+        "evento_auditoria_local",
+        "evento_auditoria_local",
+        "outbox_evento_local",
+        "outbox_evento_local",
+        "purge_expired_local_credential_notices",
+        "outbox_evento_local",
+        "outbox_evento_local"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/dbgen/identity.sql.go",
+          "line": 1439,
+          "raw_line": "INSERT INTO public.outbox_evento_ciclo_local(evento_id,numero_ciclo,estado,iniciada_en)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "SQL que crea el ciclo durable de aviso de credencial."
+        },
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/auth_transaction.go",
+          "line": 129,
+          "raw_line": "\treturn mapError(t.queries.StartCredentialNoticeCycle(ctx, dbgen.StartCredentialNoticeCycleParams{EventID: eventID, StartedAt: dbTime(createdAt)}))",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Transacción de autenticación invoca StartCredentialNoticeCycle."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 3811,
+          "raw_line": "func TestCredentialNoticeTerminalCycleAdminRecoveryAndRetention(t *testing.T) {",
+          "test_definition_line": 3811,
+          "test_definition_raw_line": "func TestCredentialNoticeTerminalCycleAdminRecoveryAndRetention(t *testing.T) {",
+          "semantic_role": "Ciclo terminal, recuperación y retención."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 28,
+      "filename": "V000028__local_kyc_eligibility_and_history.sql",
+      "sha256": "dd3ebc10d38f9000b4ec1183a40b8ed4222e14c2fc358b8cbe26f98b7896a1a7",
+      "verdict": "accepted_source",
+      "semantic_correction": "Alters verification state/retention function and backfills eligibility/history. Migration history is reconstructed only from current rows; not a complete historical event log.",
+      "exact_objects_and_dependencies": [
+        "verificacion",
+        "set_local_verification_retention_deadline",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion",
+        "verificacion_historial_local",
+        "elegibilidad_verificacion_local"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/verification/repository.go",
+          "line": 57,
+          "raw_line": "\t\tif _, err = tx.Exec(ctx, `INSERT INTO public.verificacion_historial_local(verificacion_id,actor_id,accion,estado_nuevo,correlacion_id,ocurrida_en)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Create agrega historial de transición de verificación local."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "line": 618,
+          "raw_line": "\tif _, err := h.pool.Exec(h.ctx, `UPDATE public.verificacion_historial_local SET ocurrida_en=$2 WHERE verificacion_id=$1`, caseItem.ID, resolvedAt); err != nil {",
+          "test_definition_line": 572,
+          "test_definition_raw_line": "func TestRatifiedLocalRetentionPurgesDueRowsAndRecoversPrivateFileDeletion(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 29,
+      "filename": "V000029__local_privacy_kyc_eligibility.sql",
+      "sha256": "9ed0486313c8c6172cd7d133c08e39c6bed39fd3bbfb596b1a4a3bbbda1595b6",
+      "verdict": "accepted_source",
+      "semantic_correction": "Alters eligibility/history checks to represent privacy withdrawal; no new table and no actual account data deletion.",
+      "exact_objects_and_dependencies": [
+        "elegibilidad_verificacion_local",
+        "elegibilidad_verificacion_local",
+        "verificacion_historial_local",
+        "verificacion_historial_local"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 423,
+          "raw_line": "\tif _, err = tx.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='retirada_privacidad',",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Retira explícitamente elegibilidad por privacidad, estado ampliado en V29."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 359,
+          "raw_line": "\tif _, err = pool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, landlord, verificationID); err != nil {",
+          "test_definition_line": 37,
+          "test_definition_raw_line": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+        }
+      ],
+      "unresolved_reason": null
+    },
+    {
+      "version": 30,
+      "filename": "V000030__m02_synthetic_profile_photo_and_payout.sql",
+      "sha256": "1130f484103f2383cbe310f312823a1af571ffc6e73603e03acb8e564bef4220",
+      "verdict": "accepted_source",
+      "semantic_correction": "Creates synthetic photo/payout/idempotency structures; files external, payout adapter fake-only. CHECK on photo envelope has SQL NULL caveat (sha256/size comparisons can yield UNKNOWN unless other predicates close it); validate as potential constraint gap.",
+      "exact_objects_and_dependencies": [
+        "foto_perfil_sintetica_local",
+        "cuenta_cobro_sintetica_local",
+        "cuenta_cobro_sintetica_historial_local",
+        "m02_operacion_idempotente_local"
+      ],
+      "dependencies_as_corrected_from_sql": [],
+      "authority_acl_public_default": "SQL source reviewed: identify explicit role/OWNER/GRANT/REVOKE separately; absence of SQL ACL statements does not establish effective ACL, PUBLIC baseline or default ACL. See per-row correction; V27 explicit function REVOKE PUBLIC is singular scoped effect.",
+      "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+      "actual_go_and_test_source_refs": [
+        {
+          "kind": "consumer_refs",
+          "path": "internal/m02local/service.go",
+          "line": 200,
+          "raw_line": "\te := s.pool.QueryRow(ctx, `SELECT payout.id::text,payout.adaptador,payout.referencia_ficticia,payout.estado,payout.actualizada_en FROM public.cuenta_cobro_sintetica_local payout JOIN public.usuario owner ON owner.id=payout.usuario_id AND owner.estado='activo' WHERE payout.usuario_id=$1 AND payout.estado='activa'`, owner).Scan(&p.ID, &p.Adapter, &p.Reference, &p.State, &p.UpdatedAt)",
+          "test_definition_line": null,
+          "test_definition_raw_line": null,
+          "semantic_role": "Consulta cuenta de cobro ficticia activa del propietario y valida estado de cuenta."
+        },
+        {
+          "kind": "test_refs",
+          "path": "internal/m02local/service_integration_test.go",
+          "line": 385,
+          "raw_line": "\tif e = adminPool.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.foto_perfil_sintetica_local WHERE usuario_id=$1),(SELECT count(*) FROM public.cuenta_cobro_sintetica_local WHERE usuario_id=$1)`, owner).Scan(&photos, &payouts); e != nil || photos != 0 || payouts != 0 {",
+          "test_definition_line": 334,
+          "test_definition_raw_line": "func TestPhotoWriteLosesRaceWithSuppressionAccountLock(t *testing.T) {",
+          "semantic_role": "Definición que contiene la aserción citada; Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+        }
+      ],
+      "unresolved_reason": null
+    }
+  ]
+}

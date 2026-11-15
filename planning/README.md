@@ -1,5 +1,9 @@
 # Planificación de desarrollo de EspaciGo
 
+## Verificación de identidad — decisión vigente del 2026-11-10
+
+[Plan de identidad propio de EspaciGo](verificacion_identidad/plan_verificacion_identidad_espacigo.md): MVP documental con revisión humana, reutilización del flujo de Mi cuenta y evidencias privadas cifradas en Cloud Storage. Sustituye la planificación de integración externa; los documentos anteriores permanecen históricos. Planificación no equivale a implementación, aprobación de datos reales o despliegue.
+
 ## Propósito
 
 Este directorio contiene la línea base evolutiva para construir EspaciGo con prioridad en **Base de Datos → Backend → API → pruebas → validación visual con frontend mock**. Es planificación, no evidencia de implementación. La interfaz definitiva queda fuera de alcance y se decidirá cuando el backend y la persistencia hayan avanzado.

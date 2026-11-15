@@ -87,7 +87,8 @@ def execute_job(cloud,job,r,record):
     deadline=time.monotonic()+90
     while True:
         logs=cloud.json('logging','read',query,'--limit=100')
-        reports=[x for x in logs if isinstance(x.get('jsonPayload'),dict) and (x['jsonPayload'].get('format')==wanted if wanted else set(x['jsonPayload'])=={'database','server_version','read_only','history_exists','applied','pending'})]
+        plan_fields={'database','server_version','read_only','history_exists','applied','pending'}
+        reports=[x for x in logs if isinstance(x.get('jsonPayload'),dict) and (x['jsonPayload'].get('format')==wanted if wanted else plan_fields<=set(x['jsonPayload']))]
         if reports:break
         require(time.monotonic()<deadline,'execution succeeded but log is missing; do not replay SQL')
         time.sleep(5)

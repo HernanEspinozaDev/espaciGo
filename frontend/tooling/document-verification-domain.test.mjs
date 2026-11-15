@@ -41,12 +41,15 @@ test("create payload normalization accepts only exact identity or space fields",
   const { normalizeDocumentVerificationCreate } = await import(
     pathToFileURL(compiled).href
   );
+  const identityPayload = {
+    purpose: "identity",
+    document_format_declared: "unsure",
+    capture_consent_given: true,
+    capture_consent_version: "identity-capture-local-v1",
+  };
   assert.deepEqual(
-    normalizeDocumentVerificationCreate({
-      purpose: "identity",
-      document_expires_at: "2030-01-01",
-    }),
-    { purpose: "identity", document_expires_at: "2030-01-01" },
+    normalizeDocumentVerificationCreate(identityPayload),
+    identityPayload,
   );
   assert.deepEqual(
     normalizeDocumentVerificationCreate({
@@ -60,6 +63,14 @@ test("create payload normalization accepts only exact identity or space fields",
       normalizeDocumentVerificationCreate({
         purpose: "identity",
         space_id: "extra",
+      }),
+    TypeError,
+  );
+  assert.throws(
+    () =>
+      normalizeDocumentVerificationCreate({
+        purpose: "identity",
+        document_expires_at: "2030-01-01",
       }),
     TypeError,
   );

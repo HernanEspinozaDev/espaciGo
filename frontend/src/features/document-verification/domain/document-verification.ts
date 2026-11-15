@@ -6,8 +6,19 @@ export type DocumentVerificationCase = Readable<
 export type DocumentVerificationFile = Readable<
   components["schemas"]["DocumentVerificationOwnerFile"]
 >;
+export type IdentityEvidenceRole = NonNullable<
+  DocumentVerificationFile["evidence_role"]
+>;
+export const identityEvidenceRoles = [
+  "identity_front",
+  "identity_back",
+  "identity_selfie",
+] as const satisfies readonly IdentityEvidenceRole[];
 export type DocumentVerificationCreate =
   components["schemas"]["DocumentVerificationCaseCreate"];
+
+export const IDENTITY_CAPTURE_CONSENT_VERSION =
+  "identity-capture-local-v1" as const;
 
 export interface OwnerSpaceOption {
   readonly id: string;
@@ -23,15 +34,26 @@ export function normalizeDocumentVerificationCreate(
   if (value.purpose === "identity") {
     if (
       Object.keys(value).some(
-        (key) => key !== "purpose" && key !== "document_expires_at",
+        (key) =>
+          ![
+            "purpose",
+            "document_format_declared",
+            "capture_consent_given",
+            "capture_consent_version",
+          ].includes(key),
       ) ||
-      typeof value.document_expires_at !== "string" ||
-      !value.document_expires_at
+      (value.document_format_declared !== "legacy" &&
+        value.document_format_declared !== "new" &&
+        value.document_format_declared !== "unsure") ||
+      value.capture_consent_given !== true ||
+      value.capture_consent_version !== IDENTITY_CAPTURE_CONSENT_VERSION
     )
       throw new TypeError("Invalid identity document verification payload");
     return {
       purpose: "identity",
-      document_expires_at: value.document_expires_at,
+      document_format_declared: value.document_format_declared,
+      capture_consent_given: true,
+      capture_consent_version: IDENTITY_CAPTURE_CONSENT_VERSION,
     };
   }
   if (value.purpose === "space") {

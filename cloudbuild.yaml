@@ -8,6 +8,7 @@ serviceAccount: projects/espacigo-testprod/serviceAccounts/espacigo-cloud-build-
 timeout: 7200s
 substitutions:
   _DEPLOY_SCOPE: full
+  _DB_PREFLIGHT_ONLY: "false"
 steps:
   - id: verify-source-quality
     name: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable@sha256:1855ee6031f03bb7d4b251cfd0e5b88a18fd9a2552a742cf86d269810832c80b
@@ -16,6 +17,7 @@ steps:
       - -ceu
       - |
         [[ "${_DEPLOY_SCOPE}" == full ]]
+        [[ "${_DB_PREFLIGHT_ONLY}" == true || "${_DB_PREFLIGHT_ONLY}" == false ]]
         [[ -s /usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem ]]
         export SSL_CERT_FILE=/usr/lib/google-cloud-sdk/lib/third_party/certifi/cacert.pem
         quality_python=$$(gcloud info --format='value(basic.python_location)')
@@ -27,4 +29,9 @@ steps:
       - -ceu
       - |
         release_python=$$(gcloud info --format='value(basic.python_location)')
-        "$$release_python" scripts/gcp/release_main.py --execute --sha="$COMMIT_SHA" --build-id="$BUILD_ID"
+        if [[ "${_DB_PREFLIGHT_ONLY}" == true ]]; then
+          "$$release_python" scripts/gcp/release_main.py --execute --preflight-only --sha="$COMMIT_SHA" --build-id="$BUILD_ID"
+        else
+          [[ "${_DB_PREFLIGHT_ONLY}" == false ]]
+          "$$release_python" scripts/gcp/release_main.py --execute --sha="$COMMIT_SHA" --build-id="$BUILD_ID"
+        fi

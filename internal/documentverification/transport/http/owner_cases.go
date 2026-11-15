@@ -25,7 +25,7 @@ type OwnerCasesService interface {
 	Submit(context.Context, string, string, documentverification.Purpose, uint64) error
 }
 type OwnerUploadService interface {
-	Upload(context.Context, string, string, uint64, []byte) (documentverification.UploadReceipt, error)
+	Upload(context.Context, string, string, uint64, documentverification.EvidenceRole, []byte) (documentverification.UploadReceipt, error)
 }
 type OwnerCasesHandler struct {
 	auth    Authenticator
@@ -45,29 +45,34 @@ func RegisterOwnerCasesRoutes(mux *http.ServeMux, handler http.Handler) {
 }
 
 type ownerFileDTO struct {
-	ID    string                         `json:"id"`
-	State documentverification.FileState `json:"state"`
-	Size  int64                          `json:"size"`
-	MIME  string                         `json:"mime"`
-	Pages int                            `json:"pages"`
+	ID           string                            `json:"id"`
+	EvidenceRole documentverification.EvidenceRole `json:"evidence_role,omitempty"`
+	State        documentverification.FileState    `json:"state"`
+	Size         int64                             `json:"size"`
+	MIME         string                            `json:"mime"`
+	Pages        int                               `json:"pages"`
 }
 type ownerCaseDTO struct {
-	ID                string                         `json:"id"`
-	Purpose           documentverification.Purpose   `json:"purpose"`
-	SpaceID           string                         `json:"space_id,omitempty"`
-	State             documentverification.CaseState `json:"state"`
-	Revision          uint64                         `json:"revision"`
-	DocumentExpiresAt *time.Time                     `json:"document_expires_at,omitempty"`
-	VerifiedAt        *time.Time                     `json:"verified_at,omitempty"`
-	VerifiedUntil     *time.Time                     `json:"verified_until,omitempty"`
-	Files             []ownerFileDTO                 `json:"files"`
+	ID                     string                              `json:"id"`
+	Purpose                documentverification.Purpose        `json:"purpose"`
+	SpaceID                string                              `json:"space_id,omitempty"`
+	State                  documentverification.CaseState      `json:"state"`
+	Revision               uint64                              `json:"revision"`
+	OwnerDecisionMessage   string                              `json:"owner_decision_message,omitempty"`
+	DocumentExpiresAt      *time.Time                          `json:"document_expires_at,omitempty"`
+	DocumentFormatDeclared documentverification.DocumentFormat `json:"document_format_declared,omitempty"`
+	VerifiedAt             *time.Time                          `json:"verified_at,omitempty"`
+	VerifiedUntil          *time.Time                          `json:"verified_until,omitempty"`
+	Files                  []ownerFileDTO                      `json:"files"`
 }
 
 func ownerDTO(x documentverification.Snapshot) ownerCaseDTO {
-	d := ownerCaseDTO{ID: x.ID, Purpose: x.Purpose, SpaceID: x.SpaceID, State: x.State, Revision: x.Revision, Files: []ownerFileDTO{}}
-	if !x.DocumentExpiresAt.IsZero() {
-		v := x.DocumentExpiresAt
-		d.DocumentExpiresAt = &v
+	d := ownerCaseDTO{ID: x.ID, Purpose: x.Purpose, SpaceID: x.SpaceID, State: x.State, Revision: x.Revision, OwnerDecisionMessage: documentverification.OwnerDecisionCopy(x.Purpose, x.State, x.OwnerDecisionReason), DocumentFormatDeclared: x.DocumentFormatDeclared, Files: []ownerFileDTO{}}
+	if x.Purpose == documentverification.PurposeSpace {
+		if !x.DocumentExpiresAt.IsZero() {
+			v := x.DocumentExpiresAt
+			d.DocumentExpiresAt = &v
+		}
 	}
 	if !x.VerifiedAt.IsZero() {
 		v := x.VerifiedAt
@@ -78,10 +83,29 @@ func ownerDTO(x documentverification.Snapshot) ownerCaseDTO {
 		d.VerifiedUntil = &v
 	}
 	for _, f := range x.Files {
-		d.Files = append(d.Files, ownerFileDTO{f.ID, f.State, f.Size, f.MIME, f.Pages})
+		d.Files = append(d.Files, ownerFileDTO{ID: f.ID, EvidenceRole: f.EvidenceRole, State: f.State, Size: f.Size, MIME: f.MIME, Pages: f.Pages})
 	}
 	return d
 }
+func ownerSnapshotDTO(x documentverification.Snapshot, actor, requestedID string) (ownerCaseDTO, error) {
+	if actor == "" || documentverification.ValidateID(x.ID) != nil || x.SubjectID != actor || (requestedID != "" && x.ID != requestedID) {
+		return ownerCaseDTO{}, documentverification.ErrNotFound
+	}
+	switch x.Purpose {
+	case documentverification.PurposeIdentity:
+		if x.SpaceID != "" {
+			return ownerCaseDTO{}, documentverification.ErrNotFound
+		}
+	case documentverification.PurposeSpace:
+		if documentverification.ValidateID(x.SpaceID) != nil {
+			return ownerCaseDTO{}, documentverification.ErrNotFound
+		}
+	default:
+		return ownerCaseDTO{}, documentverification.ErrNotFound
+	}
+	return ownerDTO(x), nil
+}
+
 func (h *OwnerCasesHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "private, no-store")
 	w.Header().Set("Pragma", "no-cache")
@@ -175,14 +199,20 @@ func ownerMethodNotAllowed(w http.ResponseWriter, allow string) {
 }
 func (h *OwnerCasesHandler) create(w http.ResponseWriter, r *http.Request, actor string) {
 	var in struct {
-		Purpose documentverification.Purpose `json:"purpose"`
-		SpaceID string                       `json:"space_id"`
-		Expires *time.Time                   `json:"document_expires_at"`
+		Purpose               documentverification.Purpose        `json:"purpose"`
+		SpaceID               string                              `json:"space_id"`
+		Expires               *time.Time                          `json:"document_expires_at"`
+		Declared              documentverification.DocumentFormat `json:"document_format_declared"`
+		CaptureConsentGiven   bool                                `json:"capture_consent_given"`
+		CaptureConsentVersion string                              `json:"capture_consent_version"`
 	}
 	if decodeOwnerJSON(w, r, &in) != nil {
 		return
 	}
-	ci := documentverification.CreateInput{Purpose: in.Purpose, SpaceID: in.SpaceID}
+	ci := documentverification.CreateInput{
+		Purpose: in.Purpose, SpaceID: in.SpaceID, DocumentFormatDeclared: in.Declared,
+		CaptureConsentGiven: in.CaptureConsentGiven, CaptureConsentVersion: in.CaptureConsentVersion,
+	}
 	if in.Expires != nil {
 		ci.DocumentExpiresAt = *in.Expires
 	}
@@ -191,8 +221,13 @@ func (h *OwnerCasesHandler) create(w http.ResponseWriter, r *http.Request, actor
 		ownerError(w, err)
 		return
 	}
+	dto, err := ownerSnapshotDTO(x, actor, "")
+	if err != nil {
+		ownerError(w, err)
+		return
+	}
 	w.Header().Set("ETag", `"`+strconv.FormatUint(x.Revision, 10)+`"`)
-	writeOwnerJSON(w, 201, ownerDTO(x))
+	writeOwnerJSON(w, 201, dto)
 }
 func (h *OwnerCasesHandler) list(w http.ResponseWriter, r *http.Request, actor string) {
 	xs, err := h.service.ListOwnCases(r.Context(), actor)
@@ -200,9 +235,18 @@ func (h *OwnerCasesHandler) list(w http.ResponseWriter, r *http.Request, actor s
 		ownerError(w, err)
 		return
 	}
+	if r.Context().Err() != nil {
+		ownerError(w, r.Context().Err())
+		return
+	}
 	out := make([]ownerCaseDTO, 0, len(xs))
 	for _, x := range xs {
-		out = append(out, ownerDTO(x))
+		dto, err := ownerSnapshotDTO(x, actor, "")
+		if err != nil {
+			ownerError(w, err)
+			return
+		}
+		out = append(out, dto)
 	}
 	writeOwnerJSON(w, 200, out)
 }
@@ -212,8 +256,17 @@ func (h *OwnerCasesHandler) load(w http.ResponseWriter, r *http.Request, actor, 
 		ownerError(w, err)
 		return
 	}
+	if r.Context().Err() != nil {
+		ownerError(w, r.Context().Err())
+		return
+	}
+	dto, err := ownerSnapshotDTO(x, actor, id)
+	if err != nil {
+		ownerError(w, err)
+		return
+	}
 	w.Header().Set("ETag", `"`+strconv.FormatUint(x.Revision, 10)+`"`)
-	writeOwnerJSON(w, 200, ownerDTO(x))
+	writeOwnerJSON(w, 200, dto)
 }
 func (h *OwnerCasesHandler) submit(w http.ResponseWriter, r *http.Request, actor, id string) {
 	rev, ok := ownerIfMatch(w, r)
@@ -226,7 +279,23 @@ func (h *OwnerCasesHandler) submit(w http.ResponseWriter, r *http.Request, actor
 		ownerError(w, err)
 		return
 	}
+	if r.Context().Err() != nil {
+		ownerError(w, r.Context().Err())
+		return
+	}
+	dto, err := ownerSnapshotDTO(x, actor, id)
+	if err != nil {
+		ownerError(w, err)
+		return
+	}
 	if x.Revision != rev {
+		// A lost successful submission may be replayed only against its immediate
+		// successor; do not invoke the mutating service a second time.
+		if rev > 0 && x.State == documentverification.CaseSubmitted && x.Revision > rev && x.Revision-rev == 1 {
+			w.Header().Set("ETag", `"`+strconv.FormatUint(x.Revision, 10)+`"`)
+			writeOwnerJSON(w, http.StatusOK, dto)
+			return
+		}
 		http.Error(w, "case revision conflict", 409)
 		return
 	}
@@ -234,13 +303,26 @@ func (h *OwnerCasesHandler) submit(w http.ResponseWriter, r *http.Request, actor
 		ownerError(w, err)
 		return
 	}
+	if r.Context().Err() != nil {
+		ownerError(w, r.Context().Err())
+		return
+	}
 	x, err = h.service.LoadOwnCase(r.Context(), actor, id)
 	if err != nil {
 		ownerError(w, err)
 		return
 	}
+	if r.Context().Err() != nil {
+		ownerError(w, r.Context().Err())
+		return
+	}
+	dto, err = ownerSnapshotDTO(x, actor, id)
+	if err != nil {
+		ownerError(w, err)
+		return
+	}
 	w.Header().Set("ETag", `"`+strconv.FormatUint(x.Revision, 10)+`"`)
-	writeOwnerJSON(w, 200, ownerDTO(x))
+	writeOwnerJSON(w, 200, dto)
 }
 func ownerIfMatch(w http.ResponseWriter, r *http.Request) (uint64, bool) {
 	tags := r.Header.Values("If-Match")
@@ -285,49 +367,88 @@ func (h *OwnerCasesHandler) uploadFile(w http.ResponseWriter, r *http.Request, a
 		http.Error(w, "invalid multipart request", 400)
 		return
 	}
-	part, err := reader.NextPart()
-	if err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			http.Error(w, "request too large", 413)
-		} else {
-			http.Error(w, "invalid multipart request", 400)
+	var content []byte
+	var role documentverification.EvidenceRole
+	seenFile, seenRole, sawEOF := false, false, false
+	for i := 0; i < 2; i++ {
+		part, partErr := reader.NextPart()
+		if errors.Is(partErr, io.EOF) {
+			sawEOF = true
+			break
 		}
-		return
-	}
-	if part.FormName() != "file" || part.FileName() == "" {
-		_ = part.Close()
-		http.Error(w, "exactly one file is required", 400)
-		return
-	}
-	content, readErr := io.ReadAll(io.LimitReader(part, documentverification.MaxUploadBytes+1))
-	closeErr := part.Close()
-	if readErr != nil || closeErr != nil {
-		http.Error(w, "invalid file", 400)
-		return
-	}
-	if len(content) == 0 {
-		http.Error(w, "empty file", 400)
-		return
-	}
-	if int64(len(content)) > documentverification.MaxUploadBytes {
-		http.Error(w, "file too large", 413)
-		return
-	}
-	extraPart, extraErr := reader.NextPart()
-	if extraErr != io.EOF {
-		if extraPart != nil {
-			_ = extraPart.Close()
+		if partErr != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(partErr, &maxErr) {
+				http.Error(w, "request too large", 413)
+			} else {
+				http.Error(w, "invalid multipart request", 400)
+			}
+			return
 		}
-		var maxErr *http.MaxBytesError
-		if errors.As(extraErr, &maxErr) {
-			http.Error(w, "request too large", 413)
-		} else {
-			http.Error(w, "exactly one file is required", 400)
+		switch part.FormName() {
+		case "file":
+			if seenFile || part.FileName() == "" {
+				_ = part.Close()
+				http.Error(w, "invalid file part", 400)
+				return
+			}
+			seenFile = true
+			content, err = io.ReadAll(io.LimitReader(part, documentverification.MaxUploadBytes+1))
+			if err != nil || part.Close() != nil {
+				http.Error(w, "invalid file", 400)
+				return
+			}
+			if len(content) == 0 {
+				http.Error(w, "empty file", 400)
+				return
+			}
+			if int64(len(content)) > documentverification.MaxUploadBytes {
+				http.Error(w, "file too large", 413)
+				return
+			}
+		case "evidence_role":
+			if seenRole || part.FileName() != "" {
+				_ = part.Close()
+				http.Error(w, "invalid evidence role", 400)
+				return
+			}
+			seenRole = true
+			roleBytes, readErr := io.ReadAll(io.LimitReader(part, 65))
+			if readErr != nil || part.Close() != nil || len(roleBytes) > 64 {
+				http.Error(w, "invalid evidence role", 400)
+				return
+			}
+			role = documentverification.EvidenceRole(string(roleBytes))
+		default:
+			_ = part.Close()
+			http.Error(w, "unexpected multipart field", 400)
+			return
 		}
+	}
+	if !sawEOF {
+		extraPart, extraErr := reader.NextPart()
+		if extraErr != io.EOF {
+			if extraPart != nil {
+				_ = extraPart.Close()
+			}
+			var maxErr *http.MaxBytesError
+			if errors.As(extraErr, &maxErr) {
+				http.Error(w, "request too large", 413)
+			} else {
+				http.Error(w, "unexpected multipart part", 400)
+			}
+			return
+		}
+	}
+	if !seenFile {
+		http.Error(w, "file part is required", 400)
 		return
 	}
-	receipt, err := h.upload.Upload(r.Context(), actor, id, revision, content)
+	if r.Context().Err() != nil {
+		ownerError(w, r.Context().Err())
+		return
+	}
+	receipt, err := h.upload.Upload(r.Context(), actor, id, revision, role, content)
 	if err != nil {
 		if errors.Is(err, documentverification.ErrQuota) {
 			http.Error(w, "document limit reached", 409)
@@ -336,11 +457,15 @@ func (h *OwnerCasesHandler) uploadFile(w http.ResponseWriter, r *http.Request, a
 		}
 		return
 	}
+	if r.Context().Err() != nil {
+		ownerError(w, r.Context().Err())
+		return
+	}
 	w.Header().Set("ETag", `"`+strconv.FormatUint(receipt.Revision, 10)+`"`)
 	writeOwnerJSON(w, http.StatusCreated, struct {
 		File     ownerFileDTO `json:"file"`
 		Revision uint64       `json:"revision"`
-	}{ownerFileDTO{receipt.File.ID, receipt.File.State, receipt.File.Size, receipt.File.MIME, receipt.File.Pages}, receipt.Revision})
+	}{ownerFileDTO{ID: receipt.File.ID, EvidenceRole: receipt.File.EvidenceRole, State: receipt.File.State, Size: receipt.File.Size, MIME: receipt.File.MIME, Pages: receipt.File.Pages}, receipt.Revision})
 }
 func decodeOwnerJSON(w http.ResponseWriter, r *http.Request, v any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)

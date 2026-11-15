@@ -29,8 +29,9 @@ var (
 )
 
 type Store struct {
-	root string
-	key  []byte
+	root     string
+	rootInfo os.FileInfo
+	key      []byte
 }
 
 func New(root string, encryptionKey []byte) (*Store, error) {
@@ -60,7 +61,7 @@ func New(root string, encryptionKey []byte) (*Store, error) {
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm() != 0o700 {
 		return nil, ErrStorage
 	}
-	return &Store{root: root, key: key}, nil
+	return &Store{root: root, rootInfo: info, key: key}, nil
 }
 
 func (s *Store) PutIdentityDocument(ctx context.Context, ownerID, caseID, fileID string, content []byte) error {
@@ -233,8 +234,10 @@ func (s *Store) openRoot() (*os.Root, error) {
 	if err != nil {
 		return nil, ErrStorage
 	}
-	info, err := root.Stat(".")
-	if err != nil || !info.IsDir() || info.Mode().Perm() != 0o700 {
+	openedInfo, err := root.Stat(".")
+	pathInfo, pathErr := os.Lstat(s.root)
+	if err != nil || pathErr != nil || s.rootInfo == nil || !openedInfo.IsDir() || openedInfo.Mode().Perm() != 0o700 ||
+		!pathInfo.IsDir() || pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(s.rootInfo, openedInfo) || !os.SameFile(openedInfo, pathInfo) {
 		_ = root.Close()
 		return nil, ErrStorage
 	}

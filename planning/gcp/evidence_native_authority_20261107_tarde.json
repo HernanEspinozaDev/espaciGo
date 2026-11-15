@@ -1,0 +1,31 @@
+{
+  "format": "espacigo.native-reconciliation-observations.v1",
+  "target": "127.0.0.1:5432/espacigo_dms_stage_20261020",
+  "auth_path": "native Unix socket peer via sudo -u postgres",
+  "read_only": true,
+  "source_sha": "274f37e483a078890e92382a159fa49fd23c2fe8",
+  "observations": [
+    {
+      "captured_at": "2026-11-07T16:41:23.921414-03:00",
+      "scope": "pg_roles filtered to the five migration/API/runtime/helper contract principals",
+      "roles_found": [
+        {"name": "espacigo_runtime", "can_login": true, "inherit": false, "superuser": false, "create_role": false, "create_db": false, "bypass_rls": false}
+      ],
+      "required_roles_absent": ["espacigo_api_login", "espacigo_migrator_login", "espacigo_schema_owner", "espacigo_document_verification_fn"],
+      "conclusion": "V81 prerequisite is not met. Do not change the existing LOGIN/runtime identity or its consumers by inference. A target-specific role/login/configuration transition must precede V81, not be hidden in V85."
+    },
+    {
+      "captured_at": "2026-11-07T16:47:37.807096-03:00",
+      "scope": "aggregate-only checks inside REPEATABLE READ READ ONLY; no business row values emitted",
+      "v14_tied_order_groups": 0,
+      "quote_null_snapshots": 0,
+      "legacy_v84_attempt_table_exists": false,
+      "v85_declaration_table_exists": false,
+      "conclusion": "No present local V14 tie groups or null V15 snapshots observed. Not proof of all historic preconditions or another destination's data. V84/V85 objects are not installed in this native target."
+    }
+  ],
+  "ledger_evidence": "planning/gcp/evidence_native_ledger_20261107_tarde.json",
+  "persistent_ddl_executed": false,
+  "credentials_read": false,
+  "cloud_sql_ledger_verified": false
+}

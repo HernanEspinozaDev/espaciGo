@@ -14,7 +14,8 @@ const requestsOutsideLoopback = new WeakMap<Page, boolean>();
 test.beforeEach(async ({ page }) => {
   requestsOutsideLoopback.set(page, false);
   page.on("request", (request) => {
-    if (!request.url().startsWith("http://127.0.0.1:"))
+    const url = request.url();
+    if (!url.startsWith("http://127.0.0.1:"))
       requestsOutsideLoopback.set(page, true);
   });
 });
@@ -115,9 +116,20 @@ test("@phase6 @controlled /mi-cuenta: 404 inicial muestra estado sin configurar 
     updated_at: string;
   } | null = null;
   let putProfileCount = 0;
+  let diditRequestCount = 0;
   let lastPutBody: Record<string, unknown> | null = null;
 
   await mockGateway(page, async (pathname, method, request) => {
+    if (pathname.includes("/verifications/didit/")) {
+      diditRequestCount += 1;
+      return apiError(404, "not_found");
+    }
+    if (
+      pathname === "/api/backend/document-verification/cases" &&
+      method === "GET"
+    ) {
+      return { status: 200, body: [] };
+    }
     if (pathname === "/api/backend/auth/login" && method === "POST") {
       return {
         status: 200,
@@ -174,6 +186,17 @@ test("@phase6 @controlled /mi-cuenta: 404 inicial muestra estado sin configurar 
 
   await loginAndNavigate(page, "/mi-cuenta");
 
+  await expect(
+    page.getByRole("heading", { name: "Verificación de la cuenta" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Aún no has iniciado una revisión documental propia."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Ver declaración" }),
+  ).toHaveAttribute("href", "/mi-cuenta/verificaciones");
+  expect(diditRequestCount).toBe(0);
+
   // 1. Estado inicial sin configurar (404)
   await expect(
     page.getByText(
@@ -211,6 +234,7 @@ test("@phase6 @controlled /mi-cuenta: 404 inicial muestra estado sin configurar 
     display_name: "Carlos Santana Modificado",
     phone: "987654321",
   });
+  expect(diditRequestCount).toBe(0);
 });
 
 test("@phase6 @controlled foto sintética: generar foto (PUT /profile/photo) carga contenido Blob autenticado (/profile/photo/content), muestra preview con aviso sintético visible y retirar (DELETE /profile/photo) limpia el recurso y revoca Blob URL", async ({
@@ -865,8 +889,18 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: visualización de elegibili
   await page.waitForURL((url) => url.pathname === "/mi-cuenta/verificaciones");
 
   // 1. Elegibilidad KYC / KYB
-  await expect(page.getByText("Verificación KYC")).toBeVisible();
-  await expect(page.getByText("Verificación KYB")).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Verificación de usuario (Identidad)",
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Verificación de espacios",
+      exact: true,
+    }),
+  ).toBeVisible();
   await expect(page.getByText("requiere_rut_empresa")).toBeVisible();
   await expect(page.getByText("Elegible", { exact: true })).toBeVisible();
   await expect(page.getByText("No elegible", { exact: true })).toBeVisible();
@@ -878,7 +912,9 @@ test("@phase6 @controlled /mi-cuenta/verificaciones: visualización de elegibili
   // 3. Detalle con historial
   const detailButtons = page.getByRole("button", { name: "Ver detalle" });
   await detailButtons.first().click();
-  await expect(page.getByText("Detalle de Verificación (KYC)")).toBeVisible();
+  await expect(
+    page.getByText("Detalle de Verificación: Usuario (Identidad)"),
+  ).toBeVisible();
   await expect(page.getByText("documento_borroso")).toBeVisible();
   await expect(page.getByText("REVISION_DOCUMENTAL")).toBeVisible();
 
@@ -1046,6 +1082,125 @@ test("@phase6 @controlled Mis espacios: estados de carga, error, vacío y etique
   expect(spacesRequestCount).toBe(3);
 });
 
+test("@phase6 @a11y identity capture form is accessible at desktop and mobile", async ({
+  page,
+}) => {
+  const sessionExpiresAt = new Date(Date.now() + 3_600_000).toISOString();
+  const identityCaseId = "990e8400-e29b-41d4-a716-446655440030";
+  let created = false;
+  const documentMutationPaths: string[] = [];
+  const postRequestPaths: string[] = [];
+  const identityCase = () => ({
+    id: identityCaseId,
+    purpose: "identity",
+    state: "borrador",
+    revision: 1,
+    document_format_declared: "unsure",
+    files: [],
+  });
+
+  await mockGateway(page, async (pathname, method) => {
+    if (
+      method === "POST" &&
+      pathname.startsWith("/api/backend/document-verification/")
+    ) {
+      documentMutationPaths.push(pathname);
+    }
+    if (pathname === "/api/backend/auth/login" && method === "POST") {
+      return {
+        status: 200,
+        body: {
+          account_id: accountId,
+          roles: ["arrendador"],
+          capabilities: [],
+          expires_at: sessionExpiresAt,
+          restricted_mode: false,
+        },
+      };
+    }
+    if (pathname === "/api/backend/auth/session" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          account_id: accountId,
+          roles: ["arrendador"],
+          capabilities: [],
+          restricted_mode: false,
+          expires_at: sessionExpiresAt,
+        },
+      };
+    }
+    if (pathname === "/api/backend/spaces" && method === "GET") {
+      return { status: 200, body: { items: [] } };
+    }
+    if (
+      pathname === "/api/backend/document-verification/cases" &&
+      method === "GET"
+    ) {
+      return { status: 200, body: created ? [identityCase()] : [] };
+    }
+    if (
+      pathname === "/api/backend/document-verification/cases" &&
+      method === "POST"
+    ) {
+      created = true;
+      return {
+        status: 201,
+        body: identityCase(),
+        headers: { etag: '"1"' },
+      };
+    }
+    return apiError(404, "not_found");
+  });
+
+  await loginAndNavigate(page, "/mi-cuenta/documentos");
+  page.on("request", (request) => {
+    if (request.method() === "POST") {
+      postRequestPaths.push(new URL(request.url()).pathname);
+    }
+  });
+  await page
+    .getByLabel("Formato declarado de la cédula")
+    .selectOption("unsure");
+  await page
+    .getByLabel(
+      "Confirmo el aviso de prueba local para un expediente sintético",
+    )
+    .check();
+  await page.getByRole("button", { name: "Crear expediente" }).click();
+  await expect(
+    page.getByText("Expediente de identidad · Borrador"),
+  ).toBeVisible();
+  await page.getByLabel("Evidencia a cargar").selectOption("identity_back");
+  await page.getByLabel("JPEG o PNG · máximo 10 MiB").setInputFiles({
+    name: "synthetic-accessibility-back.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("synthetic accessibility fixture"),
+  });
+  await expect(
+    page.getByRole("button", { name: "Cargar evidencia" }),
+  ).toBeEnabled();
+
+  for (const viewport of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const { violations } = await new AxeBuilder({ page }).analyze();
+    expect(violations.map(({ id, help }) => `${id}: ${help}`)).toEqual([]);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+  }
+  expect(documentMutationPaths).toEqual([
+    "/api/backend/document-verification/cases",
+  ]);
+  expect(postRequestPaths).toEqual([
+    "/api/backend/document-verification/cases",
+  ]);
+});
 test("@phase6 @a11y account routes fit both viewports and have no Axe violations", async ({
   page,
 }) => {
@@ -1250,4 +1405,520 @@ test("@phase6 @a11y account routes fit both viewports and have no Axe violations
       ).toEqual([]);
     }
   }
+});
+
+test("@phase6 @controlled /mi-cuenta/verificaciones: guarda declaración y muestra que aún no hay expediente propio sin iniciar proveedor externo", async ({
+  page,
+}) => {
+  let savedDeclaration: {
+    id: string;
+    revision: number;
+    first_name: string;
+    last_name: string;
+    date_of_birth: string;
+    rut: string;
+    id_country: "CHL";
+    document_type: "ID";
+    consent_version: string;
+    consent_given_at: string;
+  } | null = null;
+  let providerApiRequests = 0;
+  let caseListReads = 0;
+
+  await mockGateway(page, async (pathname, method, request) => {
+    if (pathname.includes("/verifications/didit/")) {
+      providerApiRequests += 1;
+      return apiError(410, "identity_provider_retired");
+    }
+    if (pathname === "/api/backend/auth/login" && method === "POST") {
+      return {
+        status: 200,
+        body: {
+          account_id: accountId,
+          roles: ["arrendatario"],
+          capabilities: [],
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          restricted_mode: false,
+        },
+      };
+    }
+    if (pathname === "/api/backend/auth/session" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          account_id: accountId,
+          roles: ["arrendatario"],
+          capabilities: [],
+          restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+        },
+      };
+    }
+    if (
+      pathname === "/api/backend/verifications/eligibility" &&
+      method === "GET"
+    ) {
+      return {
+        status: 200,
+        body: { items: [{ type: "kyc", eligible: true }] },
+      };
+    }
+    if (pathname === "/api/backend/verifications" && method === "GET") {
+      return { status: 200, body: { items: [] } };
+    }
+    if (
+      pathname === "/api/backend/verifications/identity-declaration" &&
+      method === "GET"
+    ) {
+      if (!savedDeclaration) {
+        return apiError(404, "not_found");
+      }
+      return { status: 200, body: savedDeclaration };
+    }
+    if (
+      pathname === "/api/backend/document-verification/cases" &&
+      method === "GET"
+    ) {
+      caseListReads += 1;
+      return { status: 200, body: [] };
+    }
+    if (
+      pathname === "/api/backend/verifications/identity-declaration" &&
+      method === "POST"
+    ) {
+      const payload = JSON.parse(request.postData() ?? "{}");
+      expect(payload.id_country).toBe("CHL");
+      expect(payload.document_type).toBe("ID");
+      expect(payload.consent_given).toBe(true);
+      expect(payload.consent_version).toBe("id-consent-20261108");
+      savedDeclaration = {
+        id: "550e8400-e29b-41d4-a716-446655440077",
+        revision: (savedDeclaration?.revision ?? 0) + 1,
+        first_name: payload.first_name,
+        last_name: payload.last_name,
+        date_of_birth: payload.date_of_birth,
+        rut: payload.rut,
+        id_country: "CHL",
+        document_type: "ID",
+        consent_version: payload.consent_version,
+        consent_given_at: "2026-11-08T18:00:00Z",
+      };
+      return { status: 201, body: savedDeclaration };
+    }
+
+    return apiError(404, "not_found");
+  });
+
+  await loginAndNavigate(page, "/mi-cuenta/verificaciones");
+
+  // Paso 1: formulario de declaración sin llamada a Didit
+  await expect(
+    page.getByRole("button", { name: "Guardar datos de identidad" }),
+  ).toBeVisible();
+  await page.getByLabel("Nombres legales completos").fill("Camila Andrea");
+  await page.getByLabel("Apellidos legales completos").fill("Soto Muñoz");
+  await page.getByLabel("Fecha de nacimiento").fill("1994-06-15");
+  await page.getByLabel("RUN / RUT chileno").fill("123456785");
+  await page.locator('input[name="consent"]').check();
+  await page
+    .getByRole("button", { name: "Guardar datos de identidad" })
+    .click();
+
+  expect(providerApiRequests).toBe(0);
+  await expect(page.getByText("Datos guardados (revisión #1)")).toBeVisible();
+  await expect(page.getByText("Camila Andrea")).toBeVisible();
+  await expect(page.getByText("12.345.678-5")).toBeVisible();
+
+  // Editar la declaración sin iniciar ningún flujo de verificación externo.
+  await page.getByRole("button", { name: "Editar datos" }).click();
+  await page.getByLabel("Nombres legales completos").fill("Camila Paz");
+  await page.locator('input[name="consent"]').check();
+  await page
+    .getByRole("button", { name: "Guardar datos de identidad" })
+    .click();
+  await expect(page.getByText("Datos guardados (revisión #2)")).toBeVisible();
+  await expect(page.getByText("Camila Paz")).toBeVisible();
+  expect(providerApiRequests).toBe(0);
+
+  await expect(
+    page.getByRole("heading", { name: "Verificación de la cuenta" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Aún no has iniciado una revisión documental propia."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Iniciar verificación documental" }),
+  ).toHaveAttribute("href", "/mi-cuenta/documentos");
+  expect(caseListReads).toBeGreaterThan(0);
+  await expect(page.getByText("Verificar identidad con Didit")).toHaveCount(0);
+  expect(providerApiRequests).toBe(0);
+  await expect(page).toHaveURL(/\/mi-cuenta\/verificaciones/);
+});
+
+test("@phase6 @controlled /mi-cuenta/verificaciones: aislamiento A->logout->B->logout->A y retorno histórico neutral sin consulta externa", async ({
+  page,
+}) => {
+  const accountA = accountId;
+  const accountB = "880e8400-e29b-41d4-a716-446655440099";
+  let activeAccount: string | null = accountA;
+  let providerApiRequests = 0;
+  const legacyAttemptId = "7c9e6679-7425-40de-944b-e07fc1f90ae8";
+
+  const declarationsByAccount = new Map<
+    string,
+    {
+      id: string;
+      revision: number;
+      first_name: string;
+      last_name: string;
+      date_of_birth: string;
+      rut: string;
+      id_country: "CHL";
+      document_type: "ID";
+      consent_version: string;
+      consent_given_at: string;
+    }
+  >();
+
+  await mockGateway(page, async (pathname, method, request) => {
+    if (pathname.includes("/verifications/didit/")) {
+      providerApiRequests += 1;
+      return apiError(410, "identity_provider_retired");
+    }
+    if (pathname === "/api/backend/auth/login" && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as { email?: string };
+      activeAccount =
+        body.email === "user-b@example.invalid" ? accountB : accountA;
+      return {
+        status: 200,
+        body: {
+          account_id: activeAccount,
+          roles: ["arrendatario", "anfitrion"],
+          capabilities: [],
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          restricted_mode: false,
+        },
+      };
+    }
+    if (pathname === "/api/backend/auth/logout" && method === "POST") {
+      activeAccount = null;
+      return { status: 204 };
+    }
+    if (pathname === "/api/backend/auth/session" && method === "GET") {
+      if (!activeAccount) return apiError(401, "unauthorized");
+      return {
+        status: 200,
+        body: {
+          account_id: activeAccount,
+          roles: ["arrendatario", "anfitrion"],
+          capabilities: [],
+          restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+        },
+      };
+    }
+    if (pathname === "/api/backend/profile" && method === "GET") {
+      return {
+        status: 200,
+        body: {
+          display_name: activeAccount === accountB ? "Usuario B" : "Usuario A",
+          phone: "987654321",
+          updated_at: new Date().toISOString(),
+        },
+      };
+    }
+    if (pathname === "/api/backend/profile/photo" && method === "GET") {
+      return apiError(404, "photo_not_found");
+    }
+    if (
+      pathname === "/api/backend/verifications/eligibility" &&
+      method === "GET"
+    ) {
+      return {
+        status: 200,
+        body: { kyc_eligible: false, kyb_eligible: false, verified: false },
+      };
+    }
+    if (pathname === "/api/backend/verifications" && method === "GET") {
+      return { status: 200, body: { items: [] } };
+    }
+    if (
+      pathname === "/api/backend/verifications/identity-declaration" &&
+      method === "GET"
+    ) {
+      if (!activeAccount) return apiError(401, "unauthorized");
+      const found = declarationsByAccount.get(activeAccount);
+      if (!found) return apiError(404, "not_found");
+      return { status: 200, body: found };
+    }
+    if (
+      pathname === "/api/backend/verifications/identity-declaration" &&
+      method === "POST"
+    ) {
+      if (!activeAccount) return apiError(401, "unauthorized");
+      const payload = JSON.parse(request.postData() ?? "{}");
+      if (activeAccount === accountB && payload.rut === "12345678-5") {
+        return {
+          status: 409,
+          body: {
+            code: "rut_already_claimed",
+            message:
+              "No se pudo registrar este RUT. Revisa los datos ingresados o solicita ayuda.",
+          },
+        };
+      }
+      const saved = {
+        id: "550e8400-e29b-41d4-a716-446655440088",
+        revision: 1,
+        first_name: payload.first_name,
+        last_name: payload.last_name,
+        date_of_birth: payload.date_of_birth,
+        rut: payload.rut,
+        id_country: "CHL" as const,
+        document_type: "ID" as const,
+        consent_version: payload.consent_version,
+        consent_given_at: "2026-11-08T18:10:00Z",
+      };
+      declarationsByAccount.set(activeAccount, saved);
+      return { status: 201, body: saved };
+    }
+
+    return apiError(404, "not_found");
+  });
+
+  // 1. Cuenta A guarda su declaración
+  await loginAndNavigate(page, "/mi-cuenta/verificaciones");
+  await page.getByLabel("Nombres legales completos").fill("Matías Ignacio");
+  await page.getByLabel("Apellidos legales completos").fill("Rojas Díaz");
+  await page.getByLabel("Fecha de nacimiento").fill("1991-04-20");
+  await page.getByLabel("RUN / RUT chileno").fill("12345678-5");
+  await page.locator('input[name="consent"]').check();
+  await page
+    .getByRole("button", { name: "Guardar datos de identidad" })
+    .click();
+  await expect(page.getByText("Datos guardados (revisión #1)")).toBeVisible();
+  await expect(page.getByText("Matías Ignacio")).toBeVisible();
+
+  // Verificar que no se persiste RUT ni fecha en localStorage/sessionStorage
+  const storageDump = await page.evaluate(() => ({
+    local: JSON.stringify(window.localStorage),
+    session: JSON.stringify(window.sessionStorage),
+  }));
+  expect(storageDump.local).not.toContain("12345678");
+  expect(storageDump.session).not.toContain("12345678");
+  expect(storageDump.local).not.toContain("1991-04-20");
+  expect(storageDump.session).not.toContain("1991-04-20");
+
+  // 2. Logout de Cuenta A -> Login de Cuenta B
+  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  await page.goto("/acceso?return_to=%2Fmi-cuenta%2Fverificaciones");
+  await page.getByLabel("Correo electrónico").fill("user-b@example.invalid");
+  await page.getByLabel("Contraseña", { exact: true }).fill("SecurePass123!");
+  await page.getByRole("button", { name: "Iniciar sesión" }).click();
+  await page.waitForURL((url) => url.pathname === "/mi-cuenta/verificaciones");
+
+  // Cuenta B no ve los datos de Cuenta A; formulario vacío
+  await expect(page.getByText("Matías Ignacio")).toHaveCount(0);
+  await expect(page.getByLabel("Nombres legales completos")).toHaveValue("");
+  await expect(page.getByLabel("RUN / RUT chileno")).toHaveValue("");
+
+  // Cuenta B intenta registrar el mismo RUT de Cuenta A -> 409 sin redirección ni llamada a Didit
+  await page.getByLabel("Nombres legales completos").fill("Borrador Cuenta B");
+  await page.getByLabel("Apellidos legales completos").fill("Pérez");
+  await page.getByLabel("Fecha de nacimiento").fill("1992-08-10");
+  await page.getByLabel("RUN / RUT chileno").fill("12345678-5");
+  await page.locator('input[name="consent"]').check();
+  await page
+    .getByRole("button", { name: "Guardar datos de identidad" })
+    .click();
+  await expect(
+    page.getByText(
+      "No se pudo registrar este RUT. Revisa los datos ingresados o solicita ayuda.",
+    ),
+  ).toBeVisible();
+  expect(providerApiRequests).toBe(0);
+  expect(new URL(page.url()).pathname).toBe("/mi-cuenta/verificaciones");
+
+  // 3. Logout de Cuenta B -> Re-login de Cuenta A recupera su declaración desde Go sin rastro de B
+  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  await loginAndNavigate(page, "/mi-cuenta/verificaciones");
+  await expect(page.getByText("Datos guardados (revisión #1)")).toBeVisible();
+  await expect(page.getByText("Matías Ignacio")).toBeVisible();
+  await expect(page.getByText("Borrador Cuenta B")).toHaveCount(0);
+
+  // 4. El retorno histórico limpia parámetros y no consulta el proveedor.
+  await page.goto(
+    `/verificaciones/retorno?attempt_id=${legacyAttemptId}&token=leak`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Este retorno ya no está activo" }),
+  ).toBeVisible();
+  await expect(page.getByRole("status")).toContainText(
+    "La revisión documental propia aún no está habilitada",
+  );
+  await expect(page).toHaveURL(/\/verificaciones\/retorno$/);
+  expect(providerApiRequests).toBe(0);
+});
+
+test("@phase6 @controlled /mi-cuenta/verificaciones: status card is isolated across logout/login A->B->A", async ({
+  page,
+}) => {
+  const accountA = accountId;
+  const accountB = "880e8400-e29b-41d4-a716-446655440099";
+  let activeAccount: string | null = accountA;
+  let providerRouteRequests = 0;
+  const caseListReads = new Map<string, number>();
+  const declarationFor = (firstName: string, id: string) => ({
+    id,
+    revision: 1,
+    first_name: firstName,
+    last_name: "Synthetic",
+    date_of_birth: "1990-01-01",
+    rut: id,
+    id_country: "CHL" as const,
+    document_type: "ID" as const,
+    consent_version: "synthetic-consent-v1",
+    consent_given_at: "2026-11-11T12:00:00Z",
+  });
+  const declarations = new Map([
+    [accountA, declarationFor("Ada A", "declaration-a")],
+    [accountB, declarationFor("Beto B", "declaration-b")],
+  ]);
+  const states = new Map([
+    [accountA, "en_revision"],
+    [accountB, "requiere_antecedentes"],
+  ]);
+
+  await mockGateway(page, async (pathname, method, request) => {
+    if (pathname.includes("/verifications/didit/")) {
+      providerRouteRequests += 1;
+      return apiError(410, "identity_provider_retired");
+    }
+    if (pathname === "/api/backend/auth/login" && method === "POST") {
+      const body = JSON.parse(request.postData() ?? "{}") as { email?: string };
+      activeAccount =
+        body.email === "user-b@example.invalid" ? accountB : accountA;
+      return {
+        status: 200,
+        body: {
+          account_id: activeAccount,
+          roles: ["arrendatario"],
+          capabilities: [],
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+          restricted_mode: false,
+        },
+      };
+    }
+    if (pathname === "/api/backend/auth/logout" && method === "POST") {
+      activeAccount = null;
+      return { status: 204 };
+    }
+    if (pathname === "/api/backend/auth/session" && method === "GET") {
+      if (!activeAccount) return apiError(401, "unauthorized");
+      return {
+        status: 200,
+        body: {
+          account_id: activeAccount,
+          roles: ["arrendatario"],
+          capabilities: [],
+          restricted_mode: false,
+          expires_at: new Date(Date.now() + 3600_000).toISOString(),
+        },
+      };
+    }
+    if (
+      pathname === "/api/backend/verifications/identity-declaration" &&
+      method === "GET"
+    ) {
+      return activeAccount
+        ? { status: 200, body: declarations.get(activeAccount) }
+        : apiError(401, "unauthorized");
+    }
+    if (
+      pathname === "/api/backend/verifications/eligibility" &&
+      method === "GET"
+    )
+      return { status: 200, body: { items: [] } };
+    if (pathname === "/api/backend/verifications" && method === "GET")
+      return { status: 200, body: { items: [] } };
+    if (
+      pathname === "/api/backend/document-verification/cases" &&
+      method === "GET"
+    ) {
+      if (!activeAccount) return apiError(401, "unauthorized");
+      caseListReads.set(
+        activeAccount,
+        (caseListReads.get(activeAccount) ?? 0) + 1,
+      );
+      return {
+        status: 200,
+        body: [
+          {
+            id: `case-${activeAccount}`,
+            purpose: "identity",
+            state: states.get(activeAccount),
+            revision: 1,
+            owner_decision_message:
+              activeAccount === accountB
+                ? "Faltan antecedentes para continuar con la revisión. Revisa los documentos solicitados y completa lo que falta antes de enviar nuevamente."
+                : undefined,
+            files: [],
+          },
+        ],
+      };
+    }
+    return apiError(404, "not_found");
+  });
+
+  const assertCard = async (
+    firstName: string,
+    message: string,
+    cta: string,
+    absent: string,
+  ) => {
+    await expect(page.getByText(firstName, { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("status").filter({ hasText: message }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: cta })).toHaveAttribute(
+      "href",
+      "/mi-cuenta/documentos",
+    );
+    await expect(page.getByText(absent, { exact: true })).toHaveCount(0);
+  };
+
+  await loginAndNavigate(page, "/mi-cuenta/verificaciones");
+  await assertCard(
+    "Ada A",
+    "Tu solicitud está en revisión documental.",
+    "Ver estado de solicitud",
+    "Beto B",
+  );
+  expect(caseListReads.get(accountA)).toBe(1);
+
+  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  await page.goto("/acceso?return_to=%2Fmi-cuenta%2Fverificaciones");
+  await page.getByLabel("Correo electrónico").fill("user-b@example.invalid");
+  await page.getByLabel("Contraseña", { exact: true }).fill("SecurePass123!");
+  await page.getByRole("button", { name: "Iniciar sesión" }).click();
+  await page.waitForURL((url) => url.pathname === "/mi-cuenta/verificaciones");
+  await assertCard(
+    "Beto B",
+    "Faltan antecedentes para continuar con la revisión. Revisa los documentos solicitados y completa lo que falta antes de enviar nuevamente.",
+    "Corregir documentos",
+    "Tu solicitud está en revisión documental.",
+  );
+  expect(caseListReads.get(accountB)).toBe(1);
+
+  await page.getByRole("button", { name: "Cerrar sesión" }).click();
+  await loginAndNavigate(page, "/mi-cuenta/verificaciones");
+  await assertCard(
+    "Ada A",
+    "Tu solicitud está en revisión documental.",
+    "Ver estado de solicitud",
+    "Necesitamos que corrijas o completes tus documentos.",
+  );
+  expect(caseListReads.get(accountA)).toBe(2);
+  expect(caseListReads.get(accountB)).toBe(1);
+  expect(providerRouteRequests).toBe(0);
 });

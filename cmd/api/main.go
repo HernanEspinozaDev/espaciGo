@@ -27,6 +27,7 @@ import (
 	documentverificationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/documentverification"
 	gallerypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/gallery"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	identitydeclarationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identitydeclaration"
 	localnoticepg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/localnotice"
 	mediapg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/media"
 	occupancypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/occupancy"
@@ -167,6 +168,17 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid API runtime profile")
 	}
+	if usesDedicatedStartup(runtimeProfileValue) {
+		cfg, err := loadRuntimeConfig(os.Getenv, runtimeProfileValue)
+		if err != nil {
+			return errors.New("invalid API configuration")
+		}
+		defer cfg.close()
+		if runtimeProfileValue == runtimeProfileKYCWorkerFree {
+			return runLocalKYCOnly(cfg, runtimeProfileValue)
+		}
+		return runDocumentScanOnly(cfg)
+	}
 	republicationEnabled, err := localRepublicationEnabled(os.Getenv, runtimeProfileValue)
 	if err != nil {
 		return err
@@ -184,9 +196,6 @@ func run() error {
 		return errors.New("invalid API configuration")
 	}
 	defer cfg.close()
-	if usesDedicatedStartup(runtimeProfileValue) {
-		return runDocumentScanOnly(cfg)
-	}
 	businessNow, err := businessclock.FromEnv(os.Getenv)
 	if err != nil {
 		return errors.New("invalid isolated business clock configuration")
@@ -301,11 +310,22 @@ func run() error {
 			documentDownloadHandler = documentverificationhttp.NewOwnerDownloadHandler(service, downloadService)
 		}
 		registerDocumentVerificationRoutes(mux, documentverificationhttp.NewOwnerCasesHandlerWithUpload(service, documentVerificationService, documentUploadService), documentDownloadHandler)
+		var declarationService *verification.DeclarationService
+		reviewerDeclarationReader := documentverification.ReviewerIdentityDeclarationReaderFunc(func(ctx context.Context, accountID, revisionID string) (documentverification.ReviewerIdentityDeclaration, error) {
+			saved, readErr := declarationService.GetRevision(ctx, accountID, revisionID)
+			if readErr != nil {
+				return documentverification.ReviewerIdentityDeclaration{}, readErr
+			}
+			return documentverification.ReviewerIdentityDeclaration{
+				FirstName: saved.Payload.FirstName, LastName: saved.Payload.LastName,
+				RUT: saved.Payload.RUT, DateOfBirth: saved.Payload.DateOfBirth,
+			}, nil
+		})
 		if documentReviewEnabled {
 			if documentStore == nil {
 				return errors.New("document review trial requires private document storage")
 			}
-			reviewerService, reviewerErr := documentverification.NewReviewerAccessService(documentVerificationRepository, documentVerificationService, documentStore)
+			reviewerService, reviewerErr := documentverification.NewReviewerAccessServiceWithIdentityDeclarationReader(documentVerificationRepository, documentVerificationService, documentStore, reviewerDeclarationReader)
 			if reviewerErr != nil {
 				return errors.New("document reviewer initialization failed")
 			}
@@ -385,7 +405,12 @@ func run() error {
 		if err != nil {
 			return errors.New("local evidence initialization failed")
 		}
-		verificationHandler := verificationhttp.NewHandler(service, verificationService, cfg.allowedOrigins, evidenceService)
+		identityDeclarationRepo := identitydeclarationpg.New(pool)
+		declarationService, err = newRuntimeIdentityDeclarationService(os.Getenv, identityDeclarationRepo, time.Now)
+		if err != nil {
+			return err
+		}
+		verificationHandler := verificationhttp.NewHandlerWithDeclarationWithoutExternalProvider(service, verificationService, cfg.allowedOrigins, evidenceService, declarationService)
 		mux.Handle("/api/v1/verifications", verificationHandler)
 		mux.Handle("/api/v1/verifications/", verificationHandler)
 		mux.Handle("/api/v1/admin/verifications", verificationHandler)
@@ -712,11 +737,7 @@ func run() error {
 		}})
 		workers = append(workers, namedWorker{"document-verification-retention", func() {
 			documentWorkers.Go(func(workerCtx context.Context) {
-				if err := documentRetentionProcessor.Run(workerCtx, time.Second, func(error) {
-					log.Print("document verification retention pass failed")
-				}); err != nil {
-					log.Print("document verification retention worker stopped")
-				}
+				runDocumentRetentionWorker(workerCtx, documentRetentionProcessor, func(message string) { log.Print(message) })
 			})
 		}})
 	}
@@ -752,7 +773,67 @@ func run() error {
 }
 
 func usesDedicatedStartup(profile runtimeProfileName) bool {
-	return profile == runtimeProfileDocumentScanOnly
+	return profile == runtimeProfileDocumentScanOnly || profile == runtimeProfileKYCWorkerFree
+}
+
+func runLocalKYCOnly(cfg config, profile runtimeProfileName) error {
+	if profile != runtimeProfileKYCWorkerFree {
+		return errors.New("invalid local KYC runtime profile")
+	}
+	if err := validateWorkerRegistry(profile, nil); err != nil {
+		return errors.New("background worker registry is invalid")
+	}
+	keyring, err := loadIdentityDeclarationKeyring(os.Getenv)
+	if err != nil || keyring == nil {
+		return errors.New("identity declaration encryption is unavailable")
+	}
+	limit, err := strconv.Atoi(os.Getenv("LOCAL_VERIFICATION_IP_LIMIT"))
+	if err != nil || limit < 1 || limit > 1000 {
+		return errors.New("invalid local quota")
+	}
+	pool, closeConnector, err := newDatabasePool(context.Background(), cfg)
+	if err != nil {
+		return errors.New("could not initialize PostgreSQL connection pool")
+	}
+	defer closeConnector()
+	defer pool.Close()
+
+	identityRepository := identitypg.NewIdentityRepository(pool)
+	authMailer := zohoauth.UnavailableMailer{}
+	authService, err := identity.NewAuthenticationService(identityRepository, password.Hasher{}, authMailer, devauth.NewIPLimiter(limit), credentials.Generator{}, time.Now)
+	if err != nil {
+		return errors.New("local authentication initialization failed")
+	}
+	declarationRepository := identitydeclarationpg.New(pool)
+	declarationService, err := newRuntimeIdentityDeclarationService(os.Getenv, declarationRepository, time.Now)
+	if err != nil || declarationService == nil {
+		return errors.New("identity declaration initialization failed")
+	}
+	verificationHandler := verificationhttp.NewHandlerWithDeclarationWithoutExternalProvider(authService, nil, cfg.allowedOrigins, nil, declarationService)
+	apiHandler := newLocalKYCMux(
+		identityhttp.NewHandler(authService, identityRepository, cfg.allowedOrigins),
+		verificationHandler,
+		health.NewHandler(pool, cfg.allowedOrigins),
+	)
+	server := newHTTPServer(cfg.httpAddr, identityhttp.RestrictedAccountMiddleware(authService, apiHandler, cfg.allowedOrigins...))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	serverErrors := make(chan error, 1)
+	go func() { serverErrors <- server.ListenAndServe() }()
+	select {
+	case err := <-serverErrors:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return errors.New("HTTP server failed")
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return errors.New("HTTP server shutdown failed")
+		}
+		return nil
+	}
 }
 
 func runDocumentScanOnly(cfg config) error {
@@ -844,9 +925,7 @@ func runDocumentScanOnly(cfg config) error {
 		}},
 		{name: "document-verification-retention", launch: func() {
 			workersGroup.Go(func(workerCtx context.Context) {
-				if err := retentionProcessor.Run(workerCtx, time.Second, func(error) { log.Print("document verification retention pass failed") }); err != nil {
-					log.Print("document verification retention worker stopped")
-				}
+				runDocumentRetentionWorker(workerCtx, retentionProcessor, func(message string) { log.Print(message) })
 			})
 		}},
 	}

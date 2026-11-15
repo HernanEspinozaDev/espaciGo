@@ -1,0 +1,86 @@
+{
+  "scope": "Remote read-only metadata/artifact/log review; NO current SQL connection, new Job, unlock or DDL.",
+  "observed_at": "2026-11-07T20:41:16.437745+00:00",
+  "project": "espacigo-testprod",
+  "region": "southamerica-west1",
+  "instance": "espacigo-testprod-db",
+  "database": "espacigo_dms_stage_20261020",
+  "retained_lock": {
+    "build_id": "2dc002a9-5831-4717-8064-6432b98d3e01",
+    "source_sha": "bb10309129adad9d7204b9b54bb2259186a34242",
+    "generation": "1794036269394395"
+  },
+  "verified_historical_artifacts": {
+    "preflight": {
+      "generation": "1794036943165309",
+      "sha256": "93e6e5da9f7cfd8f6d788b416534a296b6731e26f0a8e26d7b15faefb8d9711d",
+      "uri": "gs://espacigo-testprod-cloud-build-447373903153/releases/2dc002a9-5831-4717-8064-6432b98d3e01/preflight.json"
+    },
+    "job-intent-apply": {
+      "generation": "1794037100236402",
+      "sha256": "d5d9b52d5d31e30e3ada08825803a080864ebfb3b4c92a78feafcf6858490d01",
+      "uri": "gs://espacigo-testprod-cloud-build-447373903153/releases/2dc002a9-5831-4717-8064-6432b98d3e01/job-intent-apply.json"
+    },
+    "job-finished-apply": {
+      "generation": "1794037121248099",
+      "sha256": "51f5d4b707ec88a352772cc06c3bfc03e74bfa901d6ee9bc42c688d10e556cb6",
+      "uri": "gs://espacigo-testprod-cloud-build-447373903153/releases/2dc002a9-5831-4717-8064-6432b98d3e01/job-finished-apply.json"
+    }
+  },
+  "historical_preflight": {
+    "engine": "18.6",
+    "read_only": true,
+    "applied_count": 83,
+    "last_applied": {
+      "checksum": "405c2f02f8a29e962421a44cbbd07e6e7fae4aa4696483e9d45ab209e82e9333",
+      "name": "V000083__document_verification_lock_and_transfer_fix.sql",
+      "version": 83
+    },
+    "pending": [
+      {
+        "checksum": "d8cc68f3ea73c6e351a31bd8f88fd0606e8217c028777d5ebca7b406bb852b8f",
+        "name": "V000084__didit_identity_verification_schema.sql",
+        "version": 84
+      }
+    ],
+    "source_hashes_match_current": true
+  },
+  "applying_execution": {
+    "name": "espacigo-db-r-2dc002a95831471780646432b98d3e01-v62zb",
+    "created_at": "2026-11-07T07:38:23.780687Z",
+    "finished_at": "2026-11-07T07:38:37.193241Z",
+    "failed_count": 1
+  },
+  "historical_apply_error": {
+    "timestamp": "2026-11-07T07:38:31.874141Z",
+    "migration": 84,
+    "sqlstate": "42501",
+    "message": "permission denied for schema public",
+    "source": "Cloud Logging execution exact name"
+  },
+  "recovery_inspection": {
+    "command": "/usr/bin/python3 scripts/gcp/recover_release_lock.py --account pasteleriahijitos@gmail.com",
+    "mutating_flag": false,
+    "exit_code": 1,
+    "message": "application may have started; inspect exact execution/ledger and do not unlock automatically"
+  },
+  "current_sql_ledger_verified": false,
+  "ddl_authority_verified_current": false,
+  "gate_passed": false,
+  "blockers": [
+    "Existing applying intent and failed execution prevent preapply lock recovery; preserve lock and execution.",
+    "Current SQL ledger/catalog required through reviewed private recovery inspection, not historical plan or laptop tunnel.",
+    "Preflight-only changes are uncommitted and unpublished; canonical parent not enabled for them.",
+    "V85 security-tightening remains review_required automatic=false; do not relabel expand to pass."
+  ],
+  "operations_not_performed": [
+    "unlock",
+    "execute_job",
+    "create_job",
+    "backup",
+    "grant",
+    "migrate",
+    "deploy",
+    "publish"
+  ]
+}

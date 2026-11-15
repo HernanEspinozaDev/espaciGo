@@ -39,6 +39,55 @@ func TestCodecRejectsEveryCrossScopeDimension(t *testing.T) {
 	}
 }
 
+func TestIdentityCodecRejectsOwnerCaseFileAndPurposeSubstitution(t *testing.T) {
+	key := bytes.Repeat([]byte{7}, 32)
+	base, err := IdentityScope(boundaryOwner, boundaryCase, boundaryFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plaintext := []byte("synthetic identity evidence")
+	sealed, err := Seal(key, base, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Open(key, base, sealed); err != nil || !bytes.Equal(got, plaintext) {
+		t.Fatalf("identity scope did not open its own envelope: bytes=%d err=%v", len(got), err)
+	}
+
+	owner, err := IdentityScope(boundaryOther, boundaryCase, boundaryFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseScope, err := IdentityScope(boundaryOwner, boundaryOther, boundaryFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := IdentityScope(boundaryOwner, boundaryCase, boundaryOther)
+	if err != nil {
+		t.Fatal(err)
+	}
+	purpose, err := SpaceScope(boundaryOwner, boundarySpace, boundaryCase, boundaryFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		scope Scope
+	}{
+		{name: "owner", scope: owner},
+		{name: "case", scope: caseScope},
+		{name: "file", scope: file},
+		{name: "purpose", scope: purpose},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Open(key, tc.scope, sealed)
+			if !errors.Is(err, ErrCorrupt) || got != nil {
+				t.Fatalf("identity envelope opened under substituted scope: bytes=%d err=%v", len(got), err)
+			}
+		})
+	}
+}
+
 func TestCodecCanonicalScopesOnly(t *testing.T) {
 	for _, id := range []string{"", "00000000-0000-0000-0000-000000000000", strings.ToUpper(boundaryOwner), "../escape", " " + boundaryOwner, boundaryOwner + "/child"} {
 		if _, err := IdentityScope(id, boundaryCase, boundaryFile); !errors.Is(err, ErrInvalid) {
@@ -55,6 +104,25 @@ func TestCodecCanonicalScopesOnly(t *testing.T) {
 	}
 	if got, err := KeyForScope(ScopeFromAAD(aad)); err != nil || got != aad {
 		t.Fatal("canonical AAD failed roundtrip")
+	}
+	identScope, _ := IdentityScope(boundaryOwner, boundaryCase, boundaryFile)
+	identAAD, err := KeyForScope(identScope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := KeyForScope(ScopeFromAAD(identAAD)); err != nil || got != identAAD {
+		t.Fatal("identity AAD failed roundtrip")
+	}
+	badIdentAAD := "users/not-a-uuid/identity/" + boundaryCase + "/" + boundaryFile + ".bin"
+	if _, err := KeyForScope(ScopeFromAAD(badIdentAAD)); !errors.Is(err, ErrInvalid) {
+		t.Error("bad identity AAD accepted")
+	}
+	badSpaceAAD := "users/" + boundaryOwner + "/spaces/not-a-uuid/documents/" + boundaryCase + "/" + boundaryFile + ".bin"
+	if _, err := KeyForScope(ScopeFromAAD(badSpaceAAD)); !errors.Is(err, ErrInvalid) {
+		t.Error("bad space AAD accepted")
+	}
+	if _, err := KeyForScope(Scope{aad: "users/../identity"}); !errors.Is(err, ErrInvalid) {
+		t.Error("KeyForScope accepted traversal path")
 	}
 	for _, bad := range []string{"../" + aad, "/" + aad, aad + "/", strings.Replace(aad, "/spaces/", "//spaces/", 1), strings.Replace(aad, ".bin", ".bin.bin", 1), "https://invalid.example/" + aad} {
 		if _, err := KeyForScope(ScopeFromAAD(bad)); !errors.Is(err, ErrInvalid) {

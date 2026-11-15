@@ -19,6 +19,7 @@ import (
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/evidencefs"
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/mediafs"
 	identitypg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identity"
+	identitydeclarationpg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/identitydeclaration"
 	mediapg "github.com/HernanEspinozaDev/espaciGo/internal/adapters/postgres/media"
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
 	"github.com/HernanEspinozaDev/espaciGo/internal/media"
@@ -28,8 +29,9 @@ import (
 )
 
 const (
-	defaultPollInterval = 10 * time.Second
-	maxDeleteDuration   = 30 * time.Second
+	defaultPollInterval       = 10 * time.Second
+	maxDeleteDuration         = 30 * time.Second
+	declarationPurgeBatchSize = 100
 )
 
 func main() {
@@ -106,6 +108,12 @@ func run() error {
 	if err != nil {
 		return errors.New("privacy cleanup worker identity unavailable")
 	}
+	var declarationPurger declarationRetentionPurger
+	var ackPurger deliveredSessionOutboxPurger
+	if cfg.databaseSetRole == "espacigo_privacy_cleanup_worker" {
+		declarationPurger = identitydeclarationpg.New(pool)
+		ackPurger = identitydeclarationpg.New(pool)
+	}
 
 	process := func() {
 		if err := service.RunSuppressionCleanupOnceWithWorker(ctx, workerID, time.Now, timedCleaner{store: cleaner}); err != nil {
@@ -114,18 +122,82 @@ func run() error {
 		if err := mediaService.CleanOnce(ctx, 50); err != nil {
 			log.Print("private media cleanup cycle failed; pending work remains durable")
 		}
+		runIdentityRetentionCycle(ctx, cfg.databaseSetRole, declarationPurger, ackPurger, log.Default())
+	}
+	runScheduler(ctx, cfg.interval, process)
+	return nil
+}
+
+type declarationRetentionPurger interface {
+	PurgeExpiredRevisions(context.Context) (int64, error)
+}
+
+type deliveredSessionOutboxPurger interface {
+	PurgeDeliveredSessionOutbox(context.Context) (int64, error)
+}
+
+func runIdentityRetentionCycle(ctx context.Context, role string, declaration declarationRetentionPurger, ack deliveredSessionOutboxPurger, logger *log.Logger) {
+	deleted, err := purgeIdentityDeclarationBatch(ctx, role, declaration)
+	if err != nil {
+		logger.Print("identity declaration retention purge failed; pending rows remain durable")
+	} else if deleted == declarationPurgeBatchSize {
+		logger.Print("identity declaration retention purge reached its batch limit; any remaining rows wait for the next cycle")
+	}
+	ackDeleted, ackErr := purgeDeliveredSessionOutbox(ctx, role, ack)
+	if ackErr != nil {
+		logger.Print("delivered identity session outbox purge failed; pending rows remain durable")
+	} else if ackDeleted == declarationPurgeBatchSize {
+		logger.Print("delivered identity session outbox purge reached its batch limit; any remaining rows wait for the next cycle")
+	}
+}
+
+func runScheduler(ctx context.Context, interval time.Duration, process func()) {
+	if interval <= 0 {
+		return
+	}
+	if ctx.Err() != nil {
+		return
 	}
 	process()
-	ticker := time.NewTicker(cfg.interval)
+	if ctx.Err() != nil {
+		return
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-ticker.C:
+			if ctx.Err() != nil {
+				return
+			}
 			process()
+			if ctx.Err() != nil {
+				return
+			}
 		}
 	}
+}
+
+func purgeDeliveredSessionOutbox(ctx context.Context, role string, purger deliveredSessionOutboxPurger) (int64, error) {
+	if role != "espacigo_privacy_cleanup_worker" {
+		return 0, nil
+	}
+	if purger == nil {
+		return 0, errors.New("dedicated privacy cleanup role requires an ACK outbox purger")
+	}
+	return purger.PurgeDeliveredSessionOutbox(ctx)
+}
+
+func purgeIdentityDeclarationBatch(ctx context.Context, role string, purger declarationRetentionPurger) (int64, error) {
+	if role != "espacigo_privacy_cleanup_worker" {
+		return 0, nil
+	}
+	if purger == nil {
+		return 0, errors.New("dedicated privacy cleanup role requires a declaration purger")
+	}
+	return purger.PurgeExpiredRevisions(ctx)
 }
 
 type workerConfig struct {

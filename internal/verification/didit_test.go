@@ -4,8 +4,56 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"testing"
 )
+
+func TestCanonicalDiditWebhookPayload(t *testing.T) {
+	input := []byte(`{"2":"dos","10":"diez","nombre":"José","float":27.0,"tiny":0.00001,"nested":{"b":true,"a":null}}`)
+	got, err := CanonicalDiditWebhookPayload(input)
+	if err != nil {
+		t.Fatalf("canonicalize payload: %v", err)
+	}
+	want := `{"10":"diez","2":"dos","float":27,"nested":{"a":null,"b":true},"nombre":"José","tiny":1e-05}`
+	if string(got) != want {
+		t.Fatalf("canonical payload = %s, want %s", got, want)
+	}
+	got, err = CanonicalDiditWebhookPayload([]byte(`{"number":1000000000000000.125}`))
+	if err != nil {
+		t.Fatalf("canonicalize large fractional number: %v", err)
+	}
+	if string(got) != `{"number":1000000000000000.1}` {
+		t.Fatalf("canonical large fractional number = %s", got)
+	}
+	got, err = CanonicalDiditWebhookPayload([]byte(`{"number":1000000000000000129}`))
+	if err != nil || string(got) != `{"number":1000000000000000129}` {
+		t.Fatalf("canonical exact integer = %s, err=%v", got, err)
+	}
+	got, err = CanonicalDiditWebhookPayload([]byte(`{"🙂":"emoji","Ｆ":"fullwidth"}`))
+	if err != nil || string(got) != `{"Ｆ":"fullwidth","🙂":"emoji"}` {
+		t.Fatalf("canonical Unicode code-point key order = %s, err=%v", got, err)
+	}
+}
+
+func TestVerifyWebhookSignatureV2(t *testing.T) {
+	const secret = "test-secret-kyc08-v2"
+	payload := []byte(`{ "tiny": 0.0000100, "float": 27.00, "nombre":"Jos\u00e9", "nested":{"b":true,"a":null}, "2":"dos", "10":"diez" }`)
+	client := NewHTTPDiditClient("", secret, false, 0)
+	const signature = "3ca10a3c0daa684080f5b8f17c0f700cc246bca31bb0f9f6d79f17c873ced4a7"
+	if !client.VerifyWebhookSignatureV2(signature, payload) {
+		t.Fatal("expected the canonical V2 signature to be accepted")
+	}
+	if client.VerifyWebhookSignatureV2(signature, []byte(strings.Replace(string(payload), "dos", "tres", 1))) {
+		t.Fatal("expected a changed signed payload to be rejected")
+	}
+}
+
+func TestEvaluateDecisionMissingDecisionFailsClosed(t *testing.T) {
+	status, flags, warnings := EvaluateDecision(nil, nil)
+	if status != "IN_REVIEW" || len(flags) != 0 || len(warnings) != 1 || warnings[0] != "MISSING_DECISION" {
+		t.Fatalf("expected missing decision to fail closed, got status=%q flags=%v warnings=%v", status, flags, warnings)
+	}
+}
 
 func TestEvaluateDecisionFailClosed(t *testing.T) {
 	attempt := &IdentityVerificationAttempt{

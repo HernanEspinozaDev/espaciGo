@@ -135,13 +135,73 @@ class MainReleaseTests(unittest.TestCase):
         self.assertFalse(any(c[:2]==('storage','cp') for c in self.cloud.calls))
         self.assertEqual(release.classify({**inv,'frontend/a.ts':'a'},{'source_inventory':inv}),'web')
         self.assertEqual(release.classify({**inv,'internal/x.go':'a'},{'source_inventory':inv}),'full')
+
+    def test_preflight_only_cannot_reach_backup_apply_rollout_or_watermark(self):
+        self.cloud.parent['substitutions']['_DB_PREFLIGHT_ONLY']='true'
+        old_watermark=self.cloud.objects[WATERMARK]
+        with self.patches():
+            report=release.execute(self.cloud,self.root,SHA,BUILD,preflight_only=True)
+        self.assertEqual(report['mode'],'preflight-only')
+        self.assertIn('job-plan',self.events)
+        self.assertNotIn('backup',self.events)
+        self.assertNotIn('provision-apply',self.events)
+        self.assertNotIn('job-apply',self.events)
+        self.assertNotIn(LOCK,self.cloud.objects)
+        self.assertEqual(self.cloud.objects[WATERMARK],old_watermark)
+        self.assertFalse(any(c[:2]==('run','deploy') or c[:3]==('sql','backups','create') for c in self.cloud.calls))
+        self.assertTrue(any('/preflight-only-completed.json' in x for x in self.cloud.objects))
+
+    def test_preflight_parent_cannot_fall_through_to_applying_release(self):
+        self.cloud.parent['substitutions']['_DB_PREFLIGHT_ONLY']='true'
+        with self.patches(),self.assertRaises(GuardError):
+            release.execute(self.cloud,self.root,SHA,BUILD)
+        self.assertFalse(any(c[:2]==('storage','cp') for c in self.cloud.calls))
+
+    def test_preflight_failure_retains_lock_and_never_applies(self):
+        self.cloud.parent['substitutions']['_DB_PREFLIGHT_ONLY']='true'
+        old_watermark=self.cloud.objects[WATERMARK]
+        with self.patches(),patch.object(release,'execute_job',side_effect=GuardError('plan authority denied')),self.assertRaises(GuardError):
+            release.execute(self.cloud,self.root,SHA,BUILD,preflight_only=True)
+        self.assertIn(LOCK,self.cloud.objects)
+        self.assertNotIn('backup',self.events)
+        self.assertNotIn('provision-apply',self.events)
+        self.assertEqual(self.cloud.objects[WATERMARK],old_watermark)
+        self.assertTrue(any('/failure.json' in x for x in self.cloud.objects))
+
+    def test_preflight_requires_both_cli_and_parent_mode_to_match(self):
+        for value in ['false',None,True]:
+            if value is None:self.cloud.parent['substitutions'].pop('_DB_PREFLIGHT_ONLY',None)
+            else:self.cloud.parent['substitutions']['_DB_PREFLIGHT_ONLY']=value
+            with self.patches(),self.assertRaises(GuardError):
+                release.execute(self.cloud,self.root,SHA,BUILD,preflight_only=True)
+        with self.patches(),self.assertRaises(GuardError):
+            release.execute(self.cloud,self.root,SHA,BUILD,preflight_only='true')  # pyright: ignore[reportArgumentType] -- intentional invalid input
+
     def test_parent_and_migration_policy_fail_closed(self):
         self.cloud.parent['buildTriggerId']='other'
         with self.assertRaises(GuardError):release.execute(self.cloud,self.root,SHA,BUILD)
         with self.assertRaises(GuardError):release.migration_policy(self.root,{'pending':[{'name':'V000084__unreviewed.sql','checksum':'c'*64}]})
 
+    def test_v85_security_candidate_is_not_implicitly_auto_expand(self):
+        entries=release.SCHEMA.migration_inventory(self.root/'db/migrations')
+        row=next(m for m in entries if m['version']==85)
+        policy=json.loads((self.root/'db/release-policy.json').read_text())
+        candidate=policy['review_required_migrations'][row['name']]
+        self.assertEqual(candidate['checksum'],row['checksum'])
+        self.assertIs(candidate['automatic'],False)
+        self.assertNotIn(row['name'],policy['automatic_migrations'])
+        with self.assertRaisesRegex(GuardError,'reviewed expand policy'):
+            release.migration_policy(self.root,{'pending':[row]})
+
 
 class JobBoundaryTests(unittest.TestCase):
+    def test_preflight_parent_cannot_provision_an_applying_job(self):
+        m,b,*_=fixture();r=request(m,BUILD,'apply',b);cloud=FakeCloud()
+        cloud.parent['substitutions']['_DB_PREFLIGHT_ONLY']='true'
+        with self.assertRaisesRegex(GuardError,'preflight'):
+            provision_execute(cloud,r)
+        self.assertFalse(any(c[:3]==('run','jobs','create') for c in cloud.calls))
+
     def test_job_config_readback_rejects_overrides_before_execution(self):
         m,b,e,logs,name=fixture();r=request(m,BUILD,'apply',b)
         job={'metadata':{'name':create_args(r)[4],'namespace':'447373903153','uid':UID},'spec':{'template':{'metadata':{'labels':e['metadata']['labels'],'annotations':e['metadata']['annotations']},'spec':e['spec']}}}

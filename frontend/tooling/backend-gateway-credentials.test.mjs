@@ -131,6 +131,12 @@ test("all six document operations forward Bearer without browser credentials", a
   const caseID = "11111111-1111-4111-8111-111111111111";
   const fileID = "22222222-2222-4222-8222-222222222222";
   const pdfBytes = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55]);
+  const identityCreateBody = {
+    purpose: "identity",
+    document_format_declared: "unsure",
+    capture_consent_given: true,
+    capture_consent_version: "identity-capture-local-v1",
+  };
   const scenarios = [
     {
       method: "GET",
@@ -141,7 +147,8 @@ test("all six document operations forward Bearer without browser credentials", a
       method: "POST",
       path: ["document-verification", "cases"],
       contentType: "application/json",
-      requestBody: JSON.stringify({ purpose: "identity" }),
+      requestBody: JSON.stringify(identityCreateBody),
+      expectedBody: identityCreateBody,
       requestContentType: "application/json",
     },
     {
@@ -228,6 +235,12 @@ test("all six document operations forward Bearer without browser credentials", a
     );
     if (scenario.ifMatch) {
       assert.equal(upstreamOptions.headers.get("if-match"), scenario.ifMatch);
+    }
+    if (scenario.expectedBody) {
+      assert.deepEqual(
+        JSON.parse(new TextDecoder().decode(upstreamOptions.body)),
+        scenario.expectedBody,
+      );
     }
     if (scenario.method === "POST" && scenario.path.at(-1) === "files") {
       assert.match(
@@ -367,5 +380,108 @@ test("BFF passes contract JSON errors through with their original status", async
   );
 
   assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), payload);
+});
+
+test("BFF preserves sanitized owner decision copy in identity case responses", async () => {
+  const caseID = "11111111-1111-4111-8111-111111111111";
+  const ownerDecisionMessage =
+    "Faltan antecedentes para continuar con la revisión. Revisa los documentos solicitados y completa lo que falta antes de enviar nuevamente.";
+  const payload = [
+    {
+      id: caseID,
+      purpose: "identity",
+      state: "requiere_antecedentes",
+      revision: 9,
+      owner_decision_message: ownerDecisionMessage,
+      document_format_declared: "unsure",
+      files: [],
+    },
+  ];
+  let upstreamURL;
+  let upstreamOptions;
+  globalThis.fetch = async (url, options) => {
+    upstreamURL = url;
+    upstreamOptions = options;
+    return new Response(JSON.stringify(payload), {
+      headers: { "content-type": "application/json; charset=utf-8" },
+    });
+  };
+
+  const segments = ["document-verification", "cases"];
+  const response = await GET(
+    requestWithSession(
+      `http://127.0.0.1:3000/api/backend/${segments.join("/")}`,
+    ),
+    { params: Promise.resolve({ path: segments }) },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(
+    new URL(upstreamURL).pathname,
+    "/api/v1/document-verification/cases",
+  );
+  assert.equal(upstreamOptions.credentials, "omit");
+  assert.equal(
+    upstreamOptions.headers.get("authorization"),
+    "Bearer synthetic-opaque-token",
+  );
+  assert.equal(upstreamOptions.headers.has("cookie"), false);
+  assert.deepEqual(await response.json(), payload);
+});
+
+test("BFF detail GET passes owner copy and ETag with no-store", async () => {
+  const caseID = "11111111-1111-4111-8111-111111111111";
+  const ownerDecisionMessage =
+    "Faltan antecedentes para continuar con la revisión. Revisa los documentos solicitados y completa lo que falta antes de enviar nuevamente.";
+  const payload = {
+    id: caseID,
+    purpose: "identity",
+    state: "requiere_antecedentes",
+    revision: 9,
+    owner_decision_message: ownerDecisionMessage,
+    document_format_declared: "unsure",
+    files: [],
+  };
+  let upstreamURL;
+  let upstreamOptions;
+  let upstreamCalls = 0;
+  globalThis.fetch = async (url, options) => {
+    upstreamCalls += 1;
+    upstreamURL = url;
+    upstreamOptions = options;
+    return new Response(JSON.stringify(payload), {
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        etag: '"9"',
+        "cache-control": "private, no-store",
+      },
+    });
+  };
+
+  const path = ["document-verification", "cases", caseID];
+  const response = await GET(
+    requestWithSession(`http://127.0.0.1:3000/api/backend/${path.join("/")}`),
+    { params: Promise.resolve({ path }) },
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(upstreamCalls, 1);
+  assert.equal(upstreamOptions.method, "GET");
+  assert.equal(upstreamOptions.credentials, "omit");
+  assert.equal(upstreamOptions.cache, "no-store");
+  assert.equal(upstreamOptions.redirect, "manual");
+  assert.equal(
+    upstreamOptions.headers.get("authorization"),
+    "Bearer synthetic-opaque-token",
+  );
+  assert.equal(upstreamOptions.headers.has("cookie"), false);
+  assert.equal(
+    new URL(upstreamURL).pathname,
+    `/api/v1/document-verification/cases/${caseID}`,
+  );
+  assert.equal(response.headers.get("etag"), '"9"');
+  assert.equal(response.headers.get("cache-control"), "no-store");
   assert.deepEqual(await response.json(), payload);
 });

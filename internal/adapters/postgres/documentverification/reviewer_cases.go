@@ -10,7 +10,15 @@ import (
 
 var _ dv.ReviewerCaseReader = (*Repository)(nil)
 
-const reviewerSnapshotColumns = `c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at`
+const reviewerSnapshotColumns = `c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at,COALESCE(c.identity_declaration_revision_id::text,''),COALESCE(c.document_format_declared,''),COALESCE(c.capture_consent_version,''),c.capture_consented_at,COALESCE(c.document_format_observed,'')`
+
+func reviewerCaseDeclarationCurrent(ctx context.Context, tx pgx.Tx, x dv.Snapshot) (bool, error) {
+	if x.Purpose != dv.PurposeIdentity ||
+		(x.State != dv.CaseSubmitted && x.State != dv.CaseInReview && x.State != dv.CaseNeedsEvidence) {
+		return true, nil
+	}
+	return identityDeclarationRevisionCurrent(ctx, tx, x.SubjectID, x.IdentityDeclarationRevisionID)
+}
 
 // LoadReviewerCase returns metadata only for an exact, active reviewer grant.
 func (r *Repository) LoadReviewerCase(ctx context.Context, actor, id string) (dv.Snapshot, error) {
@@ -57,6 +65,13 @@ func (r *Repository) LoadReviewerCase(ctx context.Context, actor, id string) (dv
 		return dv.Snapshot{}, err
 	}
 	if !reviewerGrantMatches(grants, actor, x) {
+		return dv.Snapshot{}, dv.ErrNotFound
+	}
+	current, err := reviewerCaseDeclarationCurrent(ctx, tx, x)
+	if err != nil {
+		return dv.Snapshot{}, err
+	}
+	if !current {
 		return dv.Snapshot{}, dv.ErrNotFound
 	}
 	if err = loadFiles(ctx, tx, &x); err != nil {
@@ -108,7 +123,8 @@ func (r *Repository) ListReviewerCases(ctx context.Context, actor string) ([]dv.
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, `SELECT `+reviewerSnapshotColumns+` FROM public.document_verification_case c
-		WHERE c.subject_id<>$1 AND c.superseded_at IS NULL AND EXISTS (
+		WHERE c.subject_id<>$1 AND c.superseded_at IS NULL
+		AND c.state IN ('enviada','en_revision','requiere_antecedentes') AND EXISTS (
 		 SELECT 1 FROM public.document_verification_reviewer_grant g
 		 WHERE g.reviewer_id=$1 AND g.revoked_at IS NULL AND (g.expires_at IS NULL OR g.expires_at>clock_timestamp())
 		 AND ((c.purpose='identity' AND g.capability='review_identity' AND g.scope_kind='identity_subject' AND g.scope_id=c.subject_id)
@@ -159,6 +175,13 @@ func (r *Repository) ListReviewerCases(ctx context.Context, actor string) ([]dv.
 			return nil, e
 		}
 		if !reviewerGrantMatches(grants, actor, x) {
+			continue
+		}
+		current, e := reviewerCaseDeclarationCurrent(ctx, tx, x)
+		if e != nil {
+			return nil, e
+		}
+		if !current {
 			continue
 		}
 		if e = loadFiles(ctx, tx, &x); e != nil {
@@ -219,6 +242,13 @@ func (r *Repository) WithReviewerCaseForRead(ctx context.Context, actor, id stri
 		return err
 	}
 	if !reviewerGrantMatches(grants, actor, x) {
+		return dv.ErrNotFound
+	}
+	current, err := reviewerCaseDeclarationCurrent(ctx, tx, x)
+	if err != nil {
+		return err
+	}
+	if !current {
 		return dv.ErrNotFound
 	}
 	if err = loadFiles(ctx, tx, &x); err != nil {

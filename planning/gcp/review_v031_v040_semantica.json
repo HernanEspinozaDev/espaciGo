@@ -1,0 +1,470 @@
+{
+  "title": "Auditoría manual source-only V031–V040",
+  "root": "/home/nandev/Documentos/projects/espaciGo-main-sync",
+  "rows": [
+    {
+      "version": 31,
+      "filename": "V000031__m04_local_publication_lifecycle.sql",
+      "sha256": "7c18af2f8437bcbf7752dc021892c25d65033562f05eb40d0d400ad05e76483a",
+      "behavior": "Local M04 publication state for owner-managed offers. This does not expose spaces in a general/public catalog; discovery is connected in its own cut. ALTER TABLE public.espacio DROP CONSTRAINT IF EXISTS espacio_estado_check,",
+      "objects": [
+        "espacio_publicacion_historial_local"
+      ],
+      "dependencies": [
+        "espacio",
+        "usuario"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 570,
+          "excerpt": "GRANT SELECT, INSERT ON public.espacio_publicacion_historial_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 571,
+          "excerpt": "GRANT USAGE, SELECT ON SEQUENCE public.espacio_publicacion_historial_local_id_seq TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 1233,
+          "excerpt": "if _, err := conn.Exec(ctx, `INSERT INTO public.espacio_publicacion_historial_local(espacio_id,actor_id,estado_anterior,estado_nuevo,ocurrida_en,correlacion_id) VALUES ($1,$2,'borrador','activa',$3,'v52-publication')`, spaceID, actorID, deletedAt.Add(-time.Hour)); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 1268,
+          "excerpt": "if err := conn.QueryRow(ctx, `SELECT p.retirar_en,d.retirar_en FROM public.espacio_publicacion_historial_local p JOIN public.espacio_eliminacion_historial_local d ON d.espacio_id=p.espacio_id WHERE p.espacio_id=$1`, spaceID).Scan(&publicationDeadline, &deletionDeadline); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 32,
+      "filename": "V000032__m04_synthetic_space_gallery.sql",
+      "sha256": "803d2026c722795b0c008cc9ab81ac9fa796642dc83505161d614d7df0b3f994",
+      "behavior": "LOCAL-M04-GALLERY-01: fixed synthetic images in private local storage only. ALTER TABLE public.espacio ADD CONSTRAINT espacio_owner_id_uq UNIQUE (id,propietario_id); CREATE TABLE public.espacio_galeria_sintetica_local (",
+      "objects": [
+        "espacio_galeria_sintetica_local"
+      ],
+      "dependencies": [
+        "espacio"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 572,
+          "excerpt": "GRANT SELECT, INSERT ON public.espacio_galeria_sintetica_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 573,
+          "excerpt": "GRANT UPDATE (estado,retirada_en,proximo_intento_en,limpia_en,intentos_limpieza,ultimo_codigo_error,archivo_id,publicada_en_catalogo) ON public.espacio_galeria_sintetica_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 562,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia) VALUES($1,$2,$3,$4,'synthetic-png-v1','image/png',repeat('a',64),100,'activa',now(),'gadm02-gallery')`, photoID, publicationB, landlord, fileID); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 565,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia) VALUES($1,$2,$3,$4,'synthetic-png-v1','image/png',repeat('b',64),100,'activa',now(),'gadm02-gallery-two')`, photoTwoID, publicationB, landlord, fileTwoID); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 33,
+      "filename": "V000033__m04_gallery_candidate_cleanup.sql",
+      "sha256": "f3b0d590ba5b92d4483c0e173a6de758f6f3b7d69bff3923950bca5bb9ee0425",
+      "behavior": "Durable cleanup jobs for generated files that never become an active photo. A successful gallery insert deletes its candidate row in the same transaction. CREATE TABLE public.espacio_galeria_archivo_candidato_local ( archivo_id uuid PRIMARY KEY,",
+      "objects": [
+        "espacio_galeria_archivo_candidato_local"
+      ],
+      "dependencies": [
+        "espacio"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 574,
+          "excerpt": "GRANT SELECT, INSERT, UPDATE, DELETE ON public.espacio_galeria_archivo_candidato_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 277,
+          "excerpt": "if err = tx.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.espacio_galeria_sintetica_local WHERE espacio_id=$1 AND archivo_id IS NOT NULL AND estado<>'activa') + (SELECT count(*) FROM public.espacio_galeria_sintetica_local WHERE espacio_id=$1 AND estado='activa' AND archivo_id IS NOT NULL) + (SELECT count(*) FROM public.espacio_galeria_archivo_candidato_local WHERE espacio_id=$1)`, id).Scan(&filesPending); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "line": 198,
+          "excerpt": "if err = adminPool.QueryRow(ctx, `SELECT estado FROM public.espacio_galeria_archivo_candidato_local WHERE archivo_id=$1`, retryCandidate).Scan(&candidateState); err != nil || candidateState != \"pendiente_limpieza\" {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "line": 201,
+          "excerpt": "if _, err = adminPool.Exec(ctx, `UPDATE public.espacio_galeria_archivo_candidato_local SET proximo_intento_en=clock_timestamp() WHERE archivo_id=$1`, retryCandidate); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 34,
+      "filename": "V000034__local_synthetic_contract_signing.sql",
+      "sha256": "8c1e2bcc99df3f0f120e57ba087f627ce4c3148791d9626a1c4ba6f7d5dbbda4",
+      "behavior": "LOCAL-CONT-01: synthetic contract/signature rehearsal only. Historical reservation rows are retained and no legal-signature provider is implied. ALTER TABLE public.reserva_ensayo_local DROP CONSTRAINT reserva_ensayo_local_estado_check,",
+      "objects": [
+        "documento_privado_sintetico_local",
+        "contrato_ensayo_local",
+        "contrato_ensayo_firma",
+        "contrato_ensayo_historial"
+      ],
+      "dependencies": [
+        "contrato_ensayo_local",
+        "documento_privado_sintetico_local",
+        "reserva_ensayo_local",
+        "usuario"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 619,
+          "excerpt": "GRANT SELECT, INSERT ON public.contrato_ensayo_local, public.contrato_ensayo_firma TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 620,
+          "excerpt": "GRANT SELECT, INSERT ON public.documento_privado_sintetico_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 1278,
+          "excerpt": "if err := conn.QueryRow(ctx, `SELECT is_nullable='YES' FROM information_schema.columns WHERE table_schema='public' AND table_name='contrato_ensayo_local' AND column_name='documento_id'`).Scan(&documentNullable); err != nil || !documentNullable {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy_integration_test.go",
+          "line": 54,
+          "excerpt": "if err = tx.QueryRow(ctx, `SELECT md5(string_agg(row_to_json(c)::text,'' ORDER BY id)) FROM public.contrato_ensayo_local c WHERE reserva_id=$1`, reservation).Scan(&preContract); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 35,
+      "filename": "V000035__local_synthetic_rental_operations.sql",
+      "sha256": "205e0f230d0bf69c15da08c48f3dc1abc0639bba4980372e9451a49658ce7c26",
+      "behavior": "LOCAL-OPS-01: synthetic check-in/out and host receipt records. Operations, evidence and booking transitions are append-only facts. The reservation remains the sole owner of occupied time; no calendar is added. ALTER TABLE public.reserva_ensayo_local",
+      "objects": [
+        "operacion_arriendo_ensayo_local",
+        "operacion_arriendo_evidencia_ensayo_local",
+        "operacion_arriendo_archivo_candidato_local",
+        "operacion_arriendo_historial_ensayo_local",
+        "reclamo_dano_ensayo_local",
+        "reclamo_dano_descargo_ensayo_local",
+        "reclamo_dano_historial_ensayo_local"
+      ],
+      "dependencies": [
+        "evento_auditoria_local",
+        "operacion_arriendo_ensayo_local",
+        "operacion_arriendo_evidencia_ensayo_local",
+        "reclamo_dano_ensayo_local",
+        "reserva_ensayo_local",
+        "usuario"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminlocal/queries.go",
+          "line": 240,
+          "excerpt": "rows, err := tx.Query(ctx, `SELECT estado,count(*) FROM public.reclamo_dano_ensayo_local WHERE abierto_en >= $1 AND abierto_en < $2 GROUP BY estado ORDER BY estado`, p.From, p.Until)",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 588,
+          "excerpt": "GRANT SELECT, INSERT ON public.operacion_arriendo_ensayo_local, public.operacion_arriendo_evidencia_ensayo_local, public.operacion_arriendo_historial_ensayo_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 488,
+          "excerpt": "if _, err := pool.Exec(ctx, `INSERT INTO public.operacion_arriendo_ensayo_local(id,reserva_id,tipo,actor_id,ocurrio_en,zona_horaria,ubicacion_sintetica,resultado,clave_idempotencia,huella_solicitud,creada_en)",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 492,
+          "excerpt": "if _, err := pool.Exec(ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local(id,operacion_id,fixture_code,mime_type,sha256,size_bytes,creada_en) VALUES($1,$2,'synthetic-png-v1','image/png',repeat('a',64),128,$3)`, evidence, operation, at); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 36,
+      "filename": "V000036__local_communication_reviews_and_notices.sql",
+      "sha256": "322fd98a8b921b905832bd75b4006d5fbed3f233334d400a6863c3a03aea2b09",
+      "behavior": "LOCAL-COMM-01: synthetic reviews/reports and transactional Mailpit notice intents. These records have local prototype retention only; the periods are not legal claims. CREATE TABLE public.resena_ensayo_local (",
+      "objects": [
+        "resena_ensayo_local",
+        "reporte_resena_ensayo_local",
+        "reporte_resena_historial_local",
+        "aviso_local",
+        "aviso_local_ciclo",
+        "aviso_local_recuperacion_auditoria"
+      ],
+      "dependencies": [
+        "aviso_local",
+        "espacio",
+        "evento_auditoria_local",
+        "reporte_resena_ensayo_local",
+        "resena_ensayo_local",
+        "reserva_ensayo_local",
+        "usuario"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 638,
+          "excerpt": "GRANT SELECT, INSERT ON public.resena_ensayo_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 639,
+          "excerpt": "GRANT UPDATE (estado,autor_id,destinatario_tipo,destinatario_id,comentario) ON public.resena_ensayo_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 1414,
+          "excerpt": "(SELECT count(*) FROM public.aviso_local WHERE tipo_evento='pago_arriendo_rechazado' AND agregado_tipo='reserva' AND agregado_id=$1),",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 3628,
+          "excerpt": "if err = setup.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='invitacion_firma' AND agregado_id=$1`, createdContract.ID).Scan(&contractNotices); err != nil || contractNotices != 2 {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 37,
+      "filename": "V000037__local_communication_privacy_coordination.sql",
+      "sha256": "ad45697b244bac64d5713145b89cadf1f1522fa723f99f63feda8aa497ffd665",
+      "behavior": "LOCAL-COMM-01 follow-up: retain anonymous review uniqueness and serialize review/report/outbox operations with local account suppression. DO $$",
+      "objects": [
+        "resena_autoria_marca_local"
+      ],
+      "dependencies": [
+        "resena_ensayo_local"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 640,
+          "excerpt": "GRANT SELECT, INSERT ON public.resena_autoria_marca_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "line": 95,
+          "excerpt": "if e = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_autoria_marca_local WHERE huella_autoria=$1 AND (retirar_en IS NULL OR retirar_en>$2))`, marker[:], at).Scan(&marked); e != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "line": 241,
+          "excerpt": "if e = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.resena_autoria_marca_local WHERE huella_autoria=$1 AND retirar_en IS NULL)`, markerDigest[:]).Scan(&retainedMarker); e != nil || !retainedMarker {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "line": 323,
+          "excerpt": "if e = pool.QueryRow(ctx, `SELECT creada_en,retirar_en FROM public.resena_autoria_marca_local WHERE huella_autoria=$1`, marker[:]).Scan(&markedAt, &removeAt); e != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 38,
+      "filename": "V000038__local_damage_claim_resolution.sql",
+      "sha256": "88000b1e3f94e68efca57e36a38914483cbf0d10c62741c75f57b282a7291b25",
+      "behavior": "LOCAL-DIS-01: record an administrative synthetic adjudication, separately from every financial effect. LOCAL-FIN-01 owns any capture/release/settlement. ALTER TABLE public.reclamo_dano_ensayo_local DROP CONSTRAINT reclamo_dano_ensayo_local_estado_check,",
+      "objects": [
+        "reclamo_dano_resolucion_ensayo_local"
+      ],
+      "dependencies": [
+        "aviso_local",
+        "evento_auditoria_local",
+        "reclamo_dano_ensayo_local",
+        "reclamo_dano_historial_ensayo_local",
+        "usuario"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 594,
+          "excerpt": "GRANT SELECT, INSERT ON public.reclamo_dano_ensayo_local, public.reclamo_dano_descargo_ensayo_local, public.reclamo_dano_historial_ensayo_local, public.reclamo_dano_resolucion_ensayo_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 598,
+          "excerpt": "GRANT UPDATE (administrador_id) ON public.reclamo_dano_resolucion_ensayo_local TO espacigo_runtime;",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 502,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.reclamo_dano_resolucion_ensayo_local(reclamo_id,resultado,motivo_codigo,administrador_id,resuelta_en,clave_idempotencia,huella_solicitud) VALUES('82000000-0000-4000-8000-000000000015','rechazado','hecho_no_acreditado',$1,$2,'gadm03-kpi-resolution',decode(repeat('66',32),'hex'))`, master, decisionAt); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 831,
+          "excerpt": "if _, err = adminPool.Exec(ctx, `INSERT INTO public.reclamo_dano_resolucion_ensayo_local(reclamo_id,resultado,motivo_codigo,administrador_id,resuelta_en,clave_idempotencia,huella_solicitud)",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 39,
+      "filename": "V000039__local_damage_claim_privacy_retention.sql",
+      "sha256": "86bd6b0d684c33d4213eb47d68763f00edc8b5716e2fe5e85d46fbaf1916e083",
+      "behavior": "LOCAL-DIS-01 privacy follow-through. A resolved synthetic claim stops being an open blocker, its free text is scrubbed when an eligible baja executes, and identifying links are retained only through the existing 24-month reservation-history window before the privacy purger unlinks them.",
+      "objects": [],
+      "dependencies": [
+        "operacion_arriendo_archivo_candidato_local",
+        "operacion_arriendo_ensayo_local",
+        "operacion_arriendo_historial_ensayo_local",
+        "reclamo_dano_descargo_ensayo_local",
+        "reclamo_dano_ensayo_local",
+        "reclamo_dano_historial_ensayo_local",
+        "reclamo_dano_resolucion_ensayo_local"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [],
+      "test_refs": [],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    },
+    {
+      "version": 40,
+      "filename": "V000040__local_guarantee_and_dispute_finance.sql",
+      "sha256": "c749f178824ff5c1695483d2c32cde6b7c76794e247a5d423101ce7486058b0d",
+      "behavior": "Synthetic-only guarantee snapshots and durable local financial operations. Existing reservations and quotes remain NULL; no retroactive guarantee is assigned. ALTER TABLE public.cotizacion_reserva_ensayo ADD COLUMN garantia_politica_version text,",
+      "objects": [
+        "reserva_garantia_ensayo_local",
+        "reserva_garantia_operacion_ensayo_local",
+        "reserva_garantia_resultado_fake_ensayo_local",
+        "reserva_garantia_evento_ensayo_local",
+        "reserva_garantia_evento_aplicacion_ensayo_local",
+        "reserva_decision_financiera_ensayo_local",
+        "reserva_finanzas_historial_ensayo_local"
+      ],
+      "dependencies": [
+        "cotizacion_reserva_ensayo",
+        "operacion_arriendo_evidencia_ensayo_local",
+        "reclamo_dano_ensayo_local",
+        "reserva_ensayo_local",
+        "reserva_garantia_ensayo_local",
+        "reserva_garantia_evento_ensayo_local",
+        "reserva_garantia_operacion_ensayo_local",
+        "usuario"
+      ],
+      "authority": "El SQL define objetos/restricciones; no fija owners efectivos ni destino ACL/default privileges; no inspeccionado.",
+      "data_preconditions": "DDL/alteraciones requieren prefijo previo compatible; filas existentes sujetas a constraints y nullable/defaults visibles en SQL.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminlocal/service.go",
+          "line": 364,
+          "excerpt": "UNION ALL SELECT CASE tipo WHEN 'autorizacion' THEN 'garantia_autorizada' WHEN 'captura' THEN 'garantia_capturada' ELSE 'garantia_liberada' END,'confirmado',count(*)::bigint,COALESCE(sum(importe_clp),0)::bigint FROM public.reserva_garantia_operacion_ensayo_local WHERE estado='confirmada' AND completada_en >= $1 AND completada_en < $2 GROUP BY tipo",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adminlocal/service.go",
+          "line": 378,
+          "excerpt": "UNION ALL SELECT CASE tipo WHEN 'autorizacion' THEN 'garantia_autorizada' WHEN 'captura' THEN 'garantia_capturada' ELSE 'garantia_liberada' END,estado,count(*)::bigint,COALESCE(sum(importe_clp),0)::bigint FROM public.reserva_garantia_operacion_ensayo_local WHERE estado IN ('pendiente','por_conciliar') GROUP BY tipo,estado",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 769,
+          "excerpt": "guaranteeUpdate, guaranteeErr := adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET autorizado_clp=50000,estado='liberacion_pendiente',actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID)",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 789,
+          "excerpt": "if _, err = adminPool.Exec(ctx, `UPDATE public.reserva_garantia_ensayo_local SET estado='parcialmente_capturada',autorizado_clp=50000,capturado_clp=12000,liberado_clp=38000,actualizada_en=clock_timestamp() WHERE reserva_id=$1`, reservation.ID); err != nil {",
+          "reason": "Referencia literal del objeto; no prueba por sí sola ejecución/semántica."
+        }
+      ],
+      "status": "source-only; no ejecución",
+      "issues": "Requiere lectura semántica manual; referencias vacías no acreditan ausencia."
+    }
+  ]
+}

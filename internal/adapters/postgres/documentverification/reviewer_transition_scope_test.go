@@ -33,13 +33,24 @@ func (tx *reviewerTransitionScopeTx) QueryRow(ctx context.Context, sql string, a
 		tx.lockedOwner = args[1].(string)
 		return commitSerializationFailureRow{values: []any{tx.ownerStillCurrent && tx.lockedOwner == tx.owner}}
 	case strings.Contains(sql, "SELECT id::text,purpose,subject_id::text,space_id::text,state,revision"):
-		return commitSerializationFailureRow{values: []any{tx.caseID, "space", tx.owner, tx.spaceID, "enviada", int64(1), "", nil, nil, nil, nil, nil}}
+		return commitSerializationFailureRow{values: []any{tx.caseID, "space", tx.owner, tx.spaceID, "enviada", int64(1), "", nil, nil, nil, nil, nil, "", "", "", nil, ""}}
 	case strings.Contains(sql, "WHERE purpose='identity'"):
 		return commitSerializationFailureRow{err: pgx.ErrNoRows}
 	default:
 		return tx.commitSerializationFailureTx.QueryRow(ctx, sql, args...)
 	}
 }
+
+func (tx *reviewerTransitionScopeTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, "FROM public.document_verification_reviewer_grant") {
+		if len(args) != 1 || args[0] != tx.reviewer {
+			return nil, errors.New("reviewer grant query did not use the reviewer actor")
+		}
+		return &reviewerAuditFakeRows{rows: [][]any{{tx.reviewer, string(dv.CapabilitySpace), tx.spaceID}}}, nil
+	}
+	return tx.commitSerializationFailureTx.Query(ctx, sql, args...)
+}
+
 func TestReviewerSpaceTransitionLocksCurrentSubjectNotReviewerAsOwner(t *testing.T) {
 	const owner = "00000000-0000-4000-8000-000000000041"
 	const reviewer = "00000000-0000-4000-8000-000000000042"

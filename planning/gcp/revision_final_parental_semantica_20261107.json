@@ -1,0 +1,407 @@
+{
+  "observed_at": "2026-11-07T20:44:44.980211+00:00",
+  "scope": "Independent receipt review, not automatic adoption of subagent accepted_source verdicts.",
+  "source_head": "274f37e483a078890e92382a159fa49fd23c2fe8",
+  "rows_hash_verified": 84,
+  "reference_count": 195,
+  "rejected_raw_reference_count": 34,
+  "rejected_raw_references": [
+    {
+      "version": 62,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/identity/suppression.go",
+      "line": 786,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 62,
+      "group": "test_refs",
+      "path": "internal/migrator/integration_test.go",
+      "line": 622,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 63,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/identity/suppression.go",
+      "line": 568,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 63,
+      "group": "test_refs",
+      "path": "internal/migrator/integration_test.go",
+      "line": 701,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 64,
+      "group": "test_refs",
+      "path": "internal/migrator/integration_test.go",
+      "line": 794,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 65,
+      "group": "consumer_refs",
+      "path": "internal/adminglobal/bootstrap.go",
+      "line": 149,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 65,
+      "group": "test_refs",
+      "path": "internal/adminglobal/bootstrap_test.go",
+      "line": 28,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 66,
+      "group": "consumer_refs",
+      "path": "internal/gcp06testaccess/service.go",
+      "line": 224,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 66,
+      "group": "test_refs",
+      "path": "internal/migrator/integration_test.go",
+      "line": 1516,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 67,
+      "group": "consumer_refs",
+      "path": "internal/adminlocal/queries.go",
+      "line": 145,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 68,
+      "group": "consumer_refs",
+      "path": "internal/dbbootstrap/runtime_permissions.go",
+      "line": 349,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 68,
+      "group": "test_refs",
+      "path": "internal/migrator/integration_test.go",
+      "line": 794,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 70,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/media/repository.go",
+      "line": 59,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 70,
+      "group": "test_refs",
+      "path": "internal/dbbootstrap/runtime_permissions_readback_test.go",
+      "line": 160,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 71,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/media/repository.go",
+      "line": 97,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 71,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/media/repository.go",
+      "line": 919,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 71,
+      "group": "test_refs",
+      "path": "internal/adapters/postgres/media/repository_integration_test.go",
+      "line": 149,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 72,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/media/repository.go",
+      "line": 142,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 73,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/media/repository.go",
+      "line": 828,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 73,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/media/repository.go",
+      "line": 869,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 73,
+      "group": "test_refs",
+      "path": "internal/adapters/postgres/identity/img01e_media_export_integration_test.go",
+      "line": 147,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 74,
+      "group": "test_refs",
+      "path": "internal/adapters/postgres/spaces/repository_integration_test.go",
+      "line": 84,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 74,
+      "group": "test_refs",
+      "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+      "line": 3298,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 75,
+      "group": "test_refs",
+      "path": "internal/identity/consent_documents_test.go",
+      "line": 14,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 76,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/media/repository.go",
+      "line": 229,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 76,
+      "group": "test_refs",
+      "path": "internal/adapters/postgres/media/repository_integration_test.go",
+      "line": 358,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 77,
+      "group": "test_refs",
+      "path": "internal/migrator/v77_guard_test.go",
+      "line": 0,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 78,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/media/repository.go",
+      "line": 229,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 78,
+      "group": "test_refs",
+      "path": "internal/adapters/postgres/media/repository_integration_test.go",
+      "line": 531,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 79,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/documentverification/repository.go",
+      "line": 93,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 80,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/documentverification/repository.go",
+      "line": 213,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 81,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/documentverification/repository.go",
+      "line": 361,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 82,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/documentverification/retention_jobs.go",
+      "line": 65,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    },
+    {
+      "version": 83,
+      "group": "consumer_refs",
+      "path": "internal/adapters/postgres/documentverification/reviewer_cases.go",
+      "line": 45,
+      "reason": "Not exact full source line; not accepted as qualified reference"
+    }
+  ],
+  "semantic_audit_closed": false,
+  "reason": "Source report completeness/quality is still not established by accepted_source labels. Concrete false statements and generic dependencies remain. Do not close by changing a flag. Corrections recorded; rejected raw references remain historical and are not represented as verified.",
+  "resolved_reference_gaps": [
+    {
+      "version": 9,
+      "reason": "Use actual occupancy exclusion assertion instead of only fixture helper. Existing test reference, not executed now.",
+      "refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 311,
+          "excerpt": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "reason": "Named enclosing integration test."
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 727,
+          "excerpt": "\t_, directConstraintErr := pool.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,motivo) VALUES($1,$2,NULL,tstzrange($3,$4,'[)'),'bloqueo_manual',true,'constraint integration probe')`, \"77777777-7777-4777-8777-777777777701\", space, adjacentStart.Add(30*time.Minute), adjacentStart.Add(90*time.Minute))",
+          "reason": "Actual overlapping occupancy INSERT."
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 729,
+          "excerpt": "\tif !errors.As(directConstraintErr, &pgErr) || pgErr.Code != \"23P01\" {",
+          "reason": "Asserts PostgreSQL exclusion SQLSTATE 23P01."
+        }
+      ]
+    },
+    {
+      "version": 46,
+      "reason": "CredentialNoticeExpiredLease is a different outbox; real aviso_local trigger test traced. Unknown live ACL is target gate, not proof source semantics unresolved.",
+      "refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 3313,
+          "excerpt": "func TestAuthLoginSessionFailureRollsBackAndDurableBlockAlertRemainsVisible(t *testing.T) {",
+          "reason": "Named integration test for durable login block notice."
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 3349,
+          "excerpt": "\tif err := h.pool.QueryRow(h.ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='cuenta_bloqueada_login' AND agregado_id=$1`, id).Scan(&notices); err != nil || notices != 1 {",
+          "reason": "Counts aviso_local cuenta_bloqueada_login emitted by V46."
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "line": 34,
+          "excerpt": "func TestSyntheticReviewReciprocityModerationRetentionAndRuntimePermissions(t *testing.T) {",
+          "reason": "Named communication integration test."
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "line": 212,
+          "excerpt": "\ttestCommunicationNoticeTriggers(t, ctx, pool, reservation, secondReservation, host, renter)",
+          "reason": "Calls helper, establishing caller chain."
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "line": 373,
+          "excerpt": "\tif e = pool.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='pago_arriendo_confirmado' AND agregado_id=$1 AND destinatario_id=$2`, secondReservation, renter).Scan(&count); e != nil || count != 1 {",
+          "reason": "Helper verifies pago_arriendo_confirmado from V46."
+        }
+      ]
+    }
+  ],
+  "confirmed_report_defects": [
+    {
+      "version": 64,
+      "incorrect": "No role/ACL statements",
+      "actual": "CREATE ROLE at19, CONNECT/USAGE and column/table grants44–73, PUBLIC revoke164 and worker execute165; must record administrative authority."
+    },
+    {
+      "version": 66,
+      "incorrect": "No role/ACL statements",
+      "actual": "CREATE ROLE9, scoped grants98–110, PUBLIC revoke87–96, audit revokes112 and COMMENT ON ROLE114."
+    },
+    {
+      "version": 68,
+      "incorrect": "No role/ACL statements",
+      "actual": "Behavior itself identifies conditional runtime grants; source authority claim contradicts behavior."
+    },
+    {
+      "version": 70,
+      "incorrect": "No role/ACL statements",
+      "actual": "Conditional runtime CRUD GRANT at23; intent is created V70, not V68 as V71 dependencies previously said."
+    },
+    {
+      "version": 84,
+      "incorrect": "six indexes",
+      "actual": "Five explicit CREATE INDEX statements; primary-key/unique implicit indexes are separate. No confirmed durable consumer is an audited finding, not missing permission."
+    }
+  ],
+  "new_source_risks": [
+    {
+      "version": 30,
+      "finding": "Populated photo CHECK branch compares nullable mime_type/sha256/size_bytes without explicit non-NULL requirements; UNKNOWN can pass. Payout active-reference branch also permits UNKNOWN when referencia_ficticia NULL.",
+      "classification": "source-level integrity weakness; no invalid target row or end-to-end exploit observed",
+      "source_refs": [
+        {
+          "path": "db/migrations/V000030__m02_synthetic_profile_photo_and_payout.sql",
+          "line": 21,
+          "excerpt": "        OR (archivo_id IS NOT NULL AND mime_type='image/png' AND sha256 ~ '^[0-9a-f]{64}$' AND size_bytes BETWEEN 1 AND 4096 AND limpia_en IS NULL)",
+          "reason": "Populated photo branch."
+        },
+        {
+          "path": "db/migrations/V000030__m02_synthetic_profile_photo_and_payout.sql",
+          "line": 45,
+          "excerpt": "        OR (estado<>'retirada_baja' AND referencia_ficticia ~ '^demo_[a-f0-9-]{36}$')",
+          "reason": "Non-retired payout branch."
+        }
+      ],
+      "resolution_limit": "Do not rewrite V30. Any tightening needs target aggregate preconditions, append-only SQL and separate tests; candidate V85 currently does not repair these."
+    }
+  ],
+  "persistent_gate_state": {
+    "native": "last READ ONLY snapshot 2026-11-07 17:36:08 -03: V1-V76 verified; V77-V84 pending against the then-current V84 source; V85 is a local candidate, not included in that snapshot. V81 login/roles/configuration transition and backup remain unapproved/unperformed.",
+    "cloud": "READ ONLY recovery completed 2026-11-07 21:15:54 -03 against source 0e62c4ed64a7446c3334ce6bb561aedd0b996426: V1-V83 exact, V84 pending; PostgreSQL18.6; session_user espacigo_migrator_login/current_user espacigo_schema_owner. Effective CREATE public=false and REFERENCES(usuario.id)=false. No privileges changed. Recovery parent FAILURE was cleanup verification only; inspector SUCCESS, exact own Job absent, temporary storage IAM revoked/readback, original lock generation retained.",
+    "semantic_audit_closed": false,
+    "ddl_executed": false,
+    "application_unlock_or_rollout": false
+  },
+  "source_gate_state": {
+    "v77_guard": "The full PostgreSQL harness previously recorded 100 mandatory PASS/no-skip results, including V77 and V67, before the V19-only test scope was added. The dedicated V19 run is separate; the updated full scope has not been rerun. Evidence is synthetic, not persistent DDL or semantic-audit closure.",
+    "v19_test": "TestCurrentSchemaMigrationV19WeeklyHours applies V1-V19 in a dedicated disposable PostgreSQL target and records 11 required PASS/no-skip results for the original guards and constraints; it does not represent any persistent destination.",
+    "remaining_semantic_review": "Current matrix follow-up has zero unqualified references; final row-by-row dependency/authority signoff remains open, as do partial V68/V70/V73 test coverage and the confirmed absence of a durable V84 consumer. Keep semantic_audit_closed=false."
+  },
+  "matrix_follow_up": {
+    "observed_at": "2026-11-08T02:01:23-03:00",
+    "matrix_file": "matriz_semantica_consolidada_v001_v084_20261107.json",
+    "qualified_reference_count": 217,
+    "exact_line_anchor_count": 280,
+    "unqualified_reference_count": 0,
+    "remaining_test_versions": [],
+    "partial_test_coverage_versions": [68, 70, 73],
+    "no_confirmed_durable_consumer_versions": [84],
+    "semantic_audit_closed": false,
+    "note": "V67 exact seed coverage passed on empty/V75/V76 in the earlier 100-result full harness. V19 has a separate V1-V19 disposable PostgreSQL run with 11 required PASS/no-skip results. The V68→V76 dedicated disposable test now passes 7 required results: V68 ten-row backfill and cap-10 rejection, V76 preservation/ledger 76, position 30, concurrent one-winner cap and 31st-slot rejection. This covers the 10→30 transition without validating persistent ACLs or target ledgers; V68 legacy-overflow backfill and concurrency-at-10 remain untested. The V68-only legacy script remains stale; no test presents 10 as current. Keep semantic_audit_closed=false; V70/V73 partial coverage, V84 durable-consumer absence, final source signoff and destination gates remain open. Other test references remain source evidence unless separately recorded as executed; the updated full scope was not rerun."
+  },
+  "corrected_report_claims": [
+    {
+      "version": 64,
+      "correction": "No role/ACL statements is false; CREATE ROLE, scoped grants, PUBLIC revoke and worker EXECUTE grant are present. Effective target ACL remains unverified."
+    },
+    {
+      "version": 66,
+      "correction": "No role/ACL statements is false; CREATE ROLE, scoped grants/revokes and COMMENT ON ROLE are present."
+    },
+    {
+      "version": 68,
+      "correction": "V68 sí contiene GRANT DML condicional y REVOKE EXECUTE de PUBLIC; la referencia previa al test V64 era ajena y fue retirada. El límite 10 es histórico y V76 lo eleva intencionalmente a 30; los consumidores actuales concuerdan. La cobertura del salto y ACL efectiva permanece parcial/no verificada."
+    },
+    {
+      "version": 70,
+      "correction": "Conditional runtime CRUD grant is present; V70 creates media_variant_intent."
+    },
+    {
+      "version": 84,
+      "correction": "Five explicit CREATE INDEX statements; constraint-created indexes are separate. No confirmed durable consumer is a source finding, not permission failure."
+    }
+  ]
+}

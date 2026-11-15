@@ -1,0 +1,936 @@
+{
+  "title": "Final semantic audit V061–V084",
+  "scope": "Source-only; prohibidos y no realizados: DB, cloud, network, credentials, tests, git ops, SQL/code edits. Sin cierre de target ni global.",
+  "canonical_source": "planning/gcp/matriz_semantica_consolidada_v001_v084_20261107.json",
+  "rows_count": 24,
+  "unresolved_versions": [
+    84
+  ],
+  "rows": [
+    {
+      "version": 61,
+      "filename": "V000061__mpv2_12_hourly_publication_schedules.sql",
+      "sha256": "cb3f719b3b846607abef9b8d356c980b47da1a22f5da38b55839112f2b619b95",
+      "verdict": "accepted_source",
+      "behavior": "Defines a trigger function that rejects active weekly hours unless the space is not eliminated and its latest rate modality is hora. No trigger attachment appears in this file; V19 owns the attachment, so replacement alone has no demonstrated invocation here.",
+      "objects": [
+        "public.espacio",
+        "public.tarifa_espacio"
+      ],
+      "dependencies": [],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Requires those tables and compatible columns; no row rewrite.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "line": 369,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.espacio_horario_semanal(espacio_id,activo,actualizado_en) VALUES($1,$2,now()) ON CONFLICT (espacio_id) DO UPDATE SET activo=EXCLUDED.activo,actualizado_en=now()`, spaceID, value.Enabled); err != nil {",
+          "reason": "Escritura semanal dispara trigger instalado en V19, cuya función reemplaza V19."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 471,
+          "excerpt": "func TestMPV212HourlyScheduleMigrationFromFreshAndV60(t *testing.T) {",
+          "reason": "Migración horaria desde fresh/V60; contradice búsqueda previa sin test.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ],
+      "correction_or_limit": "Dependencia efectiva del trigger preexistente V19; no clasificar la función como huérfana.",
+      "complete_sql_read": true,
+      "sql_bytes": 971
+    },
+    {
+      "version": 62,
+      "filename": "V000062__gcp04_durable_privacy_replay_registry.sql",
+      "sha256": "6fc1ea07d47287fe4ddafaf6f613a8c2e88daf441b0d337d8b6b35eead1243e8",
+      "verdict": "accepted_source",
+      "behavior": "Creates replay registry keyed by source execution, indexes completion lookup, and seeds completed executions joined to their requests; conflict rows are left unchanged.",
+      "objects": [
+        "registro_replay_baja_local",
+        "registro_replay_baja_local_completed_idx"
+      ],
+      "dependencies": [
+        "ejecucion_baja_local",
+        "solicitud_titular"
+      ],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Seed requires source tables/columns and imports rows satisfying completed status plus non-NULL completion time.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 786,
+          "excerpt": "INSERT INTO public.registro_replay_baja_local",
+          "reason": "Inserción del registro replay durable."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 622,
+          "excerpt": "if err := conn.QueryRow(ctx, `SELECT solicitud_id::text,usuario_id::text,solicitada_en,completada_en FROM public.registro_replay_baja_local WHERE ejecucion_origen_id=$1`, executionID).Scan(&gotRequest, &gotAccount, &gotRequested, &gotCompleted); err != nil {",
+          "reason": "Lee la fila de replay tras la ejecución para comprobar valores persistidos."
+        }
+      ],
+      "correction_or_limit": "Anchor corregido a la inserción registry real, no a búsqueda parcial.",
+      "complete_sql_read": true,
+      "sql_bytes": 1247
+    },
+    {
+      "version": 63,
+      "filename": "V000063__gcp04_privacy_suppression_claim_fencing.sql",
+      "sha256": "a42c0943ff314c5199d6fdd87c13f6552eeeb69629e811f6d41853e4eb16a858",
+      "verdict": "accepted_source",
+      "behavior": "Adds nullable owner/deadline and nonnegative fencing generation; enforces owner/deadline paired nullness; rebuilds pending-queue partial index for claim deadlines.",
+      "objects": [
+        "baja_archivo_pendiente_local",
+        "baja_archivo_pendiente_claim_idx",
+        "baja_archivo_claim_lease_pair_ck",
+        "baja_archivo_claim_generacion_ck"
+      ],
+      "dependencies": [
+        "baja_archivo_pendiente_local"
+      ],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Existing rows take generation default 0; pair check compatible with initial NULL claims. Requires named index/table.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 568,
+          "excerpt": "SET claim_owner=$3::uuid,claim_hasta=$4,claim_generacion=j.claim_generacion+1",
+          "reason": "Incrementa fencing generation al reclamar la cola."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 701,
+          "excerpt": "(SELECT column_default FROM information_schema.columns WHERE table_schema='public' AND table_name='baja_archivo_pendiente_local' AND column_name='claim_generacion')`).Scan(&ownerNullable, &leaseNullable, &generationDefault); err != nil {",
+          "reason": "Consulta el default de la nueva columna de generación."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 1267
+    },
+    {
+      "version": 64,
+      "filename": "V000064__gcp04_privacy_cleanup_worker_role.sql",
+      "sha256": "9b791ae6950dd9f23d87c31ae59dcbeb1feb9d85631ac21fa95e1e9a6a4763bf",
+      "verdict": "accepted_source",
+      "behavior": "Creates or validates strict NOLOGIN worker role/no memberships; grants narrow DB/schema/table/column access; defines SECURITY DEFINER finalizer gated on current role, request/execution state and empty queue; revokes PUBLIC execute and grants worker.",
+      "objects": [
+        "espacigo_privacy_cleanup_worker",
+        "finalize_pending_suppression_cleanup(uuid,timestamptz)"
+      ],
+      "dependencies": [
+        "public.ejecucion_baja_local",
+        "public.solicitud_titular",
+        "public.baja_archivo_pendiente_local",
+        "public.registro_replay_baja_local",
+        "evidence/media cleanup tables"
+      ],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Requires all referenced tables/columns and authority for role creation, database CONNECT, grants, function creation/comment-free; existing role must pass flags/membership checks.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/suppression_worker.go",
+          "line": 34,
+          "excerpt": "\tif err := r.pool.QueryRow(ctx, `SELECT public.finalize_pending_suppression_cleanup($1,$2)`, requestID, at.UTC()).Scan(&finalized); err != nil {",
+          "reason": "El repositorio del worker invoca finalizador SECURITY DEFINER bajo el rol separado.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 794,
+          "excerpt": "if _, err := admin.Exec(context.Background(), `DROP ROLE IF EXISTS espacigo_privacy_cleanup_worker; DROP ROLE IF EXISTS espacigo_runtime; CREATE ROLE espacigo_runtime NOLOGIN`); err != nil {",
+          "reason": "La referencia de ensayo no cubre íntegramente el comportamiento funcional de esta migración; se señala su límite explícitamente."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 7605
+    },
+    {
+      "version": 65,
+      "filename": "V000065__gcp06_bootstrap_audit_actor.sql",
+      "sha256": "b1f7126f125bc9694e30d43205a509f34aa9e39ad8257456f666a431f5492fd8",
+      "verdict": "accepted_source",
+      "behavior": "Replaces actor-type check to allow cli_local and cli_gcp06. Existing rows must satisfy replacement predicate.",
+      "objects": [
+        "administrador_global_bootstrap_evento_actor_tipo_check"
+      ],
+      "dependencies": [
+        "administrador_global_bootstrap_evento"
+      ],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "DROP then ADD CHECK; existing actor values outside set block migration.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminglobal/bootstrap.go",
+          "line": 149,
+          "excerpt": "return actor == \"cli_local\" || actor == \"cli_gcp06\"",
+          "reason": "Valida los dos valores actor admitidos por el flujo de bootstrap."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/bootstrap_test.go",
+          "line": 28,
+          "excerpt": "for _, actor := range []string{\"cli_local\", \"cli_gcp06\"} {",
+          "reason": "La tabla de pruebas recorre ambos actores permitidos."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 469
+    },
+    {
+      "version": 66,
+      "filename": "V000066__gcp06_test_access_reset.sql",
+      "sha256": "05a751e9d9ab73bf2babadd0b3ad9ab170ee44ddf8ca7d441625d516f4cadcb6",
+      "verdict": "accepted_source",
+      "behavior": "Creates/validates restricted NOLOGIN role and guards memberships/ownership/grants; creates aggregate audit table and three SECURITY DEFINER helpers; narrowly grants account/session/token/audit access and denies audit mutation. Target-ID helper enumerates non-desidentified accounts.",
+      "objects": [
+        "espacigo_gcp06_test_access",
+        "gcp06_test_access_batch_audit",
+        "gcp06_test_access_target_ids()",
+        "gcp06_test_access_owner_ready()",
+        "gcp06_test_access_operation_exists(uuid)"
+      ],
+      "dependencies": [
+        "usuario",
+        "administrador_global",
+        "bloqueo_cuenta_administrativo_local",
+        "sesion",
+        "token_accion"
+      ],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Requires listed tables/columns, role/database grant authority, unique IDs/check-compatible schema; owner_ready hardcodes owner email and active/unblocked predicate.",
+      "consumer_refs": [
+        {
+          "path": "internal/gcp06testaccess/service.go",
+          "line": 224,
+          "excerpt": "return queryTargetIDs(ctx, conn, `SELECT id::text FROM public.gcp06_test_access_target_ids() AS targets(id) ORDER BY id`)",
+          "reason": "El servicio obtiene el conjunto de IDs mediante la función de la migración."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 1516,
+          "excerpt": "if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.gcp06_test_access_target_ids()`).Scan(&targetIDs); err != nil || targetIDs != 0 {",
+          "reason": "Comprueba la función de target IDs en el ensayo de esquema."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 5480
+    },
+    {
+      "version": 67,
+      "filename": "V000067__inmuebles_residential_rentals.sql",
+      "sha256": "0d5052cee2e9c45911c00bd32ee97cc3eb9c656c0a680b998911fbbdb48e0bcb",
+      "verdict": "accepted_source",
+      "behavior": "Seeds category inmuebles at order 9 and version-1 JSON profile with required property type/rental scope, typed attributes, bounds, and filter flags; no application implementation asserted.",
+      "objects": [
+        "categoria_espacio",
+        "categoria_perfil_atributos"
+      ],
+      "dependencies": [],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Requires existing catalog tables and no conflicting unique category/profile version; inserts are not conflict tolerant.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminlocal/queries.go",
+          "line": 145,
+          "excerpt": "FROM public.espacio e JOIN public.categoria_espacio c ON c.codigo=e.categoria_codigo",
+          "reason": "La consulta consume el catálogo de categorías de manera genérica; no prueba que el cliente Inmuebles esté expuesto."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/current_schema_integration_test.go",
+          "line": 381,
+          "excerpt": "\t\t\t\tt.Run(\"v67-inmuebles-seed\", func(t *testing.T) {",
+          "reason": "Subtest PostgreSQL para baselines empty/V75/V76; assertV67InmueblesSeed fija categoría, perfil v1, lista/orden y límites del seed.",
+          "assertion_anchor": {
+            "line": 410,
+            "excerpt": "\t\tt.Fatalf(\"V67 category seed = (%q,%q,%d), want (inmuebles,Inmuebles,9)\", code, name, order)"
+          },
+          "kind": "named_postgres_integration_test"
+        }
+      ],
+      "correction_or_limit": "La cobertura específica del seed fue añadida y ejecutada en tres baselines del harness desechable; no inferir cliente público ni aplicación a destinos persistentes.",
+      "complete_sql_read": true,
+      "sql_bytes": 5477
+    },
+    {
+      "version": 68,
+      "filename": "V000068__img_01b_media_schema.sql",
+      "sha256": "5eeda41115017b5ba292db13215304f1e576002e015b6d46352ebd2de98f2626",
+      "verdict": "accepted_source",
+      "behavior": "V68 define el esquema inicial de media: rechaza galerías activas legacy >10, hace backfill del orden sintético y limita a diez slots combinados bajo lock de espacio; otorga DML al runtime condicionalmente y revoca EXECUTE de PUBLIC en dos funciones trigger. El límite 10 es histórico: V76 lo eleva a 30; V77 conserva 30 con guard seguro de record fields y V78 agrega identidad de revisión sin alterar capacidad.",
+      "objects": [
+        "media_asset",
+        "media_variant",
+        "space_media",
+        "profile_media",
+        "gallery_item_order",
+        "img01b_check_media_relation_scope()",
+        "img01b_enforce_gallery_slot()"
+      ],
+      "dependencies": [
+        "usuario",
+        "espacio",
+        "espacio_galeria_sintetica_local",
+        "espacio_galeria_archivo_candidato_local"
+      ],
+      "authority": "V68 conditionally grants SELECT/INSERT/UPDATE/DELETE on five media tables when espacigo_runtime exists and revokes PUBLIC EXECUTE on both trigger functions. Effective target ownership/ACL, memberships, inherited privileges and defaults remain unverified.",
+      "acl_public_defaults": "La fuente revoca EXECUTE de PUBLIC en las dos funciones; el estado efectivo del destino, ownership, membresías y default ACL no se verificaron.",
+      "data_preconditions": "Requires referenced legacy tables/unique keys and runtime role optionally; backfill requires active count <=10 per space; immutable historical gallery rows are not rewritten.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 328,
+          "excerpt": "\t\tif _, err = tx.Exec(ctx, `INSERT INTO public.space_media(id,espacio_id,propietario_id,media_id,alt_text,visible,created_at) VALUES($1,$2,$3,$1,$4,$5,$6)`, id, spaceID, owner, oldAlt, oldVisible, at); err != nil {",
+          "reason": "FinalizeSpace crea la relación space_media y ejecuta su trigger de alcance V68.",
+          "kind": "trigger_indirect"
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 140,
+          "excerpt": "\tif _, err = w.tx.Exec(ctx, `INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia)",
+          "reason": "Add inserta una fila sintética que participa del cupo/orden compartido V68.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 18,
+          "excerpt": "func TestIMG01DProfileTriggerAndNullableCover(t *testing.T) {",
+          "reason": "Integración DB inserta relaciones válidas y consulta la galería sobre un esquema posterior que incluye V68; no prueba límite 10→30, concurrencia ni ACL efectiva.",
+          "assertion_anchor": {
+            "line": 68,
+            "excerpt": "\tif _, err = pool.Exec(ctx, `INSERT INTO public.space_media(id,espacio_id,propietario_id,media_id,visible) VALUES($1,$2,$3,$4,true)`, relationID, spaceID, owner, spaceAsset); err != nil {"
+          },
+          "kind": "existing_test_definition_not_run"
+        },
+        {
+          "path": "internal/migrator/gallery_capacity_v68_v76_integration_test.go",
+          "line": 17,
+          "excerpt": "func TestGalleryCapacityTransitionV68ToV76(t *testing.T) {",
+          "reason": "Scope v76 ejecutado en PostgreSQL desechable; evidencia el backfill bajo V68 y rechazo del slot 11.",
+          "assertion_anchor": {
+            "line": 150,
+            "excerpt": "\t\t\tassertLimitError(t, err, \"space media limit of 10 reached\")"
+          },
+          "kind": "disposable_postgres_transition_test_executed"
+        }
+      ],
+      "correction_or_limit": "V68 cap10 es histórico y queda supersedido por V76 cap30; V77/V78 no alteran capacidad. No se identifica conflicto vigente entre el contrato Go/Next y la secuencia fuente. El test PostgreSQL desechable V1–V76 ejecutado cubre el backfill de diez filas y el rechazo del slot 11 bajo V68; la transición conserva datos/grant, llega a la posición 30 y prueba competencia concurrente y rechazo del slot 31. No prueba el rechazo del backfill con más de diez, la concurrencia al límite histórico 10, ACL efectiva ni estado actual de destinos persistentes.",
+      "complete_sql_read": true,
+      "sql_bytes": 13363
+    },
+    {
+      "version": 69,
+      "filename": "V000069__img_01c_local_media_provider.sql",
+      "sha256": "9dc863b5e4b1edd7cd32bf1c2e48ecce6f9e36d6bc13072a3bf3e5cd8a433493",
+      "verdict": "accepted_source",
+      "behavior": "Replaces provider CHECK to permit gcs and filesystem for media variants.",
+      "objects": [
+        "media_variant_provider_check"
+      ],
+      "dependencies": [
+        "media_variant"
+      ],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Existing rows must satisfy either provider value; drop/add check can reject incompatible data.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 82,
+          "excerpt": "\tcmd, err := tx.Exec(ctx, `INSERT INTO public.media_variant(media_id,variant,provider,bucket_name,object_key,generation,mime_type,size_bytes,sha256,width,height)",
+          "reason": "recordVariant persiste provider parametrizado en media_variant; el CHECK de V69 valida gcs/filesystem.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_plan_variant_test.go",
+          "line": 72,
+          "excerpt": "func TestRecordVariantLocksAssetBeforeIntentAndVariantWrites(t *testing.T) {",
+          "reason": "UNIT: orden de escritura de variante. No demuestra aceptación/rechazo del CHECK PostgreSQL.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 397
+    },
+    {
+      "version": 70,
+      "filename": "V000070__img_01c_durable_media_write_intents.sql",
+      "sha256": "71bcbcd91091013b91a89b3be9a152a46bd9f86f71565a898b50cb95701f6cc6",
+      "verdict": "accepted_source",
+      "behavior": "Creates per-media/variant intent row with object key namespace/length, optional all-or-none storage metadata, uniqueness and cleanup index; conditionally grants runtime CRUD if role exists.",
+      "objects": [
+        "media_variant_intent",
+        "media_variant_intent_cleanup_idx"
+      ],
+      "dependencies": [
+        "media_asset"
+      ],
+      "authority": "No role/ACL statements in migration; effective ownership/ACL/PUBLIC/default privileges not established by source.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Requires media_asset; no backfill; runtime grant is conditional on role existing.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 59,
+          "excerpt": "ON CONFLICT(media_id,variant) DO UPDATE SET object_key=EXCLUDED.object_key,provider=NULL,bucket_name=NULL,generation=NULL,write_complete=false,updated_at=clock_timestamp()`, lockedID, string(name), key)",
+          "reason": "Persistencia prepara/reset de intent para reescritura antes del almacenamiento externo."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions_readback_test.go",
+          "line": 160,
+          "excerpt": "case strings.Contains(sql, \"to_regclass('public.registro_replay_baja_local')\"):",
+          "reason": "La prueba enruta lectura de existencia del objeto del ACL; no prueba ciclo durable del media intent."
+        }
+      ],
+      "correction_or_limit": "El anchor runtime_permissions_readback_test solo enruta consulta ACL, no prueba lifecycle durable; repository.go es consumidor real.",
+      "complete_sql_read": true,
+      "sql_bytes": 1362
+    },
+    {
+      "version": 71,
+      "filename": "V000071__img_01c_terminal_media_write_intents.sql",
+      "sha256": "30d355260611615324ca70336ced97498340b0e2725b7a8828147af6adc82d14",
+      "verdict": "accepted_source",
+      "behavior": "Registra write_complete=false por defecto para distinguir intención de variante con escritura al object store terminada; añade DML runtime condicional.",
+      "objects": "media_variant_intent.write_complete; ACL espacigo_runtime",
+      "dependencies": "V68 crea intent; rol runtime opcional",
+      "authority": "El runtime gana SELECT/INSERT/UPDATE/DELETE sobre tabla si el rol existe.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Tabla media_variant_intent existente; filas existentes quedan false.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 97,
+          "excerpt": "cmd, err := r.pool.Exec(ctx, `UPDATE public.media_variant_intent SET write_complete=true,updated_at=clock_timestamp()",
+          "reason": "Marca finalizada la escritura tras el paso de escritura del adaptador."
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 919,
+          "excerpt": "rows, err := q.Query(ctx, `SELECT variant,object_key,COALESCE(generation,0),write_complete FROM public.media_variant_intent WHERE media_id=$1 ORDER BY variant`, id)",
+          "reason": "Lee el indicador para el flujo de limpieza."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 149,
+          "excerpt": "if err = pool.QueryRow(ctx, `SELECT a.estado,i.write_complete FROM public.media_asset a JOIN public.media_variant_intent i ON i.media_id=a.id WHERE a.id=$1`, asset).Scan(&state, &complete); err != nil {",
+          "reason": "Test de integración consulta estado y bandera."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 509
+    },
+    {
+      "version": 72,
+      "filename": "V000072__img_01d_media_relation_trigger_scope.sql",
+      "sha256": "50b7f34d340c20a690c9506e68e9146a311363a526eb7449812d2674cf39f461",
+      "verdict": "accepted_source",
+      "behavior": "Reemplaza trigger function para validar propietario/propósito/alcance entre media_asset y profile_media o space_media; rechaza tablas no soportadas.",
+      "objects": "public.img01b_check_media_relation_scope()",
+      "dependencies": "V68 define función/triggers y relaciones",
+      "authority": "La ejecución del trigger consulta media_asset; errores 23503/23514 ante scope inválido.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "media_asset y NEW.media_id/propietario_id; para space_media también espacio_id.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 142,
+          "excerpt": "err = tx.QueryRow(ctx, `SELECT id::text,propietario_id::text,COALESCE(espacio_id::text,''),proposito,estado,fencing_token,lease_until,input_sha256,COALESCE(replacement_target_space_media_id::text,''),replacement_expected_revision",
+          "reason": "Consumidor de media_asset con owner/space; no consume directamente la trigger function."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 18,
+          "excerpt": "func TestIMG01DProfileTriggerAndNullableCover(t *testing.T) {",
+          "reason": "Caso perfil y portada NULL del trigger corregido.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 1102
+    },
+    {
+      "version": 73,
+      "filename": "V000073__img_01e_privacy_media_cleanup.sql",
+      "sha256": "ac2bfc0ba17e97ee40297dc75d8aaaa25f8506e5602a2d281d09415158670ada",
+      "verdict": "accepted_source",
+      "behavior": "Instala permisos y rutinas SECURITY DEFINER de claim/complete/fail para limpieza fenced de media; finaliza supresión solo tras ausencia de objetos pendientes y replica registro.",
+      "objects": "ACL media_asset/media_variant/media_variant_intent; claim_private_media_cleanup, complete_private_media_cleanup, fail_private_media_cleanup, finalize_pending_suppression_cleanup",
+      "dependencies": "V64 tabla/rol de limpieza y datos de supresión; V68/V70 media/intent",
+      "authority": "Exige rol espacigo_privacy_cleanup_worker; grants de columnas y EXECUTE; revoca PUBLIC; SECURITY DEFINER con search_path/timezone fijados.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "El rol dedicado debe existir; tablas de medios, supresión y registro replay presentes.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 828,
+          "excerpt": "rows, err := tx.Query(ctx, `SELECT id,fencing_token FROM public.claim_private_media_cleanup($1,$2)`, limit, at)",
+          "reason": "Llama la rutina SQL que reclama trabajo."
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 869,
+          "excerpt": "if err := r.pool.QueryRow(ctx, `SELECT public.complete_private_media_cleanup($1,$2,$3)`, id, token, at).Scan(&completed); err != nil {",
+          "reason": "Completa limpieza con id y fencing token."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/img01e_media_export_integration_test.go",
+          "line": 147,
+          "excerpt": "if err := worker.QueryRow(h.ctx, `SELECT id,fencing_token FROM public.claim_private_media_cleanup(100,$1)`, future).Scan(&claimedID, &claimedToken); err == nil {",
+          "reason": "Integración prueba rechazo de fecha futura al reclamar."
+        }
+      ],
+      "correction_or_limit": "Test de integración referencia claim futuro; no demuestra por sí solo cobertura completa claim/complete/fail/finalize; límite de cobertura conservado.",
+      "complete_sql_read": true,
+      "sql_bytes": 9176
+    },
+    {
+      "version": 74,
+      "filename": "V000074__first_business_action_roles.sql",
+      "sha256": "a91df632b305468e1389ee72831e77121382e4c467d2cc279ea393e1bdc57bf8",
+      "verdict": "accepted_source",
+      "behavior": "Crea evento único por usuario/rol que vincula rol comercial con acción/recurso, restringiendo combinaciones; runtime solo INSERT.",
+      "objects": "public.rol_usuario_evento + constraints; ACL",
+      "dependencies": "public.usuario; repositorios de espacio y reserva",
+      "authority": "Runtime recibe solo INSERT; PUBLIC revocado.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "usuario existente; gen_random_uuid disponible.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 136,
+          "excerpt": "INSERT INTO public.rol_usuario_evento(usuario_id,rol,accion,recurso_id)",
+          "reason": "Registra rol arrendador en primer borrador."
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 464,
+          "excerpt": "INSERT INTO public.rol_usuario_evento(usuario_id,rol,accion,recurso_id)",
+          "reason": "Registra rol arrendatario en primera solicitud."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/spaces/repository_integration_test.go",
+          "line": 84,
+          "excerpt": "if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1 AND rol='arrendador'), (SELECT count(*) FROM public.rol_usuario_evento WHERE usuario_id=$1 AND rol='arrendador' AND accion='primer_borrador_espacio' AND recurso_id=$2)`, ownerA, created.ID).Scan(&roleCount, &eventCount); err != nil {",
+          "reason": "Comprueba el evento asociado al primer borrador."
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 3298,
+          "excerpt": "if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1 AND rol='arrendatario'), (SELECT count(*) FROM public.rol_usuario_evento WHERE usuario_id=$1 AND rol='arrendatario' AND accion='primera_solicitud_reserva' AND recurso_id=$2)`, renter, activeReservation.ID).Scan(&renterRole, &renterRoleEvent); err != nil {",
+          "reason": "Comprueba el evento asociado a primera reserva."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 975
+    },
+    {
+      "version": 75,
+      "filename": "V000075__auth_evaluation_consent_documents.sql",
+      "sha256": "d6396472df02f2dd2cddd43994be064e6b0705c3fa2cb044bed970fcc9992220",
+      "verdict": "accepted_source",
+      "behavior": "Inserta dos versiones públicas de documentos de evaluación: términos y privacidad, con UUID, código, SHA-256 y fecha; no declara aprobación legal final.",
+      "objects": "version_terminos rows 00000000-0000-4000-8000-000000000075/076",
+      "dependencies": "V1 version_terminos; inserta sin alterar historial V1-V74",
+      "authority": "DML INSERT según permisos existentes de migrador; sin cambios ACL.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Códigos/UUID no deben colisionar con contenido previo.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/dbgen/identity.sql.go",
+          "line": 805,
+          "excerpt": "FROM public.version_terminos",
+          "reason": "Definición SQL que resuelve versión de términos por UUID.",
+          "kind": "sqlc_query_definition"
+        },
+        {
+          "path": "internal/adapters/postgres/identity/repository.go",
+          "line": 164,
+          "excerpt": "\trow, err := r.queries.GetTermsVersion(ctx, id)",
+          "reason": "El repositorio real llama a GetTermsVersion; no implica aprobación legal del contenido.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/identity/consent_documents_test.go",
+          "line": 14,
+          "excerpt": "migration, err := os.ReadFile(\"../../db/migrations/V000075__auth_evaluation_consent_documents.sql\")",
+          "reason": "Test lee la migración para validar documentos publicados."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 605
+    },
+    {
+      "version": 76,
+      "filename": "V000076__spaces_gallery_capacity_replacement_v2.sql",
+      "sha256": "c3ea6cbead8a41dfd283b5fe1393499228afb0e3447b4c2fccecc50ea39f7843",
+      "verdict": "accepted_source",
+      "behavior": "V76 sustituye el límite inicial V68 de 10 por 30 en gallery_item_order.position y en el contador del trigger; agrega vínculo de reemplazo pending a slot real, unicidad parcial, validación del target activo-ready y forma object_key v2.",
+      "objects": "gallery_item_order check; media_asset.replacement_target_space_media_id/FK/index; img01b_enforce_gallery_slot(); media_variant_intent.object_key check",
+      "dependencies": "V68 media/space_media; tablas galería/candidato preexistentes",
+      "authority": "Función SECURITY DEFINER; serializa por lock de espacio y slot/asset objetivo.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Targets con espacio/owner coincidentes, slot activo y asset ready; cap 30.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 229,
+          "excerpt": "_, err = tx.Exec(ctx, `INSERT INTO public.media_asset(id,propietario_id,espacio_id,proposito,estado,idempotency_key,input_sha256,lease_until,replacement_target_space_media_id,replacement_expected_revision)",
+          "reason": "Persiste solicitud de reemplazo en asset."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 358,
+          "excerpt": "_, pairErr := pool.Exec(ctx, `INSERT INTO public.media_asset(id,propietario_id,espacio_id,proposito,estado,idempotency_key,input_sha256,lease_until,created_at,updated_at,replacement_target_space_media_id,replacement_expected_revision)",
+          "reason": "Prueba integración inserción con par target/revision."
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 166,
+          "excerpt": "func TestSpacePhotoReplacementAtomic(t *testing.T) {",
+          "reason": "La prueba opt-in ejercita el límite/capacidad 30, la concurrencia por el último slot y el rechazo del 31.º; depende de IMG01F_TEST_DATABASE_URL/storage y no se ejecutó en esta auditoría.",
+          "assertion_anchor": {
+            "line": 629,
+            "excerpt": "\tif !errors.As(directErr, &pgErr) || pgErr.Code != \"23514\" || pgErr.Message != \"space media limit of 30 reached\" {"
+          },
+          "kind": "existing_test_definition_not_run"
+        },
+        {
+          "path": "internal/migrator/gallery_capacity_v68_v76_integration_test.go",
+          "line": 17,
+          "excerpt": "func TestGalleryCapacityTransitionV68ToV76(t *testing.T) {",
+          "reason": "El scope v76 ejecutado confirma que V76 acepta la posición 30 en el upgrade desechable.",
+          "assertion_anchor": {
+            "line": 253,
+            "excerpt": "\t\t\tif err := admin.QueryRow(ctx, `SELECT count(*),max(position) FROM public.gallery_item_order WHERE espacio_id=$1`, spaceID).Scan(&count, &maxPosition); err != nil || count != 30 || maxPosition != 30 {"
+          },
+          "kind": "disposable_postgres_transition_test_executed"
+        }
+      ],
+      "correction_or_limit": "La capacidad 10→30 es un cambio intencional de V76; V77/V78 no cambian el cupo. El scope PostgreSQL desechable V1–V76 se ejecutó y probó el salto, preservación, grant y límite concurrente 30; el slot 31 fue rechazado. TestSpacePhotoReplacementAtomic de IMG01F permanece opt-in/no ejecutado; el flujo de reemplazo V78, ACL efectiva y compatibilidad de destinos persistentes no quedan probados.",
+      "complete_sql_read": true,
+      "sql_bytes": 8109
+    },
+    {
+      "version": 77,
+      "filename": "V000077__img01b_gallery_slot_record_guard.sql",
+      "sha256": "22b98284b303f7a9e69e88afc83c978a5bbab1840e1ed12097b9fe24f653218c",
+      "verdict": "accepted_source",
+      "behavior": "Reescribe el cuerpo de img01b_enforce_gallery_slot reemplazando acceso directo a campo exclusivo de media_asset por extracción segura to_jsonb(NEW), validando fragmento único previo.",
+      "objects": "public.img01b_enforce_gallery_slot()",
+      "dependencies": "V76 define trigger function y condición original",
+      "authority": "DO requiere definición exacta de función con una ocurrencia del fragmento; EXECUTE aplica reemplazo.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Función existente debe contener exactamente una guarda esperada; en caso contrario falla.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 140,
+          "excerpt": "\tif _, err = w.tx.Exec(ctx, `INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia)",
+          "reason": "INSERT sintético dispara el guard compartido cuya rama record es corregida por V77.",
+          "kind": "trigger_indirect"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/v77_guard_test.go",
+          "line": 0,
+          "excerpt": "",
+          "reason": "Cobertura de runner de duplicado reportada; SQL histórico sin cambios; no es prueba PostgreSQL."
+        }
+      ],
+      "correction_or_limit": "Guardia duplicado runner probada con resultado reportado de 97; SQL permanece byte-preservado.",
+      "complete_sql_read": true,
+      "sql_bytes": 1015
+    },
+    {
+      "version": 78,
+      "filename": "V000078__img01b_gallery_replay_expected_revision.sql",
+      "sha256": "6cb99e5b21db0d4c975d1419596b4850410fb47f7cb2d104481334a9eb082c9e",
+      "verdict": "accepted_source",
+      "behavior": "Agrega expected_revision y trigger que exige presencia conjunta con target al INSERT e inmutabilidad del par en UPDATE; ata CAS a idempotencia.",
+      "objects": "media_asset.replacement_expected_revision; img01b_guard_replacement_request_revision(); trigger media_asset_replacement_request_revision_guard",
+      "dependencies": "V76 añade replacement_target_space_media_id",
+      "authority": "Trigger BEFORE INSERT/UPDATE; rechaza pares parciales o cambios de identidad con 23514.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "NULL/NULL válido para asset ordinario; replacement requiere ambos campos.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 229,
+          "excerpt": "_, err = tx.Exec(ctx, `INSERT INTO public.media_asset(id,propietario_id,espacio_id,proposito,estado,idempotency_key,input_sha256,lease_until,replacement_target_space_media_id,replacement_expected_revision)",
+          "reason": "El consumidor inserta target y expected revision juntos."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 531,
+          "excerpt": "_, mutationErr := pool.Exec(ctx, `UPDATE public.media_asset SET replacement_expected_revision=$2 WHERE id=$1`, nextID, changedExpected)",
+          "reason": "Test verifica que cambiar la revisión esperada es rechazado."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 1378
+    },
+    {
+      "version": 79,
+      "filename": "V000079__document_verification_cases.sql",
+      "sha256": "248ecdd6eac067a704871d24148d850b5a603a6577e59e89d9b03d9a74130e5b",
+      "verdict": "accepted_source",
+      "behavior": "Crea casos, archivos, jobs, concesiones y eventos; impone checks/índices, triggers de inmutabilidad/auditoría. Revoca PUBLIC; runtime recibe SELECT amplio y mutaciones por columna.",
+      "objects": [
+        "case",
+        "file",
+        "job",
+        "reviewer_grant",
+        "event",
+        "grant_event",
+        "funciones/triggers e índices"
+      ],
+      "dependencies": "public.usuario, public.espacio, gen_random_uuid(); rol espacigo_runtime solo para bloque condicional de grants.",
+      "authority": "REVOKE ALL explícito a PUBLIC sobre tablas/funciones; grants runtime condicionales. Sin asignación de owner ni RLS en este archivo; membresías/ACL efectiva y defaults de destino desconocidos.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Sin backfill. Requiere relaciones previas y secuencia de identidad; inserciones futuras sujetas a checks/FK/unicidad. Tabla SELECT amplia no confirma por sí sola una falla de autorización: contrastar filtros server-side y DTO allowlist.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/repository.go",
+          "line": 93,
+          "excerpt": "INSERT INTO public.document_verification_case(id,purpose,subject_id,space_id,document_expires_at)",
+          "reason": "Create persiste el caso; métodos de lectura/ transición también consultan y actualizan la tabla (líneas 120–182)."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/repository_test.go",
+          "line": 22,
+          "excerpt": "func TestPostgresCreateTransitionAndRollback(t *testing.T) {",
+          "reason": "Define prueba de creación/transición y rollback sobre repositorio; no ejecutada en esta auditoría."
+        }
+      ],
+      "correction_or_limit": "SELECT amplio es privilegio fuente; no basta para afirmar fuga. Requiere autorización server-side/DTO y lectura efectiva ACL.",
+      "complete_sql_read": true,
+      "sql_bytes": 15677
+    },
+    {
+      "version": 80,
+      "filename": "V000080__document_verification_space_ownership_supersession.sql",
+      "sha256": "fc2c3eacf10bc99d6ad4c66a7a5aa2c80a0592b45eeee6e938400c95f613c401",
+      "verdict": "accepted_source",
+      "behavior": "Añade superseded_at solo para casos space, reemplaza unicidad de caso abierto para permitir nuevo titular, amplía evento case_superseded e instala trigger de cambio de propietario: marca casos de titulares previos, audita, programa retención y cancela/reprograma jobs.",
+      "objects": [
+        "document_verification_case.superseded_at/check/index",
+        "document_verification_event_action_check",
+        "document_verification_space_owner_changed()",
+        "trigger de cambio propietario",
+        "grants runtime condicionales"
+      ],
+      "dependencies": "V79; public.espacio(propietario_id), tablas de caso/archivo/job/event y rol runtime opcional.",
+      "authority": "Revoca EXECUTE de la función trigger a PUBLIC; UPDATE runtime limitado a columnas explícitas, incluida superseded_at. Owner/ACL efectivos desconocidos.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "ALTER constraint/index requiere objeto previo compatible. Transferencias posteriores afectan casos/files/jobs previos y fechas de retención; no backfill de superseded_at.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/repository.go",
+          "line": 213,
+          "excerpt": "document_verification_private.document_verification_space_owned_by(c.space_id,$1::uuid)",
+          "reason": "Lectura de casos sujeta al titular actual; el trigger de la migración aplica en transferencia de public.espacio."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_integration_test.go",
+          "line": 19,
+          "excerpt": "func TestPostgresV81OwnershipCheckFailsClosedAfterConcurrentTransfer(t *testing.T) {",
+          "reason": "Prueba transferencia/propiedad sobre el esquema de supersesión; está nombrada V81 aunque cubre el comportamiento precedente. No ejecutada."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 4764
+    },
+    {
+      "version": 81,
+      "filename": "V000081__document_verification_runtime_scope_helpers.sql",
+      "sha256": "7b9700b546532854ab7569654d05039c1df832a6a80154ae053d13b5cea43967",
+      "verdict": "accepted_source",
+      "behavior": "Valida identidad migradora, roles, grants y ACL de ledger; crea esquema/helper SECURITY DEFINER con funciones para bloqueo de actor/espacio y comprobar propietario; revoca PUBLIC, concede USAGE/EXECUTE al runtime y restaura SET ROLE schema_owner.",
+      "objects": [
+        "document_verification_private",
+        "espacigo_document_verification_fn (prerrequisito) y funciones de lock/ownership",
+        "grants/revokes de función y esquema"
+      ],
+      "dependencies": "Requiere topología preaprovisionada migrator/schema_owner/runtime/helper, grants mínimos directos desde owner y public.usuario/espacio/ledger. V80 schema previo.",
+      "authority": "Checks estrictos de roles, membresías, owner, grants y ledger; PUBLIC revocado, helper NOLOGIN previsto. Resultado live desconocido.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Sin backfill; aborta ante perfil ACL/roles distinto. Runtime nativo LOGIN contradice NOLOGIN exigido antes de V81; no lo corrigen V82/83.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/repository.go",
+          "line": 361,
+          "excerpt": "document_verification_private.document_verification_lock_active_actor($1::uuid)",
+          "reason": "Llamada de repositorio a helper creado aquí; líneas 369 y otros lectores invocan helpers de espacio."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go",
+          "line": 18,
+          "excerpt": "func TestPostgresV81FunctionOwnerAndLeastPrivilege(t *testing.T) {",
+          "reason": "Define comprobaciones de owner/privilegios y helpers. No ejecutada."
+        }
+      ],
+      "correction_or_limit": "NOLOGIN vs LOGIN nativo es prerrequisito de autoridad separado; no lo arreglan V82/V83 ni se infiere aplicación.",
+      "complete_sql_read": true,
+      "sql_bytes": 15497
+    },
+    {
+      "version": 82,
+      "filename": "V000082__document_verification_retention_precedence.sql",
+      "sha256": "b53fe7f6f03af4d9081e4a378053ad0780d8b532962326488108201eb098ed96",
+      "verdict": "accepted_source",
+      "behavior": "Reemplaza trigger de titularidad: preserva deadline previo, limita malware a inspección+24h (ausente/futuro se vuelve inmediato), cancela scan y no trata job completado como eliminación sin evento retention_deleted. Identidad migradora dedicada o excepción exacta F5.",
+      "objects": [
+        "document_verification_space_owner_changed() reemplazada",
+        "COMMENT",
+        "guardas de identidad/ACL PUBLIC",
+        "SET LOCAL ROLE schema_owner"
+      ],
+      "dependencies": "V80/V81, trigger y tablas asociadas, roles de migración. El guard acepta migrator_login/schema_owner o base+session+application_name F5 exactos.",
+      "authority": "Revoca PUBLIC EXECUTE salvo base F5; el runtime UPDATE(id) requerido por locking SELECT aún no se concede aquí. Owner efectivo no leído.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Sin backfill; reemplazo requiere firma compatible. En transferencias lee deadlines/eventos/jobs existentes; discrepancias de historial afectan retención y recuperación.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_jobs.go",
+          "line": 65,
+          "excerpt": "document_verification_private.document_verification_lock_space_row($1::uuid)",
+          "reason": "Worker bloquea primero espacio antes de consultar/actualizar caso/retención, coherente con orden declarado en V82."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/v82_retention_precedence_integration_test.go",
+          "line": 18,
+          "excerpt": "func TestV82OwnershipRetentionPrecedence(t *testing.T) {",
+          "reason": "Define escenarios de deadline/evento para trigger V82. No ejecutada."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 7582
+    },
+    {
+      "version": 83,
+      "filename": "V000083__document_verification_lock_and_transfer_fix.sql",
+      "sha256": "405c2f02f8a29e962421a44cbbd07e6e7fae4aa4696483e9d45ab209e82e9333",
+      "verdict": "accepted_source",
+      "behavior": "Reemplaza la función V82 con CTE file_policy que evita referencia lateral inválida al alias target; exige runtime NOLOGIN restringido y concede UPDATE(id) para SELECT FOR SHARE en reviewer_grant.",
+      "objects": [
+        "document_verification_space_owner_changed() reemplazada",
+        "GRANT UPDATE(id) en reviewer_grant",
+        "guardas identidad/runtime"
+      ],
+      "dependencies": "V82 y esquema anterior; espacigo_migrator_login/schema_owner o contexto F5 exacto; espacigo_runtime preexistente con flags restringidos.",
+      "authority": "Guard de rol runtime NOLOGIN/no-super/no-create/no-replication/no-bypass/no-inherit; permiso UPDATE solo columna id. No ensancha tabla a UPDATE general.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Forward fix, sin backfill. Debe existir función V82; cambios de datos por transferencia usan filas/jobs/eventos previos.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/reviewer_cases.go",
+          "line": 45,
+          "excerpt": "SELECT `+reviewerSnapshotColumns+` FROM public.document_verification_case c WHERE c.id=$1 FOR SHARE",
+          "reason": "Lectura bloqueante del dominio de revisión; la columna UPDATE(id) de esta migración atiende semántica de locking descrita en V83."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/documentverification/v83_runtime_lock_privilege_integration_test.go",
+          "line": 16,
+          "excerpt": "func TestPostgresV83ReviewerGrantLockPrivilegeIsMinimal(t *testing.T) {",
+          "reason": "Define verificación de privilegio mínimo. No ejecutada."
+        }
+      ],
+      "correction_or_limit": "Source semantics accepted; runtime catalog/ownership/ACL/PUBLIC/default ACL and target data remain unverified.",
+      "complete_sql_read": true,
+      "sql_bytes": 7675
+    },
+    {
+      "version": 84,
+      "filename": "V000084__didit_identity_verification_schema.sql",
+      "sha256": "d8cc68f3ea73c6e351a31bd8f88fd0606e8217c028777d5ebca7b406bb852b8f",
+      "verdict": "unresolved",
+      "behavior": "Crea intentos Didit con identidad declarada y estado/sesión; inbox webhook deduplicado con JSON, firma/error. Índices y grants runtime SELECT/INSERT/UPDATE condicionales; no guarda imágenes explícitamente.",
+      "objects": [
+        "identity_verification_attempts",
+        "didit_webhook_inbox",
+        "cinco sentencias CREATE INDEX explícitas; índices de PRIMARY KEY/UNIQUE separados",
+        "comments",
+        "grants condicionales"
+      ],
+      "dependencies": "public.usuario; gen_random_uuid(); espacigo_runtime opcional para concesiones.",
+      "authority": "No REVOKE PUBLIC, owner explícito, grants por columna ni RLS en esta migración. ACL efectiva/defaults del destino desconocidos.",
+      "acl_public_defaults": "La autoridad declarada es fuente SQL; ACL efectiva, ownership, PUBLIC baseline, herencia y default ACL no verificados.",
+      "data_preconditions": "Nuevas tablas sin backfill. Diseño permite persistir PII declarada y payload webhook crudo; no es evidencia de que datos estén hoy almacenados. Retención/minimización deben evaluarse antes de uso duradero.",
+      "consumer_refs": [],
+      "test_refs": [
+        {
+          "path": "internal/verification/transport/http/handler_didit_test.go",
+          "line": 297,
+          "excerpt": "func TestDiditWebhookRejectsUnsafeEvents(t *testing.T) {",
+          "reason": "Cubre webhook/validación en handler; no ejecuta ni valida almacenamiento PostgreSQL V84."
+        }
+      ],
+      "correction_or_limit": "No hay consumidor PostgreSQL confirmado: handler mantiene mapa en memoria; prueba HTTP tampoco persiste en tablas.",
+      "complete_sql_read": true,
+      "sql_bytes": 2985
+    }
+  ]
+}

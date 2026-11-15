@@ -1,0 +1,152 @@
+-- Render the two target tokens before execution; never run this template directly.
+-- Idempotently closes the V82/V83 authority window after success or failure.
+BEGIN;
+SET LOCAL lock_timeout='5s';
+SET LOCAL statement_timeout='60s';
+DO $gate$
+DECLARE
+    target_oid oid;
+    owner_oid oid;
+    api_oid oid;
+    migrator_oid oid;
+    schema_owner_oid oid;
+    helper_oid oid;
+    runtime_oid oid;
+    public_owner oid;
+    history_count bigint;
+    min_version bigint;
+    max_version bigint;
+    membership_count integer;
+    owner_membership_count integer;
+    schema_create_count integer;
+    column_update_count integer;
+    function_owner oid;
+BEGIN
+    IF NOT pg_catalog.pg_try_advisory_xact_lock(1163087943, 1296648018) THEN
+        RAISE EXCEPTION 'migration lock is held; refusing native V82/V83 cleanup';
+    END IF;
+    SELECT oid INTO target_oid FROM pg_catalog.pg_database WHERE datname=current_database();
+    SELECT oid INTO owner_oid FROM pg_catalog.pg_roles WHERE rolname='postgres' AND rolsuper;
+    SELECT oid INTO api_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_api_login';
+    SELECT oid INTO migrator_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_migrator_login';
+    SELECT oid INTO schema_owner_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_schema_owner';
+    SELECT oid INTO helper_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_document_verification_fn';
+    SELECT oid INTO runtime_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime';
+    SELECT nspowner INTO public_owner FROM pg_catalog.pg_namespace WHERE nspname='public';
+    IF current_database() <> __NATIVE_TARGET_DATABASE__ OR target_oid <> __NATIVE_TARGET_OID__::oid
+       OR current_user <> 'postgres' OR session_user <> 'postgres' OR owner_oid IS NULL
+       OR current_setting('server_version_num')::integer <> 180006 OR inet_client_addr() IS NOT NULL
+       OR api_oid IS NULL OR migrator_oid IS NULL OR schema_owner_oid IS NULL OR helper_oid IS NULL OR runtime_oid IS NULL THEN
+        RAISE EXCEPTION 'native V82/V83 cleanup target, peer administrator or role contract differs';
+    END IF;
+    SELECT count(*), min(version), max(version) INTO history_count, min_version, max_version FROM public.schema_migrations;
+    IF history_count NOT BETWEEN 81 AND 83 OR min_version <> 1 OR max_version <> history_count THEN
+        RAISE EXCEPTION 'native V82/V83 cleanup requires a contiguous committed V1..V81/V82/V83 ledger';
+    END IF;
+    SELECT p.proowner INTO function_owner FROM pg_catalog.pg_proc p WHERE p.oid='public.document_verification_space_owner_changed()'::regprocedure;
+    IF function_owner NOT IN (owner_oid,schema_owner_oid) THEN
+        RAISE EXCEPTION 'native V82/V83 cleanup found an unexpected function owner';
+    END IF;
+    SELECT count(*) INTO membership_count FROM pg_catalog.pg_auth_members
+     WHERE roleid IN (api_oid,migrator_oid,schema_owner_oid,helper_oid,runtime_oid)
+        OR member IN (api_oid,migrator_oid,schema_owner_oid,helper_oid,runtime_oid);
+    SELECT count(*) INTO owner_membership_count FROM pg_catalog.pg_auth_members
+     WHERE roleid=schema_owner_oid AND member=owner_oid;
+    IF membership_count<>3+owner_membership_count
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=runtime_oid AND member=api_oid AND NOT admin_option AND NOT inherit_option AND set_option)
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=schema_owner_oid AND member=migrator_oid AND NOT admin_option AND NOT inherit_option AND set_option)
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=helper_oid AND member=schema_owner_oid AND NOT admin_option AND NOT inherit_option AND set_option) THEN
+        RAISE EXCEPTION 'native V82/V83 cleanup found an unexpected V81 membership graph';
+    END IF;
+    IF owner_membership_count > 1 OR EXISTS (
+        SELECT 1 FROM pg_catalog.pg_auth_members
+         WHERE roleid=schema_owner_oid AND member=owner_oid
+           AND (admin_option OR NOT inherit_option OR NOT set_option)
+    ) THEN
+        RAISE EXCEPTION 'native V82/V83 temporary administrator membership is unexpected';
+    END IF;
+    SELECT count(*) INTO schema_create_count FROM pg_catalog.pg_namespace n
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) acl
+     WHERE n.nspname='public' AND acl.grantee=schema_owner_oid AND acl.privilege_type='CREATE'
+       AND acl.grantor=public_owner AND NOT acl.is_grantable;
+    IF schema_create_count > 1 OR EXISTS (
+        SELECT 1 FROM pg_catalog.pg_namespace n
+          CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(n.nspacl,pg_catalog.acldefault('n',n.nspowner))) acl
+         WHERE n.nspname='public' AND acl.grantee=schema_owner_oid AND acl.privilege_type='CREATE'
+           AND (acl.grantor<>public_owner OR acl.is_grantable)
+    ) THEN
+        RAISE EXCEPTION 'native V82/V83 temporary CREATE grant differs from exact contract';
+    END IF;
+    SELECT count(*) INTO column_update_count FROM pg_catalog.pg_attribute a
+      CROSS JOIN LATERAL pg_catalog.aclexplode(CASE WHEN cardinality(a.attacl)>0 THEN a.attacl ELSE NULL::aclitem[] END) acl
+     WHERE a.attrelid='public.document_verification_reviewer_grant'::regclass AND a.attname='id'
+       AND NOT a.attisdropped AND acl.grantee=schema_owner_oid;
+    IF column_update_count > 1 OR EXISTS (
+        SELECT 1 FROM pg_catalog.pg_attribute a
+          CROSS JOIN LATERAL pg_catalog.aclexplode(CASE WHEN cardinality(a.attacl)>0 THEN a.attacl ELSE NULL::aclitem[] END) acl
+         WHERE a.attrelid='public.document_verification_reviewer_grant'::regclass AND a.attname='id'
+           AND NOT a.attisdropped AND acl.grantee=schema_owner_oid
+           AND (acl.privilege_type<>'UPDATE' OR acl.grantor<>owner_oid OR NOT acl.is_grantable)
+    ) THEN
+        RAISE EXCEPTION 'native V82/V83 temporary UPDATE(id) grant option differs from exact contract';
+    END IF;
+    IF history_count=83 AND NOT pg_catalog.has_column_privilege(runtime_oid,'public.document_verification_reviewer_grant','id','UPDATE') THEN
+        RAISE EXCEPTION 'committed V83 runtime UPDATE(id) privilege is missing';
+    END IF;
+    IF history_count<83 AND pg_catalog.has_column_privilege(runtime_oid,'public.document_verification_reviewer_grant','id','UPDATE') THEN
+        RAISE EXCEPTION 'runtime UPDATE(id) changed before committed V83';
+    END IF;
+END;
+$gate$;
+DO $preserve_v83_runtime$
+BEGIN
+    IF (SELECT count(*) FROM public.schema_migrations)=83 THEN
+        GRANT UPDATE(id) ON TABLE public.document_verification_reviewer_grant TO espacigo_runtime;
+    END IF;
+END;
+$preserve_v83_runtime$;
+REVOKE UPDATE(id) ON TABLE public.document_verification_reviewer_grant FROM espacigo_schema_owner CASCADE;
+ALTER FUNCTION public.document_verification_space_owner_changed() OWNER TO postgres;
+REVOKE CREATE ON SCHEMA public FROM espacigo_schema_owner;
+REVOKE espacigo_schema_owner FROM postgres;
+DO $postcheck$
+DECLARE
+    schema_owner_oid oid;
+    owner_oid oid;
+    runtime_oid oid;
+    history_count bigint;
+    function_owner oid;
+    runtime_acl_count integer;
+BEGIN
+    SELECT oid INTO schema_owner_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_schema_owner';
+    SELECT oid INTO owner_oid FROM pg_catalog.pg_roles WHERE rolname='postgres';
+    SELECT oid INTO runtime_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime';
+    SELECT count(*) INTO history_count FROM public.schema_migrations;
+    SELECT p.proowner INTO function_owner FROM pg_catalog.pg_proc p WHERE p.oid='public.document_verification_space_owner_changed()'::regprocedure;
+    SELECT count(*) INTO runtime_acl_count FROM pg_catalog.pg_attribute a
+      CROSS JOIN LATERAL pg_catalog.aclexplode(CASE WHEN cardinality(a.attacl)>0 THEN a.attacl ELSE NULL::aclitem[] END) acl
+     WHERE a.attrelid='public.document_verification_reviewer_grant'::regclass AND a.attname='id'
+       AND NOT a.attisdropped AND acl.grantee=runtime_oid;
+    IF function_owner<>owner_oid
+       OR pg_catalog.has_schema_privilege(schema_owner_oid,'public','CREATE')
+       OR pg_catalog.has_column_privilege(schema_owner_oid,'public.document_verification_reviewer_grant','id','UPDATE')
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=schema_owner_oid AND member=owner_oid) THEN
+        RAISE EXCEPTION 'native V82/V83 cleanup left temporary ownership, schema CREATE or membership';
+    END IF;
+    IF history_count=83 THEN
+        IF runtime_acl_count<>1 OR NOT pg_catalog.has_column_privilege(runtime_oid,'public.document_verification_reviewer_grant','id','UPDATE')
+           OR NOT EXISTS (
+               SELECT 1 FROM pg_catalog.pg_attribute a
+                 CROSS JOIN LATERAL pg_catalog.aclexplode(CASE WHEN cardinality(a.attacl)>0 THEN a.attacl ELSE NULL::aclitem[] END) acl
+                WHERE a.attrelid='public.document_verification_reviewer_grant'::regclass AND a.attname='id'
+                  AND NOT a.attisdropped AND acl.grantee=runtime_oid AND acl.grantor=owner_oid
+                  AND acl.privilege_type='UPDATE' AND NOT acl.is_grantable
+           ) THEN
+            RAISE EXCEPTION 'native V83 runtime ACL was not restored directly from postgres';
+        END IF;
+    ELSIF runtime_acl_count<>0 OR pg_catalog.has_column_privilege(runtime_oid,'public.document_verification_reviewer_grant','id','UPDATE') THEN
+        RAISE EXCEPTION 'native V82 failure cleanup changed the pre-V83 runtime ACL';
+    END IF;
+END;
+$postcheck$;
+COMMIT;

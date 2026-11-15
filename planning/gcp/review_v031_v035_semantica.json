@@ -1,0 +1,538 @@
+{
+  "title": "Auditoría manual source-only V031–V035",
+  "root": "/home/nandev/Documentos/projects/espaciGo-main-sync",
+  "rows": [
+    {
+      "version": 31,
+      "filename": "V000031__m04_local_publication_lifecycle.sql",
+      "sha256": "7c18af2f8437bcbf7752dc021892c25d65033562f05eb40d0d400ad05e76483a",
+      "behavior": "Owner publication lifecycle: permits estado borrador/activa/oculta and adds append-only transition history with space/actor FKs; not public catalog exposure.",
+      "objects": [
+        "espacio",
+        "usuario",
+        "espacio_publicacion_historial_local"
+      ],
+      "dependencies": [
+        "as referenced by migration foreign keys/ALTER TABLE; see migration source"
+      ],
+      "authority": "Migration source does not declare explicit owner/grants/default privileges for these relations. Effective creator/owner and ACLs including PostgreSQL PUBLIC baseline are target-dependent and uninspected; source consumers do not establish effective authorization.",
+      "data_preconditions": "Requires prior relations named in migration FK/ALTER clauses. No business-row backfill is defined for newly introduced histories/gallery/contracts/operations; constraints govern future writes. Database state not inspected.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminglobal/publications.go",
+          "line": 29,
+          "excerpt": "const publicCatalogVisibleExpr = `(e.estado='activa' AND c.activa AND u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local bl WHERE bl.cuenta_id=u.id) AND EXISTS(SELECT 1 FROM public.tarifa_espacio tr WHERE tr.espacio_id=e.id) AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local el JOIN public.verificacion v ON v.id=el.verificacion_id AND v.usuario_id=el.usuario_id AND v.tipo=el.tipo AND v.estado='aprobada' WHERE el.usuario_id=u.id AND el.tipo='kyc' AND el.estado='elegible') AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture fx WHERE fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.habilitada))`",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "line": 124,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT propietario_id::text FROM public.espacio WHERE id=$1`, id).Scan(&owner); errors.Is(err, pgx.ErrNoRows) {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "line": 142,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT estado,actualizado_en,modalidad_tarifa,precio_base_clp,superficie_m2::float8 FROM public.espacio WHERE id=$1 AND propietario_id=$2 FOR UPDATE`, id, owner).Scan(&state, &updated, &unit, &oldPrice, &areaM2)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/m02local/service_integration_test.go",
+          "line": 105,
+          "excerpt": "func TestSyntheticPhotoPayoutOwnershipIdempotencyAndEligibility(t *testing.T) {",
+          "reason": "Named test definition; its body references the relation (source only; not run)."
+        }
+      ],
+      "status": "source-only; no execution",
+      "issues": "No SQL/code/test execution, database, network/cloud or credentials. References are complete source lines with original indentation. ACL/PUBLIC and effective actor permissions not verified."
+    },
+    {
+      "version": 32,
+      "filename": "V000032__m04_synthetic_space_gallery.sql",
+      "sha256": "803d2026c722795b0c008cc9ab81ac9fa796642dc83505161d614d7df0b3f994",
+      "behavior": "Synthetic gallery rows bind photos to owner/space, constrain fixture bytes metadata/state and track retirement/cleanup; publication eligibility is separate.",
+      "objects": [
+        "espacio",
+        "espacio_galeria_sintetica_local"
+      ],
+      "dependencies": [
+        "as referenced by migration foreign keys/ALTER TABLE; see migration source"
+      ],
+      "authority": "Migration source does not declare explicit owner/grants/default privileges for these relations. Effective creator/owner and ACLs including PostgreSQL PUBLIC baseline are target-dependent and uninspected; source consumers do not establish effective authorization.",
+      "data_preconditions": "Requires prior relations named in migration FK/ALTER clauses. No business-row backfill is defined for newly introduced histories/gallery/contracts/operations; constraints govern future writes. Database state not inspected.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 36,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&exists)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 44,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.espacio_galeria_sintetica_local WHERE id=$1 OR archivo_id=$1)`, fileID).Scan(&used); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 50,
+          "excerpt": "\t_, err = tx.Exec(ctx, `INSERT INTO public.espacio_galeria_archivo_candidato_local(archivo_id,propietario_id,espacio_id,estado,creada_en)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 20,
+          "excerpt": "\trows, err := r.pool.Query(ctx, `SELECT codigo,nombre,orden FROM public.categoria_espacio WHERE activa ORDER BY orden,codigo`)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 38,
+          "excerpt": "\terr := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.categoria_espacio WHERE codigo=$1 AND activa)`, code).Scan(&active)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 123,
+          "excerpt": "const eligiblePublicSQL = ` FROM public.espacio e",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 125,
+          "excerpt": "JOIN LATERAL (SELECT modalidad,precio_base_clp,moneda FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1) t ON true",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 172,
+          "excerpt": " FROM public.espacio_galeria_sintetica_local g",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 184,
+          "excerpt": "AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture f WHERE f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.habilitada)`",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 373,
+          "excerpt": "   FROM public.espacio_horario_semanal_tramo s WHERE s.espacio_id=e.id AND s.dia_iso=d.weekday",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 375,
+          "excerpt": " ) ) ELSE NULL END FROM public.espacio_horario_semanal h WHERE h.espacio_id=e.id)`",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 401,
+          "excerpt": "FROM public.espacio_caracteristicas a JOIN public.atributo_filtro_publico f ON f.categoria_codigo=a.categoria_codigo AND f.perfil_version=a.perfil_version AND f.tipo='boolean'",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 402,
+          "excerpt": "WHERE a.espacio_id=$1 AND jsonb_typeof(a.valores->f.codigo)='boolean' ORDER BY f.orden,f.codigo`, id)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 425,
+          "excerpt": "SELECT g.id::text AS image_id,(e.portada_foto_id=g.id) AS is_cover,o.position,'synthetic'::text AS source FROM public.espacio e JOIN public.espacio_galeria_sintetica_local g ON g.espacio_id=e.id AND g.propietario_id=e.propietario_id AND g.estado='activa' AND g.publicada_en_catalogo AND g.archivo_id IS NOT NULL JOIN public.gallery_item_order o ON o.synthetic_photo_id=g.id WHERE e.id=$1",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 427,
+          "excerpt": "SELECT sm.id::text,(e.portada_media_id=sm.id),o.position,'media'::text FROM public.espacio e JOIN public.space_media sm ON sm.espacio_id=e.id AND sm.propietario_id=e.propietario_id AND sm.retired_at IS NULL AND sm.visible JOIN public.media_asset a ON a.id=sm.media_id AND a.estado='ready' JOIN public.gallery_item_order o ON o.space_media_id=sm.id WHERE e.id=$1",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 448,
+          "excerpt": "FROM public.espacio_galeria_sintetica_local g JOIN eligible e ON e.id=g.espacio_id AND e.propietario_id=g.propietario_id",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "line": 83,
+          "excerpt": "func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T) {",
+          "reason": "Named test definition; its body references the relation (source only; not run)."
+        }
+      ],
+      "status": "source-only; no execution",
+      "issues": "No SQL/code/test execution, database, network/cloud or credentials. References are complete source lines with original indentation. ACL/PUBLIC and effective actor permissions not verified."
+    },
+    {
+      "version": 33,
+      "filename": "V000033__m04_gallery_candidate_cleanup.sql",
+      "sha256": "f3b0d590ba5b92d4483c0e173a6de758f6f3b7d69bff3923950bca5bb9ee0425",
+      "behavior": "Durable cleanup candidates for generated gallery files not promoted; gallery transaction removes reserved candidate on success; workers claim/retry cleanup.",
+      "objects": [
+        "espacio",
+        "espacio_galeria_archivo_candidato_local"
+      ],
+      "dependencies": [
+        "as referenced by migration foreign keys/ALTER TABLE; see migration source"
+      ],
+      "authority": "Migration source does not declare explicit owner/grants/default privileges for these relations. Effective creator/owner and ACLs including PostgreSQL PUBLIC baseline are target-dependent and uninspected; source consumers do not establish effective authorization.",
+      "data_preconditions": "Requires prior relations named in migration FK/ALTER clauses. No business-row backfill is defined for newly introduced histories/gallery/contracts/operations; constraints govern future writes. Database state not inspected.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 36,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT true FROM public.espacio WHERE id=$1 AND propietario_id=$2 AND estado<>'eliminada' FOR UPDATE`, spaceID, owner).Scan(&exists)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 44,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.espacio_galeria_sintetica_local WHERE id=$1 OR archivo_id=$1)`, fileID).Scan(&used); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 50,
+          "excerpt": "\t_, err = tx.Exec(ctx, `INSERT INTO public.espacio_galeria_archivo_candidato_local(archivo_id,propietario_id,espacio_id,estado,creada_en)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "line": 83,
+          "excerpt": "func TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup(t *testing.T) {",
+          "reason": "Named test definition; its body references the relation (source only; not run)."
+        }
+      ],
+      "status": "source-only; no execution",
+      "issues": "No SQL/code/test execution, database, network/cloud or credentials. References are complete source lines with original indentation. ACL/PUBLIC and effective actor permissions not verified."
+    },
+    {
+      "version": 34,
+      "filename": "V000034__local_synthetic_contract_signing.sql",
+      "sha256": "8c1e2bcc99df3f0f120e57ba087f627ce4c3148791d9626a1c4ba6f7d5dbbda4",
+      "behavior": "Synthetic contract rehearsal: expands reservation states; stores private PDF content/metadata, contract snapshot/version/hash, participant signatures and history; no external signing provider.",
+      "objects": [
+        "reserva_ensayo_local",
+        "documento_privado_sintetico_local",
+        "contrato_ensayo_local",
+        "contrato_ensayo_firma",
+        "contrato_ensayo_historial",
+        "usuario"
+      ],
+      "dependencies": [
+        "as referenced by migration foreign keys/ALTER TABLE; see migration source"
+      ],
+      "authority": "Migration source does not declare explicit owner/grants/default privileges for these relations. Effective creator/owner and ACLs including PostgreSQL PUBLIC baseline are target-dependent and uninspected; source consumers do not establish effective authorization.",
+      "data_preconditions": "Requires prior relations named in migration FK/ALTER clauses. No business-row backfill is defined for newly introduced histories/gallery/contracts/operations; constraints govern future writes. Database state not inspected.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "line": 43,
+          "excerpt": "\tif err := tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservationID).Scan(&host, &renter); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "line": 56,
+          "excerpt": "\t\tif err := tx.QueryRow(ctx, `SELECT id::text FROM public.usuario WHERE id=$1 FOR UPDATE`, id).Scan(&locked); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "line": 85,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT r.estado,r.anfitrion_id::text,r.arrendatario_id::text,r.inicio,r.termino,r.subtotal_clp,e.titulo,r.condiciones_snapshot,r.politica_cancelacion_version,r.modalidad,r.moneda,r.zona_horaria FROM public.reserva_ensayo_local r JOIN public.espacio e ON e.id=r.espacio_id WHERE r.id=$1 FOR UPDATE OF r`, reservationID).Scan(&state, &host, &renter, &start, &end, &subtotal, &title, &conditions, &policy, &unit, &currency, &zone)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/documents/local.go",
+          "line": 25,
+          "excerpt": "\terr := tx.QueryRow(ctx, `INSERT INTO public.documento_privado_sintetico_local(id,reserva_id,mime_type,encryption_algorithm,sha256,size_bytes,contenido,creada_en) VALUES(gen_random_uuid(),$1,'application/pdf','aes-256-gcm',$2,$3,$4,$5) RETURNING id::text`, reservationID, sha[:], len(data), data, createdAt).Scan(&id)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/documents/local.go",
+          "line": 31,
+          "excerpt": "\terr := pool.QueryRow(ctx, `SELECT contenido FROM public.documento_privado_sintetico_local WHERE id=$1`, documentID).Scan(&data)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/repository_integration_test.go",
+          "line": 55,
+          "excerpt": "func TestCredentialCoreRuntimeLeastPrivilege(t *testing.T) {",
+          "reason": "Named test definition; its body references the relation (source only; not run)."
+        }
+      ],
+      "status": "source-only; no execution",
+      "issues": "No SQL/code/test execution, database, network/cloud or credentials. References are complete source lines with original indentation. ACL/PUBLIC and effective actor permissions not verified."
+    },
+    {
+      "version": 35,
+      "filename": "V000035__local_synthetic_rental_operations.sql",
+      "sha256": "205e0f230d0bf69c15da08c48f3dc1abc0639bba4980372e9451a49658ce7c26",
+      "behavior": "Expands reservation states and records synthetic rental operations, evidence, cleanup candidates, operation history, claim/defense; tightens audit JSON shape. No calendar, adjudication or financial effect.",
+      "objects": [
+        "reserva_ensayo_local",
+        "operacion_arriendo_ensayo_local",
+        "operacion_arriendo_evidencia_ensayo_local",
+        "operacion_arriendo_archivo_candidato_local",
+        "operacion_arriendo_historial_ensayo_local",
+        "reclamo_dano_ensayo_local",
+        "reclamo_dano_descargo_ensayo_local",
+        "reclamo_dano_historial_ensayo_local",
+        "evento_auditoria_local",
+        "usuario"
+      ],
+      "dependencies": [
+        "as referenced by migration foreign keys/ALTER TABLE; see migration source"
+      ],
+      "authority": "Migration source does not declare explicit owner/grants/default privileges for these relations. Effective creator/owner and ACLs including PostgreSQL PUBLIC baseline are target-dependent and uninspected; source consumers do not establish effective authorization.",
+      "data_preconditions": "Requires prior relations named in migration FK/ALTER clauses. No business-row backfill is defined for newly introduced histories/gallery/contracts/operations; constraints govern future writes. Database state not inspected.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "line": 32,
+          "excerpt": "\tif _, err := tx.Exec(ctx, `INSERT INTO public.operacion_arriendo_archivo_candidato_local",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "line": 41,
+          "excerpt": "\t_, err := r.pool.Exec(ctx, `UPDATE public.operacion_arriendo_archivo_candidato_local",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "line": 64,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT estado FROM public.operacion_arriendo_archivo_candidato_local",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 30,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservation).Scan(&host, &renter); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 40,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&state); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 44,
+          "excerpt": "\tprior, priorKey, priorFingerprint, priorErr := scanIdempotency(tx.QueryRow(ctx, `SELECT id::text,anfitrion_id::text,clave_idempotencia,huella_solicitud FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1`, reservation))",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 64,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT o.id::text,e.id::text,o.ocurrio_en FROM public.operacion_arriendo_ensayo_local o JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id WHERE o.reserva_id=$1 AND o.tipo='checkout' ORDER BY e.creada_en,e.id LIMIT 1`, reservation).Scan(&checkoutID, &evidenceID, &checkedOut)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 73,
+          "excerpt": "\terr = tx.QueryRow(ctx, `INSERT INTO public.reclamo_dano_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,checkout_operacion_id,checkout_evidencia_id,descripcion,estado,clave_idempotencia,huella_solicitud,abierto_en,plazo_reclamo_hasta) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6,'abierto',$7,$8,$9,$10) RETURNING id::text`, reservation, host, renter, checkoutID, evidenceID, input.Description, key, fingerprint, now, deadline).Scan(&claimID)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 77,
+          "excerpt": "\tupdated, err := tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='en_disputa',actualizada_en=$2 WHERE id=$1 AND estado='finalizada'`, reservation, now)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 87,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.reclamo_dano_historial_ensayo_local(reclamo_id,accion,actor_id,ocurrida_en) VALUES($1,'reclamo_abierto',$2,$3)`, claimID, actor, now); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 111,
+          "excerpt": "\terr := r.pool.QueryRow(ctx, `SELECT c.id::text,c.reserva_id::text,c.anfitrion_id::text,c.arrendatario_id::text,c.checkout_operacion_id::text,c.checkout_evidencia_id::text,c.descripcion,c.estado,c.abierto_en,c.plazo_reclamo_hasta FROM public.reclamo_dano_ensayo_local c WHERE c.reserva_id=$1 AND $2 IN(c.anfitrion_id::text,c.arrendatario_id::text)`, reservation, actor).Scan(&claim.ID, &claim.ReservationID, &claim.HostID, &claim.RenterID, &claim.CheckoutOperationID, &claim.CheckoutEvidenceID, &claim.Description, &claim.State, &claim.OpenedAt, &claim.ClaimDeadlineAt)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 119,
+          "excerpt": "\tclaim, err := scanClaim(r.pool.QueryRow(ctx, `SELECT id::text,COALESCE(reserva_id::text,''),COALESCE(anfitrion_id::text,''),COALESCE(arrendatario_id::text,''),COALESCE(checkout_operacion_id::text,''),COALESCE(checkout_evidencia_id::text,''),descripcion,estado,abierto_en,plazo_reclamo_hasta FROM public.reclamo_dano_ensayo_local WHERE id=$1`, claimID))",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 140,
+          "excerpt": "\trows, err := r.pool.Query(ctx, `SELECT secuencia,accion,COALESCE(actor_id::text,''),ocurrida_en FROM public.reclamo_dano_historial_ensayo_local WHERE reclamo_id=$1 ORDER BY secuencia`, claim.ID)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 159,
+          "excerpt": "\terr = r.pool.QueryRow(ctx, `SELECT id::text,COALESCE(actor_id::text,''),descripcion,creado_en FROM public.reclamo_dano_descargo_ensayo_local WHERE reclamo_id=$1`, claim.ID).Scan(&defense.ID, &defense.ActorID, &defense.Description, &defense.CreatedAt)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 186,
+          "excerpt": "\t\tFROM public.operacion_arriendo_ensayo_local o JOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 215,
+          "excerpt": "\t\tFROM public.reclamo_dano_ensayo_local c",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 242,
+          "excerpt": "\trows, err := r.pool.Query(ctx, `SELECT id::text FROM public.reclamo_dano_ensayo_local WHERE estado='abierto' ORDER BY abierto_en,id`)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 274,
+          "excerpt": "\t\tFROM public.reclamo_dano_ensayo_local c JOIN public.operacion_arriendo_ensayo_local o ON o.reserva_id=c.reserva_id",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 275,
+          "excerpt": "\t\tJOIN public.operacion_arriendo_evidencia_ensayo_local e ON e.operacion_id=o.id WHERE c.id=$1 AND e.id=$2 AND e.archivo_retirado_en IS NULL`, claimID, evidenceID).Scan(&item.ID, &item.Operation, &item.Fixture, &item.MIME, &item.SHA256, &item.SizeBytes, &item.CreatedAt)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 290,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT reserva_id::text,anfitrion_id::text,arrendatario_id::text FROM public.reclamo_dano_ensayo_local WHERE id=$1`, claimID).Scan(&reservation, &host, &renter); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 297,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.usuario u WHERE u.id=$1 AND u.estado='activo'",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 299,
+          "excerpt": "\t\tAND (EXISTS(SELECT 1 FROM public.rol_usuario r WHERE r.usuario_id=u.id AND r.rol='administrador')",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 300,
+          "excerpt": "\t\tOR EXISTS(SELECT 1 FROM public.administrador_global g WHERE g.usuario_id=u.id)))`, admin).Scan(&adminRole); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 307,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT id::text FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&lockedReservation); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 311,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT estado FROM public.reclamo_dano_ensayo_local WHERE id=$1 FOR UPDATE`, claimID).Scan(&state); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 346,
+          "excerpt": "\tupdated, err := tx.Exec(ctx, `UPDATE public.reclamo_dano_ensayo_local SET estado='resuelta' WHERE id=$1 AND estado='abierto'`, claimID)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 353,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET vinculos_retirar_en=GREATEST(COALESCE(vinculos_retirar_en,$2::timestamptz),$2::timestamptz+interval '24 months') WHERE id=$1`, reservation, now); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 356,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='finalizada',actualizada_en=$2 WHERE id=$1 AND estado='en_disputa'`, reservation, now); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 362,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.reclamo_dano_historial_ensayo_local(reclamo_id,accion,actor_id,ocurrida_en) VALUES($1,'reclamo_resuelto',$2,$3)`, claimID, admin, now); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 370,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en,clave_idempotencia,detalle_codigos) VALUES($1,$2,'reclamo_dano',$3,'local.damage_claim.resolve','exito',$4,$5,$6,$6::timestamptz+interval '5 years',$7,'{\"obligations_detected\":[],\"pending_checks\":[]}'::jsonb)`, auditID, admin, claimID, input.ReasonCode, correlation, now, key); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 386,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT anfitrion_id::text,arrendatario_id::text FROM public.reserva_ensayo_local WHERE id=$1`, reservation).Scan(&host, &renter); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 393,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT estado FROM public.reserva_ensayo_local WHERE id=$1 FOR UPDATE`, reservation).Scan(&reservationState); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 397,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT id::text,estado FROM public.reclamo_dano_ensayo_local WHERE reserva_id=$1`, reservation).Scan(&claimID, &claimState)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 411,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT id::text,actor_id::text,descripcion,creado_en,clave_idempotencia,huella_solicitud FROM public.reclamo_dano_descargo_ensayo_local WHERE reclamo_id=$1`, claimID).Scan(&prior.ID, &prior.ActorID, &prior.Description, &prior.CreatedAt, &priorKey, &priorFingerprint)",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 426,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `INSERT INTO public.reclamo_dano_descargo_ensayo_local(id,reclamo_id,actor_id,descripcion,clave_idempotencia,huella_solicitud,creado_en) VALUES(gen_random_uuid(),$1,$2,$3,$4,$5,$6) RETURNING id::text,actor_id::text,descripcion,creado_en`, claimID, actor, input.Description, key, fingerprint, now).Scan(&prior.ID, &prior.ActorID, &prior.Description, &prior.CreatedAt); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 429,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.reclamo_dano_historial_ensayo_local(reclamo_id,accion,actor_id,ocurrida_en) VALUES($1,'descargo_registrado',$2,$3)`, claimID, actor, now); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "line": 447,
+          "excerpt": "\t\tif err := tx.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, id).Scan(&state); err != nil {",
+          "reason": "Actual production/business SQL consumer, not ACL/bootstrap grant."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "line": 114,
+          "excerpt": "func TestSyntheticDamageDefenseEvidenceParticipantAdminExportIsolation(t *testing.T) {",
+          "reason": "Named test definition; its body references the relation (source only; not run)."
+        }
+      ],
+      "status": "source-only; no execution",
+      "issues": "No SQL/code/test execution, database, network/cloud or credentials. References are complete source lines with original indentation. ACL/PUBLIC and effective actor permissions not verified."
+    }
+  ]
+}

@@ -39,6 +39,30 @@ export type Writable<T> =
             }
           : T;
 export interface paths {
+  "/verifications/identity-declaration": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Leer la declaración de identidad propia guardada
+     * @description Devuelve solo la declaración vigente de la cuenta autenticada; no expone la declaración de otra cuenta ni datos cifrados.
+     */
+    get: operations["getOwnIdentityDeclaration"];
+    put?: never;
+    /**
+     * Guardar una nueva revisión de identidad y consentimiento
+     * @description La cuenta se deriva de la sesión. Solo confirma el guardado tras commit y lectura independiente. No inicia una verificación externa ni modifica el perfil público.
+     */
+    post: operations["saveOwnIdentityDeclaration"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/admin/global/me": {
     parameters: {
       query?: never;
@@ -1287,7 +1311,7 @@ export interface paths {
     put?: never;
     /**
      * Crear un expediente documental propio
-     * @description El actor se deriva de la sesión. El expediente pertenece al titular autenticado; Go valida el propósito y la titularidad del espacio cuando corresponde.
+     * @description El actor se deriva de la sesión. Para identity, Go enlaza dentro de la transacción la revisión legal vigente del titular; el cliente no elige el ID. Para space, Go valida titularidad actual.
      */
     post: operations["createOwnDocumentVerificationCase"];
     delete?: never;
@@ -1331,7 +1355,7 @@ export interface paths {
     put?: never;
     /**
      * Enviar un expediente documental propio a revisión
-     * @description Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto y no aplica la transición.
+     * @description Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto. Para purpose identity exige un archivo limpio vigente por cada rol identity_front, identity_back e identity_selfie.
      */
     post: operations["submitOwnDocumentVerificationCase"];
     delete?: never;
@@ -1356,7 +1380,7 @@ export interface paths {
     put?: never;
     /**
      * Cargar un documento al expediente propio
-     * @description La sesión determina al titular y el espacio autorizado. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.
+     * @description La sesión determina al titular y el espacio autorizado. Para identity, evidence_role es obligatorio; el mismo rol reemplaza el slot mediante CAS en borrador/requiere_antecedentes, y el anterior queda inaccesible con borrado encolado. Para space, evidence_role se omite. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.
      */
     post: operations["uploadOwnDocumentVerificationFile"];
     delete?: never;
@@ -3104,6 +3128,48 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    IdentityDeclarationRequest: {
+      /** @description Nombres legales declarados. */
+      first_name: string;
+      /** @description Apellidos legales declarados. */
+      last_name: string;
+      /**
+       * Format: date
+       * @description Fecha civil YYYY-MM-DD.
+       */
+      date_of_birth: string;
+      /** @description RUN/RUT con dígito verificador; no es el número de serie documental. */
+      rut: string;
+      /** @constant */
+      id_country: "CHL";
+      /** @constant */
+      document_type: "ID";
+      /**
+       * @description Consentimiento explícito
+       * @constant
+       */
+      consent_given: true;
+      /** @description Debe coincidir con la versión vigente configurada en el servidor. */
+      consent_version: string;
+    };
+    IdentityDeclarationResponse: {
+      /** Format: uuid */
+      id: string;
+      /** Format: int64 */
+      revision: number | string;
+      first_name: string;
+      last_name: string;
+      /** Format: date */
+      date_of_birth: string;
+      rut: string;
+      /** @constant */
+      id_country: "CHL";
+      /** @constant */
+      document_type: "ID";
+      consent_version: string;
+      /** Format: date-time */
+      consent_given_at: string;
+    };
     /** @enum {string} */
     AdminCapability:
       | "legacy.administration"
@@ -4954,10 +5020,20 @@ export interface components {
           /** @constant */
           purpose: "identity";
           /**
-           * Format: date-time
-           * @description Debe ser posterior al instante de recepción en el servidor.
+           * @description Formato físico declarado; legacy incluye diseños anteriores al formato emitido desde 2024-12-16. No acredita autenticidad.
+           * @enum {string}
            */
-          document_expires_at: string;
+          document_format_declared: "legacy" | "new" | "unsure";
+          /**
+           * @description Acknowledgement of the local synthetic-test notice; not authorization for real personal data.
+           * @constant
+           */
+          capture_consent_given: true;
+          /**
+           * @description Versioned local synthetic-test notice identifier; the live-data notice is not ratified.
+           * @constant
+           */
+          capture_consent_version: "identity-capture-local-v1";
         }
       | {
           /** @constant */
@@ -4980,6 +5056,11 @@ export interface components {
       /** @enum {string} */
       mime: "image/jpeg" | "image/png" | "application/pdf";
       pages: number;
+      /**
+       * @description Solo para purpose identity; ausente en archivos de purpose space.
+       * @enum {string}
+       */
+      evidence_role?: "identity_front" | "identity_back" | "identity_selfie";
     };
     DocumentVerificationOwnerCase: {
       /** Format: uuid */
@@ -5000,13 +5081,70 @@ export interface components {
         | "revocada";
       /** Format: int64 */
       revision: number | string;
-      /** Format: date-time */
+      /** @description Sanitized identity decision copy selected by a server-side allowlist. Present only for requiere_antecedentes; unknown or private reason codes use a generic fallback. Never contains raw reason codes or reviewer observations. */
+      owner_decision_message?: string;
+      /** @enum {string} */
+      document_format_declared?: "legacy" | "new" | "unsure";
+      /**
+       * Format: date-time
+       * @description Solo para purpose space; el vencimiento observado de identidad se devuelve únicamente al revisor.
+       */
       document_expires_at?: string;
       /** Format: date-time */
       verified_at?: string;
       /** Format: date-time */
       verified_until?: string;
       files: components["schemas"]["DocumentVerificationOwnerFile"][];
+    };
+    DocumentVerificationReviewerCase: {
+      /** Format: uuid */
+      id: string;
+      /** @enum {string} */
+      purpose: "identity" | "space";
+      /** Format: uuid */
+      space_id?: string;
+      /** @enum {string} */
+      state:
+        | "borrador"
+        | "enviada"
+        | "en_revision"
+        | "requiere_antecedentes"
+        | "aprobada"
+        | "rechazada"
+        | "vencida"
+        | "revocada";
+      /** Format: int64 */
+      revision: number | string;
+      /**
+       * Format: date-time
+       * @description Fecha observada por revisor para identidad; no es dato declarado por el solicitante.
+       */
+      document_expires_at_observed?: string;
+      /** @enum {string} */
+      document_format_declared?: "legacy" | "new" | "unsure";
+      /** @enum {string} */
+      document_format_observed?: "legacy" | "new" | "undetermined";
+      identity_declaration?: {
+        first_name: string;
+        last_name: string;
+        rut: string;
+        /** Format: date */
+        date_of_birth: string;
+      };
+      /** Format: date-time */
+      verified_at?: string;
+      /** Format: date-time */
+      verified_until?: string;
+      files: components["schemas"]["DocumentVerificationOwnerFile"][];
+    };
+    IdentityReviewChecklist: {
+      names_match: boolean | null;
+      rut_matches: boolean | null;
+      birth_date_and_majority_match: boolean | null;
+      portrait_matches_selfie: boolean | null;
+      evidence_legible: boolean | null;
+      document_unexpired: boolean | null;
+      issue_date_and_format_verified: boolean | null;
     };
     VerificationCase: {
       /** Format: uuid */
@@ -5437,6 +5575,60 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  getOwnIdentityDeclaration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Declaración propia descifrada desde el repositorio autorizado. */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityDeclarationResponse"];
+        };
+      };
+      401: components["responses"]["Unauthorized"];
+      404: components["responses"]["NotFound"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
+  saveOwnIdentityDeclaration: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["IdentityDeclarationRequest"];
+      };
+    };
+    responses: {
+      /** @description Revisión cifrada guardada y leída de nuevo bajo la misma cuenta. */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["IdentityDeclarationResponse"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthorized"];
+      409: components["responses"]["Conflict"];
+      415: components["responses"]["UnsupportedMediaType"];
+      422: components["responses"]["UnprocessableEntity"];
+      500: components["responses"]["InternalServerError"];
+      503: components["responses"]["ServiceUnavailable"];
+    };
+  };
   getGlobalAdminMe: {
     parameters: {
       query?: never;
@@ -7929,7 +8121,7 @@ export interface operations {
         };
         content: {
           "application/json": {
-            items: components["schemas"]["DocumentVerificationOwnerCase"][];
+            items: components["schemas"]["DocumentVerificationReviewerCase"][];
           };
         };
       };
@@ -7954,7 +8146,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+          "application/json": components["schemas"]["DocumentVerificationReviewerCase"];
         };
       };
       401: components["responses"]["Unauthorized"];
@@ -8009,6 +8201,17 @@ export interface operations {
           expected_revision: number;
           /** Format: date-time */
           verified_until?: string;
+          /**
+           * @description Requerido para review_identity en toda decisión; undetermined nunca permite approve.
+           * @enum {string}
+           */
+          document_format_observed?: "legacy" | "new" | "undetermined";
+          /**
+           * Format: date-time
+           * @description Requerido para aprobar identidad; fecha leída manualmente por el revisor.
+           */
+          document_expires_at_observed?: string;
+          identity_review_checklist?: components["schemas"]["IdentityReviewChecklist"];
         };
       };
     };
@@ -8019,7 +8222,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["DocumentVerificationOwnerCase"];
+          "application/json": components["schemas"]["DocumentVerificationReviewerCase"];
         };
       };
       401: components["responses"]["Unauthorized"];
@@ -8197,6 +8400,12 @@ export interface operations {
         "multipart/form-data": {
           /** Format: binary */
           file: string;
+          /**
+           * @description Obligatorio para identity y prohibido para space; cargar el mismo rol reemplaza el slot mediante If-Match.
+           * @enum {string}
+           */
+          evidence_role?:
+            "identity_front" | "identity_back" | "identity_selfie";
         };
       };
     };
@@ -8221,6 +8430,9 @@ export interface operations {
               /** @enum {string} */
               mime: "image/jpeg" | "image/png" | "application/pdf";
               pages: number;
+              /** @enum {string} */
+              evidence_role?:
+                "identity_front" | "identity_back" | "identity_selfie";
             };
           };
         };

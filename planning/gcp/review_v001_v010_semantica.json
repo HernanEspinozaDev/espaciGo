@@ -1,0 +1,344 @@
+{
+  "schema": "espacigo.migration-semantic-audit.v1",
+  "scope": "V001–V010 source audit; no database access or migration execution",
+  "rows": [
+    {
+      "version": 1,
+      "filename": "V000001__m01_identity.sql",
+      "sha256": "34736e22df35ffbd88bb43a1071788ba88ac9e6b35f2a5aeba83b9b87bf161f8",
+      "behavior": "Define account identity, roles, sessions, action tokens, legal-term catalog and acceptance; seeds three explicitly synthetic terms.",
+      "objects": [
+        "usuario",
+        "rol_usuario",
+        "sesion",
+        "token_accion",
+        "version_terminos",
+        "aceptacion_terminos"
+      ],
+      "dependencies": [
+        "public.usuario"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "Empty schema; UUID keys supplied by application; three synthetic term codes must not be mistaken for legal text.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/accountlock/account.go",
+          "line": 25,
+          "excerpt": "\terr := tx.QueryRow(ctx, `SELECT estado FROM public.usuario WHERE id=$1 FOR UPDATE`, accountID).Scan(&state)",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "line": 214,
+          "excerpt": "\t\tif _, err = setup.Exec(ctx, `INSERT INTO public.usuario(id,correo_original,correo_normalizado,hash_clave,estado) VALUES($1,$2,$2,'x','activo')`, id, fmt.Sprintf(\"payment-%d@example.test\", index)); err != nil {",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 2,
+      "filename": "V000002__m02_profile_rights.sql",
+      "sha256": "e3f9c0b9e60244490ef40230b5af6a452deb63cd475b43b7378d9a3895877ec2",
+      "behavior": "Adds user profile and data-subject access/suppression request records, with constrained states/types and chronology index.",
+      "objects": [
+        "perfil_usuario",
+        "solicitud_titular"
+      ],
+      "dependencies": [
+        "public.usuario"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "V001 usuario exists; existing rows are not required.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/privacy.go",
+          "line": 142,
+          "excerpt": "\t\tFROM public.perfil_usuario WHERE usuario_id=$1`, accountID).Scan(&profile.Name, &profile.Phone, &profile.UpdatedAt); err == nil {",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 2783,
+          "excerpt": "\tif err := h.pool.QueryRow(h.ctx, `SELECT (SELECT count(*) FROM public.sesion WHERE usuario_id=$1),(SELECT count(*) FROM public.perfil_usuario WHERE usuario_id=$1),(SELECT count(*) FROM public.token_accion WHERE usuario_id=$1),(SELECT count(*) FROM public.historial_clave_local WHERE usuario_id=$1),(SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1)`, targetID).Scan(&originalSession, &originalProfile, &originalToken, &oldKeys, &activeRole); err != nil {",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 3,
+      "filename": "V000003__m03_verification.sql",
+      "sha256": "161a2fc06b46eb181b6ddec78eac4ff8e3020b48553429f435ce81c08ce4814f",
+      "behavior": "Adds local-prototype verification cases with synthetic evidence references, reviewer/retry relationships, decision-state checks and idempotency.",
+      "objects": [
+        "verificacion"
+      ],
+      "dependencies": [
+        "public.usuario"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "V001 usuario exists; no real identity evidence permitted by this prototype schema.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 415,
+          "excerpt": "EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=q.anfitrion_id LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND (((f.habilitada AND e.estado='borrador')) OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local eligibility JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada' JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo' WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible'))))`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available, &rateCurrent, &listingCurrent)",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 643,
+          "excerpt": "\t\tif err := setup.QueryRow(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,proveedor_ref,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en)",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 4,
+      "filename": "V000004__m03_reason_codes.sql",
+      "sha256": "f3942ba61513556253650fabc962843350e9c441fd384d8d5b8bd59ecf7362d1",
+      "behavior": "Constrains non-null verification reason codes to the defined allowlist; NULL remains allowed.",
+      "objects": [
+        "verificacion_reason_code_ck"
+      ],
+      "dependencies": [
+        "V003 public.verificacion"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "V003 must have created public.verificacion.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 415,
+          "excerpt": "EXISTS(SELECT 1 FROM public.cotizacion_reserva_ensayo q JOIN public.espacio e ON e.id=q.espacio_id AND e.propietario_id=q.anfitrion_id LEFT JOIN public.reserva_ensayo_local_fixture f ON f.espacio_id=e.id AND f.anfitrion_id=e.propietario_id AND f.arrendatario_id=q.arrendatario_id WHERE q.id=$1 AND q.arrendatario_id=$2 AND (((f.habilitada AND e.estado='borrador')) OR (NOT COALESCE(f.habilitada,false) AND e.estado='activa' AND e.propietario_id<>$2 AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local eligibility JOIN public.verificacion verification ON verification.id=eligibility.verificacion_id AND verification.usuario_id=eligibility.usuario_id AND verification.tipo=eligibility.tipo AND verification.estado='aprobada' JOIN public.usuario owner ON owner.id=eligibility.usuario_id AND owner.estado='activo' WHERE eligibility.usuario_id=e.propietario_id AND eligibility.tipo='kyc' AND eligibility.estado='elegible'))))`, quoteID, renter, now).Scan(&quoteExists, &quoteUsable, &intervalFuture, &available, &rateCurrent, &listingCurrent)",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 643,
+          "excerpt": "\t\tif err := setup.QueryRow(ctx, `INSERT INTO public.verificacion(id,usuario_id,tipo,estado,proveedor_ref,referencia_evidencia,clave_idempotencia,revisor_id,creada_en,resuelta_en)",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 5,
+      "filename": "V000005__m04_space_drafts.sql",
+      "sha256": "f5ca7a06da755c8bbf8adba1ed7c539c69fb50743b3f58012079eb565b564f86",
+      "behavior": "Seeds eight space categories and creates owner-scoped draft spaces with basic descriptive, capacity, price, address and draft-only constraints.",
+      "objects": [
+        "categoria_espacio",
+        "espacio"
+      ],
+      "dependencies": [
+        "public.usuario"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "V001 usuario exists; category seed codes are assumed unique on fresh install.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 20,
+          "excerpt": "\trows, err := r.pool.Query(ctx, `SELECT codigo,nombre,orden FROM public.categoria_espacio WHERE activa ORDER BY orden,codigo`)",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 5166,
+          "excerpt": "  JOIN LATERAL (SELECT codigo FROM public.categoria_espacio ORDER BY orden OFFSET ((series.n-1)%8) LIMIT 1) cats ON true",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 6,
+      "filename": "V000006__m04_extensible_category_attributes.sql",
+      "sha256": "67bf11f666e9c3f2687e7bd6c3c0fcd82f075c51ff012f874ed3638b64cf2968",
+      "behavior": "Adds versioned JSON category profiles and per-space attribute values; enforces profile/category consistency and seeds v1 profiles.",
+      "objects": [
+        "categoria_perfil_atributos",
+        "espacio_caracteristicas"
+      ],
+      "dependencies": [
+        "V005 public.categoria_espacio",
+        "V005 public.espacio"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "V005 category and space tables exist; seeded category codes must match V005.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 116,
+          "excerpt": "\tif err := r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 AND version=$2`, category, version).Scan(&raw); err != nil {",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 577,
+          "excerpt": "\tif _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) VALUES($1,'sala_multiproposito',1,'{}')`, space); err != nil {",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 7,
+      "filename": "V000007__m04_profile_attribute_order.sql",
+      "sha256": "c39bc8c2c3a7161bec0dd0b01b1f7cb04ff87c70aae15ea6db46a6054b1780c5",
+      "behavior": "Backfills deterministic display order into each category profile attribute lacking an order key.",
+      "objects": [
+        "categoria_perfil_atributos.perfil"
+      ],
+      "dependencies": [
+        "V006 public.categoria_perfil_atributos"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "Profiles exist and perfil.attributes is a JSON array; UPDATE affects only profiles containing an attribute without order.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 116,
+          "excerpt": "\tif err := r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 AND version=$2`, category, version).Scan(&raw); err != nil {",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 2159,
+          "excerpt": "\t\tif _, err = setup.Exec(ctx, `INSERT INTO public.espacio_caracteristicas(espacio_id,categoria_codigo,perfil_version,valores) SELECT $1,$2,max(version),'{}' FROM public.categoria_perfil_atributos WHERE categoria_codigo=$2`, fixture.id, fixture.category); err != nil {",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 8,
+      "filename": "V000008__m03_synthetic_evidence.sql",
+      "sha256": "896d0808f925f44f5bb82222b56fde369723b3579fae510c3bd3b1a84002113d",
+      "behavior": "Adds local synthetic verification-evidence metadata (not blob storage), constrained to fixture code, PNG, size and SHA format.",
+      "objects": [
+        "verificacion_evidencia_sintetica"
+      ],
+      "dependencies": [
+        "V003 public.verificacion",
+        "public.verificacion(id)"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "V003 verification table exists; actual blob is explicitly outside repository/database.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 205,
+          "excerpt": "\trows, err := tx.Query(ctx, `SELECT e.id::text FROM public.verificacion_evidencia_sintetica e JOIN public.verificacion v ON v.id=e.verificacion_id WHERE v.usuario_id=$1 ORDER BY e.id`, subjectID)",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 837,
+          "excerpt": "\t (SELECT count(*) FROM public.verificacion_evidencia_sintetica),",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 9,
+      "filename": "V000009__m06_draft_manual_occupancy.sql",
+      "sha256": "e3fd2c98930f3d44280406a1698aa6d4594aa7b7e8ae708157c81ed4103ed900",
+      "behavior": "Adds timezone to spaces, manual/reservation occupancy structure and active-range exclusion to prevent overlapping occupancy per space.",
+      "objects": [
+        "btree_gist extension",
+        "espacio.zona_horaria",
+        "ocupacion",
+        "ocupacion_no_solapa_excl"
+      ],
+      "dependencies": [
+        "V005 public.espacio",
+        "public.espacio(id)"
+      ],
+      "authority": "DDL/extension operations; no application authorization grant or role transition.",
+      "data_preconditions": "V005 space exists; btree_gist extension available/creatable; ranges are finite, nonempty, [lower,upper).",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/expiry/expire.go",
+          "line": 50,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `UPDATE public.ocupacion SET activo=false,desactivada_en=$2 WHERE reserva_id=$1 AND activo`, reservationID, now); err != nil {",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "line": 69,
+          "excerpt": "\t\t_, err = tx.Exec(ctx, `INSERT INTO public.ocupacion(id,espacio_id,reserva_id,intervalo,tipo,activo,expira_en,creada_en)",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    },
+    {
+      "version": 10,
+      "filename": "V000010__m05_versioned_rates_and_private_simulations.sql",
+      "sha256": "291748cd18b0ff3424066c322e570a9ff206a386a92e08ad714a9d0709ef212b",
+      "behavior": "Adds immutable versioned CLP rates, backfills version 1 from existing spaces, and stores private owner-bound price simulation snapshots.",
+      "objects": [
+        "espacio_id_propietario_uk",
+        "tarifa_espacio",
+        "simulacion_precio_privada"
+      ],
+      "dependencies": [
+        "V005 public.espacio",
+        "public.usuario",
+        "V005 public.espacio(id,propietario_id)"
+      ],
+      "authority": "DDL/data statements only; no role/grant/auth transition in this migration.",
+      "data_preconditions": "V005 space/user tables exist; existing spaces must have valid modality and price; each gets rate version 1.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "line": 351,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT e.estado,e.actualizado_en,e.zona_horaria,t.modalidad FROM public.espacio e JOIN LATERAL(SELECT modalidad FROM public.tarifa_espacio WHERE espacio_id=e.id ORDER BY version DESC LIMIT 1)t ON true WHERE e.id=$1 AND e.propietario_id=$2 FOR UPDATE OF e`, spaceID, owner).Scan(&state, &updatedAt, &zone, &rateUnit)",
+          "reason": "Repository SQL directly reads or writes this migration object."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "line": 230,
+          "excerpt": "\t\t_, err = tx.Exec(ctx, `INSERT INTO public.tarifa_espacio(espacio_id,version,modalidad,precio_base_clp) VALUES($1,1,'hora',8000)`, spaceID)",
+          "reason": "Test coverage reference for this schema object."
+        }
+      ],
+      "status": "source-reviewed",
+      "issues": []
+    }
+  ]
+}

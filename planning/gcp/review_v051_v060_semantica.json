@@ -1,0 +1,265 @@
+[
+  {
+    "version": 51,
+    "filename": "V000051__local_close_reservation_after_settlement.sql",
+    "sha256": "ad9411b1477ee6512086147c3961dc950b4f0113c163556003c7c257d19bfce7",
+    "behavior": "Amplía estados de reserva local y exige liquidación fake exitosa para cerrar; agenda retención e índice parcial.",
+    "objects": "reserva_ensayo_local; guard trigger; tablas liquidación fake",
+    "dependencies": "V50 y tablas previas de liquidación",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "reserva finalizada y liquidación fake exitosa",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+        "line": 289,
+        "excerpt": "if err = pool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_transicion WHERE reserva_id=$1 AND estado_anterior='finalizada' AND estado_nuevo='cerrada' AND motivo='liquidacion_fake_confirmada'`, id1).Scan(&closeTransitions); err != nil || closeTransitions != 1 {",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+        "line": 292,
+        "excerpt": "// A confirmed fake settlement closes the reservation; that terminal state",
+        "reason": "integration test assertion"
+      }
+    ],
+    "status": "audited",
+    "issues": []
+  },
+  {
+    "version": 52,
+    "filename": "V000052__scoped_publication_rate_retirement.sql",
+    "sha256": "5c204afa60a4c83fd570b5c82f771711f1f890339bd42a23ad78190bbdee8330",
+    "behavior": "Purga tarifas solo tras retiro de espacio y sin cotización referenciada; limita DELETE runtime.",
+    "objects": "tarifa_espacio; cotizacion_reserva_ensayo; función SECURITY DEFINER",
+    "dependencies": "tarifas/cotizaciones previas",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "espacio eliminada y sin snapshot referenciado",
+    "consumer_refs": [],
+    "test_refs": [],
+    "status": "audited",
+    "issues": [
+      "Búsqueda adicional documentada: consumer_refs: términos SQL de objetos/funciones de la migración; búsqueda textual en *.go bajo internal/, scripts/ y cmd/ no halló consumidor identificable. test_refs: búsqueda de identificadores y términos de comportamiento en tests Go/Python; no se encontró definición de prueba específica disponible."
+    ]
+  },
+  {
+    "version": 53,
+    "filename": "V000053__local_close_contract_and_publication_retention.sql",
+    "sha256": "2c34092c9db8cab94c0e6ebab1e72d82b061eead465b913d46e91aeb77842e68",
+    "behavior": "Agrega retención y purga acotada de contratos e historial; conserva vínculos con obligaciones abiertas.",
+    "objects": "contrato_ensayo_local; espacio_*_historial_local; reservas/pagos/garantías/disputas",
+    "dependencies": "V52 y esquema local previo",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "retención vencida, sin obligaciones abiertas; límite 1..500",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+        "line": 1264,
+        "excerpt": "if err = tx.QueryRow(h.ctx, `SELECT contracts_purged,publication_history_purged FROM public.purge_expired_local_contracts_and_publication_history($1,20)`, due).Scan(&contracts, &histories); err != nil {",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+        "line": 1264,
+        "excerpt": "if err = tx.QueryRow(h.ctx, `SELECT contracts_purged,publication_history_purged FROM public.purge_expired_local_contracts_and_publication_history($1,20)`, due).Scan(&contracts, &histories); err != nil {",
+        "reason": "integration test assertion"
+      }
+    ],
+    "status": "audited",
+    "issues": []
+  },
+  {
+    "version": 54,
+    "filename": "V000054__local_contract_signature_expiry_retention.sql",
+    "sha256": "7fc01ac4ee0ee83db339fadfe95fc032a25cd2621184abe4d2408245ce926af3",
+    "behavior": "Incluye cancelada_por_firma en deadline de vínculos e índice, repara filas históricas NULL y actualiza la purga para revalidar deadline bajo lock.",
+    "objects": "documentos/contratos/verificación local",
+    "dependencies": "V53 y tablas de documentos existentes",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "estados y deadlines de retención válidos",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/local_retention.go",
+        "line": 27,
+        "excerpt": "FROM public.purge_expired_local_contracts_and_publication_history($1,$2)`, at.UTC(), limit).",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/migrator/integration_test.go",
+        "line": 1285,
+        "excerpt": "if err := conn.QueryRow(ctx, `SELECT indexdef LIKE '%cancelada_por_firma%' FROM pg_indexes WHERE schemaname='public' AND indexname='reserva_ensayo_retencion_local_idx'`).Scan(&signatureExpiryIndexed); err != nil || !signatureExpiryIndexed {",
+        "reason": "integration test assertion"
+      }
+    ],
+    "status": "audited",
+    "issues": []
+  },
+  {
+    "version": 55,
+    "filename": "V000055__mpv2_02_public_search_and_locations.sql",
+    "sha256": "a6b2e9b6eb055ea0375b35ebe881091e41ad1d0eacfa78d82896b9b8827ab6b6",
+    "behavior": "Agrega catálogo geográfico público, búsqueda textual y filtros comerciales tipados; calcula unidades/precio.",
+    "objects": "espacio; tarifas; regiones/comunas; atributo_filtro_publico; funciones SQL",
+    "dependencies": "categorías/perfiles V6",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "espacio activo, catálogo versionado y zona horaria válida",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+        "line": 3163,
+        "excerpt": "sqlErr := conn.QueryRow(ctx, `SELECT public.public_catalog_billed_units($1,$2,$3,$4)`, priceCase.unit, startAt, endAt, priceCase.zone).Scan(&sqlUnits)",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+        "line": 3163,
+        "excerpt": "sqlErr := conn.QueryRow(ctx, `SELECT public.public_catalog_billed_units($1,$2,$3,$4)`, priceCase.unit, startAt, endAt, priceCase.zone).Scan(&sqlUnits)",
+        "reason": "integration test assertion"
+      }
+    ],
+    "status": "audited",
+    "issues": []
+  },
+  {
+    "version": 56,
+    "filename": "V000056__mpv2_04_public_gallery.sql",
+    "sha256": "5cccdde76a613a82afbefb582d5ef2bab16512c9c7a0b0cfcdbf11a91710d5a0",
+    "behavior": "Agrega opt-in reversible de foto pública, default privado, e índice parcial.",
+    "objects": "espacio_galeria_sintetica_local.publicada_en_catalogo",
+    "dependencies": "tabla galería previa",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "fotos existentes siguen privadas hasta decisión explícita",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+        "line": 453,
+        "excerpt": "AND column_name='publicada_en_catalogo')`).Scan(&publicPhotoColumn); err != nil {",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+        "line": 453,
+        "excerpt": "AND column_name='publicada_en_catalogo')`).Scan(&publicPhotoColumn); err != nil {",
+        "reason": "integration test assertion"
+      }
+    ],
+    "status": "audited",
+    "issues": []
+  },
+  {
+    "version": 57,
+    "filename": "V000057__mpv2_11_typed_public_category_filters.sql",
+    "sha256": "4da5888e15043f22576fd026934896aa6adebf3a49a65df43534c98a02d9be9d",
+    "behavior": "Expande allowlist tipada de filtros desde perfiles; verifica manifiesto y crea índice JSONB por claves.",
+    "objects": "atributo_filtro_publico; espacio_caracteristicas",
+    "dependencies": "V55 y perfiles versionados V6",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "cada código/tipo/label/order existe sin ambigüedad en perfil",
+    "consumer_refs": [
+      {
+        "path": "internal/migrator/integration_test.go",
+        "line": 215,
+        "excerpt": "if err := conn.QueryRow(ctx, `SELECT count(*) FROM public.atributo_filtro_publico`).Scan(&allowlisted); err != nil {",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [],
+    "status": "audited",
+    "issues": [
+      "Búsqueda adicional documentada: test_refs: búsqueda de identificadores y términos de comportamiento en tests Go/Python; no se encontró definición de prueba específica disponible."
+    ]
+  },
+  {
+    "version": 58,
+    "filename": "V000058__gadm_01_global_administrator.sql",
+    "sha256": "d902d5aab8a6ba0a18bdc4e332792e567c0e5a00a69c897c3274c93384418acc",
+    "behavior": "Separa membresía global del rol ordinario, registra bootstrap/auditoría y agrega índices/notificación.",
+    "objects": "administrador_global; administrador_global_bootstrap/evento; usuario/perfil",
+    "dependencies": "tablas usuario y rol existentes",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "UUID bootstrap autorizado; no escala administradores existentes",
+    "consumer_refs": [
+      {
+        "path": "internal/adminglobal/service_integration_test.go",
+        "line": 127,
+        "excerpt": "if err = pool.QueryRow(ctx, `SELECT usuario_id::text FROM public.administrador_global_bootstrap WHERE singleton=true`).Scan(&master); err != nil {",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adminglobal/service_integration_test.go",
+        "line": 127,
+        "excerpt": "if err = pool.QueryRow(ctx, `SELECT usuario_id::text FROM public.administrador_global_bootstrap WHERE singleton=true`).Scan(&master); err != nil {",
+        "reason": "integration test assertion"
+      }
+    ],
+    "status": "audited",
+    "issues": []
+  },
+  {
+    "version": 59,
+    "filename": "V000059__gadm_03_audit_scope_and_query_indexes.sql",
+    "sha256": "a097a82fd5ece1b66ca953e4d48073834adc2edf4d31596f7d57f6ae36dbe93a",
+    "behavior": "Agrega sujeto objetivo explícito y tiempo de registro a auditoría; índices por tiempo/actor/objetivo.",
+    "objects": "evento_auditoria_local",
+    "dependencies": "tabla de auditoría previa",
+    "authority": "Ejecución DDL por migrador autorizado; funciones/grants según SQL.",
+    "data_preconditions": "histórico objetivo NULL; ocurrido_en preservado",
+    "consumer_refs": [
+      {
+        "path": "internal/adminglobal/service_integration_test.go",
+        "line": 721,
+        "excerpt": "if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.evento_auditoria_local WHERE actor_id=$1 AND recurso_id=$2 AND accion='admin.global.accounts.read' AND resultado='rechazo' AND motivo_codigo='cuenta_no_encontrada' AND cuenta_objetivo_id IS NULL)`, master, missingAccountID).Scan(&missingAudit); err != nil || !missingAudit {",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adminglobal/service_integration_test.go",
+        "line": 721,
+        "excerpt": "if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.evento_auditoria_local WHERE actor_id=$1 AND recurso_id=$2 AND accion='admin.global.accounts.read' AND resultado='rechazo' AND motivo_codigo='cuenta_no_encontrada' AND cuenta_objetivo_id IS NULL)`, master, missingAccountID).Scan(&missingAudit); err != nil || !missingAudit {",
+        "reason": "integration test assertion"
+      }
+    ],
+    "status": "audited",
+    "issues": []
+  },
+  {
+    "version": 60,
+    "filename": "V000060__gadm_local_bootstrap_restricted_role.sql",
+    "sha256": "75495ea50cdc2e6f5a61566dd725f5f623eca6133dcfdef55bde88498f424156",
+    "behavior": "Crea/verifica rol bootstrap NOLOGIN mínimo, membresías prohibidas y ACL acotadas; bloquea cambio de identidad.",
+    "objects": "rol espacigo_gadm_bootstrap; grants; trigger usuario",
+    "dependencies": "V58 y tablas bootstrap/bloqueo",
+    "authority": "V60 requiere autoridad administrativa de rol y grants; esa autoridad es prerequisito separado. Resto: propietario/ejecutor migrador conforme a DDL.",
+    "data_preconditions": "requiere autoridad DDL para rol/grants/comment; prerequisito distinto a V85",
+    "consumer_refs": [
+      {
+        "path": "internal/migrator/integration_test.go",
+        "line": 404,
+        "excerpt": "FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap'`).Scan(&canLogin, &super, &createDB, &createRole, &replication, &bypassRLS, &inherit); err != nil {",
+        "reason": "Go SQL consumer"
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/migrator/integration_test.go",
+        "line": 404,
+        "excerpt": "FROM pg_catalog.pg_roles WHERE rolname='espacigo_gadm_bootstrap'`).Scan(&canLogin, &super, &createDB, &createRole, &replication, &bypassRLS, &inherit); err != nil {",
+        "reason": "integration test assertion"
+      }
+    ],
+    "status": "audited",
+    "issues": []
+  }
+]

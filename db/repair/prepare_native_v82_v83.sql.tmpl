@@ -1,0 +1,95 @@
+-- Render the two target tokens before execution; never run this template directly.
+-- Opens the exact, bounded V82/V83 function-owner and UPDATE(id) grant window.
+BEGIN;
+SET LOCAL lock_timeout='5s';
+SET LOCAL statement_timeout='60s';
+DO $gate$
+DECLARE
+    target_oid oid;
+    owner_oid oid;
+    api_oid oid;
+    migrator_oid oid;
+    schema_owner_oid oid;
+    helper_oid oid;
+    runtime_oid oid;
+    membership_count integer;
+    history_count bigint;
+    min_version bigint;
+    max_version bigint;
+    reviewer_owner oid;
+    function_owner oid;
+    owner_id_acl_count integer;
+    runtime_update boolean;
+BEGIN
+    IF NOT pg_catalog.pg_try_advisory_xact_lock(1163087943, 1296648018) THEN
+        RAISE EXCEPTION 'migration lock is held; refusing native V82/V83 authority preparation';
+    END IF;
+    SELECT oid INTO target_oid FROM pg_catalog.pg_database WHERE datname=current_database();
+    SELECT oid INTO owner_oid FROM pg_catalog.pg_roles WHERE rolname='postgres' AND rolsuper;
+    SELECT oid INTO api_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_api_login' AND rolcanlogin AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit;
+    SELECT oid INTO migrator_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_migrator_login' AND rolcanlogin AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit;
+    SELECT oid INTO schema_owner_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_schema_owner' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit;
+    SELECT oid INTO helper_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_document_verification_fn' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit;
+    SELECT oid INTO runtime_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls AND NOT rolinherit;
+    IF current_database() <> __NATIVE_TARGET_DATABASE__ OR target_oid <> __NATIVE_TARGET_OID__::oid
+       OR current_user <> 'postgres' OR session_user <> 'postgres' OR owner_oid IS NULL
+       OR current_setting('server_version_num')::integer <> 180006 OR inet_client_addr() IS NOT NULL
+       OR api_oid IS NULL OR migrator_oid IS NULL OR schema_owner_oid IS NULL OR helper_oid IS NULL OR runtime_oid IS NULL THEN
+        RAISE EXCEPTION 'native V82/V83 target, peer administrator or restricted role contract differs';
+    END IF;
+    SELECT count(*), min(version), max(version) INTO history_count, min_version, max_version FROM public.schema_migrations;
+    IF history_count <> 81 OR min_version <> 1 OR max_version <> 81 THEN
+        RAISE EXCEPTION 'native V82/V83 preparation requires exact committed V1..V81 ledger';
+    END IF;
+    SELECT count(*) INTO membership_count FROM pg_catalog.pg_auth_members
+     WHERE roleid IN (api_oid,migrator_oid,schema_owner_oid,helper_oid,runtime_oid)
+        OR member IN (api_oid,migrator_oid,schema_owner_oid,helper_oid,runtime_oid);
+    IF membership_count <> 3
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=runtime_oid AND member=api_oid AND NOT admin_option AND NOT inherit_option AND set_option)
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=schema_owner_oid AND member=migrator_oid AND NOT admin_option AND NOT inherit_option AND set_option)
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=helper_oid AND member=schema_owner_oid AND NOT admin_option AND NOT inherit_option AND set_option) THEN
+        RAISE EXCEPTION 'native V82/V83 preparation requires the exact V81 role-membership graph';
+    END IF;
+    SELECT c.relowner INTO reviewer_owner FROM pg_catalog.pg_class c WHERE c.oid='public.document_verification_reviewer_grant'::regclass;
+    SELECT p.proowner INTO function_owner FROM pg_catalog.pg_proc p WHERE p.oid='public.document_verification_space_owner_changed()'::regprocedure;
+    SELECT count(*) INTO owner_id_acl_count FROM pg_catalog.pg_attribute a
+      CROSS JOIN LATERAL pg_catalog.aclexplode(CASE WHEN cardinality(a.attacl)>0 THEN a.attacl ELSE NULL::aclitem[] END) acl
+     WHERE a.attrelid='public.document_verification_reviewer_grant'::regclass AND a.attname='id'
+       AND NOT a.attisdropped AND acl.grantee=schema_owner_oid;
+    runtime_update := pg_catalog.has_column_privilege(runtime_oid,'public.document_verification_reviewer_grant','id','UPDATE');
+    IF reviewer_owner<>owner_oid OR function_owner<>owner_oid
+       OR pg_catalog.has_schema_privilege(schema_owner_oid,'public','CREATE')
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=schema_owner_oid AND member=owner_oid)
+       OR pg_catalog.has_column_privilege(schema_owner_oid,'public.document_verification_reviewer_grant','id','UPDATE')
+       OR owner_id_acl_count<>0 OR runtime_update THEN
+        RAISE EXCEPTION 'native V82/V83 authority baseline differs from the reviewed pre-window state';
+    END IF;
+END;
+$gate$;
+GRANT espacigo_schema_owner TO postgres WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+GRANT CREATE ON SCHEMA public TO espacigo_schema_owner;
+ALTER FUNCTION public.document_verification_space_owner_changed() OWNER TO espacigo_schema_owner;
+GRANT UPDATE(id) ON TABLE public.document_verification_reviewer_grant TO espacigo_schema_owner WITH GRANT OPTION;
+DO $postcheck$
+DECLARE
+    schema_owner_oid oid;
+    owner_oid oid;
+    grant_count integer;
+BEGIN
+    SELECT oid INTO schema_owner_oid FROM pg_catalog.pg_roles WHERE rolname='espacigo_schema_owner';
+    SELECT oid INTO owner_oid FROM pg_catalog.pg_roles WHERE rolname='postgres';
+    SELECT count(*) INTO grant_count FROM pg_catalog.pg_attribute a
+      CROSS JOIN LATERAL pg_catalog.aclexplode(CASE WHEN cardinality(a.attacl)>0 THEN a.attacl ELSE NULL::aclitem[] END) acl
+     WHERE a.attrelid='public.document_verification_reviewer_grant'::regclass AND a.attname='id'
+       AND NOT a.attisdropped AND acl.grantee=schema_owner_oid AND acl.grantor=owner_oid
+       AND acl.privilege_type='UPDATE' AND acl.is_grantable;
+    IF (SELECT proowner FROM pg_catalog.pg_proc WHERE oid='public.document_verification_space_owner_changed()'::regprocedure)<>schema_owner_oid
+       OR NOT pg_catalog.has_schema_privilege(schema_owner_oid,'public','CREATE')
+       OR NOT pg_catalog.has_column_privilege(schema_owner_oid,'public.document_verification_reviewer_grant','id','UPDATE WITH GRANT OPTION')
+       OR grant_count<>1
+       OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members WHERE roleid=schema_owner_oid AND member=owner_oid AND NOT admin_option AND inherit_option AND set_option) THEN
+        RAISE EXCEPTION 'native V82/V83 bounded authority window failed readback';
+    END IF;
+END;
+$postcheck$;
+COMMIT;

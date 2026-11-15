@@ -198,3 +198,109 @@ func TestOwnerDownloadRouteUnavailableHandlerFailsClosed(t *testing.T) {
 		t.Fatalf("response=%d want=%d", res.Code, http.StatusServiceUnavailable)
 	}
 }
+
+func TestOwnerDownloadRouteMIMETypesAndSecurityBoundaries(t *testing.T) {
+	// 1. JPEG MIME returns correct content-type and filename
+	downloader := &routeDownloader{
+		result: documentverification.DownloadedDocument{
+			Content: []byte("jpeg-synthetic-bytes"),
+			MIME:    "image/jpeg",
+		},
+	}
+	mux := http.NewServeMux()
+	RegisterOwnerDownloadRoute(mux, NewOwnerDownloadHandler(routeAuthenticator{principal: identity.Principal{AccountID: routeActor}}, downloader))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/space-cases/99999999-9999-4999-8999-999999999999/files/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/content", nil)
+	req.Header.Set("Authorization", "Bearer synthetic-session")
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusOK || res.Header().Get("Content-Type") != "image/jpeg" || !strings.Contains(res.Header().Get("Content-Disposition"), "space-document.jpg") {
+		t.Fatalf("unexpected jpeg response: status=%d headers=%v", res.Code, res.Header())
+	}
+
+	// 2. Unsupported MIME type fails closed with 404
+	downloader.result.MIME = "text/plain"
+	res = httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for unsupported MIME, got %d", res.Code)
+	}
+
+	// 3. Method not allowed returns 405 with Allow header (both at mux level and direct handler)
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/space-cases/99999999-9999-4999-8999-999999999999/files/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/content", nil)
+	res = httptest.NewRecorder()
+	mux.ServeHTTP(res, reqPost)
+	if res.Code != http.StatusMethodNotAllowed || !strings.Contains(res.Header().Get("Allow"), "GET") {
+		t.Fatalf("expected 405 MethodNotAllowed from mux with Allow containing GET, got %d (headers: %v)", res.Code, res.Header())
+	}
+
+	handler := NewOwnerDownloadHandler(routeAuthenticator{principal: identity.Principal{AccountID: routeActor}}, downloader)
+	resDirect := httptest.NewRecorder()
+	handler.ServeHTTP(resDirect, reqPost)
+	if resDirect.Code != http.StatusMethodNotAllowed || resDirect.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("expected 405 MethodNotAllowed from direct handler with Allow: GET, got %d (headers: %v)", resDirect.Code, resDirect.Header())
+	}
+
+	// 4. Forbidden actor error returns 404 fail-closed, unauthorized returns 401
+	failAuth := routeAuthenticator{err: identity.ErrForbidden}
+	mux = http.NewServeMux()
+	RegisterOwnerDownloadRoute(mux, NewOwnerDownloadHandler(failAuth, downloader))
+	res = httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for forbidden auth, got %d", res.Code)
+	}
+
+	unauthAuth := routeAuthenticator{err: identity.ErrUnauthorized}
+	mux = http.NewServeMux()
+	RegisterOwnerDownloadRoute(mux, NewOwnerDownloadHandler(unauthAuth, downloader))
+	res = httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusUnauthorized || res.Header().Get("WWW-Authenticate") != "Bearer" {
+		t.Fatalf("expected 401 for unauthorized auth, got %d (headers: %v)", res.Code, res.Header())
+	}
+
+	// 5. Malformed Authorization headers return 401 with WWW-Authenticate header
+	for _, badAuth := range []string{"Basic dXNlcjpwYXNz", "Bearer", "Token xyz", ""} {
+		reqBad := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/space-cases/99999999-9999-4999-8999-999999999999/files/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/content", nil)
+		if badAuth != "" {
+			reqBad.Header.Set("Authorization", badAuth)
+		}
+		resBad := httptest.NewRecorder()
+		mux.ServeHTTP(resBad, reqBad)
+		if resBad.Code != http.StatusUnauthorized || resBad.Header().Get("WWW-Authenticate") != "Bearer" {
+			t.Fatalf("bad auth %q: expected 401 with WWW-Authenticate: Bearer, got %d (headers: %v)", badAuth, resBad.Code, resBad.Header())
+		}
+	}
+
+	// 6. Domain errors (ErrSelfReview, ErrCapability, ErrTransition) return 404
+	mux = http.NewServeMux()
+	RegisterOwnerDownloadRoute(mux, NewOwnerDownloadHandler(routeAuthenticator{principal: identity.Principal{AccountID: routeActor}}, downloader))
+	for _, domainErr := range []error{
+		documentverification.ErrSelfReview,
+		documentverification.ErrCapability,
+		documentverification.ErrNotFound,
+		documentverification.ErrTransition,
+	} {
+		downloader.err = domainErr
+		res = httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != http.StatusNotFound {
+			t.Fatalf("domain err %v: expected 404, got %d", domainErr, res.Code)
+		}
+	}
+
+	// 7. Nil handler receiver or nil auth returns 503
+	nilHandler := (*OwnerDownloadHandler)(nil)
+	res = httptest.NewRecorder()
+	nilHandler.ServeHTTP(res, req)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("nil receiver: expected 503, got %d", res.Code)
+	}
+
+	nilAuthHandler := NewOwnerDownloadHandler(nil, downloader)
+	res = httptest.NewRecorder()
+	nilAuthHandler.ServeHTTP(res, req)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("nil auth: expected 503, got %d", res.Code)
+	}
+}

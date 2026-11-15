@@ -266,7 +266,7 @@ func extractMigrationACL(version int, source []byte, grantee string, includeGran
 			}
 		}
 	}
-	condition, err := migrationACLRoleCondition(string(source), grantee)
+	condition, conditionedActions, err := migrationACLRoleCondition(string(source), grantee)
 	if err != nil {
 		return nil, fmt.Errorf("migration V%d has unsupported ACL condition for %s: %w", version, grantee, err)
 	}
@@ -275,7 +275,9 @@ func extractMigrationACL(version int, source []byte, grantee string, includeGran
 		return nil, fmt.Errorf("migration V%d has unsupported dynamic ACL effect for %s: %w", version, grantee, err)
 	}
 	for i := range out {
-		out[i].Condition = condition
+		if _, conditioned := conditionedActions[out[i].Action]; conditioned {
+			out[i].Condition = condition
+		}
 		if _, ok := dynamicEffects[migrationACLEffectSignature(out[i])]; ok {
 			out[i].DynamicSQL = true
 		}
@@ -301,10 +303,10 @@ func extractMigrationACL(version int, source []byte, grantee string, includeGran
 	return out, nil
 }
 
-func migrationACLRoleCondition(source, grantee string) (string, error) {
+func migrationACLRoleCondition(source, grantee string) (string, map[string]struct{}, error) {
 	statements, err := splitACLStatements(source)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	condition := ""
 	targetRef := migrationACLRefForGrantee(grantee)
@@ -312,15 +314,27 @@ func migrationACLRoleCondition(source, grantee string) (string, error) {
 	endIfPattern := regexp.MustCompile(`(?is)\bEND\s+IF\b\s*;?`)
 	branchControlPattern := regexp.MustCompile(`(?is)\b(?:IF|ELSIF|ELSE|CASE|LOOP|WHILE|FOR)\b`)
 	anyConditionedEffect := false
-	topLevelEffect := false
+	topLevelActions := make(map[string]struct{})
+	conditionedActions := make(map[string]struct{})
 	unconditionalProceduralEffect := false
 	for _, statement := range statements {
 		body, isDO, found, err := migrationACLDOBody(statement)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if !isDO {
-			topLevelEffect = topLevelEffect || targetRef.MatchString(statement)
+			masked := maskACLQuotedTokens(statement)
+			loc := migrationACLWord.FindStringIndex(masked)
+			if loc == nil || strings.TrimSpace(masked[:loc[0]]) != "" || !targetRef.MatchString(masked[loc[0]:]) {
+				continue
+			}
+			actions, err := migrationACLActionSet(statement, grantee, false)
+			if err != nil {
+				return "", nil, err
+			}
+			for action := range actions {
+				topLevelActions[action] = struct{}{}
+			}
 			continue
 		}
 		if !found || !targetRef.MatchString(body) {
@@ -338,42 +352,102 @@ func migrationACLRoleCondition(source, grantee string) (string, error) {
 			if databaseMatch != nil {
 				database := body[databaseMatch[2]:databaseMatch[3]]
 				if database != runtimeACLF5DatabaseName {
-					return "", fmt.Errorf("unsupported database-specific ACL condition")
+					return "", nil, fmt.Errorf("unsupported database-specific ACL condition")
 				}
 				match = databaseMatch[:2]
 				branchCondition = "database-not:" + database
 			}
 		}
 		if match == nil {
-			return "", fmt.Errorf("unknown procedural branch condition")
+			return "", nil, fmt.Errorf("unknown procedural branch condition")
 		}
 		endIf := endIfPattern.FindStringIndex(body[match[1]:])
 		if endIf == nil {
-			return "", fmt.Errorf("unterminated procedural ACL condition")
+			return "", nil, fmt.Errorf("unterminated procedural ACL condition")
 		}
 		branchEnd := match[1] + endIf[0]
 		blockEnd := match[1] + endIf[1]
 		branch := maskACLQuotedTokens(body[match[1]:branchEnd])
 		if branchControlPattern.MatchString(branch) {
-			return "", fmt.Errorf("nested or alternate procedural ACL branch is unsupported")
+			return "", nil, fmt.Errorf("nested or alternate procedural ACL branch is unsupported")
 		}
 		if condition != "" && condition != branchCondition {
-			return "", fmt.Errorf("multiple procedural ACL conditions are unsupported")
+			return "", nil, fmt.Errorf("multiple procedural ACL conditions are unsupported")
 		}
 		condition = branchCondition
+		actions, err := migrationACLActionSet(body[match[1]:branchEnd], grantee, true)
+		if err != nil {
+			return "", nil, err
+		}
+		for action := range actions {
+			conditionedActions[action] = struct{}{}
+		}
 		outside := body[:match[0]] + body[blockEnd:]
-		if targetRef.MatchString(outside) {
-			return "", fmt.Errorf("ACL effect outside recognized role condition")
+		outsideActions, err := migrationACLActionSet(outside, grantee, true)
+		if err != nil {
+			return "", nil, err
+		}
+		if len(outsideActions) != 0 {
+			return "", nil, fmt.Errorf("ACL effect outside recognized role condition")
 		}
 		anyConditionedEffect = true
 	}
-	if anyConditionedEffect && (topLevelEffect || unconditionalProceduralEffect) {
-		return "", fmt.Errorf("ACL effect outside recognized role condition")
+	if anyConditionedEffect && unconditionalProceduralEffect {
+		return "", nil, fmt.Errorf("ACL effect outside recognized role condition")
 	}
-	if anyConditionedEffect {
-		return condition, nil
+	for action := range conditionedActions {
+		if _, unconditional := topLevelActions[action]; unconditional {
+			return "", nil, fmt.Errorf("ACL effect outside recognized role condition")
+		}
 	}
-	return "", nil
+	return condition, conditionedActions, nil
+}
+
+func migrationACLActionSet(source, grantee string, dynamic bool) (map[string]struct{}, error) {
+	actions := make(map[string]struct{})
+	parse := func(statement string) error {
+		var effects []RuntimeACLEffect
+		var err error
+		if strings.EqualFold(grantee, "espacigo_runtime") {
+			effects, err = ParseRuntimeACLStatements(statement)
+		} else {
+			effects, err = ParseACLStatementsForGrantee(statement, grantee)
+		}
+		if err != nil {
+			return err
+		}
+		for _, effect := range effects {
+			actions[effect.Action] = struct{}{}
+		}
+		return nil
+	}
+	statements, err := splitACLStatements(source)
+	if err != nil {
+		return nil, err
+	}
+	targetRef := migrationACLRefForGrantee(grantee)
+	for _, statement := range statements {
+		masked := maskACLQuotedTokens(statement)
+		for _, loc := range migrationACLWord.FindAllStringIndex(masked, -1) {
+			if !targetRef.MatchString(masked[loc[0]:]) {
+				continue
+			}
+			if err := parse(strings.TrimSpace(statement[loc[0]:])); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if dynamic {
+		for _, match := range migrationACLString.FindAllStringSubmatch(source, -1) {
+			decoded := strings.ReplaceAll(match[1], "''", "'")
+			if targetRef.MatchString(decoded) {
+				if err := parse(decoded); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+	return actions, nil
 }
 
 func migrationACLDynamicEffectSet(bodies []string, grantee string, includeGrantee bool) (map[string]struct{}, error) {

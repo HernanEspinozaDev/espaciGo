@@ -1,0 +1,991 @@
+{
+  "title": "Auditoría independiente source-only de migraciones V021–V040",
+  "date": "2026-11-07",
+  "candidate_head": "274f37e483a078890e92382a159fa49fd23c2fe8",
+  "scope": "Lectura de los 20 archivos SQL completos; sin mutaciones de código/migraciones, DB, nube, red, credenciales ni Git. Owners efectivos y ledger destino no verificados.",
+  "recommendations_v085": {
+    "recommendation": "No justificar V085 con esta revisión por sí sola.",
+    "basis": "Se observaron discrepancias de contrato/integridad en comentarios vs garantías SQL (p.ej. V022 append-only ACL, V033 cleanup transaccional), pero requieren contrastar consumidores, ACL/owners y si ya está aplicada cada versión. No se inventa una versión ni se recomienda V085 sin ese contraste y prueba concreta."
+  },
+  "rows": [
+    {
+      "version": "V021",
+      "filename": "V000021__m06_local_payment_inbox.sql",
+      "sha256": "3c3e72a6fcf9e1b6570362c7254a65cd6024c2838792898dfee5daeebd088a86",
+      "objects": {
+        "tables_created": [
+          "reserva_pago_ensayo_operacion",
+          "reserva_pago_evento_aplicacion_ensayo",
+          "reserva_pago_evento_ensayo",
+          "reserva_pago_fake_resultado_ensayo"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Inbox de pago fake e intents/eventos/aplicación; FK a reserva y usuario, eventos separados del estado procesal."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "reserva_ensayo_local",
+          "reserva_pago_ensayo_operacion",
+          "reserva_pago_evento_ensayo",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V020 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/adminlocal/service.go",
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adminglobal/reports.go",
+          "internal/adapters/postgres/spaces/repository.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/booking/repository.go",
+          "internal/adapters/postgres/booking/payment_inbox.go",
+          "internal/adapters/postgres/booking/privacy_export.go",
+          "internal/adapters/postgres/booking/settlement.go",
+          "internal/adapters/postgres/booking/admin_read.go",
+          "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "internal/adapters/postgres/identity/retention_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/identity/retention.go",
+          "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "internal/adapters/postgres/booking/expiry/expire.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia concreta: comentario delimita fake/no fondos reales; el esquema por sí solo no impone verificación de firma (precondición del comentario) ni identidad del insertante. No probarlo como webhook real.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V022",
+      "filename": "V000022__local_identity_history_and_outbox.sql",
+      "sha256": "f2166790c2500956a2cbbf4bc16280a7bec11d3d36bf6096cc5ae666f9b5b4a8",
+      "objects": {
+        "tables_created": [
+          "evento_auditoria_local",
+          "historial_clave_local",
+          "outbox_evento_local"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Preferencia usuario, historial hash de claves, outbox tipado y auditoría append-only (retención 5 años)."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V021 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/adminlocal/service.go",
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/gcp03origin/owner_acl_diagnostic.go",
+          "internal/adminglobal/service_integration_test.go",
+          "internal/adminglobal/reports.go",
+          "internal/adminglobal/service.go",
+          "internal/migrator/integration_test.go",
+          "internal/adapters/postgres/spaces/repository.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/booking/guarantee.go",
+          "internal/adapters/postgres/booking/admin_audit.go",
+          "internal/adapters/postgres/booking/weekly_hours.go",
+          "internal/adapters/postgres/booking/admin_read.go",
+          "internal/adapters/postgres/identity/repository_integration_test.go",
+          "internal/adapters/postgres/identity/repository.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/privacy.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/identity/admin_local_integration_test.go",
+          "internal/adapters/postgres/gallery/repository.go",
+          "internal/adapters/postgres/damageclaim/repository.go",
+          "internal/adapters/postgres/verification/repository.go",
+          "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "internal/adapters/postgres/reputation/repository.go",
+          "internal/adapters/postgres/verification/dbgen/models.go",
+          "internal/adapters/postgres/identity/dbgen/models.go",
+          "internal/adapters/postgres/identity/dbgen/identity.sql.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: comentario promete sólo INSERT/SELECT/no UPDATE/DELETE en auditoría, pero esta migración no declara ACL ni trigger append-only; depende de ACL/bootstrap externo.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V023",
+      "filename": "V000023__local_privacy_suppression_review.sql",
+      "sha256": "b38c23af4953e46c6d6c3b145d7c1c8212b0408ddc39e7eb434cd945ed355f2c",
+      "objects": {
+        "tables_created": [],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Extiende auditoría con idempotencia y JSON de códigos acotados; índice único parcial."
+      },
+      "dependencies": {
+        "upstream_objects": [],
+        "prior_versions": "Prefijo secuencial V001..V022 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "No se detecta contradicción interna; JSON permite sólo las dos claves declaradas, pero no comprueba semántica respecto de hechos externos.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V024",
+      "filename": "V000024__local_dispute_privacy_blocker.sql",
+      "sha256": "ed27af7effe2c16f13896a4a6240cb62da46333158588755c4f835c6ded66e29",
+      "objects": {
+        "tables_created": [
+          "disputa_ensayo_historial",
+          "disputa_ensayo_local"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Amplía códigos de privacidad y crea disputa sintética + historial transicional, FKs restrictivas."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "disputa_ensayo_local",
+          "reserva_ensayo_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V023 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/dbbootstrap/runtime_permissions_readback_test.go",
+          "internal/adminglobal/resources.go",
+          "internal/adapters/postgres/spaces/repository.go",
+          "internal/adapters/postgres/dispute/repository.go",
+          "internal/adapters/postgres/dispute/privacy_export.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "internal/adapters/postgres/booking/settlement.go",
+          "internal/adapters/postgres/identity/retention_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/identity/retention.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: disputa representa sólo bloqueo de privacidad según comentario; guard DB permite abierta/cerrada pero no liga el cambio de estado a historial (sin trigger en esta versión).",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V025",
+      "filename": "V000025__local_synthetic_privacy_suppression.sql",
+      "sha256": "cf390257626036c35d4f0ca4715ca977a4ceab2b3032ced3e789f4a4098ded19",
+      "objects": {
+        "tables_created": [
+          "baja_archivo_pendiente_local",
+          "ejecucion_baja_local"
+        ],
+        "functions_created_or_replaced": [
+          "set_local_verification_retention_deadline"
+        ],
+        "triggers_created": [
+          "verificacion_retencion_sintetica_trg"
+        ],
+        "ddl_effect_summary": "Retención/supresión: columnas y backfills en usuario, términos, solicitud, verificación, cotización, reserva y outbox; ejecución baja/cola archivo y trigger deadline verificación."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "ejecucion_baja_local",
+          "solicitud_titular",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V024 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/migrator/integration_test.go",
+          "internal/adapters/postgres/identity/retention_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/identity/retention.go",
+          "internal/adapters/postgres/identity/gcp04_worker_login_integration_test.go",
+          "internal/adapters/postgres/identity/gcp04_replay_process_integration_test.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: backfill de vinculos_retirar_en ocurre aquí antes de V026; expresión toma max pago/devolución/cierre pero no impone NOT NULL/consistencia sobre datos ya existentes. Requiere inspección datos para saber casos.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V026",
+      "filename": "V000026__local_privacy_retention_purge_and_replay.sql",
+      "sha256": "38eaed77c3421a34c1c3361e33d281d5ea1418bfc1c0d0c2d57ac8e8c6846e7b",
+      "objects": {
+        "tables_created": [
+          "reaplicacion_baja_local",
+          "reserva_vinculo_purgado_local"
+        ],
+        "functions_created_or_replaced": [
+          "schedule_local_reservation_link_retention"
+        ],
+        "triggers_created": [
+          "reserva_vinculos_retencion_trg"
+        ],
+        "ddl_effect_summary": "Permite anonimizar FKs, agenda retención de vínculos, trigger, registro purga y replay de supresión."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "reserva_ensayo_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V025 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "internal/adapters/postgres/identity/retention_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/retention.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: trigger asigna deadline como actualizada_en+24 meses al terminalizar, no calcula max actividad pago/devolución/disputa que se utilizó en backfill; por tanto reglas distintas para legado vs nuevas filas (evidencia SQL).",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V027",
+      "filename": "V000027__local_credential_notice_terminal_recovery.sql",
+      "sha256": "a30512e5efcf43b47426ef2a771b8899104d65aad4851058e990915a81ef94ec",
+      "objects": {
+        "tables_created": [
+          "outbox_evento_ciclo_local"
+        ],
+        "functions_created_or_replaced": [
+          "purge_expired_local_credential_notices"
+        ],
+        "triggers_created": [],
+        "ddl_effect_summary": "Limita ciclos outbox credential notice, clasifica legado terminal, backfill ciclo 1, función security-definer purga y revoca EXECUTE PUBLIC."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "outbox_evento_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V026 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/identity/dbgen/identity.sql.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: función valida p_limit sólo indirectamente/no lo valida explícitamente; valor <=0 no da error y puede no purgar. Revoca PUBLIC, grants restantes dependen de owner/ACL preexistentes.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V028",
+      "filename": "V000028__local_kyc_eligibility_and_history.sql",
+      "sha256": "dd3ebc10d38f9000b4ec1183a40b8ed4222e14c2fc358b8cbe26f98b7896a1a7",
+      "objects": {
+        "tables_created": [
+          "elegibilidad_verificacion_local",
+          "verificacion_historial_local"
+        ],
+        "functions_created_or_replaced": [
+          "set_local_verification_retention_deadline"
+        ],
+        "triggers_created": [],
+        "ddl_effect_summary": "Historial KYC sintético, corrección/revocación, elegibilidad por tipo; backfills actuales aprobados e historial observable."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "usuario",
+          "verificacion"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V027 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adminglobal/service_integration_test.go",
+          "internal/adminglobal/publications.go",
+          "internal/m02local/service_integration_test.go",
+          "internal/m02local/service.go",
+          "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "internal/adapters/postgres/publiccatalog/testnuevoverification_sql_test.go",
+          "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/booking/repository.go",
+          "internal/adapters/postgres/booking/privacy_locks.go",
+          "internal/adapters/postgres/booking/weekly_hours.go",
+          "internal/adapters/postgres/identity/retention_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/verification/repository_integration_test.go",
+          "internal/adapters/postgres/verification/repository.go",
+          "internal/adapters/postgres/verification/dbgen/verification.sql.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: comentario de historial admite reconstruir sólo estado actual, y backfill crea evento solicitado para toda verificación; transiciones históricas previas no son reconstruidas. Explícito, no bug probado.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V029",
+      "filename": "V000029__local_privacy_kyc_eligibility.sql",
+      "sha256": "9ed0486313c8c6172cd7d133c08e39c6bed39fd3bbfb596b1a4a3bbbda1595b6",
+      "objects": {
+        "tables_created": [],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Añade estado retirada_privacidad a elegibilidad e historial y constraints transición."
+      },
+      "dependencies": {
+        "upstream_objects": [],
+        "prior_versions": "Prefijo secuencial V001..V028 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: constraint permite retirada_privacidad con revocada_por obligatorio; no exige que coincida actor/timestamp con evento historial. No hay trigger que sincronice ambas entidades.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V030",
+      "filename": "V000030__m02_synthetic_profile_photo_and_payout.sql",
+      "sha256": "1130f484103f2383cbe310f312823a1af571ffc6e73603e03acb8e564bef4220",
+      "objects": {
+        "tables_created": [
+          "cuenta_cobro_sintetica_historial_local",
+          "cuenta_cobro_sintetica_local",
+          "foto_perfil_sintetica_local",
+          "m02_operacion_idempotente_local"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Fotos perfil sintéticas, cuenta cobro fake, historial y operación idempotente; archivos fuera DB."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "cuenta_cobro_sintetica_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V029 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/m02local/service_integration_test.go",
+          "internal/m02local/service.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/ownerexport/repository.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: foto permite múltiples estados activos? índice parcial impone uno por usuario; no hay FK para archivo_id (alojamiento externo deliberado). Conflicto no demostrado.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V031",
+      "filename": "V000031__m04_local_publication_lifecycle.sql",
+      "sha256": "7c18af2f8437bcbf7752dc021892c25d65033562f05eb40d0d400ad05e76483a",
+      "objects": {
+        "tables_created": [
+          "espacio_publicacion_historial_local"
+        ],
+        "functions_created_or_replaced": [
+          "prevent_local_publication_history_mutation"
+        ],
+        "triggers_created": [
+          "espacio_publicacion_historial_append_only"
+        ],
+        "ddl_effect_summary": "Restringe estado publicación local, agrega historial y trigger inmutable."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "espacio",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V030 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adminglobal/publications.go",
+          "internal/migrator/integration_test.go",
+          "internal/m02local/service_integration_test.go",
+          "internal/adapters/postgres/spaces/repository.go",
+          "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "internal/adapters/postgres/spaces/privacy_export.go",
+          "internal/adapters/postgres/publiccatalog/wizard_native_read_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: trigger impide UPDATE/DELETE, pero no impide truncado ni define ACL; integridad depende de autoridad/ACL. El check no verifica estado actual espacio vs evento.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V032",
+      "filename": "V000032__m04_synthetic_space_gallery.sql",
+      "sha256": "803d2026c722795b0c008cc9ab81ac9fa796642dc83505161d614d7df0b3f994",
+      "objects": {
+        "tables_created": [
+          "espacio_galeria_sintetica_local"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Galería de PNG sintéticos, FK compuesta espacio/propietario, cleanup metadata."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "espacio"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V031 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adminglobal/service_integration_test.go",
+          "internal/adminglobal/publications.go",
+          "internal/adapters/postgres/spaces/repository.go",
+          "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "internal/adapters/postgres/publiccatalog/repository.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "internal/adapters/postgres/gallery/repository.go",
+          "internal/adapters/postgres/ownerexport/repository.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: archivo_id nullable/único sin FK a almacenamiento; comentario atribuye archivos a almacenamiento privado externo, por lo que esquema no acredita existencia/limpieza efectiva.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V033",
+      "filename": "V000033__m04_gallery_candidate_cleanup.sql",
+      "sha256": "f3b0d590ba5b92d4483c0e173a6de758f6f3b7d69bff3923950bca5bb9ee0425",
+      "objects": {
+        "tables_created": [
+          "espacio_galeria_archivo_candidato_local"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Cola de candidatos de archivo gallery y retries; FK compuesta a espacio/propietario."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "espacio"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V032 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adapters/postgres/spaces/repository.go",
+          "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "internal/adapters/postgres/gallery/repository.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: comentario dice fila candidata se elimina en misma transacción al insertar galería, pero SQL no crea trigger/FK que lo fuerce; corresponde al consumidor Go.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V034",
+      "filename": "V000034__local_synthetic_contract_signing.sql",
+      "sha256": "8c1e2bcc99df3f0f120e57ba087f627ce4c3148791d9626a1c4ba6f7d5dbbda4",
+      "objects": {
+        "tables_created": [
+          "contrato_ensayo_firma",
+          "contrato_ensayo_historial",
+          "contrato_ensayo_local",
+          "documento_privado_sintetico_local"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Estados reserva para firma y tablas documento cifrado, contrato/versiones, firmas e historial."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "contrato_ensayo_local",
+          "documento_privado_sintetico_local",
+          "reserva_ensayo_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V033 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/migrator/integration_test.go",
+          "internal/adapters/postgres/operations/repository.go",
+          "internal/adapters/postgres/operations/vacancy_integration_test.go",
+          "internal/adapters/postgres/documents/local.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/contracts/repository.go",
+          "internal/adapters/postgres/ownerexport/repository.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: encryption_algorithm restringe etiqueta aes-256-gcm pero DB no cifra ni valida autenticidad/contenido; bytes son almacenados directamente.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V035",
+      "filename": "V000035__local_synthetic_rental_operations.sql",
+      "sha256": "205e0f230d0bf69c15da08c48f3dc1abc0639bba4980372e9451a49658ce7c26",
+      "objects": {
+        "tables_created": [
+          "operacion_arriendo_archivo_candidato_local",
+          "operacion_arriendo_ensayo_local",
+          "operacion_arriendo_evidencia_ensayo_local",
+          "operacion_arriendo_historial_ensayo_local",
+          "reclamo_dano_descargo_ensayo_local",
+          "reclamo_dano_ensayo_local",
+          "reclamo_dano_historial_ensayo_local"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Operaciones check-in/out/recepción, evidencias/candidatos, historial y reclamos/descargos; expande estados reserva."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "operacion_arriendo_ensayo_local",
+          "operacion_arriendo_evidencia_ensayo_local",
+          "reclamo_dano_ensayo_local",
+          "reserva_ensayo_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V034 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/adminlocal/queries.go",
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adminglobal/service_integration_test.go",
+          "internal/adminglobal/reports.go",
+          "internal/adminglobal/resources.go",
+          "internal/adminglobal/service.go",
+          "internal/adapters/postgres/spaces/repository.go",
+          "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "internal/adapters/postgres/operations/returns.go",
+          "internal/adapters/postgres/operations/repository.go",
+          "internal/adapters/postgres/operations/vacancy_integration_test.go",
+          "internal/adapters/postgres/operations/vacancy.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/booking/guarantee.go",
+          "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "internal/adapters/postgres/booking/settlement.go",
+          "internal/adapters/postgres/booking/admin_read.go",
+          "internal/adapters/postgres/identity/retention_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/identity/retention.go",
+          "internal/adapters/postgres/damageclaim/repository.go",
+          "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "internal/adapters/postgres/ownerexport/repository.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: JSON sintético limita source/location_code, no que coordenadas correspondan al location_code; es un guard de fixture, no validación geográfica.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V036",
+      "filename": "V000036__local_communication_reviews_and_notices.sql",
+      "sha256": "322fd98a8b921b905832bd75b4006d5fbed3f233334d400a6863c3a03aea2b09",
+      "objects": {
+        "tables_created": [
+          "aviso_local",
+          "aviso_local_ciclo",
+          "aviso_local_recuperacion_auditoria",
+          "reporte_resena_ensayo_local",
+          "reporte_resena_historial_local",
+          "resena_ensayo_local"
+        ],
+        "functions_created_or_replaced": [
+          "enqueue_local_cancel_notice",
+          "enqueue_local_checkin_notice",
+          "enqueue_local_claim_notice",
+          "enqueue_local_notice",
+          "enqueue_local_review_report_notice",
+          "purge_expired_local_communication"
+        ],
+        "triggers_created": [
+          "local_cancel_notice_trg",
+          "local_checkin_notice_trg",
+          "local_claim_notice_trg",
+          "local_review_report_notice_trg"
+        ],
+        "ddl_effect_summary": "Reviews, reportes/moderación, avisos Mailpit por destinatario, funciones/trigger enqueue y purga security-definer."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "aviso_local",
+          "espacio",
+          "reporte_resena_ensayo_local",
+          "resena_ensayo_local",
+          "reserva_ensayo_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V035 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/gcp03origin/owner_acl_diagnostic.go",
+          "internal/adminglobal/reports.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/verification/repository_integration_test.go",
+          "internal/adapters/postgres/localnotice/repository.go",
+          "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "internal/adapters/postgres/reputation/repository.go",
+          "internal/adapters/postgres/ownerexport/repository.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: trigger notifica administradores activos recorriendo rol_usuario; seguridad/ejecución y destinatarios efectivos dependen de ACL/rol y consultas. PUBLIC revocado sólo para la función de purga, no ACL total de tablas.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V037",
+      "filename": "V000037__local_communication_privacy_coordination.sql",
+      "sha256": "ad45697b244bac64d5713145b89cadf1f1522fa723f99f63feda8aa497ffd665",
+      "objects": {
+        "tables_created": [
+          "resena_autoria_marca_local"
+        ],
+        "functions_created_or_replaced": [
+          "purge_expired_local_communication"
+        ],
+        "triggers_created": [],
+        "ddl_effect_summary": "Anonimiza destinatario de reseña, añade marca hash autoría con backfill, amplía purga."
+      },
+      "dependencies": {
+        "upstream_objects": [],
+        "prior_versions": "Prefijo secuencial V001..V036 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "internal/adapters/postgres/reputation/repository.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: hash no salado de UUIDs concatenados es seudónimo determinista, no anonimización criptográfica fuerte; IDs UUID de baja entropía pueden ser correlacionables si conocidos.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V038",
+      "filename": "V000038__local_damage_claim_resolution.sql",
+      "sha256": "88000b1e3f94e68efca57e36a38914483cbf0d10c62741c75f57b282a7291b25",
+      "objects": {
+        "tables_created": [
+          "reclamo_dano_resolucion_ensayo_local"
+        ],
+        "functions_created_or_replaced": [
+          "enqueue_local_damage_claim_resolution_notice"
+        ],
+        "triggers_created": [
+          "local_damage_claim_resolution_notice_trg"
+        ],
+        "ddl_effect_summary": "Resuelve reclamos sintéticos separando adjudicación de efectos financieros; agrega aviso al insertar resolución."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "reclamo_dano_ensayo_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V037 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adminglobal/service_integration_test.go",
+          "internal/adminglobal/resources.go",
+          "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/booking/guarantee.go",
+          "internal/adapters/postgres/booking/admin_read.go",
+          "internal/adapters/postgres/identity/retention_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/identity/retention.go",
+          "internal/adapters/postgres/damageclaim/repository.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: trigger presupone claim.reserva_id/actores disponibles; V039 después permite nulificarlos. Resolución posterior a anonimización puede producir aviso con IDs nulos (función retorna sin aviso si destinatario null), coherente funcionalmente pero no explicitado.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V039",
+      "filename": "V000039__local_damage_claim_privacy_retention.sql",
+      "sha256": "86bd6b0d684c33d4213eb47d68763f00edc8b5716e2fe5e85d46fbaf1916e083",
+      "objects": {
+        "tables_created": [],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Hace nullable links y actores para retención/supresión en reclamos, operaciones e historiales."
+      },
+      "dependencies": {
+        "upstream_objects": [],
+        "prior_versions": "Prefijo secuencial V001..V038 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: varios FKs ahora nullable pero no se modifica aquí el purger; comentario describe nullificación por purger externo, consumidor debe cubrir todas las columnas.",
+      "status": "source-only pendiente de revisión parental"
+    },
+    {
+      "version": "V040",
+      "filename": "V000040__local_guarantee_and_dispute_finance.sql",
+      "sha256": "c749f178824ff5c1695483d2c32cde6b7c76794e247a5d423101ce7486058b0d",
+      "objects": {
+        "tables_created": [
+          "reserva_decision_financiera_ensayo_local",
+          "reserva_finanzas_historial_ensayo_local",
+          "reserva_garantia_ensayo_local",
+          "reserva_garantia_evento_aplicacion_ensayo_local",
+          "reserva_garantia_evento_ensayo_local",
+          "reserva_garantia_operacion_ensayo_local",
+          "reserva_garantia_resultado_fake_ensayo_local"
+        ],
+        "functions_created_or_replaced": [],
+        "triggers_created": [],
+        "ddl_effect_summary": "Snapshots garantía CLP 50k, estado reserva ampliado y ledger sintético de garantía/eventos/decisión financiera."
+      },
+      "dependencies": {
+        "upstream_objects": [
+          "operacion_arriendo_evidencia_ensayo_local",
+          "reclamo_dano_ensayo_local",
+          "reserva_ensayo_local",
+          "reserva_garantia_ensayo_local",
+          "reserva_garantia_evento_ensayo_local",
+          "reserva_garantia_operacion_ensayo_local",
+          "usuario"
+        ],
+        "prior_versions": "Prefijo secuencial V001..V039 requerido; dependencias concretas según FKs/ALTER indicadas en SQL."
+      },
+      "authority_owners_roles_acl_public_defaults": {
+        "source_findings": "DDL ejecutable por autoridad con CREATE/ALTER sobre public y ownership/privilegios sobre objetos referidos; SECURITY DEFINER aplica donde indicado. No se declara OWNER ni grants de tablas en esta migración. Las funciones V027/V036 tienen REVOKE ALL ... FROM PUBLIC explícito; resto hereda defaults PostgreSQL/PUBLIC según tipo de objeto. Owner efectivo y ACL/defaults no inferibles desde fuente.",
+        "tested_db_state": "No consultado; destino/owners/ACL/PUBLIC/defaults no verificados."
+      },
+      "go_consumers": {
+        "source_text_matches": [
+          "internal/adminlocal/service.go",
+          "internal/dbbootstrap/runtime_permissions.go",
+          "internal/adapters/postgres/spaces/repository.go",
+          "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "internal/adapters/postgres/operations/repository.go",
+          "internal/adapters/postgres/booking/repository_integration_test.go",
+          "internal/adapters/postgres/booking/repository.go",
+          "internal/adapters/postgres/booking/guarantee.go",
+          "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "internal/adapters/postgres/booking/privacy_export.go",
+          "internal/adapters/postgres/booking/settlement.go",
+          "internal/adapters/postgres/booking/admin_read.go",
+          "internal/adapters/postgres/identity/retention_integration_test.go",
+          "internal/adapters/postgres/identity/suppression.go",
+          "internal/adapters/postgres/identity/retention.go",
+          "internal/adapters/postgres/contracts/repository.go",
+          "internal/adapters/postgres/booking/expiry/expire.go"
+        ],
+        "limitation": "Coincidencias literales de identificadores en internal/**/*.go; no equivalen a prueba de invocación completa. Sin evidencia de consumidor no se infiere inexistencia."
+      },
+      "tests": {
+        "inspected": "No se inspeccionaron archivos de pruebas individuales para esta auditoría independiente; plan maestro reporta ensayos agregados para otras fases, no asignables a estas versiones.",
+        "actually_run": [],
+        "classification": "source-only; sin SQL, DB, red o credenciales."
+      },
+      "concrete_discrepancy_vs_hypothesis": "Discrepancia: decision reclamo_id es nullable en definición y CHECK lo hace NOT NULL de facto; redundante. No hay triggers que mantengan snapshots reserva/cotización/garantía sincronizados; contrato vive en código.",
+      "status": "source-only pendiente de revisión parental"
+    }
+  ]
+}

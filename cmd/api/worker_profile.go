@@ -19,7 +19,9 @@ const (
 	runtimeProfileWorkerFree       runtimeProfileName = "local-http-worker-free"
 	runtimeProfileWizardLocal      runtimeProfileName = "local-space-wizard"
 	runtimeProfileDocumentScanOnly runtimeProfileName = "local-document-scan-only"
+	runtimeProfileKYCWorkerFree    runtimeProfileName = "local-kyc-worker-free"
 	documentScanAPIAddr                               = "127.0.0.1:18082"
+	kycAPIAddr                                        = "127.0.0.1:18090"
 )
 
 func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
@@ -30,6 +32,34 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 	switch runtimeProfileName(p) {
 	case runtimeProfileStandard:
 		return runtimeProfileStandard, nil
+	case runtimeProfileKYCWorkerFree:
+		if getenv("LOCAL_AUTH_PROTOTYPE") != "1" || getenv("APP_PROFILE") != "" {
+			return "", errors.New("local-kyc-worker-free requires local auth and no APP_PROFILE")
+		}
+		if getenv("DATABASE_CONNECTION_MODE") != "direct" || getenv("DATABASE_HOST") != "127.0.0.1" || getenv("DATABASE_PORT") != "5432" || getenv("DATABASE_NAME") != "espacigo_dms_stage_20261020" || getenv("DATABASE_USER") != "espacigo_api_login" || getenv("DATABASE_SET_ROLE") != "espacigo_runtime" {
+			return "", errors.New("local-kyc-worker-free requires the authorized native KYC database and runtime role")
+		}
+		if getenv("HTTP_ADDR") != kycAPIAddr {
+			return "", errors.New("local-kyc-worker-free requires the dedicated loopback API address")
+		}
+		passfile := strings.TrimSpace(getenv("PGPASSFILE"))
+		if !filepath.IsAbs(passfile) || filepath.Clean(passfile) != passfile || !strings.HasSuffix(passfile, string(filepath.Separator)+".local"+string(filepath.Separator)+"testing"+string(filepath.Separator)+"kyc-native"+string(filepath.Separator)+"api.pgpass") || strings.TrimSpace(getenv("DATABASE_PASSWORD_FILE")) != "" {
+			return "", errors.New("local-kyc-worker-free requires the private native API passfile")
+		}
+		if strings.TrimSpace(getenv("CORS_ALLOWED_ORIGINS")) != "https://127.0.0.1:4219" || strings.TrimSpace(getenv("FRONTEND_PUBLIC_ORIGIN")) != "https://127.0.0.1:4219" {
+			return "", errors.New("local-kyc-worker-free requires the isolated loopback frontend origin")
+		}
+		keyringPath := strings.TrimSpace(getenv("IDENTITY_DECLARATION_KEYRING_FILE"))
+		if !filepath.IsAbs(keyringPath) || filepath.Clean(keyringPath) != keyringPath || len(strings.TrimSpace(getenv("IDENTITY_RUT_HMAC_SECRET"))) < 32 {
+			return "", errors.New("local-kyc-worker-free requires private identity encryption and claim keys")
+		}
+
+		for _, key := range []string{"DATABASE_URL", "PGPASSWORD", "PGSERVICE", "PGSERVICEFILE", "PGOPTIONS", "CLOUD_SQL_INSTANCE_CONNECTION_NAME", "CLOUD_SQL_PRIVATE_IP"} {
+			if strings.TrimSpace(getenv(key)) != "" {
+				return "", errors.New("local-kyc-worker-free rejects database target overrides")
+			}
+		}
+		return runtimeProfileKYCWorkerFree, nil
 	case runtimeProfileWorkerFree, runtimeProfileWizardLocal, runtimeProfileDocumentScanOnly:
 		if getenv("LOCAL_AUTH_PROTOTYPE") != "1" {
 			return "", errors.New("local-http-worker-free requires LOCAL_AUTH_PROTOTYPE=1")
@@ -94,7 +124,7 @@ func runtimeProfile(getenv func(string) string) (runtimeProfileName, error) {
 		}
 		return profile, nil
 	default:
-		return "", errors.New("API_RUNTIME_PROFILE must be standard, local-http-worker-free, local-space-wizard, or local-document-scan-only")
+		return "", errors.New("API_RUNTIME_PROFILE must be standard, local-http-worker-free, local-space-wizard, local-document-scan-only, or local-kyc-worker-free")
 	}
 }
 
@@ -104,6 +134,44 @@ func isAuthorizedWizardRuntime(getenv func(string) string, httpAddr string) bool
 
 func isAuthorizedF5Runtime(getenv func(string) string, httpAddr string) bool {
 	return getenv("DATABASE_HOST") == "127.0.0.1" && getenv("DATABASE_PORT") == "15434" && getenv("DATABASE_NAME") == "espacigo_f5_gate_20261101" && getenv("DATABASE_USER") == "espacigo_api_login" && getenv("DATABASE_SET_ROLE") == "espacigo_runtime" && httpAddr == documentScanAPIAddr
+}
+
+func newLocalKYCMux(authHandler, verificationHandler, healthHandler http.Handler) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.Handle("GET /health/live", healthHandler)
+	mux.Handle("GET /health/ready", healthHandler)
+	optionsRegistered := make(map[string]bool)
+	for _, route := range []struct {
+		method  string
+		path    string
+		handler http.Handler
+	}{
+		{http.MethodGet, "/api/v1/auth/terms", authHandler},
+		{http.MethodPost, "/api/v1/auth/login", authHandler},
+		{http.MethodGet, "/api/v1/auth/session", authHandler},
+		{http.MethodPost, "/api/v1/auth/logout", authHandler},
+	} {
+		mux.Handle(route.method+" "+route.path, route.handler)
+		if !optionsRegistered[route.path] {
+			mux.Handle(http.MethodOptions+" "+route.path, route.handler)
+			optionsRegistered[route.path] = true
+		}
+	}
+	for _, route := range []struct {
+		method  string
+		path    string
+		handler http.Handler
+	}{
+		{http.MethodGet, "/api/v1/verifications/identity-declaration", verificationHandler},
+		{http.MethodPost, "/api/v1/verifications/identity-declaration", verificationHandler},
+	} {
+		mux.Handle(route.method+" "+route.path, route.handler)
+		if !optionsRegistered[route.path] {
+			mux.Handle(http.MethodOptions+" "+route.path, route.handler)
+			optionsRegistered[route.path] = true
+		}
+	}
+	return mux
 }
 
 type documentProfileRoute struct {
@@ -182,7 +250,7 @@ type namedWorker struct {
 }
 
 func validateWorkerRegistry(profile runtimeProfileName, workers []namedWorker) error {
-	if profile != runtimeProfileStandard && profile != runtimeProfileWorkerFree && profile != runtimeProfileWizardLocal && profile != runtimeProfileDocumentScanOnly {
+	if profile != runtimeProfileStandard && profile != runtimeProfileWorkerFree && profile != runtimeProfileWizardLocal && profile != runtimeProfileDocumentScanOnly && profile != runtimeProfileKYCWorkerFree {
 		return errors.New("invalid runtime profile for background workers")
 	}
 	documentScanWorkers := 0
@@ -201,6 +269,9 @@ func validateWorkerRegistry(profile runtimeProfileName, workers []namedWorker) e
 	if profile == runtimeProfileDocumentScanOnly && (documentScanWorkers != 1 || documentRetentionWorkers != 1) {
 		return errors.New("document-scan-only profile requires exactly one document verification scanner and retention worker")
 	}
+	if profile == runtimeProfileKYCWorkerFree && len(workers) != 0 {
+		return errors.New("local-kyc-worker-free profile does not permit background workers")
+	}
 	if profile != runtimeProfileDocumentScanOnly && (documentScanWorkers != 0 || documentRetentionWorkers != 0) {
 		return errors.New("document verification workers are restricted to the document-scan-only profile")
 	}
@@ -211,7 +282,7 @@ func launchWorkers(profile runtimeProfileName, workers []namedWorker) error {
 	if err := validateWorkerRegistry(profile, workers); err != nil {
 		return err
 	}
-	if profile == runtimeProfileWorkerFree || profile == runtimeProfileWizardLocal {
+	if profile == runtimeProfileWorkerFree || profile == runtimeProfileWizardLocal || profile == runtimeProfileKYCWorkerFree {
 		return nil
 	}
 	for _, worker := range workers {

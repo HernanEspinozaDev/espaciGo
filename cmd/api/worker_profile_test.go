@@ -287,3 +287,121 @@ func TestRuntimeProfilePinsWizardToExactNewLocalTarget(t *testing.T) {
 		})
 	}
 }
+
+func TestRuntimeProfilePinsLocalKYCToNativeTargetWithoutExternalProvider(t *testing.T) {
+	base := map[string]string{
+		"API_RUNTIME_PROFILE":               "local-kyc-worker-free",
+		"LOCAL_AUTH_PROTOTYPE":              "1",
+		"DATABASE_CONNECTION_MODE":          "direct",
+		"DATABASE_HOST":                     "127.0.0.1",
+		"DATABASE_PORT":                     "5432",
+		"DATABASE_NAME":                     "espacigo_dms_stage_20261020",
+		"DATABASE_USER":                     "espacigo_api_login",
+		"DATABASE_SET_ROLE":                 "espacigo_runtime",
+		"HTTP_ADDR":                         "127.0.0.1:18090",
+		"CORS_ALLOWED_ORIGINS":              "https://127.0.0.1:4219",
+		"FRONTEND_PUBLIC_ORIGIN":            "https://127.0.0.1:4219",
+		"PGPASSFILE":                        "/private/.local/testing/kyc-native/api.pgpass",
+		"IDENTITY_DECLARATION_KEYRING_FILE": "/private/.local/testing/kyc-native/keyring.json",
+		"IDENTITY_RUT_HMAC_SECRET":          "local-only-synthetic-rut-hmac-key",
+	}
+	profile, err := runtimeProfile(func(key string) string { return base[key] })
+	if err != nil || string(profile) != "local-kyc-worker-free" {
+		t.Fatalf("KYC profile=%q err=%v", profile, err)
+	}
+
+	for name, change := range map[string]func(map[string]string){
+		"wrong database host": func(v map[string]string) { v["DATABASE_HOST"] = "localhost" },
+		"wrong database port": func(v map[string]string) { v["DATABASE_PORT"] = "15434" },
+		"wrong database name": func(v map[string]string) { v["DATABASE_NAME"] = "espacigo_f5_gate_20261101" },
+		"wrong database user": func(v map[string]string) { v["DATABASE_USER"] = "postgres" },
+		"wrong database role": func(v map[string]string) { v["DATABASE_SET_ROLE"] = "postgres" },
+		"wrong API address":   func(v map[string]string) { v["HTTP_ADDR"] = "0.0.0.0:18090" },
+		"wrong API port":      func(v map[string]string) { v["HTTP_ADDR"] = "127.0.0.1:18091" },
+		"insecure frontend origin": func(v map[string]string) {
+			v["CORS_ALLOWED_ORIGINS"] = "http://127.0.0.1:4219"
+			v["FRONTEND_PUBLIC_ORIGIN"] = "http://127.0.0.1:4219"
+		},
+		"missing auth prototype": func(v map[string]string) {
+			delete(v, "LOCAL_AUTH_PROTOTYPE")
+		},
+		"cloud app profile": func(v map[string]string) { v["APP_PROFILE"] = "cloud-test" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			values := make(map[string]string, len(base))
+			for key, value := range base {
+				values[key] = value
+			}
+			change(values)
+			if _, err := runtimeProfile(func(key string) string { return values[key] }); err == nil {
+				t.Fatal("accepted unsafe local KYC runtime configuration")
+			}
+		})
+	}
+}
+
+func TestLocalKYCProfileUsesDedicatedStartup(t *testing.T) {
+	if !usesDedicatedStartup(runtimeProfileName("local-kyc-worker-free")) {
+		t.Fatal("local KYC profile must use the dedicated worker-free startup")
+	}
+}
+
+func TestLocalKYCProfileNeverLaunchesWorkers(t *testing.T) {
+	profile := runtimeProfileName("local-kyc-worker-free")
+	if err := validateWorkerRegistry(profile, nil); err != nil {
+		t.Fatalf("local KYC profile rejected an empty worker registry: %v", err)
+	}
+	launched := 0
+	workers := []namedWorker{{"unexpected", func() { launched++ }}}
+	if err := launchWorkers(profile, workers); err == nil {
+		t.Fatal("local KYC profile accepted a worker registry")
+	}
+	if err := launchWorkers(profile, nil); err != nil {
+		t.Fatalf("local KYC profile rejected an empty worker registry: %v", err)
+	}
+	if launched != 0 {
+		t.Fatalf("local KYC profile launched %d workers", launched)
+	}
+}
+
+func TestLocalKYCMuxExposesOnlyAuthAndIdentityVerificationRoutes(t *testing.T) {
+	auth := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	kyc := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusCreated) })
+	health := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	mux := newLocalKYCMux(auth, kyc, health)
+	cases := []struct {
+		method string
+		path   string
+		want   int
+	}{
+		{"GET", "/health/live", http.StatusOK},
+		{"GET", "/health/ready", http.StatusOK},
+		{"POST", "/api/v1/auth/login", http.StatusNoContent},
+		{"GET", "/api/v1/auth/session", http.StatusNoContent},
+		{"POST", "/api/v1/auth/logout", http.StatusNoContent},
+		{"GET", "/api/v1/auth/terms", http.StatusNoContent},
+		{"POST", "/api/v1/verifications/identity-declaration", http.StatusCreated},
+		{"GET", "/api/v1/verifications/identity-declaration", http.StatusCreated},
+		{"POST", "/api/v1/verifications/didit/intent", http.StatusNotFound},
+		{"GET", "/api/v1/verifications/didit/intent/11111111-1111-4111-8111-111111111111", http.StatusNotFound},
+		{"POST", "/api/v1/webhooks/didit", http.StatusNotFound},
+		{"POST", "/api/v1/verifications/didit/webhook", http.StatusNotFound},
+		{"OPTIONS", "/api/v1/auth/login", http.StatusNoContent},
+		{"OPTIONS", "/api/v1/verifications/identity-declaration", http.StatusCreated},
+		{"POST", "/api/v1/auth/register", http.StatusNotFound},
+		{"GET", "/api/v1/profile", http.StatusNotFound},
+		{"GET", "/api/v1/spaces", http.StatusNotFound},
+		{"GET", "/api/v1/admin/global/users", http.StatusNotFound},
+		{"GET", "/api/v1/verifications/didit/intent/invalid/extra", http.StatusNotFound},
+		{"GET", "/api/v1/auth/session/", http.StatusNotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
+			res := httptest.NewRecorder()
+			mux.ServeHTTP(res, httptest.NewRequest(tc.method, tc.path, nil))
+			if res.Code != tc.want {
+				t.Fatalf("status=%d, want %d", res.Code, tc.want)
+			}
+		})
+	}
+}

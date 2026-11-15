@@ -111,3 +111,46 @@ func TestAuthorizeSpaceOwnerDownloadRejectsUnknownFileAndUntrustedOwner(t *testi
 		t.Fatalf("invalid current owner err=%v, want %v", err, ErrCapability)
 	}
 }
+
+func TestAuthorizeSpaceOwnerDownloadAtValidationBoundaries(t *testing.T) {
+	validSnap := downloadPolicySnapshot(CaseDraft, FileClean)
+	auth := Authorization{ActorID: downloadingOwnerID, SpaceOwnerID: downloadingOwnerID}
+	now := time.Now().UTC()
+
+	// 1. Invalid actor ID
+	if err := AuthorizeSpaceOwnerDownloadAt(validSnap, auth, "invalid-actor", downloadingFileID, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for invalid actor, got %v", err)
+	}
+
+	// 2. Invalid file ID
+	if err := AuthorizeSpaceOwnerDownloadAt(validSnap, auth, downloadingOwnerID, "invalid-file", now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for invalid file, got %v", err)
+	}
+
+	// 3. Invalid snapshot (!validSnapshot(x))
+	invalidSnap := validSnap
+	invalidSnap.ID = "invalid-case-id"
+	if err := AuthorizeSpaceOwnerDownloadAt(invalidSnap, auth, downloadingOwnerID, downloadingFileID, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for invalid snapshot, got %v", err)
+	}
+
+	// 4. Zero timestamp
+	if err := AuthorizeSpaceOwnerDownloadAt(validSnap, auth, downloadingOwnerID, downloadingFileID, time.Time{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for zero timestamp, got %v", err)
+	}
+
+	// 5. Purpose != PurposeSpace (valid identity snapshot)
+	identitySnap := validSnap
+	identitySnap.Purpose = PurposeIdentity
+	identitySnap.SpaceID = ""
+	if err := AuthorizeSpaceOwnerDownloadAt(identitySnap, auth, downloadingOwnerID, downloadingFileID, now); !errors.Is(err, ErrCapability) {
+		t.Fatalf("expected ErrCapability for PurposeIdentity, got %v", err)
+	}
+
+	// 6. SupersededAt != nil
+	supersededSnap := validSnap
+	supersededSnap.SupersededAt = &now
+	if err := AuthorizeSpaceOwnerDownloadAt(supersededSnap, auth, downloadingOwnerID, downloadingFileID, now); !errors.Is(err, ErrCapability) {
+		t.Fatalf("expected ErrCapability for superseded snapshot, got %v", err)
+	}
+}

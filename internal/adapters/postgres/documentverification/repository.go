@@ -2,6 +2,7 @@ package documentverificationpg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -20,10 +21,46 @@ type transactionBeginner interface {
 
 type Repository struct{ transactions transactionBeginner }
 
+func reviewerIdentityObservations(purpose dv.Purpose, audit dv.TransitionAudit) (string, error) {
+	if purpose != dv.PurposeIdentity || audit.Action != "review_decision" {
+		return "", nil
+	}
+	if (audit.DocumentFormatObserved != dv.DocumentFormatLegacy &&
+		audit.DocumentFormatObserved != dv.DocumentFormatNew &&
+		audit.DocumentFormatObserved != dv.DocumentFormatUndetermined) ||
+		audit.IdentityReviewChecklist == nil || !audit.IdentityReviewChecklist.Complete() {
+		return "", dv.ErrInvalid
+	}
+	var expiry *time.Time
+	if !audit.DocumentExpiresAtObserved.IsZero() {
+		observed := audit.DocumentExpiresAtObserved.UTC()
+		expiry = &observed
+	}
+	encoded, err := json.Marshal(struct {
+		DocumentFormatObserved    dv.DocumentFormat           `json:"document_format_observed"`
+		DocumentExpiresAtObserved *time.Time                  `json:"document_expires_at_observed"`
+		IdentityReviewChecklist   *dv.IdentityReviewChecklist `json:"identity_review_checklist"`
+	}{audit.DocumentFormatObserved, expiry, audit.IdentityReviewChecklist})
+	if err != nil {
+		return "", err
+	}
+	return string(encoded), nil
+}
+
 var _ dv.Repository = (*Repository)(nil)
 var _ dv.OwnCaseReader = (*Repository)(nil)
 var _ dv.SpaceDownloadRepository = (*Repository)(nil)
 var _ identityverification.Repository = (*Repository)(nil)
+
+const ownerDecisionReasonJoin = `LEFT JOIN LATERAL (
+	SELECT e.reason_code
+	FROM public.document_verification_event e
+	WHERE c.purpose='identity' AND c.state='requiere_antecedentes'
+	  AND e.case_id=c.id AND e.purpose='identity' AND e.subject_id=c.subject_id
+	  AND e.action='review_decision' AND e.to_state=c.state AND e.revision<=c.revision
+	ORDER BY e.revision DESC,e.id DESC
+	LIMIT 1
+) owner_decision ON true`
 
 func New(pool *pgxpool.Pool) *Repository {
 	if pool == nil {
@@ -72,6 +109,20 @@ func (r *Repository) CreateCase(ctx context.Context, actor string, purpose dv.Pu
 	if err = lockActor(ctx, tx, actor); err != nil {
 		return dv.Snapshot{}, err
 	}
+	if purpose == dv.PurposeIdentity {
+		if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, actor); err != nil {
+			return dv.Snapshot{}, err
+		}
+		var declarationID string
+		err = tx.QueryRow(ctx, `SELECT id::text FROM public.identity_declaration_revision WHERE account_id=$1 AND retention_at>clock_timestamp() ORDER BY revision DESC LIMIT 1`, actor).Scan(&declarationID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return dv.Snapshot{}, dv.ErrDeclarationRequired
+		}
+		if err != nil {
+			return dv.Snapshot{}, err
+		}
+		auth.IdentityDeclarationRevisionID = declarationID
+	}
 	if purpose == dv.PurposeSpace {
 		var owned bool
 		owned, err = lockSpace(ctx, tx, space, actor)
@@ -90,7 +141,38 @@ func (r *Repository) CreateCase(ctx context.Context, actor string, purpose dv.Pu
 	if x.Purpose != purpose || x.SubjectID != actor || x.SpaceID != space || !validUUID(x.ID) || x.State != dv.CaseDraft || len(x.Files) != 0 {
 		return dv.Snapshot{}, dv.ErrInvalid
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO public.document_verification_case(id,purpose,subject_id,space_id,document_expires_at) VALUES($1,$2,$3,NULLIF($4,'')::uuid,$5)`, x.ID, purpose, actor, space, nullTime(x.DocumentExpiresAt)); err != nil {
+	if purpose == dv.PurposeIdentity {
+		if x.IdentityDeclarationRevisionID != auth.IdentityDeclarationRevisionID || !validUUID(x.IdentityDeclarationRevisionID) ||
+			(x.DocumentFormatDeclared != dv.DocumentFormatLegacy && x.DocumentFormatDeclared != dv.DocumentFormatNew && x.DocumentFormatDeclared != dv.DocumentFormatUnsure) ||
+			x.CaptureConsentVersion != dv.IdentityCaptureConsentVersion || x.CaptureConsentedAt.IsZero() || !x.DocumentExpiresAt.IsZero() {
+			return dv.Snapshot{}, dv.ErrInvalid
+		}
+		existing, lookupErr := scanSnapshot(tx.QueryRow(ctx, `SELECT id::text,purpose,subject_id::text,space_id::text,state,revision,COALESCE(reviewer_id::text,''),verified_at,verified_until,document_expires_at,revoked_at,superseded_at,COALESCE(identity_declaration_revision_id::text,''),COALESCE(document_format_declared,''),COALESCE(capture_consent_version,''),capture_consented_at,COALESCE(document_format_observed,'')
+			FROM public.document_verification_case
+			WHERE purpose='identity' AND subject_id=$1 AND identity_declaration_revision_id=$2
+			  AND state IN ('borrador','enviada','en_revision','requiere_antecedentes')
+			ORDER BY updated_at DESC,id DESC LIMIT 1 FOR UPDATE`, actor, auth.IdentityDeclarationRevisionID))
+		if lookupErr == nil {
+			if existing.SubjectID != actor || existing.IdentityDeclarationRevisionID != x.IdentityDeclarationRevisionID ||
+				existing.DocumentFormatDeclared != x.DocumentFormatDeclared || existing.CaptureConsentVersion != x.CaptureConsentVersion {
+				return dv.Snapshot{}, dv.ErrConflict
+			}
+			if err = loadFiles(ctx, tx, &existing); err != nil {
+				return dv.Snapshot{}, err
+			}
+			if err = tx.Commit(ctx); err != nil {
+				return dv.Snapshot{}, mapError(err)
+			}
+			return existing, nil
+		}
+		if !errors.Is(lookupErr, pgx.ErrNoRows) {
+			return dv.Snapshot{}, mapError(lookupErr)
+		}
+	} else if x.IdentityDeclarationRevisionID != "" || x.DocumentFormatDeclared != "" ||
+		x.CaptureConsentVersion != "" || !x.CaptureConsentedAt.IsZero() {
+		return dv.Snapshot{}, dv.ErrInvalid
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO public.document_verification_case(id,purpose,subject_id,space_id,document_expires_at,identity_declaration_revision_id,document_format_declared,capture_consent_version,capture_consented_at) VALUES($1,$2,$3,NULLIF($4,'')::uuid,$5,NULLIF($6,'')::uuid,NULLIF($7,''),NULLIF($8,''),$9)`, x.ID, purpose, actor, space, nullTime(x.DocumentExpiresAt), x.IdentityDeclarationRevisionID, x.DocumentFormatDeclared, x.CaptureConsentVersion, nullTime(x.CaptureConsentedAt)); err != nil {
 		return dv.Snapshot{}, mapError(err)
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO public.document_verification_event(case_id,purpose,subject_id,actor_id,action,to_state,result_code,revision) VALUES($1,$2,$3,$4,'case_created',$5,$5,1)`, x.ID, purpose, actor, actor, x.State); err != nil {
@@ -106,6 +188,10 @@ func (r *Repository) CreateCase(ctx context.Context, actor string, purpose dv.Pu
 func (r *Repository) Transition(ctx context.Context, actor string, purpose dv.Purpose, id string, revision uint64, audit dv.TransitionAudit, change func(*dv.Snapshot, dv.Authorization) error) error {
 	if r == nil || r.transactions == nil || !validUUID(actor) || !validUUID(id) || revision == 0 || change == nil {
 		return dv.ErrInvalid
+	}
+	identityObservations, err := reviewerIdentityObservations(purpose, audit)
+	if err != nil {
+		return err
 	}
 	tx, err := r.transactions.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
@@ -131,19 +217,13 @@ func (r *Repository) Transition(ctx context.Context, actor string, purpose dv.Pu
 			return err
 		}
 	}
-	var x dv.Snapshot
-	var spaceID *string
-	err = tx.QueryRow(ctx, `SELECT id::text,purpose,subject_id::text,space_id::text,state,revision,COALESCE(reviewer_id::text,''),verified_at,verified_until,document_expires_at,revoked_at,superseded_at FROM public.document_verification_case WHERE id=$1 AND purpose=$2 FOR UPDATE`, id, purpose).Scan(&x.ID, &x.Purpose, &x.SubjectID, &spaceID, &x.State, &x.Revision, &x.ReviewerID, &nullableT{v: &x.VerifiedAt}, &nullableT{v: &x.VerifiedUntil}, &nullableT{v: &x.DocumentExpiresAt}, &nullablePT{v: &x.RevokedAt}, &nullablePT{v: &x.SupersededAt})
+	x, err := scanSnapshot(tx.QueryRow(ctx, `SELECT id::text,purpose,subject_id::text,space_id::text,state,revision,COALESCE(reviewer_id::text,''),verified_at,verified_until,document_expires_at,revoked_at,superseded_at,COALESCE(identity_declaration_revision_id::text,''),COALESCE(document_format_declared,''),COALESCE(capture_consent_version,''),capture_consented_at,COALESCE(document_format_observed,'') FROM public.document_verification_case WHERE id=$1 AND purpose=$2 FOR UPDATE`, id, purpose))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return dv.ErrNotFound
 	}
 	if err != nil {
 		return err
 	}
-	if spaceID != nil {
-		x.SpaceID = *spaceID
-	}
-
 	auth := dv.Authorization{ActorID: actor, SubjectID: x.SubjectID}
 	if purpose == dv.PurposeSpace {
 		if !currentSubjectOwnsSpace || x.SubjectID != scopeSubject {
@@ -151,6 +231,23 @@ func (r *Repository) Transition(ctx context.Context, actor string, purpose dv.Pu
 		}
 		auth.SpaceOwnerID = scopeSubject
 		if x.SupersededAt != nil || auth.SpaceOwnerID != x.SubjectID {
+			return dv.ErrConflict
+		}
+	}
+	auth.ReviewerGrants, err = r.loadReviewerGrants(ctx, tx, actor)
+	if err != nil {
+		return err
+	}
+	if actor != x.SubjectID && !reviewerGrantMatches(auth.ReviewerGrants, actor, x) {
+		return dv.ErrNotFound
+	}
+	if purpose == dv.PurposeIdentity && (audit.Action == "review_decision" ||
+		(audit.Action == "case_transitioned" && audit.ResultCode == string(dv.CaseSubmitted))) {
+		current, currentErr := identityDeclarationRevisionCurrent(ctx, tx, x.SubjectID, x.IdentityDeclarationRevisionID)
+		if currentErr != nil {
+			return currentErr
+		}
+		if !current {
 			return dv.ErrConflict
 		}
 	}
@@ -162,10 +259,6 @@ func (r *Repository) Transition(ctx context.Context, actor string, purpose dv.Pu
 		if err != nil {
 			return err
 		}
-	}
-	auth.ReviewerGrants, err = r.loadReviewerGrants(ctx, tx, actor)
-	if err != nil {
-		return err
 	}
 	if x.Revision != revision {
 		return dv.ErrConflict
@@ -179,14 +272,20 @@ func (r *Repository) Transition(ctx context.Context, actor string, purpose dv.Pu
 	if err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `UPDATE public.document_verification_case SET state=$1,revision=revision+1,reviewer_id=NULLIF($2,'')::uuid,verified_at=$3,verified_until=$4,revoked_at=$5,updated_at=now() WHERE id=$6 AND revision=$7`, x.State, x.ReviewerID, nullTime(x.VerifiedAt), nullTime(x.VerifiedUntil), x.RevokedAt, id, revision); err != nil {
+	updateSQL := `UPDATE public.document_verification_case SET state=$1,revision=revision+1,reviewer_id=NULLIF($2,'')::uuid,verified_at=$3,verified_until=$4,revoked_at=$5,identity_declaration_revision_id=CASE WHEN purpose='identity' AND $1 IN ('rechazada','vencida','revocada') THEN NULL ELSE identity_declaration_revision_id END,updated_at=now() WHERE id=$6 AND revision=$7`
+	updateArgs := []any{x.State, x.ReviewerID, nullTime(x.VerifiedAt), nullTime(x.VerifiedUntil), x.RevokedAt, id, revision}
+	if purpose == dv.PurposeIdentity && audit.Action == "review_decision" {
+		updateSQL = `UPDATE public.document_verification_case SET state=$1,revision=revision+1,reviewer_id=NULLIF($2,'')::uuid,verified_at=$3,verified_until=$4,revoked_at=$5,identity_declaration_revision_id=CASE WHEN purpose='identity' AND $1 IN ('rechazada','vencida','revocada') THEN NULL ELSE identity_declaration_revision_id END,document_format_observed=$8,document_expires_at=$9,updated_at=now() WHERE id=$6 AND revision=$7`
+		updateArgs = append(updateArgs, audit.DocumentFormatObserved, nullTime(audit.DocumentExpiresAtObserved))
+	}
+	if _, err = tx.Exec(ctx, updateSQL, updateArgs...); err != nil {
 		return mapError(err)
 	}
 	if len(addedFiles) == 0 || before != x.State {
 		if audit.Action == "" || audit.ResultCode == "" {
 			return dv.ErrInvalid
 		}
-		if _, err = tx.Exec(ctx, `INSERT INTO public.document_verification_event(case_id,purpose,subject_id,actor_id,action,from_state,to_state,result_code,reason_code,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,'') ,$10)`, id, purpose, x.SubjectID, actor, audit.Action, before, x.State, audit.ResultCode, audit.ReasonCode, revision+1); err != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO public.document_verification_event(case_id,purpose,subject_id,actor_id,action,from_state,to_state,result_code,reason_code,revision,identity_review_observations) VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULLIF($9,'') ,$10,NULLIF($11,'')::jsonb)`, id, purpose, x.SubjectID, actor, audit.Action, before, x.State, audit.ResultCode, audit.ReasonCode, revision+1, identityObservations); err != nil {
 			return mapError(err)
 		}
 	}
@@ -210,13 +309,13 @@ func (r *Repository) ListOwnCases(ctx context.Context, actor string) ([]dv.Snaps
 	if err = lockActor(ctx, tx, actor); err != nil {
 		return nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.subject_id=$1 AND c.superseded_at IS NULL AND (c.purpose='identity' OR (c.purpose='space' AND document_verification_private.document_verification_space_owned_by(c.space_id,$1::uuid))) ORDER BY c.updated_at DESC,c.id`, actor)
+	rows, err := tx.Query(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at,COALESCE(c.identity_declaration_revision_id::text,''),COALESCE(c.document_format_declared,''),COALESCE(c.capture_consent_version,''),c.capture_consented_at,COALESCE(c.document_format_observed,''),COALESCE(owner_decision.reason_code,'') FROM public.document_verification_case c `+ownerDecisionReasonJoin+` WHERE c.subject_id=$1 AND c.superseded_at IS NULL AND (c.purpose='identity' OR (c.purpose='space' AND document_verification_private.document_verification_space_owned_by(c.space_id,$1::uuid))) ORDER BY c.updated_at DESC,c.id`, actor)
 	if err != nil {
 		return nil, mapError(err)
 	}
 	cases := make([]dv.Snapshot, 0)
 	for rows.Next() {
-		x, scanErr := scanSnapshot(rows)
+		x, scanErr := scanOwnerSnapshot(rows)
 		if scanErr != nil {
 			rows.Close()
 			return nil, scanErr
@@ -251,7 +350,7 @@ func (r *Repository) LoadOwnCase(ctx context.Context, actor, id string) (dv.Snap
 	if err = lockActor(ctx, tx, actor); err != nil {
 		return dv.Snapshot{}, err
 	}
-	x, err := scanSnapshot(tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.id=$1 AND c.subject_id=$2 AND c.superseded_at IS NULL AND (c.purpose='identity' OR (c.purpose='space' AND document_verification_private.document_verification_space_owned_by(c.space_id,$2::uuid)))`, id, actor))
+	x, err := scanOwnerSnapshot(tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at,COALESCE(c.identity_declaration_revision_id::text,''),COALESCE(c.document_format_declared,''),COALESCE(c.capture_consent_version,''),c.capture_consented_at,COALESCE(c.document_format_observed,''),COALESCE(owner_decision.reason_code,'') FROM public.document_verification_case c `+ownerDecisionReasonJoin+` WHERE c.id=$1 AND c.subject_id=$2 AND c.superseded_at IS NULL AND (c.purpose='identity' OR (c.purpose='space' AND document_verification_private.document_verification_space_owned_by(c.space_id,$2::uuid)))`, id, actor))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return dv.Snapshot{}, dv.ErrNotFound
 	}
@@ -286,8 +385,7 @@ func (r *Repository) WithSpaceCaseForDownload(ctx context.Context, actor, id str
 		return err
 	}
 	defer tx.Rollback(context.Background())
-	var x dv.Snapshot
-	err = tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at FROM public.document_verification_case c WHERE c.id=$1 AND c.purpose='space' AND c.superseded_at IS NULL AND document_verification_private.document_verification_lock_space_owner(c.space_id,$2::uuid)`, id, actor).Scan(&x.ID, &x.Purpose, &x.SubjectID, &x.SpaceID, &x.State, &x.Revision, &x.ReviewerID, &nullableT{v: &x.VerifiedAt}, &nullableT{v: &x.VerifiedUntil}, &nullableT{v: &x.DocumentExpiresAt}, &nullablePT{v: &x.RevokedAt}, &nullablePT{v: &x.SupersededAt})
+	x, err := scanSnapshot(tx.QueryRow(ctx, `SELECT c.id::text,c.purpose,c.subject_id::text,c.space_id::text,c.state,c.revision,COALESCE(c.reviewer_id::text,''),c.verified_at,c.verified_until,c.document_expires_at,c.revoked_at,c.superseded_at,COALESCE(c.identity_declaration_revision_id::text,''),COALESCE(c.document_format_declared,''),COALESCE(c.capture_consent_version,''),c.capture_consented_at,COALESCE(c.document_format_observed,'') FROM public.document_verification_case c WHERE c.id=$1 AND c.purpose='space' AND c.superseded_at IS NULL AND document_verification_private.document_verification_lock_space_owner(c.space_id,$2::uuid)`, id, actor))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return dv.ErrNotFound
 	}
@@ -343,9 +441,21 @@ type snapshotScanner interface {
 }
 
 func scanSnapshot(row snapshotScanner) (dv.Snapshot, error) {
+	return scanSnapshotColumns(row, false)
+}
+
+func scanOwnerSnapshot(row snapshotScanner) (dv.Snapshot, error) {
+	return scanSnapshotColumns(row, true)
+}
+
+func scanSnapshotColumns(row snapshotScanner, withOwnerDecisionReason bool) (dv.Snapshot, error) {
 	var x dv.Snapshot
 	var spaceID *string
-	err := row.Scan(&x.ID, &x.Purpose, &x.SubjectID, &spaceID, &x.State, &x.Revision, &x.ReviewerID, &nullableT{v: &x.VerifiedAt}, &nullableT{v: &x.VerifiedUntil}, &nullableT{v: &x.DocumentExpiresAt}, &nullablePT{v: &x.RevokedAt}, &nullablePT{v: &x.SupersededAt})
+	destinations := []any{&x.ID, &x.Purpose, &x.SubjectID, &spaceID, &x.State, &x.Revision, &x.ReviewerID, &nullableT{v: &x.VerifiedAt}, &nullableT{v: &x.VerifiedUntil}, &nullableT{v: &x.DocumentExpiresAt}, &nullablePT{v: &x.RevokedAt}, &nullablePT{v: &x.SupersededAt}, &x.IdentityDeclarationRevisionID, &x.DocumentFormatDeclared, &x.CaptureConsentVersion, &nullableT{v: &x.CaptureConsentedAt}, &x.DocumentFormatObserved}
+	if withOwnerDecisionReason {
+		destinations = append(destinations, &x.OwnerDecisionReason)
+	}
+	err := row.Scan(destinations...)
 	if spaceID != nil {
 		x.SpaceID = *spaceID
 	}
@@ -432,11 +542,22 @@ func identityCurrent(ctx context.Context, tx pgx.Tx, subject string) (bool, erro
  WHERE purpose='identity' AND subject_id=$1 AND state IN ('aprobada','revocada','vencida')
  ORDER BY updated_at DESC,id DESC LIMIT 1 FOR SHARE
 ) current_case WHERE state='aprobada' AND verified_at<=now() AND verified_until>now()
- AND document_expires_at>now() AND revoked_at IS NULL`, subject).Scan(&id)
+ AND document_expires_at>now() AND revoked_at IS NULL
+ AND current_case.identity_declaration_revision_id=(
+  SELECT revision.id FROM public.identity_declaration_revision revision
+  WHERE revision.account_id=current_case.subject_id
+  ORDER BY revision.revision DESC LIMIT 1
+ )`, subject).Scan(&id)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return false, nil
 	}
 	return e == nil, e
+}
+
+func identityDeclarationRevisionCurrent(ctx context.Context, tx pgx.Tx, subject, declarationID string) (bool, error) {
+	var current bool
+	err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT revision.id::text=$2 FROM public.identity_declaration_revision revision WHERE revision.account_id=$1 ORDER BY revision.revision DESC LIMIT 1), false)`, subject, declarationID).Scan(&current)
+	return current, err
 }
 
 func (r *Repository) CurrentForAccount(ctx context.Context, accountID string) (identityverification.Verification, error) {
@@ -451,10 +572,15 @@ func (r *Repository) CurrentForAccount(ctx context.Context, accountID string) (i
 	var current identityverification.Verification
 	current.Kind = identityverification.KindIdentityDocument
 	current.ReviewMethod = identityverification.ReviewMethodManualDocuments
-	err = tx.QueryRow(ctx, `SELECT subject_id::text,state,verified_at,verified_until,revoked_at
-		FROM public.document_verification_case
-		WHERE purpose='identity' AND subject_id=$1 AND state IN ('aprobada','revocada','vencida')
-		ORDER BY updated_at DESC,id DESC LIMIT 1`, accountID).Scan(
+	err = tx.QueryRow(ctx, `SELECT current_case.subject_id::text,current_case.state,current_case.verified_at,current_case.verified_until,current_case.revoked_at
+		FROM public.document_verification_case current_case
+		WHERE current_case.purpose='identity' AND current_case.subject_id=$1 AND current_case.state IN ('aprobada','revocada','vencida')
+		  AND current_case.identity_declaration_revision_id=(
+			SELECT revision.id FROM public.identity_declaration_revision revision
+			WHERE revision.account_id=current_case.subject_id
+			ORDER BY revision.revision DESC LIMIT 1
+		  )
+		ORDER BY current_case.updated_at DESC,current_case.id DESC LIMIT 1`, accountID).Scan(
 		&current.SubjectID, &current.State,
 		&nullableT{v: &current.VerifiedAt}, &nullableT{v: &current.ExpiresAt}, &nullablePT{v: &current.RevokedAt},
 	)

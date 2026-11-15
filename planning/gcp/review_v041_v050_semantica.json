@@ -1,0 +1,282 @@
+[
+  {
+    "version": 41,
+    "filename": "V000041__local_admin_account_block.sql",
+    "sha256": "4e31876d355c374c61f335f199441647ffc68fc7991bd3404596c7005cd6db58",
+    "behavior": "Bloqueo administrativo activo separado de historial append-only.",
+    "objects": "bloqueo_cuenta_administrativo_local; bloqueo_cuenta_historial_local",
+    "dependencies": "usuario y gobierno local",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "usuario/cuentas y actores existentes",
+    "consumer_refs": [
+      {
+        "path": "internal/adminlocal/service.go",
+        "line": 85,
+        "excerpt": "if _, err = tx.Exec(ctx, `INSERT INTO public.bloqueo_cuenta_administrativo_local(cuenta_id,bloqueada_por,motivo_codigo,bloqueada_en,correlacion_id) VALUES($1,$2,$3,$4,$5)`, accountID, actor, reason, at, correlation); err != nil {",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/admin_local_integration_test.go",
+        "line": 20,
+        "excerpt": "func TestLocalAdminBlockRevokesSessionsAndAllowsOnlyRestrictedLogin(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 42,
+    "filename": "V000042__admin_block_privacy_minimization.sql",
+    "sha256": "0bc20128faf1e745ad7d9d5e95b4b4596a06ccf2be00ebd12946bb274ba9a512",
+    "behavior": "Desvincula actor al retirar identidad, permitiendo NULL en historial y bloqueador sin borrar estado/evento.",
+    "objects": "bloqueo_cuenta_historial_local.actor_id; bloqueo_cuenta_administrativo_local.bloqueada_por",
+    "dependencies": "V41",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "tablas V41 existentes",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/suppression.go",
+        "line": 342,
+        "excerpt": "if _, err = tx.Exec(ctx, `UPDATE public.reporte_resena_historial_local SET actor_id=NULL WHERE actor_id=$1`, subjectID); err != nil {",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/admin_local_integration_test.go",
+        "line": 266,
+        "excerpt": "func TestSuppressionExportsAndMinimizesAdministrativeAccountBlock(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 43,
+    "filename": "V000043__local_admin_financial_audit_actions.sql",
+    "sha256": "cc4105234f80e6d27152ecf7ec35c50838789fc58c5b07d7e82209bb151eded4",
+    "behavior": "Amplía la allowlist de idempotencia de la auditoría a operaciones financieras locales; no crea outbox.",
+    "objects": "evento_auditoria_local.evento_auditoria_idempotencia_ck",
+    "dependencies": "auditoría y operaciones financieras previas",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "evento_auditoria_local y constraint existentes",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/settlement.go",
+        "line": 154,
+        "excerpt": "if err = appendFinancialAdminAudit(ctx, tx, host, reservationID, \"local.finance.settlement\", \"liquidacion_local_solicitada\", key, now); err != nil {",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+        "line": 109,
+        "excerpt": "func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 44,
+    "filename": "V000044__local_fake_settlement_receipt.sql",
+    "sha256": "f3ff70285a2c020b930eb34104be3c600cc0aeeb98f15cdd82f9b949a8addabf",
+    "behavior": "Añade snapshots y liquidación fake CLP 0%, operación, resultado, comprobante e historial; fija retención de reservas terminales a 24 meses.",
+    "objects": "cotizacion_reserva_ensayo; reserva_ensayo_local; reserva_liquidacion_*; reserva_comprobante_ensayo_local; reserva_finanzas_historial_ensayo_local; evento_auditoria_local; schedule_local_reservation_link_retention",
+    "dependencies": "tablas/reserva/auditoría previas",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "tablas y columnas previas; backfill solo reservas finalizadas",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/settlement.go",
+        "line": 139,
+        "excerpt": "_, err = tx.Exec(ctx, `INSERT INTO public.reserva_liquidacion_ensayo_local(id,reserva_id,anfitrion_id,politica_version,moneda,arriendo_confirmado_clp,devoluciones_confirmadas_clp,comision_bps,comision_clp,transferencia_clp,estado,clave_idempotencia,huella_solicitud,creada_en,actualizada_en)",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+        "line": 109,
+        "excerpt": "func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 45,
+    "filename": "V000045__local_settlement_privacy_obligations.sql",
+    "sha256": "8a7f12beb68ddaa7c5d063b2659b4c1a851fefffaac8f3db91e76f451bb54754",
+    "behavior": "Admite liquidacion_pendiente como obligación estructurada en auditoría de supresión, preservando whitelist JSON.",
+    "objects": "evento_auditoria_local.evento_auditoria_codigos_ck",
+    "dependencies": "auditoría/supresión previas",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "tabla y constraint anteriores",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/suppression.go",
+        "line": 57,
+        "excerpt": "{\"liquidacion_pendiente\", `SELECT EXISTS (",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+        "line": 1521,
+        "excerpt": "func TestSuppressionAndRetentionPreserveUnstartedSettlementObligation(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 46,
+    "filename": "V000046__local_close_durable_notices.sql",
+    "sha256": "74e70bad1a0fb0d99dfb25a66e5dae169d957c62914e879fda18489501ab5736",
+    "behavior": "Amplía constraints de avisos y agrega triggers para eventos locales de login, verificación, pago, firma e invitación.",
+    "objects": "aviso_local; enqueue_login_lock_notice; enqueue_verification_result_notice; enqueue_booking_payment_notices; enqueue_contract_signature_notices; enqueue_contract_complete_notices",
+    "dependencies": "aviso_local, enqueue_local_notice y tablas fuente previas",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "tablas/columnas, función y constraints previos",
+    "consumer_refs": [
+      {
+        "path": "internal/localnotice/service.go",
+        "line": 133,
+        "excerpt": "case \"pago_arriendo_confirmado\":",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+        "line": 373,
+        "excerpt": "if e = pool.QueryRow(ctx, `SELECT count(*) FROM public.aviso_local WHERE tipo_evento='pago_arriendo_confirmado' AND agregado_id=$1 AND destinatario_id=$2`, secondReservation, renter).Scan(&count); e != nil || count != 1 {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 47,
+    "filename": "V000047__local_privacy_retention_purgers.sql",
+    "sha256": "cdde799f60c3648c26e1cc943a3ef53b0d09814e3b38e050720a87d6139dd8c9",
+    "behavior": "Agrega referencias/deadlines de archivos, cola durable y funciones SECURITY DEFINER para purga, claim, finalización y reintento.",
+    "objects": "verificacion_evidencia_sintetica; verificacion_archivo_retiro_pendiente_local; funciones purge/claim/complete/fail; trigger",
+    "dependencies": "V46 y tablas de privacidad, términos, verificaciones y bajas",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "filas/relaciones preexistentes para backfill",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/local_retention.go",
+        "line": 16,
+        "excerpt": "FROM public.purge_expired_local_privacy_rows($1,$2)`, at.UTC(), limit).",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+        "line": 572,
+        "excerpt": "func TestRatifiedLocalRetentionPurgesDueRowsAndRecoversPrivateFileDeletion(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 48,
+    "filename": "V000048__local_defense_synthetic_evidence.sql",
+    "sha256": "4da2568b0aa12f228da51ebf3570a0e61f72a200d08a73823d578f80bb00ebee",
+    "behavior": "Permite descargo en operaciones/evidencias, valida campos por tipo y agrega deadline de retención a evidencia de descargo.",
+    "objects": "operacion_arriendo_ensayo_local; operacion_arriendo_archivo_candidato_local; operacion_arriendo_evidencia_ensayo_local; operacion_arriendo_historial_ensayo_local",
+    "dependencies": "operaciones, evidencia y reservas previas",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "tablas y constraints existentes",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/operations/repository.go",
+        "line": 223,
+        "excerpt": "_, err = w.tx.Exec(ctx, `INSERT INTO public.operacion_arriendo_evidencia_ensayo_local",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+        "line": 274,
+        "excerpt": "func TestSyntheticDamageDefenseEvidenceRetentionUsesRecoverableCleanup(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 49,
+    "filename": "V000049__local_m04_gallery_cover.sql",
+    "sha256": "2327da85443e0b4e182c02b94341e9288ee37a3e3ac8b3354bcfb4b12e423f64",
+    "behavior": "Agrega portada_foto_id y FK compuesta; solo acepta foto galería del mismo espacio/propietario; legado queda NULL.",
+    "objects": "espacio.portada_foto_id; espacio_galeria_cover_owner_uq; espacio_portada_galeria_fk",
+    "dependencies": "espacio y galería sintética",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "tablas existentes y unique compuesta referenciada",
+    "consumer_refs": [
+      {
+        "path": "internal/adminglobal/publications.go",
+        "line": 201,
+        "excerpt": "err = tx.QueryRow(ctx, `UPDATE public.espacio SET titulo=COALESCE($3,titulo),descripcion=COALESCE($4,descripcion),capacidad_maxima=COALESCE($5,capacidad_maxima),reglas_uso=COALESCE($6,reglas_uso),precio_base_clp=COALESCE($7,precio_base_clp),ubicacion_catalogo_version=CASE WHEN $8 THEN CASE WHEN $9='' THEN NULL ELSE 'SUBDERE_DPA_2018' END ELSE ubicacion_catalogo_version END,region_codigo=CASE WHEN $8 THEN NULLIF($9,'') ELSE region_codigo END,comuna_codigo=CASE WHEN $8 THEN NULLIF($10,'') ELSE comuna_codigo END,portada_foto_id=CASE WHEN $11 THEN $12::uuid ELSE portada_foto_id END,actualizado_en=GREATEST(clock_timestamp(),actualizado_en+interval '1 microsecond') WHERE id=$1 AND propietario_id=$2 AND actualizado_en=$13 RETURNING actualizado_en`, id, owner, in.Title, in.Description, in.Capacity, in.UsageRules, price, in.RegionCode != nil, coalesceString(in.RegionCode), coalesceString(in.CommuneCode), in.CoverPhotoID != nil, cover, in.ExpectedUpdatedAt.UTC()).Scan(&updatedAt)",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+        "line": 113,
+        "excerpt": "func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  },
+  {
+    "version": 50,
+    "filename": "V000050__local_publication_retirement.sql",
+    "sha256": "1ba7ea88a0cb0d8b663f7756655d91104c5f266c0aae5bf6e749bcacb8bcd02e",
+    "behavior": "Permite estado eliminada y registra retiro lógico append-only, único por espacio, conservando fila y FKs históricos.",
+    "objects": "espacio.estado; espacio_eliminacion_historial_local; prevent_local_space_deletion_history_mutation; trigger append-only",
+    "dependencies": "espacio y usuario previos",
+    "authority": "Migración DDL; permisos de runtime definidos por el contrato existente, sin elevar autoridad.",
+    "data_preconditions": "actor/espacio existentes; resumen contiene removed/preserved",
+    "consumer_refs": [
+      {
+        "path": "internal/adapters/postgres/spaces/repository.go",
+        "line": 315,
+        "excerpt": "if _, err = tx.Exec(ctx, `INSERT INTO public.espacio_eliminacion_historial_local(espacio_id,actor_id,ocurrida_en,correlacion_id,archivos_pendientes,resumen) VALUES($1,$2,$3,$4,$5,$6::jsonb)`, id, actor, now, correlationID, filesPending, encoded); err != nil {",
+        "reason": "Consumidor Go SQL real."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+        "line": 113,
+        "excerpt": "func TestLocalPublicationAllowsUnverifiedOwnerAndRecordsOwnerTransitions(t *testing.T) {",
+        "reason": "Prueba de integración persistente definida en fuente."
+      }
+    ],
+    "status": "auditoría de fuente; no ejecutada en base de datos",
+    "issues": []
+  }
+]

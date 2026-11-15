@@ -1,9 +1,11 @@
 package documentverificationpg
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/adapters/documentfs"
@@ -19,12 +21,17 @@ type retentionFake struct {
 	processed       int
 	retryDelay      time.Duration
 	retryCode       string
+	claimErr        error
 	err             error
+	afterClaim      func()
 }
 
 func (f *retentionFake) ClaimReadyRetentionJob(_ context.Context, d time.Duration) (*RetentionClaim, error) {
 	f.claimed = d
-	return f.claim, nil
+	if f.afterClaim != nil {
+		f.afterClaim()
+	}
+	return f.claim, f.claimErr
 }
 func (f *retentionFake) ProcessClaimedRetentionJob(ctx context.Context, _ RetentionClaim, deleteObject func(context.Context) error, retryDelay time.Duration) error {
 	f.processed++
@@ -39,31 +46,50 @@ func (f *retentionFake) ProcessClaimedRetentionJob(ctx context.Context, _ Retent
 }
 
 type retentionStoreFake struct {
-	identity, space int
-	err             error
+	identity, space                             int
+	err                                         error
+	identitySubject, identityCase, identityFile string
+	spaceSubject, spaceID, spaceCase, spaceFile string
 }
 
-func (f *retentionStoreFake) DeleteIdentityDocument(context.Context, string, string, string) error {
+func (f *retentionStoreFake) DeleteIdentityDocument(_ context.Context, subjectID, caseID, fileID string) error {
 	f.identity++
+	f.identitySubject, f.identityCase, f.identityFile = subjectID, caseID, fileID
 	return f.err
 }
-func (f *retentionStoreFake) DeleteSpaceDocument(context.Context, string, string, string, string) error {
+func (f *retentionStoreFake) DeleteSpaceDocument(_ context.Context, subjectID, spaceID, caseID, fileID string) error {
 	f.space++
+	f.spaceSubject, f.spaceID, f.spaceCase, f.spaceFile = subjectID, spaceID, caseID, fileID
 	return f.err
 }
 func retentionClaim(p dv.Purpose) *RetentionClaim {
 	return &RetentionClaim{JobID: "j", FileID: "f", CaseID: "c", SubjectID: "o", Purpose: p, SpaceID: "s", LeaseUntil: time.Now().Add(time.Minute)}
 }
 func TestRetentionProcessorRoutesIdentityAndSpaceDeletes(t *testing.T) {
-	for _, p := range []dv.Purpose{dv.PurposeIdentity, dv.PurposeSpace} {
-		j := &retentionFake{claim: retentionClaim(p)}
+	for _, tc := range []struct {
+		purpose                            dv.Purpose
+		subjectID, spaceID, caseID, fileID string
+	}{
+		{dv.PurposeIdentity, "identity-subject", "identity-space-unused", "identity-case", "identity-file"},
+		{dv.PurposeSpace, "space-subject", "space-scope", "space-case", "space-file"},
+	} {
+		claim := retentionClaim(tc.purpose)
+		claim.SubjectID, claim.SpaceID, claim.CaseID, claim.FileID = tc.subjectID, tc.spaceID, tc.caseID, tc.fileID
+		j := &retentionFake{claim: claim}
 		s := &retentionStoreFake{}
 		proc := NewRetentionProcessor(j, s, time.Minute, time.Second)
 		if err := proc.ProcessOne(context.Background()); err != nil {
 			t.Fatal(err)
 		}
-		if j.complete != 1 || s.identity != boolInt(p == dv.PurposeIdentity) || s.space != boolInt(p == dv.PurposeSpace) {
-			t.Fatalf("purpose=%s jobs=%+v store=%+v", p, j, s)
+		if j.complete != 1 || s.identity != boolInt(tc.purpose == dv.PurposeIdentity) || s.space != boolInt(tc.purpose == dv.PurposeSpace) {
+			t.Fatalf("purpose=%s jobs=%+v store=%+v", tc.purpose, j, s)
+		}
+		if tc.purpose == dv.PurposeIdentity {
+			if s.identitySubject != tc.subjectID || s.identityCase != tc.caseID || s.identityFile != tc.fileID || s.spaceSubject != "" {
+				t.Fatalf("identity delete scope=(%q,%q,%q), space call subject=%q", s.identitySubject, s.identityCase, s.identityFile, s.spaceSubject)
+			}
+		} else if s.spaceSubject != tc.subjectID || s.spaceID != tc.spaceID || s.spaceCase != tc.caseID || s.spaceFile != tc.fileID || s.identitySubject != "" {
+			t.Fatalf("space delete scope=(%q,%q,%q,%q), identity call subject=%q", s.spaceSubject, s.spaceID, s.spaceCase, s.spaceFile, s.identitySubject)
 		}
 	}
 }
@@ -80,6 +106,41 @@ func TestRetentionProcessorUsesFencedDeletionOperation(t *testing.T) {
 	}
 }
 
+func TestRetentionProcessorRejectsUnknownPurposeWithoutDeleting(t *testing.T) {
+	claim := retentionClaim(dv.Purpose("unknown-purpose"))
+	jobs := &retentionFake{claim: claim}
+	storage := &retentionStoreFake{}
+	processor := NewRetentionProcessor(jobs, storage, time.Minute, time.Second)
+
+	if err := processor.ProcessOne(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if jobs.processed != 1 || jobs.retry != 1 || jobs.complete != 0 || jobs.retryCode != retentionStoreError {
+		t.Fatalf("processed=%d retry=%d complete=%d retry code=%q", jobs.processed, jobs.retry, jobs.complete, jobs.retryCode)
+	}
+	if storage.identity != 0 || storage.space != 0 {
+		t.Fatalf("unknown purpose deleted objects: identity=%d space=%d", storage.identity, storage.space)
+	}
+}
+
+func TestRetentionProcessorRejectsSpaceClaimWithoutScope(t *testing.T) {
+	claim := retentionClaim(dv.PurposeSpace)
+	claim.SpaceID = ""
+	jobs := &retentionFake{claim: claim}
+	storage := &retentionStoreFake{}
+	processor := NewRetentionProcessor(jobs, storage, time.Minute, time.Second)
+
+	if err := processor.ProcessOne(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if jobs.processed != 1 || jobs.retry != 1 || jobs.complete != 0 || jobs.retryCode != retentionStoreError {
+		t.Fatalf("processed=%d retry=%d complete=%d retry code=%q", jobs.processed, jobs.retry, jobs.complete, jobs.retryCode)
+	}
+	if storage.identity != 0 || storage.space != 0 {
+		t.Fatalf("claim without space scope deleted objects: identity=%d space=%d", storage.identity, storage.space)
+	}
+}
+
 func TestRetentionProcessorRetriesStorageFailure(t *testing.T) {
 	j := &retentionFake{claim: retentionClaim(dv.PurposeIdentity)}
 	s := &retentionStoreFake{err: errors.New("disk")}
@@ -88,6 +149,55 @@ func TestRetentionProcessorRetriesStorageFailure(t *testing.T) {
 	}
 	if j.retry != 1 || j.complete != 0 {
 		t.Fatalf("retry=%d complete=%d", j.retry, j.complete)
+	}
+}
+
+func TestRetentionProcessorRetriesWhenPrivateStoreRejectsUnsafeScope(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "private-documents")
+	store, err := documentfs.New(root, make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		jobID     = "11111111-1111-4111-8111-111111111111"
+		fileID    = "22222222-2222-4222-8222-222222222222"
+		caseID    = "33333333-3333-4333-8333-333333333333"
+		subjectID = "44444444-4444-4444-8444-444444444444"
+	)
+	ctx := context.Background()
+	content := []byte("synthetic identity evidence")
+	if err := store.PutIdentityDocument(ctx, subjectID, caseID, fileID, content); err != nil {
+		t.Fatal(err)
+	}
+	objectPath := filepath.Join(root, "users", subjectID, "identity", caseID, fileID+".bin")
+	before, err := os.ReadFile(objectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(objectPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	claim := retentionClaim(dv.PurposeIdentity)
+	claim.JobID, claim.FileID, claim.CaseID, claim.SubjectID = jobID, fileID, caseID, subjectID
+	jobs := &retentionFake{claim: claim}
+	processor := NewRetentionProcessor(jobs, store, time.Minute, time.Second)
+
+	if err := processor.ProcessOne(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if jobs.processed != 1 || jobs.retry != 1 || jobs.complete != 0 || jobs.retryCode != retentionStoreError || jobs.retryDelay != time.Second {
+		t.Fatalf("processed=%d retry=%d complete=%d retry code=%q delay=%s", jobs.processed, jobs.retry, jobs.complete, jobs.retryCode, jobs.retryDelay)
+	}
+	dirInfo, err := os.Stat(filepath.Dir(objectPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirInfo.Mode().Perm() != 0o755 {
+		t.Fatalf("unsafe scope directory mode after rejected delete=%v, want 0755", dirInfo.Mode().Perm())
+	}
+	after, err := os.ReadFile(objectPath)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("stored envelope after rejected deletion changed: equal=%t err=%v", bytes.Equal(after, before), err)
 	}
 }
 
@@ -132,6 +242,135 @@ func TestRetentionProcessorMissingObjectIsSuccess(t *testing.T) {
 		t.Fatalf("complete=%d err=%v", j.complete, err)
 	}
 }
+
+func TestRetentionProcessorDeletesIdentityFromPrivateStore(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "private-documents")
+	store, err := documentfs.New(root, make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		jobID     = "11111111-1111-4111-8111-111111111111"
+		fileID    = "22222222-2222-4222-8222-222222222222"
+		caseID    = "33333333-3333-4333-8333-333333333333"
+		subjectID = "44444444-4444-4444-8444-444444444444"
+		spaceID   = "55555555-5555-4555-8555-555555555555"
+	)
+	ctx := context.Background()
+	identityBytes := []byte("synthetic identity evidence")
+	spaceBytes := []byte("synthetic space document")
+	if err := store.PutIdentityDocument(ctx, subjectID, caseID, fileID, identityBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutSpaceDocument(ctx, subjectID, spaceID, caseID, fileID, spaceBytes); err != nil {
+		t.Fatal(err)
+	}
+	claim := retentionClaim(dv.PurposeIdentity)
+	claim.JobID, claim.FileID, claim.CaseID, claim.SubjectID, claim.SpaceID = jobID, fileID, caseID, subjectID, spaceID
+	jobs := &retentionFake{claim: claim}
+	processor := NewRetentionProcessor(jobs, store, time.Minute, time.Second)
+
+	if err := processor.ProcessOne(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if jobs.complete != 1 || jobs.retry != 0 {
+		t.Fatalf("fake completion=%d retry=%d", jobs.complete, jobs.retry)
+	}
+	if _, err := store.ReadIdentityDocument(ctx, subjectID, caseID, fileID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("identity document after retention process error=%v, want not-exist", err)
+	}
+	identityPath := filepath.Join(root, "users", subjectID, "identity", caseID, fileID+".bin")
+	if _, err := os.Lstat(identityPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("identity object at %q after retention process error=%v, want physically absent", identityPath, err)
+	}
+	got, err := store.ReadSpaceDocument(ctx, subjectID, spaceID, caseID, fileID)
+	if err != nil || !bytes.Equal(got, spaceBytes) {
+		t.Fatalf("space document after identity retention delete=%q, err=%v", got, err)
+	}
+}
+
+func TestRetentionProcessorDeletesSpaceFromPrivateStore(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "private-documents")
+	store, err := documentfs.New(root, make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		jobID     = "11111111-1111-4111-8111-111111111111"
+		fileID    = "22222222-2222-4222-8222-222222222222"
+		caseID    = "33333333-3333-4333-8333-333333333333"
+		subjectID = "44444444-4444-4444-8444-444444444444"
+		spaceID   = "55555555-5555-4555-8555-555555555555"
+	)
+	ctx := context.Background()
+	identityBytes := []byte("synthetic identity evidence")
+	spaceBytes := []byte("synthetic space document")
+	if err := store.PutIdentityDocument(ctx, subjectID, caseID, fileID, identityBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutSpaceDocument(ctx, subjectID, spaceID, caseID, fileID, spaceBytes); err != nil {
+		t.Fatal(err)
+	}
+	claim := retentionClaim(dv.PurposeSpace)
+	claim.JobID, claim.FileID, claim.CaseID, claim.SubjectID, claim.SpaceID = jobID, fileID, caseID, subjectID, spaceID
+	jobs := &retentionFake{claim: claim}
+	processor := NewRetentionProcessor(jobs, store, time.Minute, time.Second)
+
+	if err := processor.ProcessOne(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if jobs.complete != 1 || jobs.retry != 0 {
+		t.Fatalf("fake completion=%d retry=%d", jobs.complete, jobs.retry)
+	}
+	if _, err := store.ReadSpaceDocument(ctx, subjectID, spaceID, caseID, fileID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("space document after retention process error=%v, want not-exist", err)
+	}
+	spacePath := filepath.Join(root, "users", subjectID, "spaces", spaceID, "documents", caseID, fileID+".bin")
+	if _, err := os.Lstat(spacePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("space object at %q after retention process error=%v, want physically absent", spacePath, err)
+	}
+	got, err := store.ReadIdentityDocument(ctx, subjectID, caseID, fileID)
+	if err != nil || !bytes.Equal(got, identityBytes) {
+		t.Fatalf("identity document after space retention delete=%q, err=%v", got, err)
+	}
+}
+
+func TestRetentionProcessorMissingSpaceObjectIsSuccessWithoutDeletingIdentity(t *testing.T) {
+	store, err := documentfs.New(filepath.Join(t.TempDir(), "private-documents"), make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const (
+		fileID    = "22222222-2222-4222-8222-222222222222"
+		caseID    = "33333333-3333-4333-8333-333333333333"
+		subjectID = "44444444-4444-4444-8444-444444444444"
+		spaceID   = "55555555-5555-4555-8555-555555555555"
+	)
+	ctx := context.Background()
+	identityBytes := []byte("synthetic identity evidence")
+	if err := store.PutIdentityDocument(ctx, subjectID, caseID, fileID, identityBytes); err != nil {
+		t.Fatal(err)
+	}
+	claim := retentionClaim(dv.PurposeSpace)
+	claim.JobID, claim.FileID, claim.CaseID, claim.SubjectID, claim.SpaceID = "11111111-1111-4111-8111-111111111111", fileID, caseID, subjectID, spaceID
+	jobs := &retentionFake{claim: claim}
+	processor := NewRetentionProcessor(jobs, store, time.Minute, time.Second)
+
+	if err := processor.ProcessOne(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if jobs.processed != 1 || jobs.complete != 1 || jobs.retry != 0 {
+		t.Fatalf("processed=%d complete=%d retry=%d", jobs.processed, jobs.complete, jobs.retry)
+	}
+	if _, err := store.ReadSpaceDocument(ctx, subjectID, spaceID, caseID, fileID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("missing space object read error=%v, want not-exist", err)
+	}
+	got, err := store.ReadIdentityDocument(ctx, subjectID, caseID, fileID)
+	if err != nil || !bytes.Equal(got, identityBytes) {
+		t.Fatalf("identity object after missing space deletion=%q err=%v", got, err)
+	}
+}
+
 func TestRetentionProcessorCancellationAndIdle(t *testing.T) {
 	j := &retentionFake{}
 	s := &retentionStoreFake{}
@@ -143,6 +382,48 @@ func TestRetentionProcessorCancellationAndIdle(t *testing.T) {
 	cancel()
 	if err := p.ProcessOne(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestRetentionProcessorRunReportsClaimFailureAndStopsOnCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	claimErr := errors.New("synthetic claim failure")
+	jobs := &retentionFake{claimErr: claimErr}
+	storage := &retentionStoreFake{}
+	processor := NewRetentionProcessor(jobs, storage, time.Minute, time.Second)
+	callbackCount := 0
+	err := processor.Run(ctx, time.Hour, func(err error) {
+		callbackCount++
+		if !errors.Is(err, claimErr) {
+			t.Errorf("onError got %v, want claim error", err)
+		}
+		cancel()
+	})
+	if err != nil || callbackCount != 1 || jobs.processed != 0 || storage.identity != 0 || storage.space != 0 {
+		t.Fatalf("Run err=%v callback=%d processed=%d identity=%d space=%d", err, callbackCount, jobs.processed, storage.identity, storage.space)
+	}
+}
+
+func TestRetentionProcessorCancellationAfterClaimSkipsDeletion(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	jobs := &retentionFake{claim: retentionClaim(dv.PurposeIdentity), afterClaim: cancel}
+	storage := &retentionStoreFake{}
+	processor := NewRetentionProcessor(jobs, storage, time.Minute, time.Second)
+
+	err := processor.ProcessOne(ctx)
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("claim fake did not cancel the context: %v", ctx.Err())
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("got error %v, want context cancellation", err)
+	}
+	if jobs.claimed != time.Minute || jobs.processed != 0 || jobs.complete != 0 || jobs.retry != 0 {
+		t.Fatalf("claimed=%s processed=%d complete=%d retry=%d", jobs.claimed, jobs.processed, jobs.complete, jobs.retry)
+	}
+	if storage.identity != 0 || storage.space != 0 {
+		t.Fatalf("canceled claim deleted objects: identity=%d space=%d", storage.identity, storage.space)
 	}
 }
 func boolInt(b bool) int {

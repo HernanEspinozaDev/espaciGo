@@ -11,6 +11,7 @@ export interface ReviewSnapshot {
   readonly accountId: string | null;
   readonly cases: readonly ReviewCase[];
   readonly selected: ReviewCase | null;
+  readonly preview: { readonly fileId: string; readonly url: string } | null;
   readonly loading: boolean;
   readonly pending: boolean;
   readonly error: string | null;
@@ -19,6 +20,7 @@ const SERVER_SNAPSHOT: ReviewSnapshot = Object.freeze({
   accountId: null,
   cases: Object.freeze([]),
   selected: null,
+  preview: null,
   loading: false,
   pending: false,
   error: null,
@@ -102,15 +104,28 @@ export class ReviewFacade {
       if (this.#current(g, account) && fence === this.#selection) {
         const previous = this.#snapshot.selected;
         this.#refreshRequired = false;
-        const selected = previous
-          ? (cases.find((x) => x.id === previous.id) ?? null)
-          : null;
-        if (previous && (!selected || selected.revision !== previous.revision))
-          privateBlobUrls.revoke("document-review");
+        const current = previous
+          ? cases.find((x) => x.id === previous.id)
+          : undefined;
+        const selected =
+          previous?.purpose === "identity" &&
+          current?.purpose === "identity" &&
+          current.revision === previous.revision &&
+          !current.identity_declaration &&
+          previous.identity_declaration
+            ? {
+                ...current,
+                identity_declaration: previous.identity_declaration,
+              }
+            : (current ?? null);
+        const selectionChanged =
+          previous && (!selected || selected.revision !== previous.revision);
+        if (selectionChanged) privateBlobUrls.revoke("document-review");
         this.#publish({
           ...this.#snapshot,
           cases,
           selected,
+          preview: selectionChanged ? null : this.#snapshot.preview,
           loading: false,
           error: null,
         });
@@ -141,6 +156,7 @@ export class ReviewFacade {
       loading: true,
       error: null,
       selected: null,
+      preview: null,
     });
     try {
       const c = await authFacade.runAuthenticatedOperation((t, s) =>
@@ -169,12 +185,18 @@ export class ReviewFacade {
       }
     }
   }
-  async download(fileId: string) {
+  closePreview() {
+    privateBlobUrls.revoke("document-review");
+    if (this.#snapshot.preview)
+      this.#publish({ ...this.#snapshot, preview: null });
+  }
+  async preview(fileId: string) {
     const account = this.#account,
       c = this.#snapshot.selected;
     if (!account || !c || this.#mutation) return;
     const g = this.#generation,
       fence = this.#selection;
+    this.closePreview();
     try {
       const verified = await authFacade.runAuthenticatedOperation((t, s) =>
         this.port.get(t, c.id, s),
@@ -200,14 +222,11 @@ export class ReviewFacade {
         this.#snapshot.selected?.id !== c.id
       )
         return;
-      const u = privateBlobUrls.create("document-review", blob),
-        a = document.createElement("a");
-      a.href = u.url;
-      a.download = "documento-verificacion";
-      a.rel = "noopener";
-      document.body.append(a);
-      a.click();
-      a.remove();
+      const u = privateBlobUrls.create("document-review", blob);
+      this.#publish({
+        ...this.#snapshot,
+        preview: { fileId, url: u.url },
+      });
     } catch (e) {
       if (
         this.#current(g, account) &&
@@ -236,7 +255,13 @@ export class ReviewFacade {
     this.#mutation = lock;
     const g = this.#generation,
       fence = ++this.#selection;
-    this.#publish({ ...this.#snapshot, pending: true, error: null });
+    privateBlobUrls.revoke("document-review");
+    this.#publish({
+      ...this.#snapshot,
+      pending: true,
+      error: null,
+      preview: null,
+    });
     try {
       await authFacade.runAuthenticatedOperation((t, s) =>
         kind === "review"

@@ -26,7 +26,8 @@ export function useDocumentReview() {
   }, [auth.status, auth.accountId, permissionsKey]);
   const load = useCallback(() => facade.load(), []);
   const select = useCallback((id: string) => facade.select(id), []);
-  const download = useCallback((id: string) => facade.download(id), []);
+  const preview = useCallback((id: string) => facade.preview(id), []);
+  const closePreview = useCallback(() => facade.closePreview(), []);
   const decide = useCallback(
     (input: Parameters<typeof facade.decide>[0]) => facade.decide(input),
     [],
@@ -35,5 +36,14 @@ export function useDocumentReview() {
     (input: Parameters<typeof facade.revoke>[0]) => facade.revoke(input),
     [],
   );
-  return { snapshot, auth, load, select, download, decide, revoke };
+  return {
+    snapshot,
+    auth,
+    load,
+    select,
+    preview,
+    closePreview,
+    decide,
+    revoke,
+  };
 }

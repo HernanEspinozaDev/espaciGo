@@ -1,0 +1,630 @@
+{
+  "scope": "Revisión parental de entregas source-only; NO cierre de auditoría semántica ni autoridad/ledger de un destino.",
+  "root": "/home/nandev/Documentos/projects/espaciGo-main-sync",
+  "head": "274f37e483a078890e92382a159fa49fd23c2fe8",
+  "historical_versions_verified": 84,
+  "historical_sql_equal_to_head": true,
+  "semantic_audit_closed": false,
+  "initial_reference_validation": {
+    "stage": "Recepción de deleg_05bfadca, antes de editar guards/test adicionales",
+    "refs": 217,
+    "exact_raw_lines": 42,
+    "indentation_only_mismatches": 170,
+    "substring_instead_of_full_line": 5
+  },
+  "rejected_report": "planning/gcp/review_v031_v040_semantica.json",
+  "rejected_reasons": [
+    "Conductas copiadas de comentarios/primeras sentencias en vez de revisión concreta.",
+    "Grants de bootstrap no prueban consumo de producto.",
+    "V39 dejó objetos/referencias vacíos aunque el purgador usa las columnas."
+  ],
+  "additional_semantic_defects": [
+    "V62 citó claim_owner de la cola en vez de SQL de registry replay; coincidencia exacta no implica relación semántica.",
+    "V51–V60 clasificó tests como consumidores Go de producción.",
+    "V61 omitió función/trigger de V19, consumidor de horarios y test MPV212 existentes.",
+    "V72 omitió test de perfil y portada NULL existente."
+  ],
+  "corrections": [
+    {
+      "version": 22,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/dbgen/identity.sql.go",
+          "line": 1454,
+          "excerpt": "INSERT INTO public.historial_clave_local (",
+          "reason": "Definición SQL de inserción en historial creado en V22; no se leen valores de credenciales.",
+          "kind": "sqlc_query_definition"
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_transaction.go",
+          "line": 119,
+          "excerpt": "\treturn mapError(t.queries.StorePreviousPasswordHash(ctx, dbgen.StorePreviousPasswordHashParams{ID: id, AccountID: accountID, PasswordHash: string(hash), NoLongerCurrentAt: dbTime(noLongerCurrentAt), RemoveAt: dbTime(removeAt), CreatedAt: dbTime(createdAt)}))",
+          "reason": "La transacción real invoca StorePreviousPasswordHash, no un grant de bootstrap.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 3518,
+          "excerpt": "func TestLocalCredentialHistoryPreferenceAndDurableNoticeRecovery(t *testing.T) {",
+          "reason": "Historial/preferencia/aviso durable.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 23,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/privacy.go",
+          "line": 293,
+          "excerpt": "\t) VALUES ($1,$2,'solicitud_titular',$3,'privacy.suppression.review',$4,$5,$6,$7,$8,$9,$10::jsonb)`,",
+          "reason": "Persiste la evaluación de supresión en auditoría con acción/recurso y detalle estructurado.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 1331,
+          "excerpt": "func TestM02SuppressionReviewRequiresAdminAndReusesPersistedIncompleteAssessment(t *testing.T) {",
+          "reason": "Evaluación incompleta persistida y autorización.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 24,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/dispute/repository.go",
+          "line": 67,
+          "excerpt": "\terr = tx.QueryRow(ctx, `SELECT `+disputeColumns+`,huella_solicitud FROM public.disputa_ensayo_local WHERE anfitrion_id=$1 AND clave_idempotencia=$2 FOR UPDATE`, actorID, idempotencyKey).Scan(",
+          "reason": "Lee la disputa idempotente del anfitrión con FOR UPDATE; consumidor de tablas de V24.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 1755,
+          "excerpt": "func TestLocalDisputeOpenAndCloseSerializeWithSuppressionReview(t *testing.T) {",
+          "reason": "Serialización disputa con evaluación de baja.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 25,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 285,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.ejecucion_baja_local(id,solicitud_id,usuario_id,actor_id,clave_idempotencia,estado,motivo_codigo,iniciada_en,detalle) VALUES($1,$2,$3,$4,$5,'limpieza_pendiente','baja_local_minimizada',$6,$7::jsonb)`, executionID, requestID, subjectID, actorID, key, checkedAt, string(encoded)); err != nil {",
+          "reason": "Crea la ejecución durable de baja en limpieza_pendiente; no es un permiso declarativo.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 2560,
+          "excerpt": "func TestM02LocalSuppressionMinimizesSyntheticAccountAndRecoversFileCleanup(t *testing.T) {",
+          "reason": "Baja minimiza cuenta y conserva limpieza recuperable.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 26,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "line": 228,
+          "excerpt": "\tif _, err := tx.Exec(ctx, `INSERT INTO public.reserva_vinculo_purgado_local(reserva_id,vencio_en,purgado_en,campos_retirados) VALUES($1,$2,$3,$4) ON CONFLICT (reserva_id) DO NOTHING`, candidate.id, deadline, now, fields); err != nil {",
+          "reason": "Registra purga de vínculos de reserva idempotentemente al terminar su retención.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "line": 920,
+          "excerpt": "func TestLocalReservationRetentionPurgeRespectsDeadlineAndKeepsHistoricalFacts(t *testing.T) {",
+          "reason": "Deadline y hechos históricos de vínculos.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 27,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/dbgen/identity.sql.go",
+          "line": 1439,
+          "excerpt": "INSERT INTO public.outbox_evento_ciclo_local(evento_id,numero_ciclo,estado,iniciada_en)",
+          "reason": "SQL que crea el ciclo durable de aviso de credencial.",
+          "kind": "sqlc_query_definition"
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_transaction.go",
+          "line": 129,
+          "excerpt": "\treturn mapError(t.queries.StartCredentialNoticeCycle(ctx, dbgen.StartCredentialNoticeCycleParams{EventID: eventID, StartedAt: dbTime(createdAt)}))",
+          "reason": "Transacción de autenticación invoca StartCredentialNoticeCycle.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 3811,
+          "excerpt": "func TestCredentialNoticeTerminalCycleAdminRecoveryAndRetention(t *testing.T) {",
+          "reason": "Ciclo terminal, recuperación y retención.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 28,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/verification/repository.go",
+          "line": 57,
+          "excerpt": "\t\tif _, err = tx.Exec(ctx, `INSERT INTO public.verificacion_historial_local(verificacion_id,actor_id,accion,estado_nuevo,correlacion_id,ocurrida_en)",
+          "reason": "Create agrega historial de transición de verificación local.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 29,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 423,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `UPDATE public.elegibilidad_verificacion_local SET estado='retirada_privacidad',",
+          "reason": "Retira explícitamente elegibilidad por privacidad, estado ampliado en V29.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 30,
+      "consumer_refs": [
+        {
+          "path": "internal/m02local/service.go",
+          "line": 200,
+          "excerpt": "\te := s.pool.QueryRow(ctx, `SELECT payout.id::text,payout.adaptador,payout.referencia_ficticia,payout.estado,payout.actualizada_en FROM public.cuenta_cobro_sintetica_local payout JOIN public.usuario owner ON owner.id=payout.usuario_id AND owner.estado='activo' WHERE payout.usuario_id=$1 AND payout.estado='activa'`, owner).Scan(&p.ID, &p.Adapter, &p.Reference, &p.State, &p.UpdatedAt)",
+          "reason": "Consulta cuenta de cobro ficticia activa del propietario y valida estado de cuenta.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 51,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/settlement.go",
+          "line": 363,
+          "excerpt": "\tresult, err := tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cerrada',actualizada_en=$2 WHERE id=$1 AND estado='finalizada'`, reservationID, at)",
+          "reason": "La confirmación fake cambia reserva finalizada a cerrada, bajo el guard de V51.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "line": 109,
+          "excerpt": "func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing.T) {",
+          "reason": "Liquidación fake y replays concurrentes; no fondos reales.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 52,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 305,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `SELECT public.purge_unreferenced_local_publication_rates($1)`, id); err != nil {",
+          "reason": "El retiro real de publicación llama a la rutina de purga acotada creada en V52.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 53,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/local_retention.go",
+          "line": 27,
+          "excerpt": "\t\tFROM public.purge_expired_local_contracts_and_publication_history($1,$2)`, at.UTC(), limit).",
+          "reason": "El repositorio de retención llama a la función de purga; el test no es consumidor API.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 1213,
+          "excerpt": "func TestLocalContractRetentionDefersObligationsAndRecoversAfterRollback(t *testing.T) {",
+          "reason": "Purga deferida ante obligaciones y rollback.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 55,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 46,
+          "excerpt": "FROM public.atributo_filtro_publico f",
+          "reason": "AttributeFilters consulta allowlist pública tipada.",
+          "kind": "application_sql"
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 99,
+          "excerpt": "\trows, err := r.pool.Query(ctx, `SELECT c.region_codigo,r.nombre,c.codigo,c.nombre",
+          "reason": "Locations consulta comunas/regiones del catálogo versionado.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 56,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 313,
+          "excerpt": "\t\titem, err = scanPhoto(tx.QueryRow(ctx, `UPDATE public.espacio_galeria_sintetica_local SET publicada_en_catalogo=$2 WHERE id=$1 RETURNING `+activePhotoColumns, photoID, enabled))",
+          "reason": "La mutación de visibilidad escribe publicada_en_catalogo agregada en V56.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 57,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 46,
+          "excerpt": "FROM public.atributo_filtro_publico f",
+          "reason": "El mismo contrato AttributeFilters consume la allowlist ampliada/validada por V57.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 58,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "line": 260,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.administrador_global g JOIN public.usuario u ON u.id=g.usuario_id WHERE g.usuario_id=$1 AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta<=now()) AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id))`, actor).Scan(&allowed); err != nil {",
+          "reason": "Autorización administrativa consulta la membresía global separada de V58.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 59,
+      "consumer_refs": [
+        {
+          "path": "internal/adminglobal/reports.go",
+          "line": 371,
+          "excerpt": "\tquery := `SELECT id::text,actor_id::text,cuenta_objetivo_id::text,recurso_tipo,recurso_id::text,accion,resultado,motivo_codigo,correlacion_id::text,ocurrido_en,registrado_en FROM evento_auditoria_local WHERE ocurrido_en >= $1 AND ocurrido_en < $2 AND registrado_en <= $3 AND ($4='' OR actor_id::text=$4) AND ($5='' OR cuenta_objetivo_id::text=$5) AND ($6='' OR recurso_tipo=$6) AND ($7::uuid IS NULL OR recurso_id=$7::uuid) AND ($8='' OR accion=$8) AND ($9='' OR resultado=$9) AND ($10='' OR motivo_codigo=$10) AND ($11='' OR correlacion_id::text=$11) AND ($13::timestamptz IS NULL OR (ocurrido_en,id)<($13,$14::uuid)) ORDER BY ocurrido_en DESC,id DESC LIMIT $12`",
+          "reason": "Query de auditoría usa cuenta_objetivo_id y watermark registrado_en.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 60,
+      "consumer_refs": [
+        {
+          "path": "internal/adminglobal/local_bootstrap_role.go",
+          "line": 26,
+          "excerpt": "\tif _, err := conn.Exec(ctx, \"SET ROLE \"+pgx.Identifier{RestrictedLocalBootstrapRole}.Sanitize()); err != nil {",
+          "reason": "CLI de bootstrap adopta el grupo restringido mediante SET ROLE; no es endpoint público.",
+          "kind": "restricted_cli_role_use"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 61,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "line": 369,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `INSERT INTO public.espacio_horario_semanal(espacio_id,activo,actualizado_en) VALUES($1,$2,now()) ON CONFLICT (espacio_id) DO UPDATE SET activo=EXCLUDED.activo,actualizado_en=now()`, spaceID, value.Enabled); err != nil {",
+          "reason": "DML del API de horarios dispara el trigger existente, cuya función reemplaza V61.",
+          "kind": "trigger_indirect"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 471,
+          "excerpt": "func TestMPV212HourlyScheduleMigrationFromFreshAndV60(t *testing.T) {",
+          "reason": "Migración horaria desde fresh/V60; contradice búsqueda previa sin test.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ],
+      "behavior": "Reemplaza public.validar_horario_semanal_fixture_hora(): horario activo exige publicación no eliminada y última tarifa hora; deja de exigir la única fixture de reserva. V19 ya instaló su trigger.",
+      "objects": [
+        "public.validar_horario_semanal_fixture_hora()"
+      ],
+      "dependencies": [
+        "public.espacio_horario_semanal",
+        "public.espacio",
+        "public.tarifa_espacio"
+      ],
+      "dependency_refs": [
+        {
+          "path": "db/migrations/V000019__m06_local_weekly_hours.sql",
+          "line": 79,
+          "excerpt": "FOR EACH ROW EXECUTE FUNCTION public.validar_horario_semanal_fixture_hora();",
+          "reason": "Binding histórico del trigger, no evidencia de catálogo vivo.",
+          "kind": "immutable_sql_trigger_binding"
+        }
+      ]
+    },
+    {
+      "version": 62,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "line": 786,
+          "excerpt": "\ttag, err := tx.Exec(ctx, `INSERT INTO public.registro_replay_baja_local",
+          "reason": "ensureSuppressionReplayRegistry inserta el registro durable; sustituye referencia errónea a claim_owner.",
+          "kind": "application_sql"
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "line": 246,
+          "excerpt": "\t\tFROM public.registro_replay_baja_local ORDER BY completada_en,ejecucion_origen_id`)",
+          "reason": "ExportCompletedSuppressions lee el registro de replay ordenado.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 540,
+          "excerpt": "func TestGCP04DurableReplayRegistryFromFreshAndV61(t *testing.T) {",
+          "reason": "Registry replay desde fresh/V61.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 64,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/suppression_worker.go",
+          "line": 34,
+          "excerpt": "\tif err := r.pool.QueryRow(ctx, `SELECT public.finalize_pending_suppression_cleanup($1,$2)`, requestID, at.UTC()).Scan(&finalized); err != nil {",
+          "reason": "El repositorio del worker invoca finalizador SECURITY DEFINER bajo el rol separado.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 785,
+          "excerpt": "func TestGCP04WorkerRoleMigrationV64LeastPrivilege(t *testing.T) {",
+          "reason": "Permisos mínimos del worker y finalizador V64.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 67,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 86,
+          "excerpt": "\t\terr = r.pool.QueryRow(ctx, `SELECT perfil FROM public.categoria_perfil_atributos WHERE categoria_codigo=$1 AND version=$2`, category, version).Scan(&raw)",
+          "reason": "CategoryProfile resuelve el perfil versionado por categoría; consume los datos de categoría sin hardcodear inmuebles aquí.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 68,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 328,
+          "excerpt": "\t\tif _, err = tx.Exec(ctx, `INSERT INTO public.space_media(id,espacio_id,propietario_id,media_id,alt_text,visible,created_at) VALUES($1,$2,$3,$1,$4,$5,$6)`, id, spaceID, owner, oldAlt, oldVisible, at); err != nil {",
+          "reason": "FinalizeSpace crea la relación space_media y ejecuta triggers de alcance/galería.",
+          "kind": "trigger_indirect"
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 140,
+          "excerpt": "\tif _, err = w.tx.Exec(ctx, `INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia)",
+          "reason": "Add crea foto sintética y participa del contador/orden compartido de galería.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/gallery_capacity_v68_v76_integration_test.go",
+          "line": 17,
+          "excerpt": "func TestGalleryCapacityTransitionV68ToV76(t *testing.T) {",
+          "reason": "Ensayo desechable ejecutado V1–V76; backfill de diez filas y rechazo del slot 11 mientras V68=10.",
+          "assertion_anchor": {
+            "line": 134,
+            "excerpt": "\t\tif !t.Run(\"v68-backfill-ten-ordered\", assertLegacyBackfill) {"
+          },
+          "kind": "disposable_postgres_transition_test_executed"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true
+    },
+    {
+      "version": 69,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 82,
+          "excerpt": "\tcmd, err := tx.Exec(ctx, `INSERT INTO public.media_variant(media_id,variant,provider,bucket_name,object_key,generation,mime_type,size_bytes,sha256,width,height)",
+          "reason": "recordVariant persiste provider parametrizado en media_variant; el CHECK de V69 valida gcs/filesystem.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_plan_variant_test.go",
+          "line": 72,
+          "excerpt": "func TestRecordVariantLocksAssetBeforeIntentAndVariantWrites(t *testing.T) {",
+          "reason": "UNIT: orden de escritura de variante. No demuestra aceptación/rechazo del CHECK PostgreSQL.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 72,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 328,
+          "excerpt": "\t\tif _, err = tx.Exec(ctx, `INSERT INTO public.space_media(id,espacio_id,propietario_id,media_id,alt_text,visible,created_at) VALUES($1,$2,$3,$1,$4,$5,$6)`, id, spaceID, owner, oldAlt, oldVisible, at); err != nil {",
+          "reason": "INSERT space_media dispara img01b_check_media_relation_scope instalada antes y reemplazada en V72.",
+          "kind": "trigger_indirect"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 18,
+          "excerpt": "func TestIMG01DProfileTriggerAndNullableCover(t *testing.T) {",
+          "reason": "Caso perfil y portada NULL del trigger corregido.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 75,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/dbgen/identity.sql.go",
+          "line": 805,
+          "excerpt": "FROM public.version_terminos",
+          "reason": "Definición SQL que resuelve versión de términos por UUID.",
+          "kind": "sqlc_query_definition"
+        },
+        {
+          "path": "internal/adapters/postgres/identity/repository.go",
+          "line": 164,
+          "excerpt": "\trow, err := r.queries.GetTermsVersion(ctx, id)",
+          "reason": "El repositorio real llama a GetTermsVersion; no implica aprobación legal del contenido.",
+          "kind": "application_sql"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/migrator/auth_m01_test.go",
+          "line": 19,
+          "excerpt": "func TestM01MigrationPersistsAuthorizedSchemaAndConstraints(t *testing.T) {",
+          "reason": "Persistencia de schema/constraints de auth; no aprobación jurídica de documentos.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ]
+    },
+    {
+      "version": 77,
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 140,
+          "excerpt": "\tif _, err = w.tx.Exec(ctx, `INSERT INTO public.espacio_galeria_sintetica_local(id,espacio_id,propietario_id,archivo_id,fixture_code,mime_type,sha256,size_bytes,estado,creada_en,clave_idempotencia)",
+          "reason": "INSERT sintético dispara el guard compartido cuya rama record es corregida por V77.",
+          "kind": "trigger_indirect"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 166,
+          "excerpt": "func TestSpacePhotoReplacementAtomic(t *testing.T) {",
+          "reason": "Prueba F6 de reemplazo, opt-in y destino específico; REFERENCIA, no ejecutada en este corte ni autorización para F6.",
+          "kind": "existing_test_definition_not_run_by_audit"
+        }
+      ],
+      "behavior": "Reemplaza el acceso NEW.replacement_target_space_media_id por to_jsonb(NEW) en la función compartida. El SQL histórico comprueba presencia pero su segundo predicado NO cuenta ocurrencias múltiples.",
+      "source_issue": {
+        "confirmed": "La llamada replace(..., original_fragment, '') elimina todas las ocurrencias; position sobre ese resultado no detecta duplicados.",
+        "target_failure_observed": false,
+        "resolution": "Estado al recibir esta corrección inicial: guard en implementación y negativo PostgreSQL pendiente; supersedido por follow_up: guard ejecutado en el candidato, harness PostgreSQL 97 PASS obligatorios/0 skips. SQL histórico V77 intacto; evidencia sintética, no estado de destino persistente."
+      }
+    },
+    {
+      "version": 84,
+      "consumer_refs": [
+        {
+          "path": "internal/verification/transport/http/handler_didit.go",
+          "line": 22,
+          "excerpt": "\tmemoryAttempts = make(map[string]*verification.IdentityVerificationAttempt)",
+          "reason": "Contraevidencia explícita: los intentos actuales están en map; NO es consumidor PostgreSQL de V84.",
+          "kind": "in_memory_counterevidence"
+        }
+      ],
+      "old_report_not_accepted_as_runtime_evidence": true,
+      "product_postgres_consumer_confirmed": false
+    }
+  ],
+  "pending_at_initial_review": [
+    "Revisar informes correctivos V31–V35/V36–V40 antes de sustituir tramo rechazado.",
+    "Consolidar una matriz canónica de 84 filas, verificar referencias exactas finales y calificación de pruebas/consumidores de TODAS las filas.",
+    "Revisar guard V77 y ejecutar negativo PostgreSQL real más harness completo; el último verde anterior fue 96 requeridos.",
+    "Mantener separados nativo V76 observado, candidato V85 y Cloud SQL sin ledger actual. Ningún DDL persistente/publicación autorizado por este informe."
+  ],
+  "follow_up_at": "2026-11-08T02:01:23-03:00",
+  "follow_up": {
+    "matrix": "84 filas; 217 referencias calificadas, 280 anclas de línea exactas y 0 referencias no calificadas, todas reconciliadas a extractos exactos. V68=10 histórico fue supersedido intencionalmente por V76=30; el scope PostgreSQL V1–V76 ahora pasó 7/7 aserciones requeridas para transición, preservación y concurrencia del cupo 30. V77/V78 conservan el límite. V68 sigue parcial en backfill legacy >10, concurrencia en cap 10 y ACL efectiva; falta signoff semántico final, V70/V73 y V84 sin consumidor durable confirmado.",
+    "v67": "Subtest PostgreSQL específico verifica categoría/orden y perfil inmuebles v1 con 34 códigos ordenados, campos requeridos/límites; empty, upgrade-v75 y upgrade-v76 PASS en la corrida completa previa de 100 resultados.",
+    "v77": "La corrida completa previa a añadir el test V19 registró 100 resultados PostgreSQL obligatorios PASS sin skips (incluye guard V77 y tres subtests V67). El scope completo actualizado no se rerun; evidencia sintética, no destino persistente.",
+    "v19": "TestCurrentSchemaMigrationV19WeeklyHours aplica el prefijo V1–V19 en PostgreSQL desechable y prueba los cuatro guards y restricciones de tramo; el scope v19 registró 11 resultados requeridos PASS sin skips y verificó retirada del contenedor.",
+    "cloud_sql": "READ ONLY 2026-11-07: V1-V83 exactas, V84 pendiente; CREATE public=false y REFERENCES(usuario.id)=false para el actor observado. No hubo DDL ni cambios de autoridad.",
+    "native": "Último snapshot READ ONLY V1-V76, 2026-11-07 17:36:08 -03; no renovado. No se infiere aplicación de V77-V85.",
+    "pending": [
+      "Revisión parental final de dependencias/autoridad por fila; mantener semantic_audit_closed=false.",
+      "V68: la transición 10→30 ya pasó en el scope V1–V76 desechable. Persisten solo brechas de backfill legacy con más de diez filas, concurrencia al límite histórico 10, flujo completo IMG01F/V78 y ACL efectiva; no añadir un test V68-only que trate 10 como política vigente. V70/V73 conservan sus límites de cobertura.",
+      "V84 carece de consumidor PostgreSQL durable confirmado; la brecha KYC permanece abierta.",
+      "Renovar ledger/autoridad/backup nativo antes de DDL; en Cloud SQL revisar autoridad, backup y autorización Job antes de aplicar V84 u otra versión.",
+      "V85 sigue candidata review_required/automatic=false; no está aprobada ni aplicada a ningún destino."
+    ]
+  }
+}

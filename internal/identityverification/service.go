@@ -63,6 +63,9 @@ func (s *Service) RequireForBooking(ctx context.Context, hostID, renterID string
 	}
 	for _, accountID := range []string{hostID, renterID} {
 		verification, err := s.repository.CurrentForAccount(ctx, accountID)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if errors.Is(err, ErrNotFound) {
 			return ErrNotVerified
 		}

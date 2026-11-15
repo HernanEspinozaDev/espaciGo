@@ -17,6 +17,9 @@ def execute(cloud,r):
     parent=cloud.json('builds','describe',r['build_id'])
     require(parent.get('buildTriggerId')==TRIGGER and parent.get('serviceAccount')==SA and parent.get('status')=='WORKING','provisioner requires the live canonical parent build')
     require(parent.get('substitutions',{}).get('COMMIT_SHA')==r['manifest']['source_sha'],'provisioner parent SHA differs')
+    preflight_mode=parent.get('substitutions',{}).get('_DB_PREFLIGHT_ONLY','false')
+    require(preflight_mode in ('true','false'),'invalid parent preflight-only mode')
+    require(preflight_mode!='true' or r['mode']=='plan','preflight-only parent cannot provision an applying Job')
     args=create_args(r)
     # Create only. Existing/replaced Jobs are never updated or executed here.
     cloud.run(*(a for a in args[1:] if not a.startswith(('--project=','--region='))))

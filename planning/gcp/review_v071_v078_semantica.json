@@ -1,0 +1,255 @@
+{
+  "scope": "auditoría semántica de fuente SQL V071–V078; sin ejecutar SQL, pruebas ni operaciones remotas.",
+  "rows": [
+    {
+      "version": 71,
+      "filename": "V000071__img_01c_terminal_media_write_intents.sql",
+      "sha256": "30d355260611615324ca70336ced97498340b0e2725b7a8828147af6adc82d14",
+      "behavior": "Registra write_complete=false por defecto para distinguir intención de variante con escritura al object store terminada; añade DML runtime condicional.",
+      "objects": "media_variant_intent.write_complete; ACL espacigo_runtime",
+      "dependencies": "V68 crea intent; rol runtime opcional",
+      "authority": "El runtime gana SELECT/INSERT/UPDATE/DELETE sobre tabla si el rol existe.",
+      "data_preconditions": "Tabla media_variant_intent existente; filas existentes quedan false.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 97,
+          "excerpt": "cmd, err := r.pool.Exec(ctx, `UPDATE public.media_variant_intent SET write_complete=true,updated_at=clock_timestamp()",
+          "reason": "Marca finalizada la escritura tras el paso de escritura del adaptador."
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 919,
+          "excerpt": "rows, err := q.Query(ctx, `SELECT variant,object_key,COALESCE(generation,0),write_complete FROM public.media_variant_intent WHERE media_id=$1 ORDER BY variant`, id)",
+          "reason": "Lee el indicador para el flujo de limpieza."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 149,
+          "excerpt": "if err = pool.QueryRow(ctx, `SELECT a.estado,i.write_complete FROM public.media_asset a JOIN public.media_variant_intent i ON i.media_id=a.id WHERE a.id=$1`, asset).Scan(&state, &complete); err != nil {",
+          "reason": "Test de integración consulta estado y bandera."
+        }
+      ],
+      "status": "source-audited",
+      "issues": ""
+    },
+    {
+      "version": 72,
+      "filename": "V000072__img_01d_media_relation_trigger_scope.sql",
+      "sha256": "50b7f34d340c20a690c9506e68e9146a311363a526eb7449812d2674cf39f461",
+      "behavior": "Reemplaza trigger function para validar propietario/propósito/alcance entre media_asset y profile_media o space_media; rechaza tablas no soportadas.",
+      "objects": "public.img01b_check_media_relation_scope()",
+      "dependencies": "V68 define función/triggers y relaciones",
+      "authority": "La ejecución del trigger consulta media_asset; errores 23503/23514 ante scope inválido.",
+      "data_preconditions": "media_asset y NEW.media_id/propietario_id; para space_media también espacio_id.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 142,
+          "excerpt": "err = tx.QueryRow(ctx, `SELECT id::text,propietario_id::text,COALESCE(espacio_id::text,''),proposito,estado,fencing_token,lease_until,input_sha256,COALESCE(replacement_target_space_media_id::text,''),replacement_expected_revision",
+          "reason": "Consumidor de media_asset con owner/space; no consume directamente la trigger function."
+        }
+      ],
+      "test_refs": [],
+      "status": "source-audited",
+      "issues": "No se localizó definición de test que invoque directamente la relación/función V72. La función es disparada por triggers instalados en V68; no atribuir cobertura indirecta como prueba específica."
+    },
+    {
+      "version": 73,
+      "filename": "V000073__img_01e_privacy_media_cleanup.sql",
+      "sha256": "ac2bfc0ba17e97ee40297dc75d8aaaa25f8506e5602a2d281d09415158670ada",
+      "behavior": "Instala permisos y rutinas SECURITY DEFINER de claim/complete/fail para limpieza fenced de media; finaliza supresión solo tras ausencia de objetos pendientes y replica registro.",
+      "objects": "ACL media_asset/media_variant/media_variant_intent; claim_private_media_cleanup, complete_private_media_cleanup, fail_private_media_cleanup, finalize_pending_suppression_cleanup",
+      "dependencies": "V64 tabla/rol de limpieza y datos de supresión; V68/V70 media/intent",
+      "authority": "Exige rol espacigo_privacy_cleanup_worker; grants de columnas y EXECUTE; revoca PUBLIC; SECURITY DEFINER con search_path/timezone fijados.",
+      "data_preconditions": "El rol dedicado debe existir; tablas de medios, supresión y registro replay presentes.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 828,
+          "excerpt": "rows, err := tx.Query(ctx, `SELECT id,fencing_token FROM public.claim_private_media_cleanup($1,$2)`, limit, at)",
+          "reason": "Llama la rutina SQL que reclama trabajo."
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 869,
+          "excerpt": "if err := r.pool.QueryRow(ctx, `SELECT public.complete_private_media_cleanup($1,$2,$3)`, id, token, at).Scan(&completed); err != nil {",
+          "reason": "Completa limpieza con id y fencing token."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/img01e_media_export_integration_test.go",
+          "line": 147,
+          "excerpt": "if err := worker.QueryRow(h.ctx, `SELECT id,fencing_token FROM public.claim_private_media_cleanup(100,$1)`, future).Scan(&claimedID, &claimedToken); err == nil {",
+          "reason": "Integración prueba rechazo de fecha futura al reclamar."
+        }
+      ],
+      "status": "source-audited",
+      "issues": ""
+    },
+    {
+      "version": 74,
+      "filename": "V000074__first_business_action_roles.sql",
+      "sha256": "a91df632b305468e1389ee72831e77121382e4c467d2cc279ea393e1bdc57bf8",
+      "behavior": "Crea evento único por usuario/rol que vincula rol comercial con acción/recurso, restringiendo combinaciones; runtime solo INSERT.",
+      "objects": "public.rol_usuario_evento + constraints; ACL",
+      "dependencies": "public.usuario; repositorios de espacio y reserva",
+      "authority": "Runtime recibe solo INSERT; PUBLIC revocado.",
+      "data_preconditions": "usuario existente; gen_random_uuid disponible.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 136,
+          "excerpt": "INSERT INTO public.rol_usuario_evento(usuario_id,rol,accion,recurso_id)",
+          "reason": "Registra rol arrendador en primer borrador."
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 464,
+          "excerpt": "INSERT INTO public.rol_usuario_evento(usuario_id,rol,accion,recurso_id)",
+          "reason": "Registra rol arrendatario en primera solicitud."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/spaces/repository_integration_test.go",
+          "line": 84,
+          "excerpt": "if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1 AND rol='arrendador'), (SELECT count(*) FROM public.rol_usuario_evento WHERE usuario_id=$1 AND rol='arrendador' AND accion='primer_borrador_espacio' AND recurso_id=$2)`, ownerA, created.ID).Scan(&roleCount, &eventCount); err != nil {",
+          "reason": "Comprueba el evento asociado al primer borrador."
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 3298,
+          "excerpt": "if err = setup.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.rol_usuario WHERE usuario_id=$1 AND rol='arrendatario'), (SELECT count(*) FROM public.rol_usuario_evento WHERE usuario_id=$1 AND rol='arrendatario' AND accion='primera_solicitud_reserva' AND recurso_id=$2)`, renter, activeReservation.ID).Scan(&renterRole, &renterRoleEvent); err != nil {",
+          "reason": "Comprueba el evento asociado a primera reserva."
+        }
+      ],
+      "status": "source-audited",
+      "issues": ""
+    },
+    {
+      "version": 75,
+      "filename": "V000075__auth_evaluation_consent_documents.sql",
+      "sha256": "d6396472df02f2dd2cddd43994be064e6b0705c3fa2cb044bed970fcc9992220",
+      "behavior": "Inserta dos versiones públicas de documentos de evaluación: términos y privacidad, con UUID, código, SHA-256 y fecha; no declara aprobación legal final.",
+      "objects": "version_terminos rows 00000000-0000-4000-8000-000000000075/076",
+      "dependencies": "V1 version_terminos; inserta sin alterar historial V1-V74",
+      "authority": "DML INSERT según permisos existentes de migrador; sin cambios ACL.",
+      "data_preconditions": "Códigos/UUID no deben colisionar con contenido previo.",
+      "consumer_refs": [],
+      "test_refs": [
+        {
+          "path": "internal/identity/consent_documents_test.go",
+          "line": 14,
+          "excerpt": "migration, err := os.ReadFile(\"../../db/migrations/V000075__auth_evaluation_consent_documents.sql\")",
+          "reason": "Test lee la migración para validar documentos publicados."
+        }
+      ],
+      "status": "source-audited",
+      "issues": "No se encontró consumer Go SQL directo para los códigos nuevos en el alcance inspeccionado; el test indicado es source assertion, no verificación PostgreSQL."
+    },
+    {
+      "version": 76,
+      "filename": "V000076__spaces_gallery_capacity_replacement_v2.sql",
+      "sha256": "c3ea6cbead8a41dfd283b5fe1393499228afb0e3447b4c2fccecc50ea39f7843",
+      "behavior": "V76 sustituye el límite inicial V68 de 10 por 30 tanto en la restricción gallery_item_order.position como en el contador transaccional; agrega vínculo de reemplazo pending a slot real, unicidad parcial y trigger de validación del target activo-ready; permite estructura object_key v2.",
+      "objects": "gallery_item_order check; media_asset.replacement_target_space_media_id/FK/index; img01b_enforce_gallery_slot(); media_variant_intent.object_key check",
+      "dependencies": "V68 media/space_media; tablas galería/candidato preexistentes",
+      "authority": "Función SECURITY DEFINER; serializa por lock de espacio y slot/asset objetivo.",
+      "data_preconditions": "Targets con espacio/owner coincidentes, slot activo y asset ready; cap 30.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 229,
+          "excerpt": "_, err = tx.Exec(ctx, `INSERT INTO public.media_asset(id,propietario_id,espacio_id,proposito,estado,idempotency_key,input_sha256,lease_until,replacement_target_space_media_id,replacement_expected_revision)",
+          "reason": "Persiste solicitud de reemplazo en asset."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 358,
+          "excerpt": "_, pairErr := pool.Exec(ctx, `INSERT INTO public.media_asset(id,propietario_id,espacio_id,proposito,estado,idempotency_key,input_sha256,lease_until,created_at,updated_at,replacement_target_space_media_id,replacement_expected_revision)",
+          "reason": "Prueba integración inserción con par target/revision."
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 166,
+          "excerpt": "func TestSpacePhotoReplacementAtomic(t *testing.T) {",
+          "reason": "La prueba opt-in ejercita el límite/capacidad 30, la concurrencia por el último slot y el rechazo del 31.º; depende de IMG01F_TEST_DATABASE_URL/storage y no se ejecutó en esta auditoría.",
+          "assertion_anchor": {
+            "line": 629,
+            "excerpt": "\\tif !errors.As(directErr, &pgErr) || pgErr.Code != \"23514\" || pgErr.Message != \"space media limit of 30 reached\" {"
+            }
+            },
+            {
+            "path": "internal/migrator/gallery_capacity_v68_v76_integration_test.go",
+            "line": 17,
+            "excerpt": "func TestGalleryCapacityTransitionV68ToV76(t *testing.T) {",
+            "reason": "Ensayo PostgreSQL desechable V1–V76: con ocupación 29, dos writers concurrentes reservan el último cupo y solo uno lo obtiene.",
+            "assertion_anchor": {
+              "line": 238,
+              "excerpt": "\t\t\tif successes != 1 || limitErrors != 1 || winnerID == \"\" {"
+            }
+            },
+            {
+            "path": "internal/migrator/gallery_capacity_v68_v76_integration_test.go",
+            "line": 17,
+            "excerpt": "func TestGalleryCapacityTransitionV68ToV76(t *testing.T) {",
+            "reason": "El ensayo permite posición 30 y rechaza el asset 31 con el límite V76.",
+            "assertion_anchor": {
+              "line": 262,
+              "excerpt": "\t\t\tassertLimitError(t, err, \"space media limit of 30 reached\")"
+            }
+            }
+            ],
+            "status": "source-audited",
+            "issues": "V68→V76 es una ampliación intencional 10→30 y V76 se entrega junto con MaxPhotosPerSpace=30 en el commit c50a2ef22dd2e3fb3134d0cb8bfe248fcedb7f6d. El scope v76 separado ya ejecutó la transición V1→V68→V76 en PostgreSQL desechable: siete resultados requeridos PASS sin skips, con backfill de diez filas, rechazo del slot 11 bajo V68, ledger final V76, preservación de datos/grant, posición 30 y competencia concurrente por el último slot; el slot 31 se rechaza. No ejecuta la integración opt-in TestSpacePhotoReplacementAtomic/IMG01F, no cubre el flujo completo V78 ni valida ACL/compatibilidad de destinos persistentes. V77/V78 preservan el cupo; la auditoría semántica global sigue abierta."
+    },
+    {
+      "version": 77,
+      "filename": "V000077__img01b_gallery_slot_record_guard.sql",
+      "sha256": "22b98284b303f7a9e69e88afc83c978a5bbab1840e1ed12097b9fe24f653218c",
+      "behavior": "Reescribe el cuerpo de img01b_enforce_gallery_slot reemplazando acceso directo a campo exclusivo de media_asset por extracción segura to_jsonb(NEW), validando fragmento único previo.",
+      "objects": "public.img01b_enforce_gallery_slot()",
+      "dependencies": "V76 define trigger function y condición original",
+      "authority": "DO requiere definición exacta de función con una ocurrencia del fragmento; EXECUTE aplica reemplazo.",
+      "data_preconditions": "Función existente debe contener exactamente una guarda esperada; en caso contrario falla.",
+      "consumer_refs": [],
+      "test_refs": [],
+      "status": "source-audited",
+      "issues": "Consumer_refs vacío: el repositorio consulta/escribe datos que disparan triggers, pero no se identificó referencia directa al fragmento o función V77. Test_refs vacío: no se halló test definido con referencia específica al guard V77; revisión de integración existente cubre funciones de reemplazo en general."
+    },
+    {
+      "version": 78,
+      "filename": "V000078__img01b_gallery_replay_expected_revision.sql",
+      "sha256": "6cb99e5b21db0d4c975d1419596b4850410fb47f7cb2d104481334a9eb082c9e",
+      "behavior": "Agrega expected_revision y trigger que exige presencia conjunta con target al INSERT e inmutabilidad del par en UPDATE; ata CAS a idempotencia.",
+      "objects": "media_asset.replacement_expected_revision; img01b_guard_replacement_request_revision(); trigger media_asset_replacement_request_revision_guard",
+      "dependencies": "V76 añade replacement_target_space_media_id",
+      "authority": "Trigger BEFORE INSERT/UPDATE; rechaza pares parciales o cambios de identidad con 23514.",
+      "data_preconditions": "NULL/NULL válido para asset ordinario; replacement requiere ambos campos.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "line": 229,
+          "excerpt": "_, err = tx.Exec(ctx, `INSERT INTO public.media_asset(id,propietario_id,espacio_id,proposito,estado,idempotency_key,input_sha256,lease_until,replacement_target_space_media_id,replacement_expected_revision)",
+          "reason": "El consumidor inserta target y expected revision juntos."
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "line": 531,
+          "excerpt": "_, mutationErr := pool.Exec(ctx, `UPDATE public.media_asset SET replacement_expected_revision=$2 WHERE id=$1`, nextID, changedExpected)",
+          "reason": "Test verifica que cambiar la revisión esperada es rechazado."
+        }
+      ],
+      "status": "source-audited",
+      "issues": ""
+    }
+  ]
+}

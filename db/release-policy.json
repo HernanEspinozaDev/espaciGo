@@ -7,5 +7,79 @@
       "strategy": "expand"
     }
   },
+  "review_required_migrations": {
+    "V000085__identity_encrypted_declarations_and_minimal_events.sql": {
+      "checksum": "7b78094558e2d9bde7804919b01c54d34caf2ac31ac34fb1b86a63999aeeaf51",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Revokes runtime access to empty legacy V84 identity tables; not a generic expand. Requires exact-target ledger/authority, backup and explicit compatibility/security review before enabling an applying release."
+    },
+    "V000086__identity_declaration_retention_purge.sql": {
+      "checksum": "af864b793d8f4cbc9cf28dbfe65b8ed6d2388a0ade9a739fc8b480470bd3dc8e",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds a bounded SECURITY DEFINER deletion path for expired encrypted identity declaration revisions. Requires exact-target authority/data review and explicit retention authorization before any applying release."
+    },
+    "V000087__identity_declaration_retention_worker.sql": {
+      "checksum": "5eda043ddf3a3d5bb89e8d470eaf4e5450ed0964a9d59fe232bdcb37888b1d45",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Grants only EXECUTE on the bounded declaration-retention purge to the dedicated privacy cleanup role while preserving runtime access. Requires exact-target authority, role-membership and ACL review before any applying release."
+    },
+    "V000088__revoke_runtime_identity_purge_execute.sql": {
+      "checksum": "44cc5e74b8f8fcfba1633f01009024a7fdeae5683077b13677ed7bf2894083a8",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Revokes only direct EXECUTE on the V86 identity purge function from espacigo_runtime, retaining the exact dedicated cleanup-worker grant. Requires exact-target authority and ACL review before any applying release."
+    },
+    "V000089__identity_rut_claims.sql": {
+      "checksum": "93671b484f3118c697eebc4654f4b32325cce4231582b488f2e1a8d9b7fece9c",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Creates public.identity_rut_claim to enforce globally unique, durable HMAC-only Chilean RUT claims per account. Requires exact-target authority review and staging before release."
+    },
+    "V000090__identity_verified_snapshot_purge.sql": {
+      "checksum": "23bbacde2cf992f912926f84945c701422b097598e698b2e8f38158b61622592",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds a narrow SECURITY DEFINER transaction for authoritative VERIFIED decisions, durable remote-deletion outbox, retained HMAC claims/minimal provider metadata, and encrypted-snapshot purge; requires exact-target authority review and native rollback/restart tests before application."
+    },
+    "V000091__identity_detached_terminal_withdrawal.sql": {
+      "checksum": "6ceee080736bd965a27226e3810d28ede0ecf2deb52477716a504e2b425c1250",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Tightens detached terminal identity-withdrawal behavior without creating schema objects; requires exact-target authority and compatibility review before application."
+    },
+    "V000092__identity_expired_lifecycle_purge.sql": {
+      "checksum": "bf7db344af0752ac479b4422dfa0e770cd11623c3be2b51c4449dba89c93cc03",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Replaces the worker-only bounded purge with explicit expired event/attempt/pending-claim/revision deletion and durable remote-deletion intents. Destructive retention requires exact-target backup, concurrency/rollback evidence and independent review; never automatic expand."
+    },
+    "V000093__identity_verified_claim_reverification.sql": {
+      "checksum": "885d3f926ffc7d3420f2391a257ca2ed68663e71d4cd54f4cf310c79bd8b7292",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Preserves historical RUT reservations during authoritative reverification, queues known sibling-session deletions and removes obsolete retry dependencies before snapshot purge. Requires reviewed source, exact-target backup and native negative/rollback/concurrency evidence; never automatic expand."
+    },
+    "V000094__identity_delivered_session_outbox_retirement.sql": {
+      "checksum": "a4ee15a45ab352527e93c00e82763056b57b3750064483b8b90aa6891c0672a9",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Adds worker-only SECURITY DEFINER deletion of at most 100 delivered DIDit session outbox rows after the 30-day ACK retention window. Destructive retirement and narrowed execution access require exact-target ledger/authority, protected-row/rollback and compatibility review; never automatic expand."
+    },
+    "V000095__identity_document_case_declaration_binding.sql": {
+      "checksum": "351a9bbdbd890e34b3b5db46ecffa971d49b1f5d4519d9bf7f2b1eae1e897275",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Binds new identity cases to the authenticated owner's saved declaration, persists separately acknowledged synthetic capture consent, rejects active-case declaration rebinds, and prevents retention purge while linked. Requires exact-target migration review, fresh/upgrade and purge-race evidence; never automatic expand."
+    },
+    "V000096__identity_reviewer_observation_audit.sql": {
+      "checksum": "a206e74995db47112c6b382c33ffab5badcab2ec9b9859af0fbd018478cc7ca5",
+      "strategy": "security-tightening",
+      "automatic": false,
+      "reason": "Persists only the allowlisted identity format/expiry observations and reviewer checklist with the same decision event, checks the case/event match, and grants only the required column writes. Requires exact-target migration review and fresh/upgrade/atomicity evidence; never automatic expand."
+    }
+  },
   "notes": "Future SQL requires an exact name/checksum entry with strategy=expand, corresponding compatibility tests and review in Git. Applied SQL stays immutable. Destructive repairs are separate operations."
 }

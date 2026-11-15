@@ -64,6 +64,147 @@ func TestPrivateStoreSeparatesIdentityAndSpacePurpose(t *testing.T) {
 	}
 }
 
+func TestPrivateStoreDeletesIdentityWithoutDeletingSpaceDocument(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "private-documents"), testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	identityBytes := []byte("identity synthetic")
+	spaceBytes := []byte("space synthetic")
+	if err := store.PutIdentityDocument(context.Background(), ownerID, caseID, fileID, identityBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutSpaceDocument(context.Background(), ownerID, spaceID, caseID, fileID, spaceBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteIdentityDocument(context.Background(), ownerID, caseID, fileID); err != nil {
+		t.Fatalf("delete identity document: %v", err)
+	}
+	if _, err := store.ReadIdentityDocument(context.Background(), ownerID, caseID, fileID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("identity read after deletion error=%v, want not-exist", err)
+	}
+	got, err := store.ReadSpaceDocument(context.Background(), ownerID, spaceID, caseID, fileID)
+	if err != nil || !bytes.Equal(got, spaceBytes) {
+		t.Fatalf("space document after identity deletion=%q, err=%v", got, err)
+	}
+	if err := store.DeleteIdentityDocument(context.Background(), ownerID, caseID, fileID); err != nil {
+		t.Fatalf("repeated identity deletion: %v", err)
+	}
+}
+
+func TestPrivateStoreIdentityDeleteRequiresMatchingScope(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "private-documents"), testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("owner scoped identity synthetic")
+	if err := store.PutIdentityDocument(context.Background(), ownerID, caseID, fileID, content); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, owner, caseID, fileID string
+	}{
+		{name: "different owner", owner: otherID, caseID: caseID, fileID: fileID},
+		{name: "different case", owner: ownerID, caseID: spaceID, fileID: fileID},
+		{name: "different file", owner: ownerID, caseID: caseID, fileID: spaceID},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := store.DeleteIdentityDocument(context.Background(), tc.owner, tc.caseID, tc.fileID); err != nil {
+				t.Fatalf("delete mismatched scope: %v", err)
+			}
+			got, err := store.ReadIdentityDocument(context.Background(), ownerID, caseID, fileID)
+			if err != nil || !bytes.Equal(got, content) {
+				t.Fatalf("original identity document after mismatched delete=%q, err=%v", got, err)
+			}
+		})
+	}
+	if err := store.DeleteIdentityDocument(context.Background(), ownerID, caseID, fileID); err != nil {
+		t.Fatalf("delete matching scope: %v", err)
+	}
+	if _, err := store.ReadIdentityDocument(context.Background(), ownerID, caseID, fileID); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("matching identity read error=%v, want not-exist", err)
+	}
+}
+
+func TestPrivateStoreIdentityDeleteRejectsSymlinkedScopeDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "private-documents")
+	store, err := New(root, testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetDir := filepath.Join(root, "unrelated-target")
+	if err := os.Mkdir(targetDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	targetFile := filepath.Join(targetDir, fileID+".bin")
+	sentinel := []byte("unrelated synthetic object")
+	if err := os.WriteFile(targetFile, sentinel, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(root, "users", ownerID, "identity", caseID)
+	if err := os.MkdirAll(filepath.Dir(linkDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(targetDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteIdentityDocument(context.Background(), ownerID, caseID, fileID); !errors.Is(err, ErrStorage) {
+		t.Fatalf("delete through symlinked scope error=%v, want ErrStorage", err)
+	}
+	got, err := os.ReadFile(targetFile)
+	if err != nil || !bytes.Equal(got, sentinel) {
+		t.Fatalf("unrelated target after rejected delete=%q, err=%v", got, err)
+	}
+}
+
+func TestPrivateStoreIdentityDeleteHonorsCanceledContext(t *testing.T) {
+	store, err := New(filepath.Join(t.TempDir(), "private-documents"), testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("identity delete cancellation synthetic")
+	if err := store.PutIdentityDocument(context.Background(), ownerID, caseID, fileID, content); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := store.DeleteIdentityDocument(ctx, ownerID, caseID, fileID); !errors.Is(err, context.Canceled) {
+		t.Fatalf("delete with canceled context error=%v, want context.Canceled", err)
+	}
+	got, err := store.ReadIdentityDocument(context.Background(), ownerID, caseID, fileID)
+	if err != nil || !bytes.Equal(got, content) {
+		t.Fatalf("identity document after canceled delete=%q, err=%v", got, err)
+	}
+}
+
+func TestPrivateStoreIdentityDeleteRejectsPermissiveScopeDirectory(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "private-documents")
+	store, err := New(root, testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutIdentityDocument(context.Background(), ownerID, caseID, fileID, []byte("identity synthetic")); err != nil {
+		t.Fatal(err)
+	}
+	objectPath := filepath.Join(root, identityPath(ownerID, caseID, fileID))
+	before, err := os.ReadFile(objectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Dir(objectPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.DeleteIdentityDocument(context.Background(), ownerID, caseID, fileID); !errors.Is(err, ErrStorage) {
+		t.Fatalf("delete through permissive scope directory error=%v, want ErrStorage", err)
+	}
+	after, err := os.ReadFile(objectPath)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("stored envelope after rejected delete changed: err=%v", err)
+	}
+}
+
 func TestPrivateStoreUsesOwnerScopeAndDoesNotOverwrite(t *testing.T) {
 	store, err := New(filepath.Join(t.TempDir(), "private-documents"), testEncryptionKey())
 	if err != nil {
@@ -159,6 +300,87 @@ func TestPrivateStoreRejectsSymlinkRootWithoutChangingTargetPermissions(t *testi
 	info, err := os.Stat(target)
 	if err != nil || info.Mode().Perm() != 0o755 {
 		t.Fatalf("symlink target permissions=%v err=%v, want 0755", info, err)
+	}
+}
+
+func TestPrivateStoreRejectsRootReplacedBySymlinkBeforeDelete(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "private-documents")
+	target := filepath.Join(parent, "replacement-target")
+	store, err := New(root, testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutIdentityDocument(context.Background(), ownerID, caseID, fileID, []byte("original synthetic identity")); err != nil {
+		t.Fatal(err)
+	}
+	targetStore, err := New(target, testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetContent := []byte("replacement target synthetic identity")
+	if err := targetStore.PutIdentityDocument(context.Background(), ownerID, caseID, fileID, targetContent); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(root, root+"-original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, root); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := store.ReadIdentityDocument(context.Background(), ownerID, caseID, fileID); !errors.Is(err, ErrStorage) || got != nil {
+		t.Fatalf("read through replaced root returned %q, %v; want no bytes and ErrStorage", got, err)
+	}
+	if err := store.DeleteIdentityDocument(context.Background(), ownerID, caseID, fileID); !errors.Is(err, ErrStorage) {
+		t.Fatalf("delete through replaced root error=%v, want ErrStorage", err)
+	}
+	got, err := targetStore.ReadIdentityDocument(context.Background(), ownerID, caseID, fileID)
+	if err != nil || !bytes.Equal(got, targetContent) {
+		t.Fatalf("replacement target identity=%q err=%v; want unchanged target", got, err)
+	}
+}
+
+func TestPrivateStoreRejectsRootReplacedByAnotherDirectory(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "private-documents")
+	target := filepath.Join(parent, "replacement-target")
+	store, err := New(root, testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PutIdentityDocument(context.Background(), ownerID, caseID, fileID, []byte("original synthetic identity")); err != nil {
+		t.Fatal(err)
+	}
+	targetStore, err := New(target, testEncryptionKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetContent := []byte("replacement directory synthetic identity")
+	if err := targetStore.PutIdentityDocument(context.Background(), ownerID, caseID, fileID, targetContent); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(root, root+"-original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(target, root); err != nil {
+		t.Fatal(err)
+	}
+	objectPath := filepath.Join(root, "users", ownerID, "identity", caseID, fileID+".bin")
+	before, err := os.ReadFile(objectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := store.ReadIdentityDocument(context.Background(), ownerID, caseID, fileID); !errors.Is(err, ErrStorage) || got != nil {
+		t.Fatalf("read through replaced root returned %q, %v; want no bytes and ErrStorage", got, err)
+	}
+	if err := store.DeleteIdentityDocument(context.Background(), ownerID, caseID, fileID); !errors.Is(err, ErrStorage) {
+		t.Fatalf("delete through replaced root error=%v, want ErrStorage", err)
+	}
+	after, err := os.ReadFile(objectPath)
+	if err != nil || !bytes.Equal(after, before) {
+		t.Fatalf("replacement directory object changed: equal=%t err=%v", bytes.Equal(after, before), err)
 	}
 }
 

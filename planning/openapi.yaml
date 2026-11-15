@@ -9,68 +9,45 @@ servers:
 security:
   - bearerAuth: []
 paths:
-  /verifications/didit/intent:
-    post:
-      operationId: createDiditIntent
+  /verifications/identity-declaration:
+    get:
+      operationId: getOwnIdentityDeclaration
       tags: [Identity verification]
-      summary: Crear una intención de verificación de identidad Didit
-      description: Requiere consentimiento explícito. La cuenta se deriva de la sesión autenticada; RUN/RUT y datos declarados no se incluyen en la URL.
-      parameters:
-        - $ref: "#/components/parameters/IdempotencyKey"
+      summary: Leer la declaración de identidad propia guardada
+      description: Devuelve solo la declaración vigente de la cuenta autenticada; no expone la declaración de otra cuenta ni datos cifrados.
+      responses:
+        "200":
+          description: Declaración propia descifrada desde el repositorio autorizado.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IdentityDeclarationResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/ServiceUnavailable" }
+    post:
+      operationId: saveOwnIdentityDeclaration
+      tags: [Identity verification]
+      summary: Guardar una nueva revisión de identidad y consentimiento
+      description: La cuenta se deriva de la sesión. Solo confirma el guardado tras commit y lectura independiente. No inicia una verificación externa ni modifica el perfil público.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/DiditIntentRequest" }
+            schema: { $ref: "#/components/schemas/IdentityDeclarationRequest" }
       responses:
         "201":
-          description: Intención creada; URL temporal para continuar en Didit.
+          description: Revisión cifrada guardada y leída de nuevo bajo la misma cuenta.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/DiditIntentResponse" }
+              schema: { $ref: "#/components/schemas/IdentityDeclarationResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409": { $ref: "#/components/responses/Conflict" }
-        "422": { $ref: "#/components/responses/UnprocessableEntity" }
-        "429": { $ref: "#/components/responses/TooManyRequests" }
-        "503": { $ref: "#/components/responses/ServiceUnavailable" }
-  /verifications/didit/intent/{id}:
-    get:
-      operationId: getDiditIntent
-      tags: [Identity verification]
-      summary: Consultar el estado propio de una intención Didit
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        "200":
-          description: Estado y resultado de insignia calculado por el servidor.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/DiditIntentStatusResponse" }
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "404": { $ref: "#/components/responses/NotFound" }
-  /webhooks/didit:
-    post:
-      operationId: receiveDiditWebhook
-      tags: [Identity verification]
-      summary: Recibir y encolar un evento firmado de Didit
-      description: Endpoint público de proveedor; valida firma y frescura, deduplica y persiste el evento antes de confirmar recepción. No confía en el estado del cuerpo como decisión final.
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: "#/components/schemas/DiditWebhookPayload" }
-      responses:
-        "202": { description: Evento autenticado y aceptado para procesamiento. }
-        "400": { description: Payload inválido. }
-        "401": { description: Firma inválida o vencida. }
-        "413": { description: Payload demasiado grande. }
         "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+        "500": { $ref: "#/components/responses/InternalServerError" }
         "503": { $ref: "#/components/responses/ServiceUnavailable" }
+
   /admin/global/me:
     get:
       operationId: getGlobalAdminMe
@@ -2806,7 +2783,7 @@ paths:
                 properties:
                   items:
                     type: array
-                    items: { $ref: "#/components/schemas/DocumentVerificationOwnerCase" }
+                    items: { $ref: "#/components/schemas/DocumentVerificationReviewerCase" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
   /document-verification/reviewer/cases/{caseID}:
@@ -2820,7 +2797,7 @@ paths:
           description: Expediente minimizado; se revalida asignación y titularidad.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/DocumentVerificationOwnerCase" }
+              schema: { $ref: "#/components/schemas/DocumentVerificationReviewerCase" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
   /document-verification/reviewer/cases/{caseID}/files/{fileID}/content:
@@ -2862,12 +2839,22 @@ paths:
                 reason_code: { type: string }
                 expected_revision: { type: integer, minimum: 1 }
                 verified_until: { type: string, format: date-time }
+                document_format_observed:
+                  type: string
+                  enum: [legacy, new, undetermined]
+                  description: Requerido para review_identity en toda decisión; undetermined nunca permite approve.
+                document_expires_at_observed:
+                  type: string
+                  format: date
+                  description: Fecha civil YYYY-MM-DD leída manualmente por el revisor; válida durante ese día en America/Santiago. Requerida para aprobar identidad.
+                identity_review_checklist:
+                  $ref: "#/components/schemas/IdentityReviewChecklist"
       responses:
         "200":
           description: Decisión comprometida y expediente actualizado.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/DocumentVerificationOwnerCase" }
+              schema: { $ref: "#/components/schemas/DocumentVerificationReviewerCase" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
@@ -2906,7 +2893,7 @@ paths:
       operationId: createOwnDocumentVerificationCase
       tags: [Document verification]
       summary: Crear un expediente documental propio
-      description: El actor se deriva de la sesión. El expediente pertenece al titular autenticado; Go valida el propósito y la titularidad del espacio cuando corresponde.
+      description: El actor se deriva de la sesión. Para identity, Go enlaza dentro de la transacción la revisión legal vigente del titular; el cliente no elige el ID. Para space, Go valida titularidad actual.
       security:
         - bearerAuth: []
       requestBody:
@@ -2986,7 +2973,7 @@ paths:
       operationId: submitOwnDocumentVerificationCase
       tags: [Document verification]
       summary: Enviar un expediente documental propio a revisión
-      description: Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto y no aplica la transición.
+      description: Go revalida ownership y CAS en la transacción; una revisión obsoleta produce conflicto. Para purpose identity exige un archivo limpio vigente por cada rol identity_front, identity_back e identity_selfie.
       security:
         - bearerAuth: []
       responses:
@@ -3020,7 +3007,7 @@ paths:
       operationId: uploadOwnDocumentVerificationFile
       tags: [Document verification]
       summary: Cargar un documento al expediente propio
-      description: La sesión determina al titular y el espacio autorizado. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.
+      description: La sesión determina al titular y el espacio autorizado. Para identity, evidence_role es obligatorio; el mismo rol reemplaza el slot mediante CAS en borrador/requiere_antecedentes, y el anterior queda inaccesible con borrado encolado. Para space, evidence_role se omite. Go inspecciona el contenido, lo guarda cifrado en almacenamiento privado y crea el archivo en estado pendiente con un job de inspección; el nombre original nunca se conserva ni se devuelve.
       security:
         - bearerAuth: []
       requestBody:
@@ -3036,6 +3023,10 @@ paths:
                   type: string
                   format: binary
                   maxLength: 10485760
+                evidence_role:
+                  type: string
+                  enum: [identity_front, identity_back, identity_selfie]
+                  description: Obligatorio para identity y prohibido para space; cargar el mismo rol reemplaza el slot mediante If-Match.
       responses:
         "201":
           description: Archivo guardado en estado pendiente y revisión avanzada.
@@ -3061,6 +3052,7 @@ paths:
                       size: { type: integer, format: int64, minimum: 1, maximum: 10485760 }
                       mime: { type: string, enum: [image/jpeg, image/png, application/pdf] }
                       pages: { type: integer, minimum: 1, maximum: 20 }
+                      evidence_role: { type: string, enum: [identity_front, identity_back, identity_selfie] }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -7527,48 +7519,35 @@ components:
         type: string
         minLength: 1
   schemas:
-    DiditIntentRequest:
+    IdentityDeclarationRequest:
       type: object
       additionalProperties: false
-      required: [first_name, last_name, date_of_birth, rut, consent_given, consent_version]
+      required: [first_name, last_name, date_of_birth, rut, id_country, document_type, consent_given, consent_version]
       properties:
-        first_name: { type: string, minLength: 1, maxLength: 150, description: Nombres declarados tal como aparecen en la cédula. }
-        last_name: { type: string, minLength: 1, maxLength: 150, description: Apellidos declarados tal como aparecen en la cédula. }
+        first_name: { type: string, minLength: 1, maxLength: 150, description: Nombres legales declarados. }
+        last_name: { type: string, minLength: 1, maxLength: 150, description: Apellidos legales declarados. }
         date_of_birth: { type: string, format: date, description: Fecha civil YYYY-MM-DD. }
-        rut: { type: string, minLength: 8, maxLength: 20, description: RUN/RUT con dígito verificador; nunca número de serie documental. }
+        rut: { type: string, minLength: 8, maxLength: 20, description: RUN/RUT con dígito verificador; no es el número de serie documental. }
         id_country: { type: string, const: CHL }
         document_type: { type: string, const: ID }
-        consent_given: { type: boolean, const: true, description: Consentimiento afirmativo, no preseleccionado. }
+        consent_given: { type: boolean, const: true, description: Consentimiento explícito, no preseleccionado. }
+        consent_version: { type: string, minLength: 1, maxLength: 20, description: Debe coincidir con la versión vigente configurada en el servidor. }
+    IdentityDeclarationResponse:
+      type: object
+      additionalProperties: false
+      required: [id, revision, first_name, last_name, date_of_birth, rut, id_country, document_type, consent_version, consent_given_at]
+      properties:
+        id: { type: string, format: uuid }
+        revision: { type: integer, format: int64, minimum: 1 }
+        first_name: { type: string, minLength: 1, maxLength: 150 }
+        last_name: { type: string, minLength: 1, maxLength: 150 }
+        date_of_birth: { type: string, format: date }
+        rut: { type: string, minLength: 8, maxLength: 20 }
+        id_country: { type: string, const: CHL }
+        document_type: { type: string, const: ID }
         consent_version: { type: string, minLength: 1, maxLength: 20 }
-    DiditIntentResponse:
-      type: object
-      additionalProperties: false
-      required: [id, status, redirect_url, created_at]
-      properties:
-        id: { type: string, format: uuid }
-        status: { type: string, enum: [CREATED, PENDING_USER_INPUT, PROCESSING, APPROVED, IN_REVIEW, REJECTED, EXPIRED, FAILED] }
-        redirect_url: { type: string, format: uri, description: URL temporal; no registrar ni persistir en almacenamiento del navegador. }
-        created_at: { type: string, format: date-time }
-    DiditIntentStatusResponse:
-      type: object
-      additionalProperties: false
-      required: [id, status, badge_result, created_at, updated_at]
-      properties:
-        id: { type: string, format: uuid }
-        status: { type: string, enum: [CREATED, PENDING_USER_INPUT, PROCESSING, APPROVED, IN_REVIEW, REJECTED, EXPIRED, FAILED] }
-        redirect_url: { type: [string, "null"], format: uri, description: URL temporal disponible solo si el intento puede reanudarse. }
-        badge_result: { type: string, enum: [NOT_VERIFIED, IN_REVIEW, VERIFIED, REJECTED] }
-        created_at: { type: string, format: date-time }
-        updated_at: { type: string, format: date-time }
-    DiditWebhookPayload:
-      type: object
-      description: Sobre del evento Didit; firma y frescura se validan mediante encabezados HTTP. Nunca es por sí solo autoridad para aprobar.
-      additionalProperties: true
-      required: [event_id, session_id, event_type]
-      properties:
-        event_id: { type: string, minLength: 1, maxLength: 120 }
-        session_id: { type: string, minLength: 1, maxLength: 100 }
-        event_type: { type: string, minLength: 1, maxLength: 80, description: Por ejemplo status.updated o data.updated. }
+        consent_given_at: { type: string, format: date-time }
+
     AdminCapability:
       type: string
       enum:
@@ -10505,13 +10484,15 @@ components:
       oneOf:
         - type: object
           additionalProperties: false
-          required: [purpose, document_expires_at]
+          required: [purpose, document_format_declared, capture_consent_given, capture_consent_version]
           properties:
             purpose: { type: string, const: identity }
-            document_expires_at:
+            document_format_declared:
               type: string
-              format: date-time
-              description: Debe ser posterior al instante de recepción en el servidor.
+              enum: [legacy, new, unsure]
+              description: Formato físico declarado; legacy incluye diseños anteriores al formato emitido desde 2024-12-16. No acredita autenticidad.
+            capture_consent_given: { type: boolean, const: true, description: Acknowledgement of the local synthetic-test notice; not authorization for real personal data. }
+            capture_consent_version: { type: string, const: identity-capture-local-v1, description: Versioned local synthetic-test notice identifier; the live-data notice is not ratified. }
         - type: object
           additionalProperties: false
           required: [purpose, space_id]
@@ -10532,6 +10513,10 @@ components:
         size: { type: integer, format: int64, minimum: 1, maximum: 10485760 }
         mime: { type: string, enum: [image/jpeg, image/png, application/pdf] }
         pages: { type: integer, minimum: 1, maximum: 20 }
+        evidence_role:
+          type: string
+          enum: [identity_front, identity_back, identity_selfie]
+          description: Solo para purpose identity; ausente en archivos de purpose space.
     DocumentVerificationOwnerCase:
       type: object
       additionalProperties: false
@@ -10556,12 +10541,58 @@ components:
               ],
           }
         revision: { type: integer, format: int64, minimum: 1 }
-        document_expires_at: { type: string, format: date-time }
+        owner_decision_message:
+          type: string
+          maxLength: 240
+          description: Sanitized identity decision copy selected by a server-side allowlist. Present only for requiere_antecedentes; unknown or private reason codes use a generic fallback. Never contains raw reason codes or reviewer observations.
+        document_format_declared:
+          type: string
+          enum: [legacy, new, unsure]
+        document_expires_at: { type: string, format: date-time, description: Solo para purpose space; el vencimiento observado de identidad se devuelve únicamente al revisor. }
         verified_at: { type: string, format: date-time }
         verified_until: { type: string, format: date-time }
         files:
           type: array
           items: { $ref: "#/components/schemas/DocumentVerificationOwnerFile" }
+    DocumentVerificationReviewerCase:
+      type: object
+      additionalProperties: false
+      required: [id, purpose, state, revision, files]
+      properties:
+        id: { type: string, format: uuid }
+        purpose: { type: string, enum: [identity, space] }
+        space_id: { type: string, format: uuid }
+        state: { type: string, enum: [borrador, enviada, en_revision, requiere_antecedentes, aprobada, rechazada, vencida, revocada] }
+        revision: { type: integer, format: int64, minimum: 1 }
+        document_expires_at_observed: { type: string, format: date, description: Fecha civil YYYY-MM-DD observada por el revisor para identidad; válida durante ese día en America/Santiago y no declarada por el solicitante. }
+        document_format_declared: { type: string, enum: [legacy, new, unsure] }
+        document_format_observed: { type: string, enum: [legacy, new, undetermined] }
+        identity_declaration:
+          type: object
+          additionalProperties: false
+          required: [first_name, last_name, rut, date_of_birth]
+          properties:
+            first_name: { type: string }
+            last_name: { type: string }
+            rut: { type: string }
+            date_of_birth: { type: string, format: date }
+        verified_at: { type: string, format: date-time }
+        verified_until: { type: string, format: date-time }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/DocumentVerificationOwnerFile" }
+    IdentityReviewChecklist:
+      type: object
+      additionalProperties: false
+      required: [names_match, rut_matches, birth_date_and_majority_match, portrait_matches_selfie, evidence_legible, document_unexpired, issue_date_and_format_verified]
+      properties:
+        names_match: { type: [boolean, "null"] }
+        rut_matches: { type: [boolean, "null"] }
+        birth_date_and_majority_match: { type: [boolean, "null"] }
+        portrait_matches_selfie: { type: [boolean, "null"] }
+        evidence_legible: { type: [boolean, "null"] }
+        document_unexpired: { type: [boolean, "null"] }
+        issue_date_and_format_verified: { type: [boolean, "null"] }
     VerificationCase:
       type: object
       required: [id, type, state, provider, evidence_ref, created_at]

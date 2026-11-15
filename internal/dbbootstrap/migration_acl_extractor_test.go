@@ -232,3 +232,55 @@ func TestExtractMigrationACLForGranteeRejectsDynamicTargets(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractMigrationRuntimeACLKeepsMixedEffectConditionsExact(t *testing.T) {
+	source := []byte(`REVOKE ALL ON TABLE public.identity_declaration_revision FROM espacigo_runtime;
+DO $runtime$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime') THEN
+        GRANT SELECT ON TABLE public.identity_declaration_revision TO espacigo_runtime;
+    END IF;
+END $runtime$;`)
+	effects, err := ExtractMigrationRuntimeACL(95, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(effects) != 2 {
+		t.Fatalf("got %d effects, want unconditional revoke and conditional grant: %+v", len(effects), effects)
+	}
+	if effects[0].Action != "REVOKE" || effects[0].Condition != "" || effects[0].Object != "public.identity_declaration_revision" {
+		t.Errorf("unconditional revoke was assigned the conditional grant's condition: %+v", effects[0])
+	}
+	if effects[1].Action != "GRANT" || effects[1].Condition != "role-exists:espacigo_runtime" || effects[1].Object != "public.identity_declaration_revision" {
+		t.Errorf("conditional grant lost its role-exists condition: %+v", effects[1])
+	}
+}
+
+func TestExtractMigrationRuntimeACLRejectsStaticMixedGrants(t *testing.T) {
+	source := []byte(`DO $runtime$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='espacigo_runtime') THEN
+        GRANT SELECT ON TABLE public.conditional_items TO espacigo_runtime;
+    END IF;
+END $runtime$;
+GRANT UPDATE ON TABLE public.unconditional_items TO espacigo_runtime;`)
+	// Characterization: equal action names are ambiguous at the contract level,
+	// so the extractor must reject instead of assigning the branch condition to
+	// both effects, even though the objects and privileges differ.
+	if _, err := ExtractMigrationRuntimeACL(96, source); err == nil || !strings.Contains(err.Error(), "condition") {
+		t.Fatalf("mixed static grants did not fail closed: %v", err)
+	}
+}
+
+func TestParseACLFunctionIdentitySupportsTextArguments(t *testing.T) {
+	statement := `REVOKE ALL ON FUNCTION public.commit_verified_identity_decision(uuid, uuid, text, text, timestamptz) FROM PUBLIC;`
+	effects, err := ParseACLStatementsForGrantee(statement, "PUBLIC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := RuntimeACLEffect{
+		Action: "REVOKE", Grantee: "PUBLIC", ObjectKind: "FUNCTION",
+		Object: "public.commit_verified_identity_decision(uuid, uuid, text, text, timestamptz)", Privilege: "ALL PRIVILEGES",
+	}
+	if len(effects) != 1 || effects[0] != want {
+		t.Fatalf("got %+v, want [%+v]", effects, want)
+	}
+}

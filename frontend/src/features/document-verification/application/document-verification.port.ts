@@ -3,6 +3,7 @@ import type {
   DocumentVerificationCase,
   DocumentVerificationCreate,
   DocumentVerificationFile,
+  IdentityEvidenceRole,
   OwnerSpaceOption,
 } from "../domain/document-verification";
 
@@ -45,6 +46,7 @@ export interface DocumentVerificationPort {
     id: string,
     etag: string,
     file: File,
+    evidenceRole?: IdentityEvidenceRole,
     signal?: AbortSignal,
   ): Promise<UploadedDocumentVerificationFile>;
   downloadSpaceFile(

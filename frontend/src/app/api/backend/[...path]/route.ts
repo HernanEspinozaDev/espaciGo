@@ -61,6 +61,13 @@ const safeHeaderValue = /^[\t\x20-\x7e\x80-\xff]*$/;
 const safeRequestId = /^[A-Za-z0-9._-]{1,128}$/;
 const sensitiveQueryKey =
   /(?:token|password|secret|authorization|credential|bearer)/i;
+const retiredProviderRouteTemplates = [
+  "/verifications/didit/intent",
+  "/verifications/didit/intent/{id}",
+  "/verifications/didit/intent/{id}/refresh",
+  "/verifications/didit/webhook",
+  "/webhooks/didit",
+];
 
 interface RouteContext {
   params: Promise<{ path: string[] }>;
@@ -310,6 +317,13 @@ async function proxy(
 
   const { path } = await context.params;
   if (!Array.isArray(path) || path.length === 0) {
+    return errorResponse(404, "route_not_allowed", requestId);
+  }
+  if (
+    retiredProviderRouteTemplates.some((template) =>
+      matchesPath(template, path),
+    )
+  ) {
     return errorResponse(404, "route_not_allowed", requestId);
   }
   const { operation, allowedMethods } = operationFor(

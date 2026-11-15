@@ -158,6 +158,116 @@ func TestStoreDeleteReturnsRemoteFailure(t *testing.T) {
 	}
 }
 
+func TestStoreDeleteIsIdempotentWhenObjectIsAlreadyMissing(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	for _, tc := range []struct {
+		name              string
+		missingOnAttrs    bool
+		wantDeleteRequest int
+	}{
+		{name: "missing before attributes lookup", missingOnAttrs: true},
+		{name: "disappears after attributes lookup", wantDeleteRequest: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attrsCalls, deleteCalls int
+			var deleteGeneration string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.Method == http.MethodGet && r.URL.Query().Get("alt") == "json":
+					attrsCalls++
+					if tc.missingOnAttrs {
+						w.Header().Set("Content-Type", "application/json")
+						w.WriteHeader(http.StatusNotFound)
+						_, _ = io.WriteString(w, `{"error":{"code":404,"message":"Not Found","errors":[{"domain":"global","reason":"notFound","message":"Not Found"}]}}`)
+						return
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(w, `{"name":"`+id+`.blob","generation":"7","size":"1"}`)
+				case r.Method == http.MethodDelete:
+					deleteCalls++
+					deleteGeneration = r.URL.Query().Get("ifGenerationMatch")
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusNotFound)
+					_, _ = io.WriteString(w, `{"error":{"code":404,"message":"Not Found","errors":[{"domain":"global","reason":"notFound","message":"Not Found"}]}}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			store := newStoreWithClient(client, "private-bucket")
+			if err := store.Delete(context.Background(), id); err != nil {
+				t.Fatalf("Delete() for an already-missing object: %v", err)
+			}
+			if attrsCalls != 1 || deleteCalls != tc.wantDeleteRequest {
+				t.Fatalf("attrs calls=%d delete calls=%d, want 1 and %d", attrsCalls, deleteCalls, tc.wantDeleteRequest)
+			}
+			if tc.wantDeleteRequest == 1 && deleteGeneration != "7" {
+				t.Fatalf("delete precondition=%q, want observed generation 7", deleteGeneration)
+			}
+		})
+	}
+}
+
+func TestStoreDeleteCanReplayAfterAmbiguousRemoteSuccess(t *testing.T) {
+	const id = "11111111-1111-4111-8111-111111111111"
+	objectExists := true
+	var attrsCalls, deleteCalls int
+	var deleteGeneration string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Query().Get("alt") == "json":
+			attrsCalls++
+			if !objectExists {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = io.WriteString(w, `{"error":{"code":404,"message":"Not Found","errors":[{"domain":"global","reason":"notFound","message":"Not Found"}]}}`)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{"name":"`+id+`.blob","generation":"7","size":"1"}`)
+		case r.Method == http.MethodDelete:
+			deleteCalls++
+			deleteGeneration = r.URL.Query().Get("ifGenerationMatch")
+			if deleteGeneration != "7" || !objectExists {
+				http.Error(w, "unexpected synthetic delete state", http.StatusPreconditionFailed)
+				return
+			}
+			objectExists = false
+			http.Error(w, "synthetic response lost after delete", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	store := newStoreWithClient(client, "private-bucket")
+	store.bucket = store.bucket.Retryer(storage.WithPolicy(storage.RetryNever))
+
+	if err := store.Delete(context.Background(), id); err == nil {
+		t.Fatal("first Delete() swallowed the ambiguous remote failure")
+	}
+	if objectExists || attrsCalls != 1 || deleteCalls != 1 || deleteGeneration != "7" {
+		t.Fatalf("first attempt: exists=%t attrs=%d deletes=%d generation=%q", objectExists, attrsCalls, deleteCalls, deleteGeneration)
+	}
+	if err := store.Delete(context.Background(), id); err != nil {
+		t.Fatalf("Delete() replay after object was already removed: %v", err)
+	}
+	if objectExists || attrsCalls != 2 || deleteCalls != 1 {
+		t.Fatalf("replay: exists=%t attrs=%d deletes=%d, want absent/2/1", objectExists, attrsCalls, deleteCalls)
+	}
+}
+
 func TestValidatePrefixRejectsTraversalAndAcceptsExactRunPrefix(t *testing.T) {
 	for _, prefix := range []string{"../other", "runs/../other", "/absolute", "runs//g03o-1017", "runs\\g03o-1017"} {
 		if err := validatePrefix(prefix); err == nil {

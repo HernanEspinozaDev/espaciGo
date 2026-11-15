@@ -20,21 +20,44 @@ type Authenticator interface {
 	Authorize(context.Context, identity.Secret, identity.Role, identity.ActivityKind) (identity.Principal, error)
 }
 type Handler struct {
-	auth     Authenticator
-	service  *verification.Service
-	evidence *verification.EvidenceService
-	origins  map[string]bool
+	auth        Authenticator
+	service     *verification.Service
+	evidence    *verification.EvidenceService
+	declaration *verification.DeclarationService
+	origins     map[string]bool
 }
 
 func NewHandler(auth Authenticator, service *verification.Service, origins []string, evidence ...*verification.EvidenceService) http.Handler {
-	h := &Handler{auth: auth, service: service, origins: map[string]bool{}}
+	var evidenceService *verification.EvidenceService
 	if len(evidence) > 0 {
-		h.evidence = evidence[0]
+		evidenceService = evidence[0]
 	}
+	return buildHandler(auth, service, origins, evidenceService, nil)
+}
+
+// NewHandlerWithDeclaration builds the identity declaration handler.
+// Deprecated: The optional Didit argument is ignored; provider routes are retired.
+func NewHandlerWithDeclaration(auth Authenticator, service *verification.Service, origins []string, evidence *verification.EvidenceService, declaration *verification.DeclarationService, didit ...*verification.DiditService) http.Handler {
+	return buildHandler(auth, service, origins, evidence, declaration)
+}
+
+func NewHandlerWithDeclarationWithoutExternalProvider(auth Authenticator, service *verification.Service, origins []string, evidence *verification.EvidenceService, declaration *verification.DeclarationService) http.Handler {
+	return buildHandler(auth, service, origins, evidence, declaration)
+}
+
+func buildHandler(auth Authenticator, service *verification.Service, origins []string, evidence *verification.EvidenceService, declaration *verification.DeclarationService) *Handler {
+	h := &Handler{auth: auth, service: service, evidence: evidence, declaration: declaration, origins: map[string]bool{}}
 	for _, o := range origins {
 		h.origins[o] = true
 	}
 	return h
+}
+
+func isExternalProviderRoute(path string) bool {
+	return path == "/api/v1/webhooks/didit" ||
+		path == "/api/v1/verifications/didit/webhook" ||
+		path == "/api/v1/verifications/didit/intent" ||
+		strings.HasPrefix(path, "/api/v1/verifications/didit/intent/")
 }
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$`)
@@ -58,6 +81,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 	}
+	if isExternalProviderRoute(strings.TrimSuffix(r.URL.Path, "/")) {
+		writeError(w, http.StatusNotFound, "not_found", "Recurso no encontrado.")
+		return
+	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(204)
 		return
@@ -70,10 +97,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if path == "" {
 		path = "/"
 	}
-	if (path == "/api/v1/verifications/didit/webhook" || path == "/api/v1/webhooks/didit") && r.Method == http.MethodPost {
-		h.handleDiditWebhook(w, r)
-		return
-	}
 	admin := strings.HasPrefix(path, "/api/v1/admin/verifications")
 	principal, err := h.authorize(r, admin)
 	if err != nil {
@@ -85,15 +108,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if path == "/api/v1/verifications/didit/intent" && r.Method == http.MethodPost {
-		h.handleCreateDiditIntent(w, r)
-		return
+	if path == "/api/v1/verifications/identity-declaration" {
+		if h.declaration == nil {
+			writeError(w, http.StatusServiceUnavailable, "service_unavailable", "La operación no está disponible.")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			h.handleGetIdentityDeclaration(w, r, principal)
+			return
+		case http.MethodPost:
+			h.handleSaveIdentityDeclaration(w, r, principal)
+			return
+		}
 	}
-	if strings.HasPrefix(path, "/api/v1/verifications/didit/intent/") && r.Method == http.MethodGet {
-		id := strings.TrimPrefix(path, "/api/v1/verifications/didit/intent/")
-		h.handleGetDiditIntentWithID(w, r, id)
-		return
-	}
+
 	if h.evidence != nil {
 		if handled := h.serveEvidence(w, r, path, principal, admin); handled {
 			return

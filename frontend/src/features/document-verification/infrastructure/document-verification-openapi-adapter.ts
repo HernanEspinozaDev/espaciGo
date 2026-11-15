@@ -14,6 +14,7 @@ import {
   normalizeDocumentVerificationCreate,
   type DocumentVerificationCase,
   type DocumentVerificationCreate,
+  type IdentityEvidenceRole,
 } from "../domain/document-verification";
 
 function auth(token: AccessToken) {
@@ -114,17 +115,22 @@ export class OpenApiDocumentVerificationAdapter implements DocumentVerificationP
     id: string,
     etag: string,
     file: File,
+    evidenceRole?: IdentityEvidenceRole,
     signal?: AbortSignal,
   ): Promise<UploadedDocumentVerificationFile> {
     requireStrongETag(etag);
     const form = new FormData();
     form.append("file", file);
+    if (evidenceRole) form.append("evidence_role", evidenceRole);
     const result = await apiClient.POST(
       "/document-verification/cases/{id}/files",
       {
         params: { path: { id }, header: { "If-Match": etag } },
         headers: auth(token),
-        body: { file: file as unknown as string },
+        body: {
+          file: file as unknown as string,
+          ...(evidenceRole ? { evidence_role: evidenceRole } : {}),
+        },
         bodySerializer: () => form,
         signal,
       },

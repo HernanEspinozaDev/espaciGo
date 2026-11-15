@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -334,8 +335,14 @@ func (s *Service) ExportOwnArchive(ctx context.Context, accountID string) ([]byt
 	if s.complete == nil {
 		return nil, ErrExportUnavailable
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	identity, err := s.repo.ExportOwnData(ctx, accountID)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	// Authorization roles are operational permissions, not part of this
@@ -357,8 +364,21 @@ func (s *Service) ExportOwnArchive(ctx context.Context, accountID string) ([]byt
 	if err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	files = append(files, moreFiles...)
 	exclusions = append(exclusions, moreExclusions...)
+	seenFileNames := make(map[string]struct{}, len(files))
+	for _, file := range files {
+		if !safeExportFileName(file.Name) {
+			return nil, ErrInvalid
+		}
+		if _, duplicate := seenFileNames[file.Name]; duplicate {
+			return nil, ErrInvalid
+		}
+		seenFileNames[file.Name] = struct{}{}
+	}
 	if sections == nil {
 		sections = map[string]json.RawMessage{}
 	}
@@ -396,9 +416,6 @@ func (s *Service) ExportOwnArchive(ctx context.Context, accountID string) ([]byt
 		}
 	}
 	for _, file := range files {
-		if !safeExportFileName(file.Name) {
-			return nil, ErrInvalid
-		}
 		f, e := w.Create(file.Name)
 		if e != nil {
 			return nil, e
@@ -410,11 +427,17 @@ func (s *Service) ExportOwnArchive(ctx context.Context, accountID string) ([]byt
 	if err := w.Close(); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return archive.Bytes(), nil
 }
 
 func safeExportFileName(name string) bool {
-	return strings.HasPrefix(name, "files/") && !strings.Contains(name, "..") && !strings.HasPrefix(name, "/")
+	return strings.HasPrefix(name, "files/") &&
+		!strings.ContainsRune(name, 0) &&
+		!strings.Contains(name, "\\") &&
+		path.Clean(name) == name
 }
 
 func (s *Service) ReviewSuppression(ctx context.Context, reviewerID, requestID, idempotencyKey, correlationID string, now func() time.Time) (SuppressionReview, error) {

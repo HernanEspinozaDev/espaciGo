@@ -3,7 +3,18 @@
 set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+SCOPE="${1:-full}"
+case "$SCOPE" in
+  full) GO_TEST_PATTERN='^Test(Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration)' ;;
+  v19) GO_TEST_PATTERN='^TestCurrentSchemaMigrationV19WeeklyHours$' ;;
+  v76) GO_TEST_PATTERN='^TestGalleryCapacityTransitionV68ToV76$' ;;
+  authority-window) GO_TEST_PATTERN='^TestNativeKYCAuthorityWindowPostgres$' ;;
+  *) echo 'usage: test-migration-runner-postgres.sh [full|v19|v76|authority-window]' >&2; exit 2 ;;
+esac
 IMAGE='postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677'
+if [[ "$SCOPE" == authority-window ]]; then
+  IMAGE='postgres@sha256:c7fedce47eff6a78cb35dad6b627f0d684107f75ab15c0870e40c093766ba452'
+fi
 NAME="espacigo-migration-ci-$$"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/espacigo-migration-ci.XXXXXX")"
 SOCKET_DIR="$TMP_DIR/socket"
@@ -12,7 +23,17 @@ mkdir -m 0777 "$SOCKET_DIR"
 cleanup() {
   status=$?
   trap - EXIT INT TERM
-  if [[ -n "$OWNED_CONTAINER_ID" ]]; then docker rm -f "$OWNED_CONTAINER_ID" >/dev/null 2>&1 || true; fi
+  if [[ -n "$OWNED_CONTAINER_ID" ]]; then
+    if ! docker rm -f "$OWNED_CONTAINER_ID" >/dev/null; then
+      echo 'FAIL: could not remove own disposable PostgreSQL container' >&2
+      status=1
+    elif docker inspect "$OWNED_CONTAINER_ID" >/dev/null 2>&1; then
+      echo 'FAIL: own disposable PostgreSQL container still exists' >&2
+      status=1
+    else
+      echo 'PASS: own disposable PostgreSQL container removal verified'
+    fi
+  fi
   python3 -c 'import shutil,sys; shutil.rmtree(sys.argv[1],ignore_errors=True)' "$TMP_DIR"
   exit "$status"
 }
@@ -48,15 +69,29 @@ c=json.loads(subprocess.check_output(['docker','inspect',sys.argv[1]],text=True)
 assert c['HostConfig']['NetworkMode']=='none'
 assert not c['HostConfig'].get('PortBindings')
 assert not any(m['Type']=='volume' for m in c['Mounts'])
+socket=next(m['Source'] for m in c['Mounts'] if m['Destination']=='/var/run/postgresql')
+print('ISOLATED TARGET: container='+c['Name'].lstrip('/')+' image='+c['Config']['Image']+' network=none ports=none volumes=none PGDATA=tmpfs socket='+socket)
 PY
 env -u DATABASE_URL -u DATABASE_SET_ROLE -u PGPASSWORD -u PGPASSFILE -u PGOPTIONS -u PGSERVICE -u PGSERVICEFILE \
   TEST_MIGRATOR_CI_ISOLATED=1 \
   TEST_DATABASE_URL="postgres://postgres@localhost/postgres?host=$SOCKET_DIR&sslmode=disable" \
+  TEST_MIGRATION_AUTHORITY_REPORT_DIR="$TMP_DIR" \
   go test -json -count=1 -timeout=3m \
-  -run '^Test(Runner|PlanOnly|MigratorSerializes|CurrentSchemaMigration)' \
+  -run "$GO_TEST_PATTERN" \
   ./internal/migrator > "$TMP_DIR/results.jsonl" 2>&1 || {
     cat "$TMP_DIR/results.jsonl" >&2
     exit 1
   }
-python3 scripts/gcp/check_migration_ci.py "$TMP_DIR/results.jsonl"
-echo 'PASS: disposable PostgreSQL runner, fresh V1-V83, V75 upgrade, read-only plan, no-op, failure recovery, checksum and concurrency tests; own resources removed on exit.'
+if [[ "$SCOPE" == full ]]; then
+  python3 scripts/gcp/test_identity_tail_plan_wire.py "$TMP_DIR"
+fi
+python3 scripts/gcp/check_migration_ci.py --scope "$SCOPE" "$TMP_DIR/results.jsonl"
+if [[ "$SCOPE" == v19 ]]; then
+  echo 'PASS: isolated disposable PostgreSQL V1-V19 weekly-hours migration and trigger tests.'
+elif [[ "$SCOPE" == v76 ]]; then
+  echo 'PASS: isolated disposable PostgreSQL V1-V68-to-V76 gallery capacity transition (10 to 30), concurrent 30th slot, and 31st-slot rejection.'
+elif [[ "$SCOPE" == authority-window ]]; then
+  echo 'PASS: isolated PostgreSQL 18.7 target-pinned V95/V96 preparation/finalization, wrong-target no-DDL, separate temporary CREATE closure, successful migration boundaries, retry and readback; no persistent database touched.'
+else
+  echo 'PASS: disposable PostgreSQL runner, fresh V1-V96, V75/V76 upgrades to V96, V95-to-V96 reviewer observation/audit contract, V94-to-V95 identity-case binding, read-only plan, no-op, failure recovery, checksum, concurrency and V19 trigger tests.'
+fi

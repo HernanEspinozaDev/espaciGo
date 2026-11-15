@@ -2,18 +2,47 @@ package migrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/database/cloudsql"
 	"github.com/jackc/pgx/v5"
 )
 
 const (
-	advisoryLockClass  int32 = 0x45535047 // "ESPG"
-	advisoryLockObject int32 = 0x4d494752 // "MIGR"
+	advisoryLockClass    int32 = 0x45535047 // "ESPG"
+	advisoryLockObject   int32 = 0x4d494752 // "MIGR"
+	v84DiditMigration          = "V000084__didit_identity_verification_schema.sql"
+	v85IdentityMigration       = "V000085__identity_encrypted_declarations_and_minimal_events.sql"
+	v86IdentityMigration       = "V000086__identity_declaration_retention_purge.sql"
+	v87IdentityMigration       = "V000087__identity_declaration_retention_worker.sql"
+	v77GalleryMigration        = "V000077__img01b_gallery_slot_record_guard.sql"
 )
+
+const v77OriginalFragment = "IF TG_TABLE_NAME='media_asset' AND NEW.replacement_target_space_media_id IS NOT NULL THEN"
+
+func guardV77Predecessor(ctx context.Context, queryer migrationRowQueryer) error {
+	const query = `SELECT pg_catalog.pg_get_functiondef('public.img01b_enforce_gallery_slot()'::regprocedure)`
+	var definition string
+	if err := queryer.QueryRow(ctx, query).Scan(&definition); err != nil {
+		return fmt.Errorf("V77 predecessor-function guard could not read public.img01b_enforce_gallery_slot(): %w", err)
+	}
+	if count := strings.Count(definition, v77OriginalFragment); count != 1 {
+		return fmt.Errorf("V77 predecessor-function guard expected exactly one original fragment in public.img01b_enforce_gallery_slot(); found %d", count)
+	}
+	return nil
+}
+
+func needsIdentityDDLAuthority(version int64, name string) bool {
+	return (version == 84 && name == v84DiditMigration) ||
+		(version == 85 && name == v85IdentityMigration) ||
+		(version == 86 && name == v86IdentityMigration) ||
+		(version == 87 && name == v87IdentityMigration) ||
+		(version == 88 && name == "V000088__revoke_runtime_identity_purge_execute.sql")
+}
 
 func validDatabaseRoleName(value string) bool {
 	if len(value) == 0 || len(value) > 63 {
@@ -30,7 +59,9 @@ func validDatabaseRoleName(value string) bool {
 }
 
 type Result struct {
-	Applied []int64
+	Applied              []int64
+	DDLAuthority         *V84DDLAuthority
+	IdentityDDLAuthority *IdentityTailDDLAuthority
 }
 
 type MigrationSummary struct {
@@ -40,12 +71,176 @@ type MigrationSummary struct {
 }
 
 type PlanResult struct {
-	Database      string             `json:"database"`
-	ServerVersion string             `json:"server_version"`
-	ReadOnly      bool               `json:"read_only"`
-	HistoryExists bool               `json:"history_exists"`
-	Applied       []HistoryEntry     `json:"applied"`
-	Pending       []MigrationSummary `json:"pending"`
+	Database             string                    `json:"database"`
+	ServerVersion        string                    `json:"server_version"`
+	ReadOnly             bool                      `json:"read_only"`
+	HistoryExists        bool                      `json:"history_exists"`
+	Applied              []HistoryEntry            `json:"applied"`
+	Pending              []MigrationSummary        `json:"pending"`
+	DDLAuthority         *V84DDLAuthority          `json:"ddl_authority,omitempty"`
+	IdentityDDLAuthority *IdentityTailDDLAuthority `json:"identity_ddl_authority,omitempty"`
+}
+
+type V84RoleAttributes struct {
+	CanLogin    bool `json:"can_login"`
+	Inherit     bool `json:"inherit"`
+	Superuser   bool `json:"superuser"`
+	CreateRole  bool `json:"create_role"`
+	CreateDB    bool `json:"create_db"`
+	Replication bool `json:"replication"`
+	BypassRLS   bool `json:"bypass_rls"`
+}
+
+type V84DDLAuthority struct {
+	SessionUser         string               `json:"session_user"`
+	CurrentUser         string               `json:"current_user"`
+	CurrentSchema       string               `json:"current_schema"`
+	SessionRole         V84RoleAttributes    `json:"session_role"`
+	SchemaOwnerRole     V84RoleAttributes    `json:"schema_owner_role"`
+	PublicSchemaOwner   string               `json:"public_schema_owner"`
+	PublicUsage         bool                 `json:"public_usage"`
+	PublicCreate        bool                 `json:"public_create"`
+	UsuarioOwner        string               `json:"usuario_owner"`
+	UsuarioIDReferences bool                 `json:"usuario_id_references"`
+	LedgerOwner         string               `json:"ledger_owner"`
+	LedgerSelect        bool                 `json:"ledger_select"`
+	LedgerInsert        bool                 `json:"ledger_insert"`
+	Memberships         []V84Membership      `json:"memberships"`
+	Catalog             *V84AuthorityCatalog `json:"catalog"`
+}
+
+type migrationRowQueryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func requireV84DDLAuthority(authority V84DDLAuthority) error {
+	if authority.SessionUser != "espacigo_migrator_login" || authority.CurrentUser != "espacigo_schema_owner" || authority.CurrentSchema != "public" {
+		return errors.New("V84 requires the pinned migrator identity, schema owner role and public search target")
+	}
+	if !authority.SessionRole.CanLogin || authority.SessionRole.Inherit || authority.SessionRole.Superuser || authority.SessionRole.CreateRole || authority.SessionRole.CreateDB || authority.SessionRole.Replication || authority.SessionRole.BypassRLS {
+		return errors.New("V84 migrator login has unsafe role attributes")
+	}
+	if authority.SchemaOwnerRole.CanLogin || authority.SchemaOwnerRole.Inherit || authority.SchemaOwnerRole.Superuser || authority.SchemaOwnerRole.CreateRole || authority.SchemaOwnerRole.CreateDB || authority.SchemaOwnerRole.Replication || authority.SchemaOwnerRole.BypassRLS {
+		return errors.New("V84 schema owner has unsafe role attributes")
+	}
+	if authority.PublicSchemaOwner == "" || authority.UsuarioOwner == "" || authority.LedgerOwner == "" {
+		return errors.New("V84 preflight is missing schema or relation owner evidence")
+	}
+	if !authority.PublicUsage || !authority.PublicCreate || !authority.UsuarioIDReferences || !authority.LedgerSelect || !authority.LedgerInsert {
+		return errors.New("V84 preflight lacks effective schema, REFERENCES or migration-ledger privileges")
+	}
+	return requireV84Catalog(authority)
+}
+
+func requireV86DDLAuthority(authority V84DDLAuthority) error {
+	if authority.SessionUser != "espacigo_migrator_login" || authority.CurrentUser != "espacigo_schema_owner" || authority.CurrentSchema != "public" {
+		return errors.New("V86 requires the pinned migrator identity, schema owner role and public search target")
+	}
+	if !authority.SessionRole.CanLogin || authority.SessionRole.Inherit || authority.SessionRole.Superuser || authority.SessionRole.CreateRole || authority.SessionRole.CreateDB || authority.SessionRole.Replication || authority.SessionRole.BypassRLS {
+		return errors.New("V86 migrator login has unsafe role attributes")
+	}
+	if authority.SchemaOwnerRole.CanLogin || authority.SchemaOwnerRole.Inherit || authority.SchemaOwnerRole.Superuser || authority.SchemaOwnerRole.CreateRole || authority.SchemaOwnerRole.CreateDB || authority.SchemaOwnerRole.Replication || authority.SchemaOwnerRole.BypassRLS {
+		return errors.New("V86 schema owner has unsafe role attributes")
+	}
+	if authority.PublicSchemaOwner == "" || authority.UsuarioOwner == "" || authority.LedgerOwner == "" {
+		return errors.New("V86 preflight is missing schema or relation owner evidence")
+	}
+	if !authority.PublicUsage || !authority.PublicCreate || !authority.LedgerSelect || !authority.LedgerInsert {
+		return errors.New("V86 preflight lacks effective schema or migration-ledger privileges")
+	}
+	return requireV84Catalog(authority)
+}
+
+func requireV87DDLAuthority(authority V84DDLAuthority) error {
+	if authority.SessionUser != "espacigo_migrator_login" || authority.CurrentUser != "espacigo_schema_owner" || authority.CurrentSchema != "public" {
+		return errors.New("V87 requires the pinned migrator identity, schema owner role and public search target")
+	}
+	if !authority.SessionRole.CanLogin || authority.SessionRole.Inherit || authority.SessionRole.Superuser || authority.SessionRole.CreateRole || authority.SessionRole.CreateDB || authority.SessionRole.Replication || authority.SessionRole.BypassRLS {
+		return errors.New("V87 migrator login has unsafe role attributes")
+	}
+	if authority.SchemaOwnerRole.CanLogin || authority.SchemaOwnerRole.Inherit || authority.SchemaOwnerRole.Superuser || authority.SchemaOwnerRole.CreateRole || authority.SchemaOwnerRole.CreateDB || authority.SchemaOwnerRole.Replication || authority.SchemaOwnerRole.BypassRLS {
+		return errors.New("V87 schema owner has unsafe role attributes")
+	}
+	if authority.PublicSchemaOwner == "" || authority.UsuarioOwner == "" || authority.LedgerOwner == "" {
+		return errors.New("V87 preflight is missing schema or relation owner evidence")
+	}
+	if !authority.PublicUsage || !authority.LedgerSelect || !authority.LedgerInsert {
+		return errors.New("V87 preflight lacks effective schema usage or migration-ledger privileges")
+	}
+	return requireV84Catalog(authority)
+}
+
+func readV84DDLAuthority(ctx context.Context, queryer migrationRowQueryer) (V84DDLAuthority, error) {
+	var authority V84DDLAuthority
+	var sessionRoleJSON, schemaOwnerRoleJSON []byte
+	err := queryer.QueryRow(ctx, `
+		SELECT session_user::text,
+		       current_user::text,
+		       COALESCE(current_schema(), ''),
+		       COALESCE((SELECT pg_catalog.jsonb_build_object(
+		                    'can_login', r.rolcanlogin, 'inherit', r.rolinherit,
+		                    'superuser', r.rolsuper, 'create_role', r.rolcreaterole,
+		                    'create_db', r.rolcreatedb, 'replication', r.rolreplication,
+		                    'bypass_rls', r.rolbypassrls)
+		                 FROM pg_catalog.pg_roles r WHERE r.rolname=session_user), '{}'::jsonb),
+		       COALESCE((SELECT pg_catalog.jsonb_build_object(
+		                    'can_login', r.rolcanlogin, 'inherit', r.rolinherit,
+		                    'superuser', r.rolsuper, 'create_role', r.rolcreaterole,
+		                    'create_db', r.rolcreatedb, 'replication', r.rolreplication,
+		                    'bypass_rls', r.rolbypassrls)
+		                 FROM pg_catalog.pg_roles r WHERE r.rolname=current_user), '{}'::jsonb),
+		       COALESCE((SELECT pg_catalog.pg_get_userbyid(n.nspowner)
+		                 FROM pg_catalog.pg_namespace n WHERE n.nspname='public'), ''),
+	       pg_catalog.has_schema_privilege(current_user, 'public', 'USAGE'),
+	       pg_catalog.has_schema_privilege(current_user, 'public', 'CREATE'),
+	       COALESCE((SELECT pg_catalog.pg_get_userbyid(c.relowner)
+	                 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+	                 WHERE n.nspname='public' AND c.relname='usuario' AND c.relkind IN ('r','p')), ''),
+	       CASE WHEN EXISTS (SELECT 1 FROM pg_catalog.pg_attribute a
+	                         WHERE a.attrelid=pg_catalog.to_regclass('public.usuario')
+	                           AND a.attname='id' AND NOT a.attisdropped)
+	            THEN pg_catalog.has_column_privilege(current_user, 'public.usuario', 'id', 'REFERENCES')
+	            ELSE false END,
+	       COALESCE((SELECT pg_catalog.pg_get_userbyid(c.relowner)
+	                 FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+	                 WHERE n.nspname='public' AND c.relname='schema_migrations' AND c.relkind IN ('r','p')), ''),
+	       (pg_catalog.has_table_privilege(current_user, 'public.schema_migrations', 'SELECT') OR
+	        (pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'version', 'SELECT') AND
+	         pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'name', 'SELECT') AND
+	         pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'checksum', 'SELECT'))),
+	       (pg_catalog.has_table_privilege(current_user, 'public.schema_migrations', 'INSERT') OR
+	        (pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'version', 'INSERT') AND
+	         pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'name', 'INSERT') AND
+	         pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'checksum', 'INSERT') AND
+	         pg_catalog.has_column_privilege(current_user, 'public.schema_migrations', 'runner_checksum', 'INSERT')))
+	`).Scan(
+		&authority.SessionUser,
+		&authority.CurrentUser,
+		&authority.CurrentSchema,
+		&sessionRoleJSON,
+		&schemaOwnerRoleJSON,
+		&authority.PublicSchemaOwner,
+		&authority.PublicUsage,
+		&authority.PublicCreate,
+		&authority.UsuarioOwner,
+		&authority.UsuarioIDReferences,
+		&authority.LedgerOwner,
+		&authority.LedgerSelect,
+		&authority.LedgerInsert,
+	)
+	if err != nil {
+		return V84DDLAuthority{}, fmt.Errorf("read V84 DDL authority: %w", err)
+	}
+	if err := json.Unmarshal(sessionRoleJSON, &authority.SessionRole); err != nil {
+		return V84DDLAuthority{}, fmt.Errorf("decode V84 migrator role attributes: %w", err)
+	}
+	if err := json.Unmarshal(schemaOwnerRoleJSON, &authority.SchemaOwnerRole); err != nil {
+		return V84DDLAuthority{}, fmt.Errorf("decode V84 schema-owner role attributes: %w", err)
+	}
+	if err := readV84Catalog(ctx, queryer, &authority); err != nil {
+		return V84DDLAuthority{}, err
+	}
+	return authority, nil
 }
 
 func Run(ctx context.Context, databaseURL, migrationDir string) (Result, error) {
@@ -182,6 +377,30 @@ func planWithConn(ctx context.Context, conn *pgx.Conn, migrations []Migration, s
 	for _, migration := range migrations[len(history):] {
 		report.Pending = append(report.Pending, MigrationSummary{Version: migration.Version, Name: migration.Name, Checksum: migration.Checksum})
 	}
+	var needsV84Authority, needsIdentityTailAuthority bool
+	for _, pending := range report.Pending {
+		needsV84Authority = needsV84Authority || needsIdentityDDLAuthority(pending.Version, pending.Name)
+		needsIdentityTailAuthority = needsIdentityTailAuthority || needsIdentityTailDDLAuthority(pending.Version, pending.Name)
+	}
+	if needsV84Authority || needsIdentityTailAuthority {
+		if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
+			return PlanResult{}, fmt.Errorf("set reviewed identity migration search path: %w", err)
+		}
+	}
+	if needsV84Authority {
+		authority, err := readV84DDLAuthority(ctx, tx)
+		if err != nil {
+			return PlanResult{}, err
+		}
+		report.DDLAuthority = &authority
+	}
+	if needsIdentityTailAuthority {
+		authority, err := readIdentityTailDDLAuthority(ctx, tx)
+		if err != nil {
+			return PlanResult{}, err
+		}
+		report.IdentityDDLAuthority = &authority
+	}
 	if report.Applied == nil {
 		report.Applied = []HistoryEntry{}
 	}
@@ -200,7 +419,7 @@ func runWithConfig(ctx context.Context, config *pgx.ConnConfig, migrationDir, se
 	return runWithConfigOptions(ctx, config, migrationDir, setRole, nil)
 }
 
-func runWithConfigOptions(ctx context.Context, config *pgx.ConnConfig, migrationDir, setRole string, bounded *migrationRange) (Result, error) {
+func runWithConfigOptions(ctx context.Context, config *pgx.ConnConfig, migrationDir, setRole string, bounded *migrationRange, nativeV86 ...bool) (Result, error) {
 	conn, err := pgx.ConnectConfig(ctx, config)
 	if err != nil {
 		return Result{}, errors.New("connect to migration database")
@@ -214,7 +433,7 @@ func runWithConfigOptions(ctx context.Context, config *pgx.ConnConfig, migration
 			return Result{}, errors.New("could not assume configured database role")
 		}
 	}
-	result, err := runWithConnOptions(ctx, conn, migrationDir, bounded)
+	result, err := runWithConnOptions(ctx, conn, migrationDir, bounded, nativeV86...)
 	if err != nil {
 		return result, err
 	}
@@ -225,18 +444,22 @@ func runWithConn(ctx context.Context, conn *pgx.Conn, migrationDir string) (Resu
 	return runWithConnOptions(ctx, conn, migrationDir, nil)
 }
 
-func runWithConnOptions(ctx context.Context, conn *pgx.Conn, migrationDir string, bounded *migrationRange) (Result, error) {
+func runWithConnOptions(ctx context.Context, conn *pgx.Conn, migrationDir string, bounded *migrationRange, nativeV86 ...bool) (Result, error) {
 	migrations, err := DiscoverMigrations(migrationDir)
 	if err != nil {
 		return Result{}, err
 	}
-	return runDiscoveredWithConnOptions(ctx, conn, migrations, bounded)
+	return runDiscoveredWithConnOptions(ctx, conn, migrations, bounded, nativeV86...)
 }
 
-func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migrations []Migration, bounded *migrationRange) (Result, error) {
+func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migrations []Migration, bounded *migrationRange, nativeV86 ...bool) (Result, error) {
 	runnerDigest, err := executableChecksum()
 	if err != nil {
 		return Result{}, fmt.Errorf("checksum migrator executable: %w", err)
+	}
+	nativeTarget := len(nativeV86) > 0 && nativeV86[0]
+	if nativeTarget && bounded == nil {
+		return Result{}, errors.New("native KYC execution requires a bounded migration range")
 	}
 
 	releaseMigrationLock, err := AcquireMigrationAdvisoryLock(ctx, conn)
@@ -246,6 +469,11 @@ func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migration
 	defer func() {
 		_ = releaseMigrationLock(context.Background())
 	}()
+	if nativeTarget {
+		if err := guardNativeV86ExecutionTarget(ctx, conn, NativeKYCMigrationRequiresCreate(bounded.maxVersion)); err != nil {
+			return Result{}, err
+		}
+	}
 
 	if err := guardHistoryInitialization(ctx, conn); err != nil {
 		return Result{}, err
@@ -314,6 +542,57 @@ func runDiscoveredWithConnOptions(ctx context.Context, conn *pgx.Conn, migration
 		tx, err := conn.Begin(ctx)
 		if err != nil {
 			return result, fmt.Errorf("begin migration V%06d: %w", migration.Version, err)
+		}
+		if nativeTarget {
+			if err := guardNativeV86ExecutionTarget(ctx, tx, NativeKYCMigrationRequiresCreate(migration.Version)); err != nil {
+				_ = tx.Rollback(context.Background())
+				return result, err
+			}
+		}
+		if migration.Version == 77 && migration.Name == v77GalleryMigration {
+			if err := guardV77Predecessor(ctx, tx); err != nil {
+				_ = tx.Rollback(context.Background())
+				return result, err
+			}
+		}
+		if needsIdentityDDLAuthority(migration.Version, migration.Name) {
+			if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
+				_ = tx.Rollback(context.Background())
+				return result, fmt.Errorf("set V84 safe migration search path: %w", err)
+			}
+			authority, authorityErr := readV84DDLAuthority(ctx, tx)
+			if authorityErr != nil {
+				_ = tx.Rollback(context.Background())
+				return result, authorityErr
+			}
+			switch migration.Version {
+			case 86, 88:
+				authorityErr = requireV86DDLAuthority(authority)
+			case 87:
+				authorityErr = requireV87DDLAuthority(authority)
+			default:
+				authorityErr = requireV84DDLAuthority(authority)
+			}
+			if authorityErr != nil {
+				_ = tx.Rollback(context.Background())
+				return result, authorityErr
+			}
+			result.DDLAuthority = &authority
+		}
+		if needsIdentityTailDDLAuthority(migration.Version, migration.Name) {
+			if _, err := tx.Exec(ctx, "SET LOCAL search_path TO public"); err != nil {
+				_ = tx.Rollback(context.Background())
+				return result, fmt.Errorf("set V%d safe migration search path: %w", migration.Version, err)
+			}
+			authority, authorityErr := readIdentityTailDDLAuthority(ctx, tx)
+			if authorityErr == nil {
+				authorityErr = ValidateIdentityTailDDLAuthority(authority, migration.Version)
+			}
+			if authorityErr != nil {
+				_ = tx.Rollback(context.Background())
+				return result, authorityErr
+			}
+			result.IdentityDDLAuthority = &authority
 		}
 		if _, err := tx.Conn().PgConn().Exec(ctx, string(migration.SQL)).ReadAll(); err != nil {
 			_ = tx.Rollback(context.Background())

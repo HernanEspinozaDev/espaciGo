@@ -21,6 +21,7 @@ type casesServiceFake struct {
 	started   documentverification.Snapshot
 	loaded    documentverification.Snapshot
 	loadQueue []documentverification.Snapshot
+	loadErr   error
 	listed    []documentverification.Snapshot
 	err       error
 	submitErr error
@@ -47,6 +48,9 @@ func (f *casesServiceFake) LoadOwnCase(_ context.Context, actor, id string) (doc
 		x := f.loadQueue[0]
 		f.loadQueue = f.loadQueue[1:]
 		return x, nil
+	}
+	if f.loadErr != nil {
+		return f.loaded, f.loadErr
 	}
 	return f.loaded, f.err
 }
@@ -366,5 +370,290 @@ func TestOwnerCasesRouteShapeAndMethodAllowlist(t *testing.T) {
 				t.Fatalf("cache headers=%v", w.Header())
 			}
 		})
+	}
+}
+
+func TestOwnerCasesHandlerSubmissionReplayConflictAndErrorBoundaries(t *testing.T) {
+	// 1. Replay of lost successful submission returns 200 with new ETag without calling Submit
+	snapSubmitted := casesSnapshot()
+	snapSubmitted.State = documentverification.CaseSubmitted
+	snapSubmitted.Revision = 4
+	fReplay := &casesServiceFake{loaded: snapSubmitted}
+	reqReplay := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases/"+ownerCasesID+"/submit", nil)
+	reqReplay.Header.Set("Authorization", "Bearer synthetic-session")
+	reqReplay.Header.Set("If-Match", `"3"`)
+	wReplay := httptest.NewRecorder()
+	casesHandler(fReplay).ServeHTTP(wReplay, reqReplay)
+	if wReplay.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for submission replay, got %d (body: %s)", wReplay.Code, wReplay.Body.String())
+	}
+	if wReplay.Header().Get("ETag") != `"4"` {
+		t.Fatalf("expected ETag \"4\", got %q", wReplay.Header().Get("ETag"))
+	}
+	if len(fReplay.calls) != 1 || fReplay.calls[0] != "load" {
+		t.Fatalf("expected only load call, got %v", fReplay.calls)
+	}
+
+	// 2. Conflict when revision does not match and is not the immediate replay successor
+	snapStale := casesSnapshot()
+	snapStale.Revision = 5
+	fConflict := &casesServiceFake{loaded: snapStale}
+	reqConflict := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases/"+ownerCasesID+"/submit", nil)
+	reqConflict.Header.Set("Authorization", "Bearer synthetic-session")
+	reqConflict.Header.Set("If-Match", `"3"`)
+	wConflict := httptest.NewRecorder()
+	casesHandler(fConflict).ServeHTTP(wConflict, reqConflict)
+	if wConflict.Code != http.StatusConflict || !strings.Contains(wConflict.Body.String(), "case revision conflict") {
+		t.Fatalf("expected 409 case revision conflict, got %d (body: %s)", wConflict.Code, wConflict.Body.String())
+	}
+
+	// 3. Submit error propagation from service
+	for _, tc := range []struct {
+		name     string
+		svcErr   error
+		wantCode int
+	}{
+		{"conflict", documentverification.ErrConflict, http.StatusConflict},
+		{"not found", documentverification.ErrNotFound, http.StatusNotFound},
+		{"invalid", documentverification.ErrInvalid, http.StatusBadRequest},
+	} {
+		t.Run("submit_err_"+tc.name, func(t *testing.T) {
+			fErr := &casesServiceFake{loaded: casesSnapshot(), submitErr: tc.svcErr}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases/"+ownerCasesID+"/submit", nil)
+			req.Header.Set("Authorization", "Bearer synthetic-session")
+			req.Header.Set("If-Match", `"3"`)
+			w := httptest.NewRecorder()
+			casesHandler(fErr).ServeHTTP(w, req)
+			if w.Code != tc.wantCode {
+				t.Fatalf("expected status %d, got %d (body: %s)", tc.wantCode, w.Code, w.Body.String())
+			}
+		})
+	}
+
+	// 4. Create case with expiration timestamp populated
+	expiry := time.Date(2032, 5, 1, 0, 0, 0, 0, time.UTC)
+	snapCreated := casesSnapshot()
+	snapCreated.DocumentExpiresAt = expiry
+	fCreate := &casesServiceFake{started: snapCreated}
+	bodyCreate := `{"purpose":"space","space_id":"88888888-8888-4888-8888-888888888888","document_expires_at":"2032-05-01T00:00:00Z"}`
+	reqCreate := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases", strings.NewReader(bodyCreate))
+	reqCreate.Header.Set("Authorization", "Bearer synthetic-session")
+	reqCreate.Header.Set("Content-Type", "application/json")
+	wCreate := httptest.NewRecorder()
+	casesHandler(fCreate).ServeHTTP(wCreate, reqCreate)
+	if wCreate.Code != http.StatusCreated {
+		t.Fatalf("expected 201 Created, got %d (body: %s)", wCreate.Code, wCreate.Body.String())
+	}
+	if wCreate.Header().Get("ETag") != `"3"` {
+		t.Fatalf("expected ETag \"3\", got %q", wCreate.Header().Get("ETag"))
+	}
+
+	// 5. List error propagation
+	fListErr := &casesServiceFake{err: documentverification.ErrNotFound}
+	reqList := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/cases", nil)
+	reqList.Header.Set("Authorization", "Bearer synthetic-session")
+	wList := httptest.NewRecorder()
+	casesHandler(fListErr).ServeHTTP(wList, reqList)
+	if wList.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for list error, got %d (body: %s)", wList.Code, wList.Body.String())
+	}
+
+	// 6. ownerSnapshotDTO purpose and validation boundaries
+	t.Run("dto_identity_valid", func(t *testing.T) {
+		snapIdentity := documentverification.Snapshot{
+			ID:        ownerCasesID,
+			SubjectID: casesActor,
+			Purpose:   documentverification.PurposeIdentity,
+			State:     documentverification.CaseDraft,
+			Revision:  1,
+		}
+		fIdentity := &casesServiceFake{loaded: snapIdentity}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/cases/"+ownerCasesID, nil)
+		req.Header.Set("Authorization", "Bearer synthetic-session")
+		w := httptest.NewRecorder()
+		casesHandler(fIdentity).ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200 for valid identity case, got %d (body: %s)", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("dto_identity_with_space_id_rejected", func(t *testing.T) {
+		snapIdentityWithSpace := documentverification.Snapshot{
+			ID:        ownerCasesID,
+			SubjectID: casesActor,
+			Purpose:   documentverification.PurposeIdentity,
+			SpaceID:   "88888888-8888-4888-8888-888888888888",
+			State:     documentverification.CaseDraft,
+			Revision:  1,
+		}
+		fBad := &casesServiceFake{loaded: snapIdentityWithSpace}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/cases/"+ownerCasesID, nil)
+		req.Header.Set("Authorization", "Bearer synthetic-session")
+		w := httptest.NewRecorder()
+		casesHandler(fBad).ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for identity case with space_id, got %d (body: %s)", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("dto_space_with_invalid_space_id_rejected", func(t *testing.T) {
+		snapSpaceBadSpaceID := documentverification.Snapshot{
+			ID:        ownerCasesID,
+			SubjectID: casesActor,
+			Purpose:   documentverification.PurposeSpace,
+			SpaceID:   "invalid-uuid",
+			State:     documentverification.CaseDraft,
+			Revision:  1,
+		}
+		fBad := &casesServiceFake{loaded: snapSpaceBadSpaceID}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/cases/"+ownerCasesID, nil)
+		req.Header.Set("Authorization", "Bearer synthetic-session")
+		w := httptest.NewRecorder()
+		casesHandler(fBad).ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for space case with invalid space_id, got %d (body: %s)", w.Code, w.Body.String())
+		}
+	})
+
+	t.Run("dto_unknown_purpose_rejected", func(t *testing.T) {
+		snapUnknown := documentverification.Snapshot{
+			ID:        ownerCasesID,
+			SubjectID: casesActor,
+			Purpose:   documentverification.Purpose("unknown-purpose"),
+			State:     documentverification.CaseDraft,
+			Revision:  1,
+		}
+		fBad := &casesServiceFake{loaded: snapUnknown}
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/cases/"+ownerCasesID, nil)
+		req.Header.Set("Authorization", "Bearer synthetic-session")
+		w := httptest.NewRecorder()
+		casesHandler(fBad).ServeHTTP(w, req)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 for unknown purpose, got %d (body: %s)", w.Code, w.Body.String())
+		}
+	})
+
+	// 7. RegisterOwnerCasesRoutes mounts mux endpoints correctly
+	mux := http.NewServeMux()
+	RegisterOwnerCasesRoutes(mux, casesHandler(&casesServiceFake{
+		listed: []documentverification.Snapshot{casesSnapshot()},
+		loaded: casesSnapshot(),
+	}))
+	reqMux := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/cases", nil)
+	reqMux.Header.Set("Authorization", "Bearer synthetic-session")
+	wMux := httptest.NewRecorder()
+	mux.ServeHTTP(wMux, reqMux)
+	if wMux.Code != http.StatusOK {
+		t.Fatalf("expected 200 from mounted mux route, got %d (body: %s)", wMux.Code, wMux.Body.String())
+	}
+	reqMuxPrefix := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/cases/"+ownerCasesID, nil)
+	reqMuxPrefix.Header.Set("Authorization", "Bearer synthetic-session")
+	wMuxPrefix := httptest.NewRecorder()
+	mux.ServeHTTP(wMuxPrefix, reqMuxPrefix)
+	if wMuxPrefix.Code != http.StatusOK {
+		t.Fatalf("expected 200 from mounted mux prefix route, got %d (body: %s)", wMuxPrefix.Code, wMuxPrefix.Body.String())
+	}
+}
+
+func TestOwnerCasesHandlerCorruptStateReloadAndRouteBoundaries(t *testing.T) {
+	// 1. Submit pre-check fails if LoadOwnCase returns error
+	fLoadErr := &casesServiceFake{err: documentverification.ErrNotFound}
+	reqSubmitLoadErr := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases/"+ownerCasesID+"/submit", nil)
+	reqSubmitLoadErr.Header.Set("Authorization", "Bearer synthetic-session")
+	reqSubmitLoadErr.Header.Set("If-Match", `"3"`)
+	wSubmitLoadErr := httptest.NewRecorder()
+	casesHandler(fLoadErr).ServeHTTP(wSubmitLoadErr, reqSubmitLoadErr)
+	if wSubmitLoadErr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for submit load error, got %d", wSubmitLoadErr.Code)
+	}
+
+	// 2. Submit pre-check fails if LoadOwnCase returns corrupt snapshot
+	snapCorrupt := casesSnapshot()
+	snapCorrupt.SubjectID = "different-actor"
+	fPreCorrupt := &casesServiceFake{loaded: snapCorrupt}
+	reqPreCorrupt := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases/"+ownerCasesID+"/submit", nil)
+	reqPreCorrupt.Header.Set("Authorization", "Bearer synthetic-session")
+	reqPreCorrupt.Header.Set("If-Match", `"3"`)
+	wPreCorrupt := httptest.NewRecorder()
+	casesHandler(fPreCorrupt).ServeHTTP(wPreCorrupt, reqPreCorrupt)
+	if wPreCorrupt.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for submit corrupt pre-snapshot, got %d", wPreCorrupt.Code)
+	}
+
+	// 3. Submit post-reload fails if LoadOwnCase returns error after Submit succeeded
+	fPostReloadErr := &casesServiceFake{
+		loadQueue: []documentverification.Snapshot{casesSnapshot()},
+		loadErr:   documentverification.ErrNotFound,
+	}
+	reqPostReloadErr := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases/"+ownerCasesID+"/submit", nil)
+	reqPostReloadErr.Header.Set("Authorization", "Bearer synthetic-session")
+	reqPostReloadErr.Header.Set("If-Match", `"3"`)
+	wPostReloadErr := httptest.NewRecorder()
+	casesHandler(fPostReloadErr).ServeHTTP(wPostReloadErr, reqPostReloadErr)
+	if wPostReloadErr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for submit post-reload error, got %d", wPostReloadErr.Code)
+	}
+
+	// 4. Submit post-reload fails if reload snapshot is corrupt
+	snapCorruptReload := casesSnapshot()
+	snapCorruptReload.SubjectID = "different-actor"
+	fPostReloadCorrupt := &casesServiceFake{
+		loadQueue: []documentverification.Snapshot{casesSnapshot(), snapCorruptReload},
+	}
+	reqPostReloadCorrupt := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases/"+ownerCasesID+"/submit", nil)
+	reqPostReloadCorrupt.Header.Set("Authorization", "Bearer synthetic-session")
+	reqPostReloadCorrupt.Header.Set("If-Match", `"3"`)
+	wPostReloadCorrupt := httptest.NewRecorder()
+	casesHandler(fPostReloadCorrupt).ServeHTTP(wPostReloadCorrupt, reqPostReloadCorrupt)
+	if wPostReloadCorrupt.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for submit post-reload corrupt snapshot, got %d", wPostReloadCorrupt.Code)
+	}
+
+	// 5. Create fails with 404 if Start returns snapshot with subject mismatch
+	snapStartCorrupt := casesSnapshot()
+	snapStartCorrupt.SubjectID = "different-actor"
+	fStartCorrupt := &casesServiceFake{started: snapStartCorrupt}
+	bodyCreate := `{"purpose":"space","space_id":"88888888-8888-4888-8888-888888888888"}`
+	reqCreate := httptest.NewRequest(http.MethodPost, "/api/v1/document-verification/cases", strings.NewReader(bodyCreate))
+	reqCreate.Header.Set("Authorization", "Bearer synthetic-session")
+	reqCreate.Header.Set("Content-Type", "application/json")
+	wCreate := httptest.NewRecorder()
+	casesHandler(fStartCorrupt).ServeHTTP(wCreate, reqCreate)
+	if wCreate.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for create corrupt snapshot, got %d", wCreate.Code)
+	}
+
+	// 6. List fails with 404 if a returned snapshot is corrupt
+	snapListCorrupt := casesSnapshot()
+	snapListCorrupt.SubjectID = "different-actor"
+	fListCorrupt := &casesServiceFake{listed: []documentverification.Snapshot{snapListCorrupt}}
+	reqList := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/cases", nil)
+	reqList.Header.Set("Authorization", "Bearer synthetic-session")
+	wList := httptest.NewRecorder()
+	casesHandler(fListCorrupt).ServeHTTP(wList, reqList)
+	if wList.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for list corrupt snapshot, got %d", wList.Code)
+	}
+
+	// 7. Route prefix mismatch returns 404
+	reqBadPrefix := httptest.NewRequest(http.MethodGet, "/api/v1/document-verification/other-cases", nil)
+	reqBadPrefix.Header.Set("Authorization", "Bearer synthetic-session")
+	wBadPrefix := httptest.NewRecorder()
+	casesHandler(&casesServiceFake{}).ServeHTTP(wBadPrefix, reqBadPrefix)
+	if wBadPrefix.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for bad route prefix, got %d", wBadPrefix.Code)
+	}
+
+	// 8. ownerSnapshotDTO direct validation edge cases
+	if _, err := ownerSnapshotDTO(casesSnapshot(), "", ""); !errors.Is(err, documentverification.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for empty actor, got %v", err)
+	}
+	badIDSnap := casesSnapshot()
+	badIDSnap.ID = "invalid-uuid"
+	if _, err := ownerSnapshotDTO(badIDSnap, casesActor, ""); !errors.Is(err, documentverification.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for invalid snapshot ID, got %v", err)
+	}
+	if _, err := ownerSnapshotDTO(casesSnapshot(), casesActor, "mismatched-uuid"); !errors.Is(err, documentverification.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for requested ID mismatch, got %v", err)
 	}
 }

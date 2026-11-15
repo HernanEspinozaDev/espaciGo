@@ -1,0 +1,498 @@
+{
+  "scope": "Revisión parental individual de SQL completos V51–V60 y consumidores; sin DB/red/ejecución de tests. Sustituye calidad semántica del informe delegado anterior, no estado de destinos.",
+  "head": "274f37e483a078890e92382a159fa49fd23c2fe8",
+  "rows": [
+    {
+      "version": 51,
+      "filename": "V000051__local_close_reservation_after_settlement.sql",
+      "sha256": "ad9411b1477ee6512086147c3961dc950b4f0113c163556003c7c257d19bfce7",
+      "behavior": "Agrega cerrada al estado de reserva y trigger que exige transición desde finalizada con liquidación/operación/resultado fake persistidos exitosos. Reemplaza agenda de vínculos a 24 meses e índice parcial para incluir cerrada; no cambia snapshots ni importes históricos.",
+      "objects": [
+        "public.reserva_ensayo_local",
+        "reserva_ensayo_local_estado_check",
+        "public.guard_local_reservation_close_after_settlement()",
+        "reserva_cerrada_liquidacion_fake_guard",
+        "public.schedule_local_reservation_link_retention()",
+        "reserva_ensayo_retencion_local_idx"
+      ],
+      "dependencies": [
+        "public.reserva_liquidacion_ensayo_local",
+        "public.reserva_liquidacion_operacion_ensayo_local",
+        "public.reserva_liquidacion_resultado_fake_ensayo_local",
+        "public.reserva_ensayo_local"
+      ],
+      "authority": "Owner de reserva/funciones reemplazadas y CREATE public para guard nuevo; no contiene GRANT/REVOKE ni default ACL. Privilegios efectivos no comprobados aquí.",
+      "data_preconditions": "Estados existentes deben satisfacer constraint nueva; cierre exige resultado fake persistido. El DDL no cierra reservas automáticamente.",
+      "irreversible_effects": "Nuevo estado y política de retención futura; sin borrado de filas al migrar.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/settlement.go",
+          "line": 363,
+          "excerpt": "\tresult, err := tx.Exec(ctx, `UPDATE public.reserva_ensayo_local SET estado='cerrada',actualizada_en=$2 WHERE id=$1 AND estado='finalizada'`, reservationID, at)",
+          "reason": "La confirmación fake cambia reserva finalizada a cerrada, bajo el guard de V51.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "line": 109,
+          "excerpt": "func TestLocalFakeSettlementBoundaryTimeoutRestartAndConcurrentReplay(t *testing.T) {",
+          "reason": "Liquidación fake/replays y cierre protegido.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": []
+    },
+    {
+      "version": 52,
+      "filename": "V000052__scoped_publication_rate_retirement.sql",
+      "sha256": "5c204afa60a4c83fd570b5c82f771711f1f890339bd42a23ad78190bbdee8330",
+      "behavior": "Crea SECURITY DEFINER de purga que exige espacio eliminada y borra exclusivamente tarifas sin cotización referenciada. Revoca PUBLIC EXECUTE; si existe runtime revoca DELETE directo en tarifas y concede solo EXECUTE de esta función.",
+      "objects": [
+        "public.purge_unreferenced_local_publication_rates(uuid)",
+        "public.tarifa_espacio"
+      ],
+      "dependencies": [
+        "public.espacio",
+        "public.tarifa_espacio",
+        "public.cotizacion_reserva_ensayo"
+      ],
+      "authority": "CREATE public; owner/grantor autorizado de tarifa para REVOKE. Owner de nueva función conserva autoridad SECURITY DEFINER; search_path=pg_catalog,public. Perfil efectivo/default requiere catálogo.",
+      "data_preconditions": "Al invocarla: publicación eliminada; preserva filas referenciadas. La migración solo instala función/ACL y no invoca purga.",
+      "irreversible_effects": "Retira DELETE runtime; una futura invocación puede borrar tarifas no referenciadas.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 305,
+          "excerpt": "\tif _, err = tx.Exec(ctx, `SELECT public.purge_unreferenced_local_publication_rates($1)`, id); err != nil {",
+          "reason": "El retiro real de publicación llama a la rutina de purga acotada creada en V52.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/pricing/repository_integration_test.go",
+          "line": 24,
+          "excerpt": "func TestPostgresPrivateSimulationSnapshotsRateAndDoesNotOccupyCalendar(t *testing.T) {",
+          "reason": "La prueba comprueba rechazo de purga antes de retirar publicación en línea125; no implica test exhaustivo de toda purga.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": []
+    },
+    {
+      "version": 53,
+      "filename": "V000053__local_close_contract_and_publication_retention.sql",
+      "sha256": "2c34092c9db8cab94c0e6ebab1e72d82b061eead465b913d46e91aeb77842e68",
+      "behavior": "Permite retirar documento de contrato con constraint de pareja documento/pdf_retirado; agenda/backfillea historial de publicación/eliminación a 24 meses. Instala rutinas SECURITY DEFINER con locks y revalidación de obligaciones para purga acotada de contratos/PDFs e historial; no purga contratos al migrar.",
+      "objects": [
+        "public.contrato_ensayo_local",
+        "contrato_documento_retirado_ck",
+        "public.espacio_publicacion_historial_local",
+        "public.espacio_eliminacion_historial_local",
+        "public.prevent_local_publication_history_mutation()",
+        "public.prevent_local_space_deletion_history_mutation()",
+        "public.assign_local_space_history_retention()",
+        "espacio_eliminacion_retention_trg",
+        "public.local_retention_reservation_has_open_obligation(uuid)",
+        "public.local_contract_effective_retention_deadline(uuid)",
+        "public.purge_expired_local_contracts_and_publication_history(timestamptz,integer)",
+        "espacio_publicacion_historial_retention_idx",
+        "espacio_eliminacion_historial_retention_idx"
+      ],
+      "dependencies": [
+        "public.reserva_ensayo_local",
+        "public.contrato_ensayo_firma",
+        "public.contrato_ensayo_historial",
+        "public.documento_privado_sintetico_local",
+        "public.reserva_pago_ensayo_operacion",
+        "public.reserva_pago_fake_resultado_ensayo",
+        "public.reserva_pago_evento_ensayo",
+        "public.reserva_pago_evento_aplicacion_ensayo",
+        "public.reserva_devolucion_ensayo",
+        "public.reserva_garantia_ensayo_local",
+        "public.reserva_garantia_operacion_ensayo_local",
+        "public.reserva_garantia_evento_aplicacion_ensayo_local",
+        "public.reserva_garantia_evento_ensayo_local",
+        "public.reserva_decision_financiera_ensayo_local",
+        "public.reserva_liquidacion_ensayo_local",
+        "public.operacion_arriendo_ensayo_local",
+        "public.disputa_ensayo_local",
+        "public.reclamo_dano_ensayo_local",
+        "public.reclamo_dano_resolucion_ensayo_local",
+        "public.operacion_arriendo_archivo_candidato_local",
+        "public.usuario"
+      ],
+      "authority": "Owner de tablas/funciones previas y CREATE public. Rutinas de obligación/deadline/purga SECURITY DEFINER con search_path fijado, EXECUTE PUBLIC revocado; grant runtime se contrasta separadamente con bootstrap/catálogo. No fija defaults.",
+      "data_preconditions": "Historial/contratos compatibles; GUC local habilita backfill de metadatos dentro de transacción. Batch 1..500; futuras purgas respetan obligaciones y locks.",
+      "irreversible_effects": "Backfill de plazos; futura invocación elimina firmas/historial/contratos/PDFs vencidos, sin eliminar reserva ni copiar datos.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/local_retention.go",
+          "line": 27,
+          "excerpt": "\t\tFROM public.purge_expired_local_contracts_and_publication_history($1,$2)`, at.UTC(), limit).",
+          "reason": "El repositorio de retención llama a la función de purga; el test no es consumidor API.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 1213,
+          "excerpt": "func TestLocalContractRetentionDefersObligationsAndRecoversAfterRollback(t *testing.T) {",
+          "reason": "Defiere por obligaciones y comprueba recuperación tras rollback.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": [
+        "V54 corrige la selección/revalidación de deadline NULL y cancelada_por_firma; evaluar versión final conjunta, no reescribir V53."
+      ]
+    },
+    {
+      "version": 54,
+      "filename": "V000054__local_contract_signature_expiry_retention.sql",
+      "sha256": "7fc01ac4ee0ee83db339fadfe95fc032a25cd2621184abe4d2408245ce926af3",
+      "behavior": "Incluye cancelada_por_firma en trigger e índice de retención y backfillea deadlines nulos de ese estado. Reemplaza purga V53 para releer plazo persistido y derivado después del lock, conservando conjunto único de espacios elegibles.",
+      "objects": [
+        "public.schedule_local_reservation_link_retention()",
+        "reserva_ensayo_retencion_local_idx",
+        "public.reserva_ensayo_local",
+        "public.purge_expired_local_contracts_and_publication_history(timestamptz,integer)"
+      ],
+      "dependencies": [
+        "public.local_contract_effective_retention_deadline(uuid)",
+        "public.local_retention_reservation_has_open_obligation(uuid)",
+        "public.contrato_ensayo_local",
+        "public.contrato_ensayo_firma",
+        "public.contrato_ensayo_historial",
+        "public.documento_privado_sintetico_local",
+        "public.espacio_publicacion_historial_local",
+        "public.espacio_eliminacion_historial_local",
+        "public.usuario"
+      ],
+      "authority": "Owner de reserva/índice y funciones existentes; conserva rutina SECURITY DEFINER/search_path y revoca PUBLIC EXECUTE. No concede login/grants nuevos ni fija defaults.",
+      "data_preconditions": "V53 aplicada; los deadlines corregidos derivan de hechos de cierre. Batch 1..500 y revalidación bajo locks para invocaciones de purga.",
+      "irreversible_effects": "Backfill persistido de deadline; purga posterior sigue siendo destructiva y acotada.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/local_retention.go",
+          "line": 27,
+          "excerpt": "\t\tFROM public.purge_expired_local_contracts_and_publication_history($1,$2)`, at.UTC(), limit).",
+          "reason": "Go SQL consumer"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 2039,
+          "excerpt": "func TestLocalSignatureExpiryRetentionSchedulesNullDeadlineDefersAndPurgesIdempotently(t *testing.T) {",
+          "reason": "Deadline NULL, cancelación por firma y purga idempotente.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": []
+    },
+    {
+      "version": 55,
+      "filename": "V000055__mpv2_02_public_search_and_locations.sql",
+      "sha256": "a6b2e9b6eb055ea0375b35ebe881091e41ad1d0eacfa78d82896b9b8827ab6b6",
+      "behavior": "Instala unaccent/configuración española, catálogo versionado DPA/CUT 2018, ubicación pública opcional, vector FTS con triggers/backfill de activas e índices. Crea allowlist booleana por perfil y funciones de tiempo/unidades usadas en precio/orden del catálogo; no rellena direcciones ni ubicación de ofertas previas.",
+      "objects": [
+        "unaccent",
+        "public.espacigo_es_unaccent_dict",
+        "public.espacigo_es_unaccent",
+        "public.catalogo_ubicacion_publica",
+        "public.region_publica",
+        "public.comuna_publica",
+        "public.espacio",
+        "public.atributo_filtro_publico",
+        "public.build_public_search_document(text,text,text,text,text,text,text)",
+        "public.refresh_espacio_public_search_document()",
+        "public.refresh_category_public_search_document()",
+        "espacio_public_search_document_trg",
+        "categoria_public_search_document_trg",
+        "public.public_catalog_resolve_wall(timestamp,text)",
+        "public.public_catalog_billed_units(text,timestamptz,timestamptz,text)",
+        "catalogo_ubicacion_publica_activo_idx",
+        "comuna_publica_region_idx",
+        "espacio_public_region_idx",
+        "espacio_public_area_idx",
+        "espacio_public_search_gin_idx",
+        "tarifa_espacio_latest_idx",
+        "espacio_caracteristicas_public_values_gin_idx"
+      ],
+      "dependencies": [
+        "public.categoria_espacio",
+        "public.categoria_perfil_atributos",
+        "public.tarifa_espacio",
+        "public.espacio_caracteristicas",
+        "pg_catalog.spanish",
+        "public.unaccent"
+      ],
+      "authority": "Si falta extensión requiere autoridad CREATE EXTENSION válida para destino; además owner de tablas alteradas/CREATE public y REFERENCES para FK. Concede SELECT de catálogos a runtime condicionalmente; no revoca PUBLIC EXECUTE de funciones ni fija defaults.",
+      "data_preconditions": "UTF8/normalize y extensión disponibles; nombres de nuevos objetos libres, perfiles versionados presentes. Ubicación queda NULL en legado; pares/tríos de códigos futuros deben ser válidos.",
+      "irreversible_effects": "Inserta snapshot geográfico/allowlist y backfill de vectores; no elimina ofertas.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 46,
+          "excerpt": "FROM public.atributo_filtro_publico f",
+          "reason": "AttributeFilters consulta allowlist pública tipada.",
+          "kind": "application_sql"
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 99,
+          "excerpt": "\trows, err := r.pool.Query(ctx, `SELECT c.region_codigo,r.nombre,c.codigo,c.nombre",
+          "reason": "Locations consulta comunas/regiones del catálogo versionado.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 311,
+          "excerpt": "func TestLocalBookingTrialPostgresLifecycleAndConcurrentRetry(t *testing.T) {",
+          "reason": "Integración amplia incluye catálogo, búsqueda, filtros y cotización; referencia no ejecución actual.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": []
+    },
+    {
+      "version": 56,
+      "filename": "V000056__mpv2_04_public_gallery.sql",
+      "sha256": "5cccdde76a613a82afbefb582d5ef2bab16512c9c7a0b0cfcdbf11a91710d5a0",
+      "behavior": "Agrega opt-in publicada_en_catalogo NOT NULL DEFAULT false a fotos sintéticas y un índice parcial para activas publicadas con archivo. El código decide exposición por esta flag, no por quitar autenticación genérica.",
+      "objects": [
+        "public.espacio_galeria_sintetica_local.publicada_en_catalogo",
+        "espacio_galeria_publicada_local_idx"
+      ],
+      "dependencies": [
+        "public.espacio_galeria_sintetica_local"
+      ],
+      "authority": "Owner de tabla para ALTER/índice. No GRANT/REVOKE ni default ACL; ausencia de sentencias no determina ACL efectiva.",
+      "data_preconditions": "Tabla V32 existente; todas las fotos previas quedan privadas por defecto.",
+      "irreversible_effects": "No borra datos; nuevas mutaciones de la flag son reversibles.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "line": 313,
+          "excerpt": "\t\titem, err = scanPhoto(tx.QueryRow(ctx, `UPDATE public.espacio_galeria_sintetica_local SET publicada_en_catalogo=$2 WHERE id=$1 RETURNING `+activePhotoColumns, photoID, enabled))",
+          "reason": "La mutación de visibilidad escribe publicada_en_catalogo agregada en V56.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 37,
+          "excerpt": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "reason": "Integración amplia incluye actualización de publicación/portada pública; no cubre cada ruta de visibilidad.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": []
+    },
+    {
+      "version": 57,
+      "filename": "V000057__mpv2_11_typed_public_category_filters.sql",
+      "sha256": "4da5888e15043f22576fd026934896aa6adebf3a49a65df43534c98a02d9be9d",
+      "behavior": "Amplía tipos permitidos de filtro y reconstruye allowlist desde manifiesto temporal revisado con perfiles V6. Verifica presencia/metadata, inserta tipo/orden del perfil y crea GIN jsonb_ops; ON COMMIT DROP es compatible con transacción por migración del runner.",
+      "objects": [
+        "public.atributo_filtro_publico",
+        "atributo_filtro_publico_tipo_check",
+        "mpv2_11_public_filter_manifest",
+        "espacio_caracteristicas_public_filter_keys_idx"
+      ],
+      "dependencies": [
+        "public.categoria_perfil_atributos",
+        "public.espacio_caracteristicas",
+        "public.atributo_filtro_publico"
+      ],
+      "authority": "Owner de allowlist/características, CREATE para índice y TEMP en base para manifiesto. No GRANT/REVOKE ni default ACL.",
+      "data_preconditions": "V55/perfiles presentes; código/tipo/label/order y unicidad deben permitir INSERT. Cualquier fallo revierte DELETE e inserción por transacción.",
+      "irreversible_effects": "Reemplaza contenido completo de allowlist por manifiesto; perfiles inmutables no se modifican.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 46,
+          "excerpt": "FROM public.atributo_filtro_publico f",
+          "reason": "El mismo contrato AttributeFilters consume la allowlist ampliada/validada por V57.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 178,
+          "excerpt": "func TestGADM03MigrationWorksFromEmptyAndV56WithoutChangingHistory(t *testing.T) {",
+          "reason": "Fresh/V56 aplica V57–V59 y conserva historia; prueba amplia, no cobertura individual de cada filtro.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": [
+        "Transacción por archivo ya ensayada; ON COMMIT DROP no es incompatibilidad. Referencia amplia de pruebas no equivale a cobertura de cada rama."
+      ]
+    },
+    {
+      "version": 58,
+      "filename": "V000058__gadm_01_global_administrator.sql",
+      "sha256": "d902d5aab8a6ba0a18bdc4e332792e567c0e5a00a69c897c3274c93384418acc",
+      "behavior": "Separa membresía global de rol_usuario, añade singleton de propietario bootstrap y auditoría CLI con objetivos inexistentes admitidos. Crea índices de directorio y amplía aviso de reseñas a globales sin escalar roles ordinarios ni activar cuenta real.",
+      "objects": [
+        "public.administrador_global",
+        "public.administrador_global_bootstrap",
+        "public.administrador_global_bootstrap_evento",
+        "administrador_global_bootstrap_evento_objetivo_idx",
+        "usuario_estado_creado_id_idx",
+        "usuario_creado_id_idx",
+        "usuario_correo_normalizado_prefix_idx",
+        "perfil_usuario_nombre_lower_prefix_idx",
+        "public.enqueue_local_review_report_notice()"
+      ],
+      "dependencies": [
+        "public.usuario",
+        "public.perfil_usuario",
+        "public.rol_usuario",
+        "public.enqueue_local_notice"
+      ],
+      "authority": "CREATE public y REFERENCES usuario; owner de usuario/perfil para índices y owner de función reemplazada. No concede membresía/login por SQL; no fija defaults ni ACL runtime en este archivo.",
+      "data_preconditions": "Tablas/función de avisos existentes. Nuevas membresías inicialmente vacías; alta global posterior requiere bootstrap auditable separado.",
+      "irreversible_effects": "Sin asignaciones de cuentas ni backfill de rol global; nuevos registros futuros son hechos auditables.",
+      "consumer_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "line": 260,
+          "excerpt": "\tif err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.administrador_global g JOIN public.usuario u ON u.id=g.usuario_id WHERE g.usuario_id=$1 AND (u.bloqueado_hasta IS NULL OR u.bloqueado_hasta<=now()) AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local b WHERE b.cuenta_id=u.id))`, actor).Scan(&allowed); err != nil {",
+          "reason": "Autorización administrativa consulta la membresía global separada de V58.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 37,
+          "excerpt": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "reason": "Bootstrap/directorio y último master concurrente.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": []
+    },
+    {
+      "version": 59,
+      "filename": "V000059__gadm_03_audit_scope_and_query_indexes.sql",
+      "sha256": "a097a82fd5ece1b66ca953e4d48073834adc2edf4d31596f7d57f6ae36dbe93a",
+      "behavior": "Añade objetivo de cuenta nullable con FK ON DELETE SET NULL y registrado_en con clock_timestamp; crea índices separados por tiempo/actor/objetivo. Eventos previos no inventan objetivo, y ocurrido_en conserva tiempo del hecho.",
+      "objects": [
+        "public.evento_auditoria_local.cuenta_objetivo_id",
+        "public.evento_auditoria_local.registrado_en",
+        "evento_auditoria_tiempo_id_idx",
+        "evento_auditoria_actor_tiempo_id_idx",
+        "evento_auditoria_objetivo_tiempo_id_idx"
+      ],
+      "dependencies": [
+        "public.evento_auditoria_local",
+        "public.usuario"
+      ],
+      "authority": "Owner de auditoría y REFERENCES usuario para FK/índices. No GRANT/REVOKE ni default ACL en archivo.",
+      "data_preconditions": "Auditoría existente; ADD NOT NULL DEFAULT completa timestamps de filas previas. No atribuir esos valores al instante histórico ocurrido_en.",
+      "irreversible_effects": "Materializa timestamp de registro de legado; no reescribe actor/tiempo original del hecho.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminglobal/reports.go",
+          "line": 371,
+          "excerpt": "\tquery := `SELECT id::text,actor_id::text,cuenta_objetivo_id::text,recurso_tipo,recurso_id::text,accion,resultado,motivo_codigo,correlacion_id::text,ocurrido_en,registrado_en FROM evento_auditoria_local WHERE ocurrido_en >= $1 AND ocurrido_en < $2 AND registrado_en <= $3 AND ($4='' OR actor_id::text=$4) AND ($5='' OR cuenta_objetivo_id::text=$5) AND ($6='' OR recurso_tipo=$6) AND ($7::uuid IS NULL OR recurso_id=$7::uuid) AND ($8='' OR accion=$8) AND ($9='' OR resultado=$9) AND ($10='' OR motivo_codigo=$10) AND ($11='' OR correlacion_id::text=$11) AND ($13::timestamptz IS NULL OR (ocurrido_en,id)<($13,$14::uuid)) ORDER BY ocurrido_en DESC,id DESC LIMIT $12`",
+          "reason": "Query de auditoría usa cuenta_objetivo_id y watermark registrado_en.",
+          "kind": "application_sql"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 37,
+          "excerpt": "func TestGlobalBootstrapDirectoryAndLastMasterConcurrency(t *testing.T) {",
+          "reason": "La misma integración verifica objetivo de auditoría y casos rechazados.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": []
+    },
+    {
+      "version": 60,
+      "filename": "V000060__gadm_local_bootstrap_restricted_role.sql",
+      "sha256": "75495ea50cdc2e6f5a61566dd725f5f623eca6133dcfdef55bde88498f424156",
+      "behavior": "Crea/verifica grupo GADM NOLOGIN restringido y sin memberships; concede CONNECT/USAGE y grants por columnas para bootstrap/locks. Trigger bloquea cambio de UUID por ese grupo y COMMENT documenta rol; no crea login ni activa cuenta.",
+      "objects": [
+        "espacigo_gadm_bootstrap",
+        "public.reject_gadm_bootstrap_identity_change()",
+        "usuario_gadm_bootstrap_identity_immutable"
+      ],
+      "dependencies": [
+        "public.usuario",
+        "public.bloqueo_cuenta_administrativo_local",
+        "public.administrador_global",
+        "public.administrador_global_bootstrap",
+        "public.administrador_global_bootstrap_evento"
+      ],
+      "authority": "Frontera administrativa independiente: CREATE ROLE/COMMENT ON ROLE y GRANT CONNECT/grants de objetos requieren autoridad correspondiente. No asumir schema-owner suficiente ni elevar migrador. El grupo creado tiene todos los flags de elevación desactivados; PUBLIC/default efectivos se inspeccionan aparte.",
+      "data_preconditions": "Rol ausente o perfil exacto y sin aristas entrantes/salientes. V58/tablas previas presentes; etapa runtime no implica permiso para ejecutar bootstrap real.",
+      "irreversible_effects": "Provisiona rol/ACL persistentes y guard de identidad; no modifica cuentas ni password.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminglobal/local_bootstrap_role.go",
+          "line": 26,
+          "excerpt": "\tif _, err := conn.Exec(ctx, \"SET ROLE \"+pgx.Identifier{RestrictedLocalBootstrapRole}.Sanitize()); err != nil {",
+          "reason": "CLI de bootstrap adopta el grupo restringido mediante SET ROLE; no es endpoint público.",
+          "kind": "restricted_cli_role_use"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 356,
+          "excerpt": "func TestGADM04RestrictedBootstrapRoleMigrationFromV59(t *testing.T) {",
+          "reason": "V59→V60 verifica perfil/grants del grupo mínimo.",
+          "kind": "existing_test_definition_not_run"
+        }
+      ],
+      "status": "parent_source_review_with_explicit_limits",
+      "effective_authority_verified_live": false,
+      "tests_executed_by_this_audit": false,
+      "issues": [
+        "Autoridad administrativa es prerrequisito separado de ejecución ordinaria; V85 no la puede suplir."
+      ]
+    }
+  ],
+  "effective_authority_verified_live": false,
+  "global_semantic_audit_closed": false
+}

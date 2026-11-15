@@ -122,7 +122,7 @@ func TestPostgresUploadPersistsEncryptedObjectAndPendingScanJob(t *testing.T) {
 	if err := png.Encode(&raw, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
 		t.Fatal(err)
 	}
-	receipt, err := uploader.Upload(ctx, actor, created.ID, created.Revision, raw.Bytes())
+	receipt, err := uploader.Upload(ctx, actor, created.ID, created.Revision, "", raw.Bytes())
 	if err != nil {
 		t.Fatalf("upload through runtime repository failed: %v", err)
 	}

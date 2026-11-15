@@ -154,7 +154,112 @@ func TestSpaceDownloadRejectsBlobLengthMismatchBeforeReturningBytes(t *testing.T
 	repo := &downloadCaseRepo{snapshot: x, auth: Authorization{ActorID: downloadingOwnerID, SpaceOwnerID: downloadingOwnerID}}
 	store := &syntheticDocumentStore{content: []byte("synthetic clean document")}
 	svc, _ := NewSpaceDownloadService(repo, store)
-	if _, err := svc.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); err == nil {
-		t.Fatal("truncated/corrupt object was returned")
+	if _, err := svc.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, ErrDocumentStorage) {
+		t.Fatalf("expected ErrDocumentStorage for length mismatch, got %v", err)
+	}
+	if store.calls != 1 {
+		t.Fatalf("expected store to be called once, got %d", store.calls)
+	}
+}
+
+type failingDocumentStore struct {
+	err error
+}
+
+func (s *failingDocumentStore) ReadSpaceDocument(context.Context, string, string, string, string) ([]byte, error) {
+	return nil, s.err
+}
+
+type errDownloadRepo struct {
+	err error
+}
+
+func (r *errDownloadRepo) WithSpaceCaseForDownload(context.Context, string, string, func(context.Context, Snapshot, Authorization) error) error {
+	return r.err
+}
+
+func TestSpaceDownloadConstructorAndParameterValidation(t *testing.T) {
+	repo := &downloadCaseRepo{}
+	store := &syntheticDocumentStore{}
+
+	// 1. NewSpaceDownloadService nil checks
+	if _, err := NewSpaceDownloadService(nil, store); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid with nil repo, got %v", err)
+	}
+	if _, err := NewSpaceDownloadService(repo, nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid with nil store, got %v", err)
+	}
+
+	svc, err := NewSpaceDownloadService(repo, store)
+	if err != nil {
+		t.Fatalf("unexpected constructor error: %v", err)
+	}
+
+	// 2. nil receiver and nil fields in Download
+	var nilSvc *SpaceDownloadService
+	if _, err := nilSvc.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid with nil receiver, got %v", err)
+	}
+
+	badSvc := &SpaceDownloadService{repository: nil, store: store}
+	if _, err := badSvc.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid with nil svc.repository, got %v", err)
+	}
+	badSvc2 := &SpaceDownloadService{repository: repo, store: nil}
+	if _, err := badSvc2.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid with nil svc.store, got %v", err)
+	}
+
+	// 3. Invalid IDs in Download
+	if _, err := svc.Download(context.Background(), "invalid-actor", downloadingCaseID, downloadingFileID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for invalid actor, got %v", err)
+	}
+	if _, err := svc.Download(context.Background(), downloadingOwnerID, "invalid-case", downloadingFileID); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for invalid caseID, got %v", err)
+	}
+	if _, err := svc.Download(context.Background(), downloadingOwnerID, downloadingCaseID, "invalid-file"); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for invalid fileID, got %v", err)
+	}
+}
+
+func TestSpaceDownloadStorageReadErrorAndCaseMismatch(t *testing.T) {
+	// 1. Repository returns error directly
+	repoErr := errors.New("synthetic db error")
+	errRepo := &errDownloadRepo{err: repoErr}
+	store := &syntheticDocumentStore{content: []byte("doc")}
+	svcErrRepo, _ := NewSpaceDownloadService(errRepo, store)
+	if _, err := svcErrRepo.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, repoErr) {
+		t.Fatalf("expected repoErr, got %v", err)
+	}
+
+	// 2. Case ID mismatch in snapshot
+	mismatchedSnap := downloadPolicySnapshot(CaseInReview, FileClean)
+	mismatchedSnap.ID = "11111111-1111-4111-8111-111111111111"
+	repoMismatch := &downloadCaseRepo{
+		snapshot: mismatchedSnap,
+		auth:     Authorization{ActorID: downloadingOwnerID, SpaceOwnerID: downloadingOwnerID},
+	}
+	svcMismatch, _ := NewSpaceDownloadService(repoMismatch, store)
+	if _, err := svcMismatch.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for case ID mismatch, got %v", err)
+	}
+
+	// 3. Store ReadSpaceDocument error maps to ErrDocumentStorage
+	x := downloadPolicySnapshot(CaseInReview, FileClean)
+	repo := &downloadCaseRepo{
+		snapshot: x,
+		auth:     Authorization{ActorID: downloadingOwnerID, SpaceOwnerID: downloadingOwnerID},
+	}
+	failingStore := &failingDocumentStore{err: errors.New("gcs read failed")}
+	svcFailingStore, _ := NewSpaceDownloadService(repo, failingStore)
+	if _, err := svcFailingStore.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, ErrDocumentStorage) {
+		t.Fatalf("expected ErrDocumentStorage on storage read error, got %v", err)
+	}
+
+	// 4. Store ReadSpaceDocument size mismatch maps to ErrDocumentStorage
+	mismatchedSizeStore := &syntheticDocumentStore{content: []byte("short")}
+	svcSizeMismatch, _ := NewSpaceDownloadService(repo, mismatchedSizeStore)
+	if _, err := svcSizeMismatch.Download(context.Background(), downloadingOwnerID, downloadingCaseID, downloadingFileID); !errors.Is(err, ErrDocumentStorage) {
+		t.Fatalf("expected ErrDocumentStorage on size mismatch, got %v", err)
 	}
 }

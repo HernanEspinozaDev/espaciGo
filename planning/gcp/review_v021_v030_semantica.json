@@ -1,0 +1,370 @@
+[
+  {
+    "version": 21,
+    "filename": "V000021__m06_local_payment_inbox.sql",
+    "sha256": "3c3e72a6fcf9e1b6570362c7254a65cd6024c2838792898dfee5daeebd088a86",
+    "behavior": "Inbox durable de intenciones fake de pago y eventos autenticados, deduplicables/procesables.",
+    "objects": [
+      "reserva_pago_ensayo_operacion",
+      "reserva_pago_fake_resultado_ensayo",
+      "reserva_pago_evento_ensayo",
+      "reserva_pago_evento_aplicacion_ensayo"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/adminlocal/service.go",
+        "line": 365,
+        "excerpt": "UNION ALL SELECT 'cobro_arriendo',o.estado,count(*)::bigint,COALESCE(sum(r.subtotal_clp),0)::bigint FROM public.reserva_pago_ensayo_operacion o JOIN public.reserva_ensayo_local r ON r.id=o.reserva_id WHERE o.estado='pendiente' GROUP BY o.estado",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+        "line": 1415,
+        "excerpt": "(SELECT count(*) FROM public.reserva_pago_ensayo_operacion WHERE reserva_id=$1 AND estado='aplicada' AND resultado_final='exito_simulado')`, rejectedReservation.ID).Scan(&rejectedRentNotices, &confirmedRentPayments); err != nil {",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 22,
+    "filename": "V000022__local_identity_history_and_outbox.sql",
+    "sha256": "f2166790c2500956a2cbbf4bc16280a7bec11d3d36bf6096cc5ae666f9b5b4a8",
+    "behavior": "Añade preferencia de uso, historial de claves, outbox tipado y auditoría append-only 5 años.",
+    "objects": [
+      "usuario",
+      "usuario",
+      "historial_clave_local",
+      "outbox_evento_local",
+      "evento_auditoria_local"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/dbbootstrap/runtime_permissions.go",
+        "line": 528,
+        "excerpt": "GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_local TO espacigo_runtime;",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/repository_integration_test.go",
+        "line": 81,
+        "excerpt": "has_table_privilege('espacigo_runtime','public.outbox_evento_local','SELECT'),",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 23,
+    "filename": "V000023__local_privacy_suppression_review.sql",
+    "sha256": "b38c23af4953e46c6d6c3b145d7c1c8212b0408ddc39e7eb434cd945ed355f2c",
+    "behavior": "Amplía auditoría para evaluaciones idempotentes de supresión con códigos estructurados.",
+    "objects": [
+      "evento_auditoria_local",
+      "evento_auditoria_local"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/adminlocal/service.go",
+        "line": 242,
+        "excerpt": "_, err = tx.Exec(ctx, `INSERT INTO public.evento_auditoria_local(id,actor_id,recurso_tipo,recurso_id,accion,resultado,motivo_codigo,correlacion_id,ocurrido_en,retirar_en) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::timestamptz,$9::timestamptz+interval '5 years')`, id, actor, resourceType, resourceID, action, result, reason, correlation, at)",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adminglobal/service_integration_test.go",
+        "line": 721,
+        "excerpt": "if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.evento_auditoria_local WHERE actor_id=$1 AND recurso_id=$2 AND accion='admin.global.accounts.read' AND resultado='rechazo' AND motivo_codigo='cuenta_no_encontrada' AND cuenta_objetivo_id IS NULL)`, master, missingAccountID).Scan(&missingAudit); err != nil || !missingAudit {",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 24,
+    "filename": "V000024__local_dispute_privacy_blocker.sql",
+    "sha256": "ed27af7effe2c16f13896a4a6240cb62da46333158588755c4f835c6ded66e29",
+    "behavior": "Permite disputa sintética como bloqueador de privacidad; no cambia reserva ni resuelve finanzas.",
+    "objects": [
+      "evento_auditoria_local",
+      "evento_auditoria_local",
+      "disputa_ensayo_local",
+      "disputa_ensayo_historial"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/dbbootstrap/runtime_permissions.go",
+        "line": 541,
+        "excerpt": "GRANT SELECT, INSERT ON public.disputa_ensayo_local TO espacigo_runtime;",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+        "line": 3949,
+        "excerpt": "if _, err = setup.Exec(ctx, `INSERT INTO public.disputa_ensayo_local(id,reserva_id,anfitrion_id,arrendatario_id,abierta_por,motivo_codigo,estado,clave_idempotencia,huella_solicitud,abierta_en) VALUES('88888888-8888-4888-8888-888888888888',$1,$2,$3,$2,'ensayo_privacidad','abierta','privacy-open-key',repeat('p',32)::bytea,$4)`, completeReservation.ID, host, renter, fixedNow); err != nil {",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 25,
+    "filename": "V000025__local_synthetic_privacy_suppression.sql",
+    "sha256": "cf390257626036c35d4f0ca4715ca977a4ceab2b3032ced3e789f4a4098ded19",
+    "behavior": "Añade estados/plazos de retención y ejecución de baja sintética con cola de borrado de archivos.",
+    "objects": [
+      "usuario",
+      "aceptacion_terminos",
+      "solicitud_titular",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "cotizacion_reserva_ensayo",
+      "reserva_ensayo_local",
+      "outbox_evento_local",
+      "evento_auditoria_local",
+      "evento_auditoria_local",
+      "ejecucion_baja_local",
+      "set_local_verification_retention_deadline",
+      "verificacion_retencion_sintetica_trg",
+      "baja_archivo_pendiente_local"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/dbbootstrap/runtime_permissions.go",
+        "line": 627,
+        "excerpt": "GRANT SELECT, INSERT, UPDATE ON public.ejecucion_baja_local TO espacigo_runtime;",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/migrator/integration_test.go",
+        "line": 601,
+        "excerpt": "if _, err := conn.Exec(ctx, `INSERT INTO public.ejecucion_baja_local(id,solicitud_id,usuario_id,actor_id,clave_idempotencia,estado,motivo_codigo,iniciada_en,completada_en,retirar_en,detalle)",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 26,
+    "filename": "V000026__local_privacy_retention_purge_and_replay.sql",
+    "sha256": "38eaed77c3421a34c1c3361e33d281d5ea1418bfc1c0d0c2d57ac8e8c6846e7b",
+    "behavior": "Permite desvincular identificadores tras 24 meses y registrar purga/reaplicación.",
+    "objects": [
+      "reserva_ensayo_local",
+      "cotizacion_reserva_ensayo",
+      "reserva_pago_ensayo_operacion",
+      "reserva_cancelacion_ensayo",
+      "reserva_ensayo_local_fixture",
+      "disputa_ensayo_local",
+      "disputa_ensayo_historial",
+      "mensaje_reserva_ensayo",
+      "disputa_ensayo_local",
+      "schedule_local_reservation_link_retention",
+      "reserva_vinculos_retencion_trg",
+      "reserva_vinculo_purgado_local",
+      "reaplicacion_baja_local"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/dbbootstrap/runtime_permissions.go",
+        "line": 636,
+        "excerpt": "GRANT SELECT, INSERT ON public.reserva_vinculo_purgado_local TO espacigo_runtime;",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+        "line": 4872,
+        "excerpt": "if _, err = setup.Exec(ctx, `INSERT INTO public.reserva_vinculo_purgado_local(reserva_id,vencio_en,purgado_en,campos_retirados) VALUES($1,$2,$2,ARRAY['anfitrion_id','arrendatario_id'])`, minimizedReservation.ID, fixedNow); err != nil {",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 27,
+    "filename": "V000027__local_credential_notice_terminal_recovery.sql",
+    "sha256": "a30512e5efcf43b47426ef2a771b8899104d65aad4851058e990915a81ef94ec",
+    "behavior": "Acota ciclos de aviso de credencial, recuperación administrativa y purge de avisos vencidos.",
+    "objects": [
+      "outbox_evento_local",
+      "outbox_evento_ciclo_local",
+      "evento_auditoria_local",
+      "evento_auditoria_local",
+      "evento_auditoria_local",
+      "evento_auditoria_local",
+      "evento_auditoria_local",
+      "outbox_evento_local",
+      "outbox_evento_local",
+      "purge_expired_local_credential_notices",
+      "outbox_evento_local",
+      "outbox_evento_local"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/dbbootstrap/runtime_permissions.go",
+        "line": 529,
+        "excerpt": "GRANT SELECT, INSERT, UPDATE ON public.outbox_evento_ciclo_local TO espacigo_runtime;",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+        "line": 2430,
+        "excerpt": "if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.outbox_evento_ciclo_local(evento_id,numero_ciclo,estado,iniciada_en,finalizada_en,intentos,codigo_resultado) VALUES($1,1,$2,$3,$4,$5,NULLIF($6,''))`, eventID, cycleState, startedAt, cycleFinished, cycleAttempts, cycleCode); err != nil {",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 28,
+    "filename": "V000028__local_kyc_eligibility_and_history.sql",
+    "sha256": "dd3ebc10d38f9000b4ec1183a40b8ed4222e14c2fc358b8cbe26f98b7896a1a7",
+    "behavior": "Añade historial KYC y elegibilidad tipada; backfill estado actual y plazo de retención.",
+    "objects": [
+      "verificacion",
+      "set_local_verification_retention_deadline",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion",
+      "verificacion_historial_local",
+      "elegibilidad_verificacion_local"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/dbbootstrap/runtime_permissions.go",
+        "line": 556,
+        "excerpt": "GRANT SELECT, INSERT ON public.verificacion_historial_local TO espacigo_runtime;",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+        "line": 618,
+        "excerpt": "if _, err := h.pool.Exec(h.ctx, `UPDATE public.verificacion_historial_local SET ocurrida_en=$2 WHERE verificacion_id=$1`, caseItem.ID, resolvedAt); err != nil {",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 29,
+    "filename": "V000029__local_privacy_kyc_eligibility.sql",
+    "sha256": "9ed0486313c8c6172cd7d133c08e39c6bed39fd3bbfb596b1a4a3bbbda1595b6",
+    "behavior": "Modela retirada de elegibilidad por privacidad e historial correspondiente.",
+    "objects": [
+      "elegibilidad_verificacion_local",
+      "elegibilidad_verificacion_local",
+      "verificacion_historial_local",
+      "verificacion_historial_local"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/dbbootstrap/runtime_permissions.go",
+        "line": 558,
+        "excerpt": "GRANT SELECT, INSERT, UPDATE ON public.elegibilidad_verificacion_local TO espacigo_runtime;",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/adminglobal/service_integration_test.go",
+        "line": 359,
+        "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.elegibilidad_verificacion_local(usuario_id,tipo,verificacion_id,estado,concedida_en) VALUES($1,'kyc',$2,'elegible',now())`, landlord, verificationID); err != nil {",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  },
+  {
+    "version": 30,
+    "filename": "V000030__m02_synthetic_profile_photo_and_payout.sql",
+    "sha256": "1130f484103f2383cbe310f312823a1af571ffc6e73603e03acb8e564bef4220",
+    "behavior": "Añade foto sintética y destino de cobro ficticio, historial e idempotencia.",
+    "objects": [
+      "foto_perfil_sintetica_local",
+      "cuenta_cobro_sintetica_local",
+      "cuenta_cobro_sintetica_historial_local",
+      "m02_operacion_idempotente_local"
+    ],
+    "dependencies": [],
+    "authority": "Reglas y comentarios explícitos de migración; corte local sintético, sin autoridad productiva inferida.",
+    "data_preconditions": "Esquema previo según secuencia migratoria; ALTER/backfills requieren tablas/columnas y datos previos compatibles.",
+    "consumer_refs": [
+      {
+        "path": "internal/dbbootstrap/runtime_permissions.go",
+        "line": 629,
+        "excerpt": "GRANT SELECT, INSERT ON public.foto_perfil_sintetica_local TO espacigo_runtime;",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "test_refs": [
+      {
+        "path": "internal/m02local/service_integration_test.go",
+        "line": 385,
+        "excerpt": "if e = adminPool.QueryRow(ctx, `SELECT (SELECT count(*) FROM public.foto_perfil_sintetica_local WHERE usuario_id=$1),(SELECT count(*) FROM public.cuenta_cobro_sintetica_local WHERE usuario_id=$1)`, owner).Scan(&photos, &payouts); e != nil || photos != 0 || payouts != 0 {",
+        "reason": "Referencia directa al objeto SQL; consumidor/prueba trazable en código."
+      }
+    ],
+    "status": "audited-source-only",
+    "issues": []
+  }
+]

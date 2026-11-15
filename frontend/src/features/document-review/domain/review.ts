@@ -1,10 +1,13 @@
 import type { components, Readable } from "@/lib/api/generated/openapi";
 
 export type ReviewCase = Readable<
-  components["schemas"]["DocumentVerificationOwnerCase"]
+  components["schemas"]["DocumentVerificationReviewerCase"]
 >;
 export type ReviewFile = Readable<
   components["schemas"]["DocumentVerificationOwnerFile"]
+>;
+export type IdentityReviewChecklist = Readable<
+  components["schemas"]["IdentityReviewChecklist"]
 >;
 export type ReviewDecision = "approve" | "reject" | "needs_evidence";
 export type ReviewCapability = "review_identity" | "review_space";
@@ -14,6 +17,9 @@ export interface ReviewInput {
   expected_revision: number;
   reason_code?: string;
   verified_until?: string;
+  document_format_observed?: "legacy" | "new" | "undetermined";
+  document_expires_at_observed?: string;
+  identity_review_checklist?: IdentityReviewChecklist;
 }
 export interface RevokeInput {
   purpose: "identity" | "space";

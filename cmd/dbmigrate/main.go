@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	osuser "os/user"
 
 	"github.com/HernanEspinozaDev/espaciGo/internal/migrator"
 )
@@ -25,11 +26,85 @@ func main() {
 	confirmF5AdminMigration := flag.String("confirm-f5-admin-migration", "", "allow the one-time versioned migration only on the isolated F5 target")
 	cloudOwner := flag.Bool("cloud-owner-migration", false, "run confirmed CloudSQL staging repair V76..V80")
 	confirmCloudOwner := flag.String("confirm-cloud-owner-pre81", "", "exact CloudSQL staging confirmation")
+	nativeAdminPreV81 := flag.Bool("native-admin-pre-v81", false, "apply native PostgreSQL V77..V80 as the local postgres OS account")
+	confirmNativeAdminPreV81 := flag.String("confirm-native-admin-pre-v81", "", "must exactly equal espacigo_dms_stage_20261020")
+	nativeRoleTransition := flag.Bool("native-role-transition-v80", false, "apply the reviewed V80 native role transition on the exact local PostgreSQL target")
+	confirmNativeRoleTransition := flag.String("confirm-native-role-transition-v80", "", "must exactly equal espacigo_dms_stage_20261020")
+	nativeMigratorV81 := flag.Bool("native-migrator-v81", false, "apply V81 through the dedicated native migrator login and private passfile")
+	confirmNativeMigratorV81 := flag.String("confirm-native-migrator-v81", "", "must exactly equal espacigo_dms_stage_20261020")
+	nativeKYCV86 := flag.Bool("native-kyc-v86", false, "apply only the reviewed native-local V86 migration")
+	confirmNativeKYCV86 := flag.String("confirm-native-kyc-v86", "", "must exactly equal espacigo_dms_stage_20261020")
+	nativeKYCSourceFingerprint := flag.String("native-kyc-v86-source-sha256", "", "reviewed SHA-256 inventory fingerprint for V1..V86")
+	nativeTailVersion := flag.Int("native-kyc-tail-version", 0, "apply exactly one reviewed native-local migration: 87 through 96")
+	confirmNativeTail := flag.String("confirm-native-kyc-tail", "", "must exactly equal espacigo_dms_stage_20261020")
+	nativeTailFingerprint := flag.String("native-kyc-tail-source-sha256", "", "pinned reviewed source fingerprint for the selected native KYC prefix")
 	wizardAdminVersion := flag.Int64("wizard-admin-version", 0, "apply one authorized wizard migration version (60, 64, or 66) in the isolated ensayo")
 	confirmWizardAdmin := flag.String("confirm-wizard-admin", "", "must exactly equal espacigo_wizard_20261106")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "positional arguments are not supported")
+		os.Exit(2)
+	}
+	var selectedNativeFlags []string
+	var tailMentioned, v86Mentioned bool
+	flag.Visit(func(f *flag.Flag) {
+		selectedNativeFlags = append(selectedNativeFlags, f.Name)
+		switch f.Name {
+		case "native-kyc-tail-version", "confirm-native-kyc-tail", "native-kyc-tail-source-sha256":
+			tailMentioned = true
+		case "native-kyc-v86", "confirm-native-kyc-v86", "native-kyc-v86-source-sha256":
+			v86Mentioned = true
+		}
+	})
+	if tailMentioned {
+		if err := validateNativeKYCTailMode(*nativeTailVersion, *confirmNativeTail, *nativeTailFingerprint, selectedNativeFlags); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := runNativeKYCTail(*migrationDir, *nativeTailVersion, *nativeTailFingerprint, os.Getenv); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if v86Mentioned {
+		var selected []string
+		flag.Visit(func(f *flag.Flag) { selected = append(selected, f.Name) })
+		if err := validateNativeV86Mode(*nativeKYCV86, *confirmNativeKYCV86, *nativeKYCSourceFingerprint, selected); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		if err := runNativeKYCV86(*migrationDir, os.Getenv); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+	if *nativeAdminPreV81 {
+		if *nativeRoleTransition || *nativeMigratorV81 || *inventoryOnly || *schemaOnly || *planOnly || *releaseMode || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmCloudOwner != "" || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *wizardAdminVersion != 0 || *confirmWizardAdmin != "" || *releaseSHA != "" || *releaseInventory != "" || *releaseExpected != 0 || *confirmNativeRoleTransition != "" || *confirmNativeMigratorV81 != "" {
+			fmt.Fprintln(os.Stderr, "-native-admin-pre-v81 cannot be combined with another migration mode")
+			os.Exit(2)
+		}
+	} else if *confirmNativeAdminPreV81 != "" {
+		fmt.Fprintln(os.Stderr, "-confirm-native-admin-pre-v81 requires -native-admin-pre-v81")
+		os.Exit(2)
+	}
+	if *nativeRoleTransition {
+		if *nativeAdminPreV81 || *nativeMigratorV81 || *inventoryOnly || *schemaOnly || *planOnly || *releaseMode || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmCloudOwner != "" || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *wizardAdminVersion != 0 || *confirmWizardAdmin != "" || *releaseSHA != "" || *releaseInventory != "" || *releaseExpected != 0 || *confirmNativeAdminPreV81 != "" || *confirmNativeMigratorV81 != "" {
+			fmt.Fprintln(os.Stderr, "-native-role-transition-v80 cannot be combined with another migration mode")
+			os.Exit(2)
+		}
+	} else if *confirmNativeRoleTransition != "" {
+		fmt.Fprintln(os.Stderr, "-confirm-native-role-transition-v80 requires -native-role-transition-v80")
+		os.Exit(2)
+	}
+	if *nativeMigratorV81 {
+		if *nativeAdminPreV81 || *nativeRoleTransition || *inventoryOnly || *schemaOnly || *planOnly || *releaseMode || *applyRuntimeACL || *recoverRuntimeACL || *cloudOwner || *confirmCloudOwner != "" || *confirmRuntimeACL != "" || *confirmF5AdminMigration != "" || *wizardAdminVersion != 0 || *confirmWizardAdmin != "" || *releaseSHA != "" || *releaseInventory != "" || *releaseExpected != 0 || *confirmNativeAdminPreV81 != "" || *confirmNativeRoleTransition != "" {
+			fmt.Fprintln(os.Stderr, "-native-migrator-v81 cannot be combined with another migration mode")
+			os.Exit(2)
+		}
+	} else if *confirmNativeMigratorV81 != "" {
+		fmt.Fprintln(os.Stderr, "-confirm-native-migrator-v81 requires -native-migrator-v81")
 		os.Exit(2)
 	}
 	if err := validateWizardModeConflicts(*wizardAdminVersion, *confirmWizardAdmin, *inventoryOnly, *schemaOnly, *releaseMode, *releaseSHA, *releaseInventory, *releaseExpected); err != nil {
@@ -70,6 +145,109 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
+	}
+	if *nativeMigratorV81 {
+		currentUser, userErr := osuser.Current()
+		if userErr != nil {
+			fmt.Fprintln(os.Stderr, "could not verify private passfile owner identity")
+			os.Exit(2)
+		}
+		if err := validateNativeMigratorV81Invocation(*confirmNativeMigratorV81, settings, os.Getenv, currentUser.Username, nativeMigratorPassfilePath); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
+		defer cancel()
+		plan, planErr := migrator.Plan(ctx, settings.databaseURL, *migrationDir, settings.setRole)
+		if planErr == nil {
+			planErr = validateNativeV81Plan(plan)
+		}
+		if planErr != nil {
+			fmt.Fprintf(os.Stderr, "native V81 read-only gate failed: %v\n", planErr)
+			os.Exit(1)
+		}
+		snapshot, cleanup, snapshotErr := makeNativeV81Snapshot(*migrationDir)
+		if snapshotErr != nil {
+			fmt.Fprintf(os.Stderr, "native V81 source staging failed: %v\n", snapshotErr)
+			os.Exit(1)
+		}
+		defer cleanup()
+		result, runErr := migrator.RunWithRoleInRange(ctx, settings.databaseURL, snapshot, settings.setRole, 80, 81)
+		if runErr != nil {
+			fmt.Fprintf(os.Stderr, "native V81 migration failed; read back ledger before retry: %v\n", runErr)
+			os.Exit(1)
+		}
+		postPlan, postErr := migrator.Plan(ctx, settings.databaseURL, *migrationDir, settings.setRole)
+		if postErr == nil {
+			postErr = validateNativeV81PostPlan(postPlan)
+		}
+		if postErr != nil {
+			fmt.Fprintf(os.Stderr, "native V81 postcheck failed; read back the ledger before retry: %v\n", postErr)
+			os.Exit(1)
+		}
+		fmt.Printf("native V81 applied migrations: %v; postcheck confirmed V1..V81 and pending V82..V85\n", result.Applied)
+		return
+	}
+	if *nativeRoleTransition {
+		currentUser, userErr := osuser.Current()
+		if userErr != nil {
+			fmt.Fprintln(os.Stderr, "could not verify local postgres OS identity")
+			os.Exit(2)
+		}
+		if err := validateNativeAdminRangeInvocation(*confirmNativeRoleTransition, settings, os.Getenv, currentUser.Username); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
+		defer cancel()
+		plan, planErr := migrator.Plan(ctx, settings.databaseURL, *migrationDir, "")
+		if planErr == nil {
+			planErr = validateNativeV80RoleTransitionPlan(plan)
+		}
+		if planErr != nil {
+			fmt.Fprintf(os.Stderr, "native V80 role-transition read-only gate failed: %v\n", planErr)
+			os.Exit(1)
+		}
+		if err := migrator.ApplyNativeV80RoleTransition(ctx, settings.databaseURL, *migrationDir, nativeAdminConfirmation, 16388); err != nil {
+			fmt.Fprintf(os.Stderr, "native V80 role transition failed; read back roles and memberships before retry: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("native V80 role transition applied; runtime OID preserved and V81 role contract provisioned")
+		return
+	}
+	if *nativeAdminPreV81 {
+		currentUser, userErr := osuser.Current()
+		if userErr != nil {
+			fmt.Fprintln(os.Stderr, "could not verify local postgres OS identity")
+			os.Exit(2)
+		}
+		if err := validateNativeAdminRangeInvocation(*confirmNativeAdminPreV81, settings, os.Getenv, currentUser.Username); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), settings.timeout)
+		defer cancel()
+		plan, planErr := migrator.Plan(ctx, settings.databaseURL, *migrationDir, "")
+		if planErr == nil {
+			planErr = validateNativePreV81Plan(plan)
+		}
+		if planErr != nil {
+			fmt.Fprintf(os.Stderr, "native pre-V81 read-only gate failed: %v\n", planErr)
+			os.Exit(1)
+		}
+		snapshot, cleanup, snapshotErr := makeNativePreV81Snapshot(*migrationDir)
+		if snapshotErr != nil {
+			fmt.Fprintf(os.Stderr, "native pre-V81 source staging failed: %v\n", snapshotErr)
+			os.Exit(1)
+		}
+		defer cleanup()
+		result, runErr := migrator.RunWithRoleInRange(ctx, settings.databaseURL, snapshot, "", 76, 80)
+		if runErr != nil {
+			fmt.Fprintf(os.Stderr, "native pre-V81 migration failed; read back ledger before retry: %v\n", runErr)
+			os.Exit(1)
+		}
+		fmt.Printf("native pre-V81 applied migrations: %v\n", result.Applied)
+		return
 	}
 	if *wizardAdminVersion != 0 {
 		if err := validateWizardAdminIdentity(settings.databaseURL, settings.mode, settings.setRole, os.Getenv); err != nil {

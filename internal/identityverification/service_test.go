@@ -23,6 +23,22 @@ func (r memoryRepository) CurrentForAccount(_ context.Context, accountID string)
 	return verification, nil
 }
 
+type cancelingMemoryRepository struct {
+	memoryRepository
+	cancelAfterAccount string
+	cancel             context.CancelFunc
+	calls              []string
+}
+
+func (r *cancelingMemoryRepository) CurrentForAccount(ctx context.Context, accountID string) (Verification, error) {
+	r.calls = append(r.calls, accountID)
+	verification, err := r.memoryRepository.CurrentForAccount(ctx, accountID)
+	if accountID == r.cancelAfterAccount {
+		r.cancel()
+	}
+	return verification, err
+}
+
 type failingRepository struct {
 	err   error
 	calls int
@@ -79,6 +95,31 @@ func TestRequireForBookingDoesNotTreatKYCFixtureAsDocumentaryIdentity(t *testing
 	}
 	if err = service.RequireForBooking(context.Background(), syntheticHost, syntheticRenter, now); !errors.Is(err, ErrNotVerified) {
 		t.Fatalf("fixture KYC alone must not satisfy documentary identity gate: err=%v", err)
+	}
+}
+
+func TestRequireForBookingStopsWhenContextCancelsDuringFirstPartyLookup(t *testing.T) {
+	now := time.Date(2030, 5, 10, 12, 0, 0, 0, time.UTC)
+	ctx, cancel := context.WithCancel(context.Background())
+	repo := &cancelingMemoryRepository{
+		memoryRepository: memoryRepository{
+			syntheticHost:   currentManualVerification(syntheticHost, now),
+			syntheticRenter: currentManualVerification(syntheticRenter, now),
+		},
+		cancelAfterAccount: syntheticHost,
+		cancel:             cancel,
+	}
+	service, err := NewService(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = service.RequireForBooking(ctx, syntheticHost, syntheticRenter, now)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled identity lookup must abort the booking gate: err=%v", err)
+	}
+	if !reflect.DeepEqual(repo.calls, []string{syntheticHost}) {
+		t.Fatalf("lookups after cancellation were not stopped: %v", repo.calls)
 	}
 }
 
@@ -228,5 +269,46 @@ func TestVerificationAssertionUsesMinimizedFields(t *testing.T) {
 		if got := verificationType.Field(index).Name; got != fieldName {
 			t.Fatalf("verification assertion field[%d]=%q; want %q", index, got, fieldName)
 		}
+	}
+}
+
+func TestServiceConstructorAndParameterBoundaries(t *testing.T) {
+	// 1. NewService with nil repository returns ErrInvalid, valid repo returns populated instance
+	if _, err := NewService(nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for nil repository, got %v", err)
+	}
+	repo := memoryRepository{}
+	validSvc, err := NewService(repo)
+	if err != nil || validSvc == nil || validSvc.repository == nil {
+		t.Fatalf("expected valid service retaining repository, got svc=%v, err=%v", validSvc, err)
+	}
+
+	// 2. nil receiver and nil repository on RequireForBooking
+	now := time.Date(2030, 5, 10, 12, 0, 0, 0, time.UTC)
+	var nilSvc *Service
+	if err := nilSvc.RequireForBooking(context.Background(), syntheticHost, syntheticRenter, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for nil receiver, got %v", err)
+	}
+	badSvc := &Service{repository: nil}
+	if err := badSvc.RequireForBooking(context.Background(), syntheticHost, syntheticRenter, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for nil service.repository, got %v", err)
+	}
+
+	// 3. Invalid inputs on valid service
+	svc, err := NewService(memoryRepository{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Empty / blank hostID
+	if err := svc.RequireForBooking(context.Background(), "   ", syntheticRenter, now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for blank hostID, got %v", err)
+	}
+	// Empty / blank renterID
+	if err := svc.RequireForBooking(context.Background(), syntheticHost, "   ", now); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for blank renterID, got %v", err)
+	}
+	// Zero time now
+	if err := svc.RequireForBooking(context.Background(), syntheticHost, syntheticRenter, time.Time{}); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("expected ErrInvalid for zero time now, got %v", err)
 	}
 }

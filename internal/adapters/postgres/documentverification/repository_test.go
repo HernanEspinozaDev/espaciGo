@@ -2,6 +2,7 @@ package documentverificationpg
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"reflect"
@@ -16,6 +17,274 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+func TestTypedIdentityDecisionPersistsObservedAuditWithTransition(t *testing.T) {
+	actor := "11111111-1111-4111-8111-111111111111"
+	subject := "22222222-2222-4222-8222-222222222222"
+	caseID := "33333333-3333-4333-8333-333333333333"
+	declarationID := "44444444-4444-4444-8444-444444444444"
+	expiry := time.Date(2031, 4, 6, 3, 0, 0, 0, time.UTC)
+	consentedAt := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	tx := &reviewerAuditFakeTx{actor: actor, subject: subject, caseID: caseID, declarationID: declarationID, consentedAt: consentedAt}
+	repo := newWithTransactionBeginner(reviewerAuditFakeBeginner{tx: tx})
+	checklist := &dv.IdentityReviewChecklist{
+		NamesMatch: boolPointer(true), RUTMatches: boolPointer(true), BirthDateAndMajorityMatch: boolPointer(true),
+		PortraitMatchesSelfie: boolPointer(true), EvidenceLegible: boolPointer(true), DocumentUnexpired: boolPointer(true),
+		IssueDateAndFormatVerified: boolPointer(true),
+	}
+	audit := dv.TransitionAudit{Action: "review_decision", ResultCode: string(dv.CaseApproved), DocumentFormatObserved: dv.DocumentFormatLegacy, DocumentExpiresAtObserved: expiry, IdentityReviewChecklist: checklist}
+	err := repo.Transition(context.Background(), actor, dv.PurposeIdentity, caseID, 7, audit, func(x *dv.Snapshot, _ dv.Authorization) error {
+		x.State = dv.CaseApproved
+		x.ReviewerID = actor
+		x.VerifiedAt = expiry.Add(-time.Hour)
+		x.VerifiedUntil = expiry
+		x.DocumentFormatObserved = dv.DocumentFormatLegacy
+		x.DocumentExpiresAt = expiry
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tx.committed || len(tx.execs) != 2 || !strings.Contains(tx.execs[0].sql, "UPDATE public.document_verification_case") || !strings.Contains(tx.execs[1].sql, "INSERT INTO public.document_verification_event") {
+		t.Fatalf("decision and audit were not issued in order in one transaction: committed=%v execs=%+v", tx.committed, tx.execs)
+	}
+	update := tx.execs[0]
+	if !strings.Contains(update.sql, "document_format_observed") || !strings.Contains(update.sql, "document_expires_at") {
+		t.Fatalf("case update omits observed format/expiry: %s", update.sql)
+	}
+	if len(update.args) != 9 || update.args[7] != dv.DocumentFormatLegacy {
+		t.Fatalf("case update arguments omit the observed identity fields: %#v", update.args)
+	}
+	persistedExpiry, ok := update.args[8].(time.Time)
+	if !ok || !persistedExpiry.Equal(expiry) {
+		t.Fatalf("case update expiry=%#v, want exact exclusive boundary %s", update.args[8], expiry.Format(time.RFC3339Nano))
+	}
+	event := tx.execs[1]
+	if !strings.Contains(event.sql, "identity_review_observations") || len(event.args) < 11 {
+		t.Fatalf("audit insert omits identity observations: sql=%s args=%#v", event.sql, event.args)
+	}
+	var observations map[string]any
+	if err := json.Unmarshal([]byte(event.args[len(event.args)-1].(string)), &observations); err != nil {
+		t.Fatal(err)
+	}
+	check, ok := observations["identity_review_checklist"].(map[string]any)
+	if !ok || len(observations) != 3 || observations["document_format_observed"] != string(dv.DocumentFormatLegacy) || observations["document_expires_at_observed"] != expiry.Format(time.RFC3339Nano) || len(check) != 7 || check["names_match"] != true || check["rut_matches"] != true || check["birth_date_and_majority_match"] != true || check["portrait_matches_selfie"] != true || check["evidence_legible"] != true || check["document_unexpired"] != true || check["issue_date_and_format_verified"] != true {
+		t.Fatalf("audit observations=%v", observations)
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }
+
+type reviewerAuditFakeBeginner struct{ tx *reviewerAuditFakeTx }
+
+func (b reviewerAuditFakeBeginner) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+	return b.tx, nil
+}
+
+type reviewerAuditFakeExec struct {
+	sql  string
+	args []any
+}
+
+type reviewerAuditFakeTx struct {
+	pgx.Tx
+	actor, subject, caseID, declarationID string
+	consentedAt                           time.Time
+	execs                                 []reviewerAuditFakeExec
+	committed                             bool
+}
+
+func (tx *reviewerAuditFakeTx) QueryRow(_ context.Context, query string, args ...any) pgx.Row {
+	switch {
+	case strings.Contains(query, "document_verification_lock_active_actor"):
+		return commitSerializationFailureRow{values: []any{true}}
+	case strings.Contains(query, "SELECT COALESCE((SELECT revision.id::text=$2 FROM public.identity_declaration_revision revision"):
+		if len(args) != 2 || args[0] != tx.subject || args[1] != tx.declarationID {
+			return commitSerializationFailureRow{err: errors.New("identity declaration revision query arguments mismatch")}
+		}
+		return commitSerializationFailureRow{values: []any{true}}
+	case strings.Contains(query, "SELECT space_id::text,subject_id::text FROM public.document_verification_case"):
+		return commitSerializationFailureRow{values: []any{nil, tx.subject}}
+	case strings.Contains(query, "SELECT id::text,purpose,subject_id::text,space_id::text,state,revision"):
+		return commitSerializationFailureRow{values: []any{tx.caseID, "identity", tx.subject, nil, "en_revision", int64(7), "", nil, nil, nil, nil, nil, tx.declarationID, "new", "identity-capture-local-v1", tx.consentedAt, ""}}
+	default:
+		return commitSerializationFailureRow{err: errors.New("unexpected reviewer audit query: " + query)}
+	}
+}
+
+func (tx *reviewerAuditFakeTx) Query(_ context.Context, query string, _ ...any) (pgx.Rows, error) {
+	if strings.Contains(query, "FROM public.document_verification_file") {
+		return &reviewerAuditFakeRows{}, nil
+	}
+	if strings.Contains(query, "FROM public.document_verification_reviewer_grant") {
+		return &reviewerAuditFakeRows{rows: [][]any{{tx.actor, "review_identity", tx.subject}}}, nil
+	}
+	return nil, errors.New("unexpected reviewer audit rows query: " + query)
+}
+
+func (tx *reviewerAuditFakeTx) Exec(_ context.Context, query string, args ...any) (pgconn.CommandTag, error) {
+	tx.execs = append(tx.execs, reviewerAuditFakeExec{sql: query, args: append([]any(nil), args...)})
+	return pgconn.NewCommandTag("UPDATE 1"), nil
+}
+
+func (tx *reviewerAuditFakeTx) Commit(context.Context) error { tx.committed = true; return nil }
+func (*reviewerAuditFakeTx) Rollback(context.Context) error  { return nil }
+
+type reviewerAuditFakeRows struct {
+	pgx.Rows
+	rows    [][]any
+	current []any
+	index   int
+}
+
+func (r *reviewerAuditFakeRows) Next() bool {
+	if r.index >= len(r.rows) {
+		return false
+	}
+	r.current = r.rows[r.index]
+	r.index++
+	return true
+}
+func (r *reviewerAuditFakeRows) Scan(dest ...any) error {
+	return commitSerializationFailureRow{values: r.current}.Scan(dest...)
+}
+func (*reviewerAuditFakeRows) Close()     {}
+func (*reviewerAuditFakeRows) Err() error { return nil }
+
+func TestCreateCaseRequiresSavedIdentityDeclaration(t *testing.T) {
+	const actor = "11111111-1111-4111-8111-111111111111"
+	const declaration = "22222222-2222-4222-8222-222222222222"
+	consentedAt := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name  string
+		found bool
+	}{{name: "missing"}, {name: "available", found: true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			tx := &createCaseFakeTx{actorActive: true, declarationID: declaration, declarationFound: tc.found}
+			repo := newWithTransactionBeginner(createCaseFakeBeginner{tx: tx})
+			buildCalled := false
+			created, err := repo.CreateCase(context.Background(), actor, dv.PurposeIdentity, "", func(auth dv.Authorization) (dv.Snapshot, error) {
+				buildCalled = true
+				if tc.found && auth.IdentityDeclarationRevisionID != declaration {
+					t.Fatalf("authorization declaration=%q", auth.IdentityDeclarationRevisionID)
+				}
+				return dv.Snapshot{
+					ID: uuid.NewString(), Purpose: dv.PurposeIdentity, SubjectID: actor, State: dv.CaseDraft,
+					IdentityDeclarationRevisionID: auth.IdentityDeclarationRevisionID,
+					DocumentFormatDeclared:        dv.DocumentFormatUnsure,
+					CaptureConsentVersion:         dv.IdentityCaptureConsentVersion,
+					CaptureConsentedAt:            consentedAt,
+				}, nil
+			})
+			if !tc.found {
+				if !errors.Is(err, dv.ErrDeclarationRequired) {
+					t.Fatalf("error=%v, want declaration-required", err)
+				}
+				if buildCalled || tx.execCount != 0 || tx.committed {
+					t.Fatalf("missing declaration reached build/write/commit: build=%v exec=%d commit=%v", buildCalled, tx.execCount, tx.committed)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !buildCalled || tx.execCount != 2 || !tx.committed {
+				t.Fatalf("create not completed: build=%v exec=%d commit=%v", buildCalled, tx.execCount, tx.committed)
+			}
+			var caseInsert *createCaseExecCall
+			for i := range tx.execCalls {
+				if strings.Contains(tx.execCalls[i].sql, "INSERT INTO public.document_verification_case") {
+					caseInsert = &tx.execCalls[i]
+					break
+				}
+			}
+			if caseInsert == nil || !strings.Contains(caseInsert.sql, "identity_declaration_revision_id") ||
+				!strings.Contains(caseInsert.sql, "capture_consent_version") || !strings.Contains(caseInsert.sql, "capture_consented_at") {
+				t.Fatalf("case insert does not persist the declaration and separate consent: %#v", caseInsert)
+			}
+			if len(caseInsert.args) != 9 || caseInsert.args[0] != created.ID || caseInsert.args[2] != actor ||
+				caseInsert.args[5] != declaration || caseInsert.args[6] != dv.DocumentFormatUnsure ||
+				caseInsert.args[7] != dv.IdentityCaptureConsentVersion || !caseInsert.args[8].(time.Time).Equal(consentedAt) {
+				t.Fatalf("case insert arguments do not bind the authenticated declaration/consent: %#v", caseInsert.args)
+			}
+			lockPosition, declarationPosition := -1, -1
+			for i, call := range tx.calls {
+				if strings.Contains(call, "pg_advisory_xact_lock(hashtextextended($1, 0))") {
+					lockPosition = i
+				}
+				if strings.Contains(call, "identity_declaration_revision") {
+					declarationPosition = i
+				}
+			}
+			if lockPosition < 0 || declarationPosition < 0 || lockPosition >= declarationPosition {
+				t.Fatalf("declaration lock must precede revision read: calls=%v", tx.calls)
+			}
+		})
+	}
+}
+
+type createCaseFakeBeginner struct{ tx pgx.Tx }
+
+func (b createCaseFakeBeginner) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+	return b.tx, nil
+}
+
+type createCaseFakeTx struct {
+	pgx.Tx
+	actorActive      bool
+	declarationID    string
+	declarationFound bool
+	calls            []string
+	execCalls        []createCaseExecCall
+	execCount        int
+	committed        bool
+}
+
+type createCaseExecCall struct {
+	sql  string
+	args []any
+}
+
+func (tx *createCaseFakeTx) QueryRow(_ context.Context, sql string, _ ...any) pgx.Row {
+	tx.calls = append(tx.calls, "query:"+sql)
+	if strings.Contains(sql, "document_verification_lock_active_actor") {
+		return createCaseFakeRow{value: tx.actorActive}
+	}
+	if strings.HasPrefix(sql, "SELECT id::text FROM public.identity_declaration_revision") && tx.declarationFound {
+		return createCaseFakeRow{value: tx.declarationID}
+	}
+	return createCaseFakeRow{err: pgx.ErrNoRows}
+}
+func (tx *createCaseFakeTx) Exec(_ context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	tx.calls = append(tx.calls, "exec:"+sql)
+	tx.execCalls = append(tx.execCalls, createCaseExecCall{sql: sql, args: append([]any(nil), args...)})
+	if !strings.Contains(sql, "pg_advisory_xact_lock(hashtextextended($1, 0))") {
+		tx.execCount++
+	}
+	return pgconn.NewCommandTag("INSERT 0 1"), nil
+}
+func (tx *createCaseFakeTx) Commit(context.Context) error { tx.committed = true; return nil }
+func (*createCaseFakeTx) Rollback(context.Context) error  { return nil }
+
+type createCaseFakeRow struct {
+	value any
+	err   error
+}
+
+func (r createCaseFakeRow) Scan(dest ...any) error {
+	if r.err != nil {
+		return r.err
+	}
+	switch d := dest[0].(type) {
+	case *bool:
+		*d = r.value.(bool)
+	case *string:
+		*d = r.value.(string)
+	default:
+		return errors.New("unexpected fake scan target")
+	}
+	return nil
+}
 
 // Opt-in PostgreSQL coverage. It expects V80 to have been applied by the
 // separately authorized parent workflow; this test never runs migrations.
@@ -273,11 +542,11 @@ func (tx commitSerializationFailureTx) QueryRow(_ context.Context, sql string, _
 	case strings.Contains(sql, "SELECT space_id::text,subject_id::text FROM public.document_verification_case"):
 		return commitSerializationFailureRow{values: []any{nil, tx.actor}}
 	case strings.Contains(sql, "WHERE c.id=$1 AND c.subject_id=$2"):
-		return commitSerializationFailureRow{values: []any{tx.caseID, "identity", tx.actor, nil, "borrador", int64(1), "", nil, nil, nil, nil, nil}}
+		return commitSerializationFailureRow{values: []any{tx.caseID, "identity", tx.actor, nil, "borrador", int64(1), "", nil, nil, nil, nil, nil, "", "", "", nil, "", ""}}
 	case strings.Contains(sql, "WHERE c.id=$1 AND c.purpose='space'"):
-		return commitSerializationFailureRow{values: []any{tx.caseID, "space", tx.actor, tx.spaceID, "borrador", int64(1), "", nil, nil, nil, nil, nil}}
+		return commitSerializationFailureRow{values: []any{tx.caseID, "space", tx.actor, tx.spaceID, "borrador", int64(1), "", nil, nil, nil, nil, nil, "", "", "", nil, ""}}
 	case strings.Contains(sql, "SELECT id::text,purpose,subject_id::text,space_id::text,state,revision"):
-		return commitSerializationFailureRow{values: []any{tx.caseID, "identity", tx.actor, nil, "borrador", int64(1), "", nil, nil, nil, nil, nil}}
+		return commitSerializationFailureRow{values: []any{tx.caseID, "identity", tx.actor, nil, "borrador", int64(1), "", nil, nil, nil, nil, nil, "", "", "", nil, ""}}
 	default:
 		return commitSerializationFailureRow{err: errors.New("unexpected serialization test query")}
 	}

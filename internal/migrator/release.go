@@ -22,12 +22,14 @@ type ReleaseContract struct {
 }
 
 type ReleaseResult struct {
-	Format         string          `json:"format"`
-	Contract       ReleaseContract `json:"contract"`
-	Before         PlanResult      `json:"before"`
-	After          PlanResult      `json:"after"`
-	Applied        []int64         `json:"applied"`
-	SchemaEvidence json.RawMessage `json:"schema_evidence,omitempty"`
+	Format               string                    `json:"format"`
+	Contract             ReleaseContract           `json:"contract"`
+	Before               PlanResult                `json:"before"`
+	After                PlanResult                `json:"after"`
+	Applied              []int64                   `json:"applied"`
+	SchemaEvidence       json.RawMessage           `json:"schema_evidence,omitempty"`
+	DDLAuthority         *V84DDLAuthority          `json:"ddl_authority,omitempty"`
+	IdentityDDLAuthority *IdentityTailDDLAuthority `json:"identity_ddl_authority,omitempty"`
 }
 
 func inventoryFingerprint(migrations []Migration) string {
@@ -150,5 +152,5 @@ func runReleaseWithConn(ctx context.Context, conn *pgx.Conn, migrationDir, setRo
 			return ReleaseResult{}, err
 		}
 	}
-	return ReleaseResult{Format: "espacigo.migration-execution.v2", Contract: contract, Before: before, After: after, Applied: result.Applied, SchemaEvidence: evidence}, nil
+	return ReleaseResult{Format: "espacigo.migration-execution.v2", Contract: contract, Before: before, After: after, Applied: result.Applied, SchemaEvidence: evidence, DDLAuthority: result.DDLAuthority, IdentityDDLAuthority: result.IdentityDDLAuthority}, nil
 }

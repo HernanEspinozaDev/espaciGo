@@ -10,6 +10,7 @@ import type {
 import type {
   DocumentVerificationCreate,
   DocumentVerificationCase,
+  IdentityEvidenceRole,
   OwnerSpaceOption,
 } from "../domain/document-verification";
 
@@ -22,7 +23,11 @@ export interface DocumentVerificationView {
     input: DocumentVerificationCreate,
   ): Promise<VersionedDocumentVerificationCase>;
   submit(id: string): Promise<VersionedDocumentVerificationCase>;
-  upload(id: string, file: File): Promise<UploadedDocumentVerificationFile>;
+  upload(
+    id: string,
+    file: File,
+    evidenceRole?: IdentityEvidenceRole,
+  ): Promise<UploadedDocumentVerificationFile>;
   downloadSpaceFile(caseId: string, fileId: string): Promise<Blob>;
   clearError(): void;
 }
@@ -55,7 +60,8 @@ export function useDocumentVerification(): DocumentVerificationView {
     [],
   );
   const upload = useCallback(
-    (id: string, file: File) => documentVerificationFacade.upload(id, file),
+    (id: string, file: File, evidenceRole?: IdentityEvidenceRole) =>
+      documentVerificationFacade.upload(id, file, evidenceRole),
     [],
   );
   const downloadSpaceFile = useCallback(

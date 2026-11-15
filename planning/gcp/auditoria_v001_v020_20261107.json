@@ -1,0 +1,4611 @@
+{
+  "schema": "espacigo.migration_source_audit.v1",
+  "date": "2026-11-07",
+  "scope": {
+    "versions": "V001–V020",
+    "mode": "source-only",
+    "database_cloud_network_credentials_git_mutation": "none",
+    "basis": "HEAD 274f37e483a078890e92382a159fa49fd23c2fe8; working tree preserved"
+  },
+  "rows": [
+    {
+      "version": "V001",
+      "filename": "V000001__m01_identity.sql",
+      "sha256": "34736e22df35ffbd88bb43a1071788ba88ac9e6b35f2a5aeba83b9b87bf161f8",
+      "objects": [
+        "aceptacion_terminos",
+        "aceptacion_terminos_version_idx",
+        "rol_usuario",
+        "rol_usuario_concedido_por_idx",
+        "sesion",
+        "sesion_usuario_activa_idx",
+        "token_accion",
+        "token_accion_usuario_emision_idx",
+        "token_accion_usuario_pendiente_idx",
+        "usuario",
+        "version_terminos"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "Precondición: esquema public/DDL; owner efectivo. No roles/grants/ACL explícitos; defaults now().",
+        "dependencies": "Identidad, sesiones, tokens de acción, términos y aceptación; fixtures sintéticos de términos insertados. FK restrictivas a usuario.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/gcp06testaccess/service_integration_test.go",
+          "objects": [
+            "sesion",
+            "token_accion",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/gcp06testaccess/service.go",
+          "objects": [
+            "sesion",
+            "token_accion",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/gcp06sqlinspect/inspect_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/gcp06sqlinspect/inspect.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/gcp03scratch/lifecycle_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/gcp03scratch/restore_rehearsal_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminlocal/service.go",
+          "objects": [
+            "rol_usuario",
+            "sesion",
+            "token_accion",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminlocal/queries.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "aceptacion_terminos",
+            "rol_usuario",
+            "sesion",
+            "token_accion",
+            "usuario",
+            "version_terminos"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions_readback_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/local_semantic_gate_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/observer.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/gcp03origin/owner_acl_diagnostic.go",
+          "objects": [
+            "sesion",
+            "token_accion"
+          ]
+        },
+        {
+          "path": "internal/gcp03origin/config_test.go",
+          "objects": [
+            "sesion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "rol_usuario",
+            "sesion",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/resources.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/management.go",
+          "objects": [
+            "rol_usuario",
+            "sesion",
+            "token_accion",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/local_bootstrap_role.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/bootstrap.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/migrator/auth_m01_test.go",
+          "objects": [
+            "aceptacion_terminos",
+            "aceptacion_terminos_version_idx",
+            "rol_usuario",
+            "rol_usuario_concedido_por_idx",
+            "sesion",
+            "sesion_usuario_activa_idx",
+            "token_accion",
+            "token_accion_usuario_emision_idx",
+            "token_accion_usuario_pendiente_idx",
+            "usuario",
+            "version_terminos"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/migrator/authority_catalog.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/migrator/wizard_admin_native_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/migrator/runner.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/migrator/current_schema_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/migrator/runner_range_local_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/m02local/service_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/m02local/service.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository_integration_test.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/returns.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/dispute/repository.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/owner_weekly_hours.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_locks.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/repository_integration_test.go",
+          "objects": [
+            "aceptacion_terminos",
+            "rol_usuario",
+            "sesion",
+            "token_accion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "aceptacion_terminos",
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/repository.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "aceptacion_terminos",
+            "rol_usuario",
+            "sesion",
+            "token_accion",
+            "usuario",
+            "version_terminos"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/privacy.go",
+          "objects": [
+            "aceptacion_terminos",
+            "rol_usuario",
+            "usuario",
+            "version_terminos"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "aceptacion_terminos",
+            "rol_usuario",
+            "sesion",
+            "token_accion",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/admin_local_integration_test.go",
+          "objects": [
+            "rol_usuario",
+            "token_accion",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/gcp04_worker_login_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/gcp04_replay_process_integration_test.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/repository_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_commit_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_outcome_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/download_lock_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_retry_retention_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_ownership_fence_controlled_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs_completed_retention_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/identity_current_local_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_jobs_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_supersession_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/reviewer_postcommit_local_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/reviewer_locks_local_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v82_retention_precedence_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/repository_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/reviewer_postcommit_withdrawal_local_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_outcome_commit_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_controlled_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs_retention_cancellation_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/upload_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/repository_integration_test.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/localnotice/repository.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "objects": [
+            "rol_usuario",
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/accountlock/account.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/dbgen/models.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/dbgen/verification.sql.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/dbgen/models.go",
+          "objects": [
+            "usuario"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/dbgen/identity.sql.go",
+          "objects": [
+            "aceptacion_terminos",
+            "rol_usuario",
+            "sesion",
+            "token_accion",
+            "usuario",
+            "version_terminos"
+          ]
+        },
+        {
+          "path": "internal/verification/transport/http/handler_didit_test.go",
+          "objects": [
+            "usuario"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Sin discrepancia conocida en fuente; fixture de términos estático y explícitamente no legal.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V002",
+      "filename": "V000002__m02_profile_rights.sql",
+      "sha256": "e3f9c0b9e60244490ef40230b5af6a452deb63cd475b43b7378d9a3895877ec2",
+      "objects": [
+        "perfil_usuario",
+        "solicitud_titular",
+        "solicitud_titular_usuario_fecha_idx"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "DDL de esquema; sin grants explícitos ni cambios de roles/ACL.",
+        "dependencies": "perfil_usuario y solicitud_titular, FK usuario; índice por usuario/fecha.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/documentverification/service.go",
+          "objects": [
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "perfil_usuario",
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "perfil_usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "perfil_usuario",
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/management.go",
+          "objects": [
+            "perfil_usuario"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "perfil_usuario"
+          ]
+        },
+        {
+          "path": "internal/migrator/auth_m01_test.go",
+          "objects": [
+            "perfil_usuario"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/migrator/auth_m02_test.go",
+          "objects": [
+            "perfil_usuario",
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "perfil_usuario",
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "perfil_usuario",
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/privacy.go",
+          "objects": [
+            "perfil_usuario",
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "perfil_usuario",
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/gcp04_worker_login_integration_test.go",
+          "objects": [
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/review_revoke_commit_integration_test.go",
+          "objects": [
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/upload_integration_test.go",
+          "objects": [
+            "solicitud_titular"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/dbgen/identity.sql.go",
+          "objects": [
+            "perfil_usuario",
+            "solicitud_titular"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Comentario niega retención automática; tablas guardan datos de perfil/solicitudes sin política incorporada.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V003",
+      "filename": "V000003__m03_verification.sql",
+      "sha256": "161a2fc06b46eb181b6ddec78eac4ff8e3020b48553429f435ce81c08ce4814f",
+      "objects": [
+        "verificacion",
+        "verificacion_reintento_unico_idx",
+        "verificacion_revision_idx",
+        "verificacion_usuario_fecha_idx"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "DDL; sin authority statements explícitos. Defaults estado/proveedor/fecha.",
+        "dependencies": "verificacion con estado/referencia sintética/reintento/revisor; índices y unicidad.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/migrator/auth_m03_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/m02local/service_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/m02local/service.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/devauth/local.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_locks.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/gcp04_replay_process_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/repository_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/repository.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/evidence_repository.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/dbgen/verification.sql.go",
+          "objects": [
+            "verificacion"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Restricción proveedor y evidencia limita a fixture; no es KYC de identidad real.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V004",
+      "filename": "V000004__m03_reason_codes.sql",
+      "sha256": "f3942ba61513556253650fabc962843350e9c441fd384d8d5b8bd59ecf7362d1",
+      "objects": [
+        "verificacion"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "Requiere ALTER sobre verificacion; sin grants ni ACL.",
+        "dependencies": "CHECK reason_code en verificacion.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/migrator/auth_m03_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/m02local/service_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/m02local/service.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/devauth/local.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_locks.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/gcp04_replay_process_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/repository_integration_test.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/repository.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/evidence_repository.go",
+          "objects": [
+            "verificacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/dbgen/verification.sql.go",
+          "objects": [
+            "verificacion"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Códigos cerrados posteriores a tabla inicial; consumidor debe usar allowlist.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V005",
+      "filename": "V000005__m04_space_drafts.sql",
+      "sha256": "f5ca7a06da755c8bbf8adba1ed7c539c69fb50743b3f58012079eb565b564f86",
+      "objects": [
+        "categoria_espacio",
+        "espacio",
+        "espacio_propietario_actualizacion_idx"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE sobre public y referencias a usuario/categoria; sin roles/ACL.",
+        "dependencies": "categoria_espacio + ocho filas; espacio borrador privado con constraints/FK/índice.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/gcp03scratch/lifecycle_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/gcp03scratch/restore_rehearsal_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/media/domain.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminlocal/queries.go",
+          "objects": [
+            "categoria_espacio",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "categoria_espacio",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/local_semantic_gate_integration_test.go",
+          "objects": [
+            "categoria_espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "categoria_espacio",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "categoria_espacio",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/migrator/current_schema_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/m02local/service_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "categoria_espacio",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/wizard_native_read_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "categoria_espacio",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/returns.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/owner_weekly_hours.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "categoria_espacio",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "categoria_espacio",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/img01e_media_export_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/admin_local_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/download_lock_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_ownership_fence_controlled_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_jobs_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_supersession_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v82_retention_precedence_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/repository_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_controlled_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_http_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaceversion/version.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/ownerexport/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/gallery/transport/http/handler.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/booking/transport/http/handler_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/spaces/transport/http/handler_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/spaces/transport/http/handler.go",
+          "objects": [
+            "espacio"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Schema solo borradores; no lifecycle comercial (declarado en comentario).",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V006",
+      "filename": "V000006__m04_extensible_category_attributes.sql",
+      "sha256": "67bf11f666e9c3f2687e7bd6c3c0fcd82f075c51ff012f874ed3638b64cf2968",
+      "objects": [
+        "categoria_perfil_atributos",
+        "espacio",
+        "espacio_caracteristicas"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE/ALTER y REFERENCES; sin grants/roles; default valores {}.",
+        "dependencies": "categoria_perfil_atributos y espacio_caracteristicas JSONB; FK categoría/perfil y espacio/categoría; catálogo JSON por ocho categorías.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/gcp03scratch/lifecycle_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/gcp03scratch/restore_rehearsal_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/media/domain.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminlocal/queries.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "categoria_perfil_atributos",
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "categoria_perfil_atributos",
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "categoria_perfil_atributos",
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/migrator/current_schema_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/m02local/service_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository_integration_test.go",
+          "objects": [
+            "categoria_perfil_atributos",
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "categoria_perfil_atributos",
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/wizard_native_read_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "categoria_perfil_atributos",
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/returns.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/owner_weekly_hours.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "categoria_perfil_atributos",
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "categoria_perfil_atributos",
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/img01e_media_export_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/admin_local_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/download_lock_integration_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_ownership_fence_controlled_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_jobs_integration_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_supersession_integration_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v82_retention_precedence_integration_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/repository_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_integration_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_controlled_integration_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_http_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "espacio",
+            "espacio_caracteristicas"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaceversion/version.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/ownerexport/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/gallery/transport/http/handler.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/booking/transport/http/handler_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/spaces/transport/http/handler_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/spaces/transport/http/handler.go",
+          "objects": [
+            "espacio"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "espacio_caracteristicas es opcional respecto de espacio; relevante V015.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V007",
+      "filename": "V000007__m04_profile_attribute_order.sql",
+      "sha256": "c39bc8c2c3a7161bec0dd0b01b1f7cb04ff87c70aae15ea6db46a6054b1780c5",
+      "objects": [],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "UPDATE sobre catálogo; sin grants/ACL.",
+        "dependencies": "Actualiza atributos JSON agregando order vía ordinality.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Idempotencia aparente por WHERE si falta order; fuente no prueba valores existentes.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V008",
+      "filename": "V000008__m03_synthetic_evidence.sql",
+      "sha256": "896d0808f925f44f5bb82222b56fde369723b3579fae510c3bd3b1a84002113d",
+      "objects": [
+        "verificacion_evidencia_case_idx",
+        "verificacion_evidencia_sintetica"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE; sin grants/roles.",
+        "dependencies": "verificacion_evidencia_sintetica y metadata limitada; FK verificacion.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "verificacion_evidencia_sintetica"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "verificacion_evidencia_sintetica"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "verificacion_evidencia_sintetica"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "verificacion_evidencia_sintetica"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "verificacion_evidencia_sintetica"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "verificacion_evidencia_sintetica"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/gcp04_replay_process_integration_test.go",
+          "objects": [
+            "verificacion_evidencia_sintetica"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/verification/evidence_repository.go",
+          "objects": [
+            "verificacion_evidencia_sintetica"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Solo metadata; blob fuera DB según comentario, sin TTL declarado.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V009",
+      "filename": "V000009__m06_draft_manual_occupancy.sql",
+      "sha256": "e3fd2c98930f3d44280406a1698aa6d4594aa7b7e8ae708157c81ed4103ed900",
+      "objects": [
+        "espacio",
+        "ocupacion",
+        "ocupacion_espacio_activa_idx"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE EXTENSION btree_gist además de DDL; requiere autoridad extension según instalación; sin grants.",
+        "dependencies": "btree_gist; zona_horaria nullable; ocupacion con rangos, exclusión no solapamiento y FK espacio.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/gcp03scratch/lifecycle_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/gcp03scratch/restore_rehearsal_integration_test.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/media/domain.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminlocal/queries.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/migrator/current_schema_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/m02local/service_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/wizard_native_read_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/returns.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy_integration_test.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/owner_weekly_hours.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/guarantee.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/img01e_media_export_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/admin_local_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/repository_integration_test.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/download_lock_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_ownership_fence_controlled_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_jobs_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_supersession_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v82_retention_precedence_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/repository_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_controlled_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_http_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository_integration_test.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "espacio",
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaceversion/version.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/ownerexport/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/expiry/expire.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/gallery/transport/http/handler.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/booking/transport/http/handler_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/spaces/transport/http/handler_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/spaces/transport/http/handler.go",
+          "objects": [
+            "espacio"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "No FK de reserva todavía, explícito en comentario; extensión precondición de entorno.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V010",
+      "filename": "V000010__m05_versioned_rates_and_private_simulations.sql",
+      "sha256": "291748cd18b0ff3424066c322e570a9ff206a386a92e08ad714a9d0709ef212b",
+      "objects": [
+        "espacio",
+        "simulacion_precio_espacio_propietario_idx",
+        "simulacion_precio_privada",
+        "tarifa_espacio"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE/ALTER/INSERT; sin role/ACL. moneda CLP default.",
+        "dependencies": "UNIQUE espacio(id,propietario); tarifa_espacio, backfill v1 desde espacio; simulacion_precio_privada snapshot y FKs.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/gcp03scratch/lifecycle_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/gcp03scratch/restore_rehearsal_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/media/domain.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminlocal/queries.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "espacio",
+            "simulacion_precio_privada",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions_readback_test.go",
+          "objects": [
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/observer.go",
+          "objects": [
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/migrator/current_schema_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/m02local/service_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "espacio",
+            "simulacion_precio_privada",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/wizard_native_read_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/returns.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/owner_weekly_hours.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/img01e_media_export_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "espacio",
+            "simulacion_precio_privada",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "espacio",
+            "simulacion_precio_privada"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/admin_local_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/gallery/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/repository_integration_test.go",
+          "objects": [
+            "simulacion_precio_privada",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/repository.go",
+          "objects": [
+            "espacio",
+            "simulacion_precio_privada",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/privacy_export.go",
+          "objects": [
+            "espacio",
+            "simulacion_precio_privada",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/download_lock_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_ownership_fence_controlled_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_jobs_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/retention_supersession_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v82_retention_precedence_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/repository_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/scan_jobs.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/documentverification/v81_ownership_race_controlled_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository_http_integration_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/media/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "espacio",
+            "tarifa_espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaceversion/version.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/ownerexport/repository.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/gallery/transport/http/handler.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/booking/transport/http/handler_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/spaces/transport/http/handler_test.go",
+          "objects": [
+            "espacio"
+          ]
+        },
+        {
+          "path": "internal/spaces/transport/http/handler.go",
+          "objects": [
+            "espacio"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Tarifa backfill solo espacios existentes; sim privada exige tarifa y propietario consistentes.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V011",
+      "filename": "V000011__m06_local_booking_trial.sql",
+      "sha256": "7d6e5dfda683164f434c70b415c7383a48d16120abc4d2d10ef0c64db710f452",
+      "objects": [
+        "cotizacion_reserva_ensayo",
+        "cotizacion_reserva_ensayo_titular_idx",
+        "ocupacion",
+        "reserva_ensayo_local",
+        "reserva_ensayo_local_anfitrion_idx",
+        "reserva_ensayo_local_arrendatario_idx",
+        "reserva_ensayo_local_fixture",
+        "reserva_ensayo_transicion",
+        "reserva_ensayo_transicion_historial_idx",
+        "reserva_pago_ensayo"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE/ALTER/REFERENCES; sin grants/roles.",
+        "dependencies": "Fixture allowlist singleton, cotización, reserva, transiciones, pagos simulados; FKs diferidas circulares ocupacion/reserva.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/gcp03scratch/restore_rehearsal_integration_test.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adminlocal/service.go",
+          "objects": [
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/resources.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/testnuevoverification_sql_test.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/returns.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy_integration_test.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/dispute/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/guarantee.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_locks.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement.go",
+          "objects": [
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/admin_read.go",
+          "objects": [
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/pricing/repository_integration_test.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository_integration_test.go",
+          "objects": [
+            "ocupacion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "objects": [
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/ownerexport/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/expiry/expire.go",
+          "objects": [
+            "ocupacion",
+            "reserva_ensayo_local",
+            "reserva_ensayo_transicion",
+            "reserva_pago_ensayo"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Un fixture singleton y dos participantes; sin constraint de estados plenamente transversal más allá de checks.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V012",
+      "filename": "V000012__m06_local_booking_conditions_snapshot.sql",
+      "sha256": "daa604294fbab0c9d3ac027e3e2629a366c93c78795ea7f5edd75733dfd3a1cd",
+      "objects": [
+        "cotizacion_reserva_ensayo",
+        "reserva_ensayo_local"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "ALTER/UPDATE; sin grants.",
+        "dependencies": "Añade condiciones_snapshot a quote/reserva; backfill por espacio/quote y elimina defaults.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/adminlocal/service.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/resources.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/returns.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy_integration_test.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/dispute/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/guarantee.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_locks.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/admin_read.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/ownerexport/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/expiry/expire.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Backfill conserva texto actual de reglas; reservas sin quote relacionada podrían quedar vacío, FK obliga quote.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V013",
+      "filename": "V000013__m06_booking_history_sequence.sql",
+      "sha256": "8aaa68c5b3f06a8b363bc8332bb7574e937417616610d5dc4df8ac26365f30de",
+      "objects": [
+        "reserva_ensayo_transicion",
+        "reserva_ensayo_transicion_historial_idx"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "ALTER/UPDATE/INDEX; sin ACL.",
+        "dependencies": "Añade secuencia, backfill row_number por fecha,id, NOT NULL/unique; recrea índice.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/admin_read.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/expiry/expire.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Determinista por id en empates de fecha, aunque UUID no refleja causalidad; V014 reformula.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V014",
+      "filename": "V000014__m06_deterministic_history_backfill.sql",
+      "sha256": "c5b25c4d450f7ff5f60ebac401e85506a8835ade8e80c3043d0ddd2706682ccb",
+      "objects": [
+        "reserva_ensayo_transicion"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "ALTER/UPDATE; sin role/grants.",
+        "dependencies": "Quita unique temporal; row_number por fecha, prioridad estado anterior, estado nuevo, anterior y motivo; vuelve a unique.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/admin_read.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/expiry/expire.go",
+          "objects": [
+            "reserva_ensayo_transicion"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Orden incompleto: tupla ORDER BY no única; V011 no hace única esa tupla. Empates pueden resultar no deterministas; datos concretos no verificados.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V015",
+      "filename": "V000015__m05_local_synthetic_catalog.sql",
+      "sha256": "55c2641621ca6dcba8c00108fb0d3bd607730a1544417f79388d2942c2a18525",
+      "objects": [
+        "cotizacion_reserva_ensayo",
+        "reserva_ensayo_local_fixture",
+        "reserva_ensayo_local_fixture_enabled_idx"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "ALTER/UPDATE/CREATE INDEX; sin ACL.",
+        "dependencies": "Transforma fixture singleton a PK espacio/habilitada; añade snapshots categoría/perfil a quotes, backfill JOIN espacio_caracteristicas, luego NOT NULL/FK/check.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/testnuevoverification_sql_test.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "cotizacion_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Precondición material: cada quote existente debe empatar a espacio y tener caracteristicas; JOIN omite faltantes y NOT NULL falla. V085 no puede corregir una cadena que falla aquí antes de alcanzarla; solo limpieza/precondición anterior autorizada o corregir archivo si nunca aplicado y checksum permitido.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V016",
+      "filename": "V000016__m09_local_reservation_messages.sql",
+      "sha256": "21772b55240bd9e42dcee9a0c60267f87e0c5652e9d20a2d4d84526994cc4a06",
+      "objects": [
+        "mensaje_reserva_ensayo",
+        "mensaje_reserva_ensayo_hilo_idx"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE; sin roles/grants.",
+        "dependencies": "mensaje_reserva_ensayo con secuencia identity, idempotencia, reserva/autor y cuerpo; índice hilo.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "mensaje_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "objects": [
+            "mensaje_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/privacy_export.go",
+          "objects": [
+            "mensaje_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "mensaje_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "mensaje_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "mensaje_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "mensaje_reserva_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "mensaje_reserva_ensayo"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Contenido textual persistido; comentario dice retención explícita, sin TTL automático.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V017",
+      "filename": "V000017__m09_reservation_message_read_cursor.sql",
+      "sha256": "d22702994f854621e3eca912ce07a320a3b83e7c9bf1ad2910f82d8ef3cfe127",
+      "objects": [
+        "reserva_mensaje_lectura"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE; sin ACL.",
+        "dependencies": "reserva_mensaje_lectura cursor por reserva/participante, FKs.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "reserva_mensaje_lectura"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "objects": [
+            "reserva_mensaje_lectura"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/privacy_export.go",
+          "objects": [
+            "reserva_mensaje_lectura"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "reserva_mensaje_lectura"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "reserva_mensaje_lectura"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "reserva_mensaje_lectura"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "reserva_mensaje_lectura"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "reserva_mensaje_lectura"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "No valida participante pertenezca a la reserva ni cursor <= secuencia máxima en DDL.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V018",
+      "filename": "V000018__m05_synthetic_fixture_locations.sql",
+      "sha256": "65ff0d76bafb9b7e78207aac40172cb45443291b2903c71165650174c9eac89b",
+      "objects": [
+        "reserva_ensayo_local_ubicacion_gist",
+        "reserva_ensayo_local_ubicacion_sintetica"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE EXTENSION postgis y DDL; requiere disponibilidad/autoridad extension.",
+        "dependencies": "postgis; tabla ubicación sintética geography generada; índice gist; backfill coordenadas por categoría para fixtures habilitados, conflict ignore.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/gcp03scratch/lifecycle_integration_test.go",
+          "objects": [
+            "reserva_ensayo_local_ubicacion_gist"
+          ]
+        },
+        {
+          "path": "internal/gcp03scratch/retired_observer_ndjson_test.go",
+          "objects": [
+            "reserva_ensayo_local_ubicacion_gist",
+            "reserva_ensayo_local_ubicacion_sintetica"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "reserva_ensayo_local_ubicacion_sintetica"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/observer_test.go",
+          "objects": [
+            "reserva_ensayo_local_ubicacion_gist"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/observer.go",
+          "objects": [
+            "reserva_ensayo_local_ubicacion_gist",
+            "reserva_ensayo_local_ubicacion_sintetica"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/observer_ndjson_test.go",
+          "objects": [
+            "reserva_ensayo_local_ubicacion_gist",
+            "reserva_ensayo_local_ubicacion_sintetica"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "reserva_ensayo_local_ubicacion_sintetica"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "reserva_ensayo_local_ubicacion_sintetica"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Sólo fixtures habilitados y coordenadas sintéticas; no deriva dirección.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V019",
+      "filename": "V000019__m06_local_weekly_hours.sql",
+      "sha256": "99d516ecae702fd158204d985662d1cc0c70104a9cd520a926009860dc160d57",
+      "objects": [
+        "espacio_horario_semanal",
+        "espacio_horario_semanal_tramo",
+        "espacio_modalidad_horario_semanal_guard",
+        "espacio_zona_horario_semanal_guard",
+        "guardar_modalidad_horario_activo",
+        "guardar_zona_sin_horario_activo",
+        "horario_semanal_fixture_hora_guard",
+        "rechazar_cambio_tarifa_con_horario_activo",
+        "tarifa_horario_semanal_guard",
+        "validar_horario_semanal_fixture_hora"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "CREATE tables/functions/triggers; permisos de schema; no grants explícitos.",
+        "dependencies": "horario semanal y tramos no solapados; funciones/4 triggers para zona, modalidad y fixture/tarifa.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "espacio_horario_semanal",
+            "espacio_horario_semanal_tramo"
+          ]
+        },
+        {
+          "path": "internal/migrator/integration_test.go",
+          "objects": [
+            "espacio_horario_semanal"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "espacio_horario_semanal"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/wizard_native_read_test.go",
+          "objects": [
+            "espacio_horario_semanal_tramo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/weekly_schedule_query_test.go",
+          "objects": [
+            "espacio_horario_semanal"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "espacio_horario_semanal",
+            "espacio_horario_semanal_tramo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/owner_weekly_hours.go",
+          "objects": [
+            "espacio_horario_semanal",
+            "espacio_horario_semanal_tramo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "espacio_horario_semanal",
+            "espacio_horario_semanal_tramo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "espacio_horario_semanal",
+            "espacio_horario_semanal_tramo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "espacio_horario_semanal"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Validación fixture propietario/tarifa hora en activar horario; no expresa límites de solapamiento entre turnos más allá exclusion.",
+      "status": "source_review_only_not_closed"
+    },
+    {
+      "version": "V020",
+      "filename": "V000020__m06_local_flexible_cancellation.sql",
+      "sha256": "a594aa744d8fa8ffcf1884561d4e0f0730ea1a35098f422b55b46b4e933570d0",
+      "objects": [
+        "cotizacion_reserva_ensayo",
+        "reserva_cancelacion_ensayo",
+        "reserva_devolucion_ensayo",
+        "reserva_devolucion_intento_ensayo",
+        "reserva_devolucion_intento_historial_idx",
+        "reserva_ensayo_local",
+        "reserva_ensayo_local_fixture",
+        "reserva_pago_ensayo"
+      ],
+      "effects_dependencies_authority_owners_roles_acl_public_defaults": {
+        "effects": "ALTER/UPDATE/CREATE; sin ACL.",
+        "dependencies": "Añade política cancelación snapshots; importe pago default 0 y backfill éxitos; tablas cancelación/devolución/intentos.",
+        "owners_roles_acl_public": "La migración no declara OWNER, GRANT, REVOKE ni ALTER ROLE; propiedad queda determinada por ejecutor/SET ROLE. No hay ACL/PUBLIC/default-privilege statements explícitos.",
+        "defaults": "Revisados en SQL; defaults explícitos citados en efectos cuando relevantes."
+      },
+      "go_consumers": [
+        {
+          "path": "internal/adminlocal/service.go",
+          "objects": [
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_cancelacion_ensayo",
+            "reserva_devolucion_ensayo",
+            "reserva_devolucion_intento_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "objects": [
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/resources.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "objects": [
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/testnuevoverification_sql_test.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/verification_local_integration_test.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/returns.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy_integration_test.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/operations/vacancy.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/dispute/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_cancelacion_ensayo",
+            "reserva_devolucion_ensayo",
+            "reserva_devolucion_intento_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_cancelacion_ensayo",
+            "reserva_devolucion_ensayo",
+            "reserva_devolucion_intento_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox.go",
+          "objects": [
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/guarantee.go",
+          "objects": [
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_export.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_devolucion_ensayo",
+            "reserva_devolucion_intento_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/privacy_locks.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/settlement.go",
+          "objects": [
+            "reserva_devolucion_ensayo",
+            "reserva_devolucion_intento_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/weekly_hours.go",
+          "objects": [
+            "reserva_ensayo_local_fixture"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/admin_read.go",
+          "objects": [
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/payment_inbox_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_cancelacion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_cancelacion_ensayo",
+            "reserva_devolucion_ensayo",
+            "reserva_devolucion_intento_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/suppression.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/identity/retention.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_cancelacion_ensayo",
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_ensayo_local_fixture",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/occupancy/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/damageclaim/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository_integration_test.go",
+          "objects": [
+            "cotizacion_reserva_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/reputation/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/contracts/repository.go",
+          "objects": [
+            "reserva_devolucion_ensayo",
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/ownerexport/repository.go",
+          "objects": [
+            "reserva_ensayo_local"
+          ]
+        },
+        {
+          "path": "internal/adapters/postgres/booking/expiry/expire.go",
+          "objects": [
+            "reserva_ensayo_local",
+            "reserva_pago_ensayo"
+          ]
+        }
+      ],
+      "tests": {
+        "inspected": "Inspección fuente únicamente; no se ejecutaron pruebas.",
+        "actually_run": [],
+        "coverage_note": "No atribuir cobertura de ejecución a este reporte; buscar/leer tests por objetos y confirmar gates del plan."
+      },
+      "discrepancy_vs_hypothesis": "Pagos exitosos existentes se actualizan a subtotal; otros quedan cero; solo ensayo simulado.",
+      "status": "source_review_only_not_closed"
+    }
+  ],
+  "cross_version_findings": {
+    "V014": "Order key permits ties: (creada_en, CASE estado_anterior, estado_nuevo, COALESCE(estado_anterior), motivo) is not unique; V011 only gives transition id uniqueness, not uniqueness of these fields. If already applied, do not rewrite; examine consumer semantics/data at each target read-only and assess forward correction only if observable wrong sequence is demonstrated. V085 cannot change which row_number tie order historical V014 assigned; can only establish a new invariant/resequence with explicit policy after proof, not repair historical precondition implicitly.",
+    "V015": "Backfill JOIN drops quote rows lacking espacio_caracteristicas (and/or matching espacio); setting three columns NOT NULL then fails. Later V085 cannot run if V015 aborts in sequence. Need verify historical data/contract source or authorized preflight; if absent only in synthetic scenario, add migration test. A post-V015 migration cannot fix a V015 precondition that prevents it reaching V085."
+  },
+  "audit_state": "partial; parent review pending; not full audit closure"
+}

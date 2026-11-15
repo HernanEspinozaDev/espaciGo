@@ -1,0 +1,276 @@
+{
+  "title": "Auditoría independiente source-only de migraciones V061–V084",
+  "date": "2026-11-07",
+  "checkout": {
+    "branch": "codex/marketplace/fix/kyc-06-save-identity-first",
+    "head": "274f37e483a078890e92382a159fa49fd23c2fe8"
+  },
+  "scope": "Source-only semantic review of all 24 named SQL files; hashes verified against working-tree bytes. No database, cloud, network, credentials or test execution. Live owners, ACLs, role memberships, ledger checksums, data preconditions and deployment status remain unknown.",
+  "count": 24,
+  "rows": [
+    {
+      "version": 61,
+      "filename": "V000061__mpv2_12_hourly_publication_schedules.sql",
+      "sha256": "cb3f719b3b846607abef9b8d356c980b47da1a22f5da38b55839112f2b619b95",
+      "objects_and_effects": "Replaces trigger function validar_horario_semanal_fixture_hora: active weekly schedule requires extant, non-deleted space and latest tarifa_espacio modalidad=hora; raises named 23514 check violation. No trigger created here.",
+      "authority_owners_roles_acl_public_defaults": "No grants/role/owner statements; function default EXECUTE ACL not explicitly revoked. Live owner/ACL/PUBLIC/default privileges unknown.",
+      "go_consumers": "Consumer/test: source-only trigger/function contract; no durable Go caller identified in reviewed refs.",
+      "tests_inspected_source_only": "No version-specific test definition established in source review.",
+      "irreversible_data_preconditions": "Upgrade has no row rewrite; CREATE OR REPLACE requires compatible existing signature/dependencies.",
+      "confirmed_issue_vs_hypothesis": "Confirmed source fact: SQL defines function only, not trigger attachment; hypothesis: prior trigger invokes it."
+    },
+    {
+      "version": 62,
+      "filename": "V000062__gcp04_durable_privacy_replay_registry.sql",
+      "sha256": "6fc1ea07d47287fe4ddafaf6f613a8c2e88daf441b0d337d8b6b35eead1243e8",
+      "objects_and_effects": "Creates replay registry keyed by source execution UUID, 4 required identifiers/times, completed-time index; backfills completed execution rows joined to rights requests, conflict-ignore. Deliberately no FK for retention survival.",
+      "authority_owners_roles_acl_public_defaults": "No explicit owner/grants/REVOKE; default privileges and resulting ACL/owner are live unknown. PUBLIC/default grants not established by source.",
+      "go_consumers": "internal/adapters/postgres/identity/retention.go:244 ExportCompletedSuppressions; :266 PrepareSuppressionReplay; :344 FinishSuppressionReplay.",
+      "tests_inspected_source_only": "internal/adapters/postgres/identity/retention_integration_test.go (replay/retention integration; exact test names not established).",
+      "irreversible_data_preconditions": "Backfill is durable and retains pseudonymous IDs beyond source-row retention; precondition: source tables/statuses and index name match; conflicts silently preserve existing key row.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: migration seeds only completed rows. Hypothesis: registry minimization/retention adequacy needs policy review."
+    },
+    {
+      "version": 63,
+      "filename": "V000063__gcp04_privacy_suppression_claim_fencing.sql",
+      "sha256": "a42c0943ff314c5199d6fdd87c13f6552eeeb69629e811f6d41853e4eb16a858",
+      "objects_and_effects": "Adds nullable claim owner/deadline and nonnegative generation default 0; pair/generation checks; replaces pending-claim index and documents fencing fields.",
+      "authority_owners_roles_acl_public_defaults": "No grants/role/owner changes; existing table ACL remains, live effective privilege/defaults unknown.",
+      "go_consumers": "internal/adapters/postgres/identity/suppression.go:546 ClaimPendingSuppressionFiles; :610 CompleteSuppressionFile; :664 FailSuppressionFile.",
+      "tests_inspected_source_only": "internal/adapters/postgres/identity/retention_integration_test.go (claims/retention integration; exact test name not established).",
+      "irreversible_data_preconditions": "Adds columns and drops/recreates index; existing rows get generation 0; precondition prior index/table exact and concurrent migration lock availability.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: stale acknowledgement fencing is generation-based in schema; adequacy of all worker paths is a source-review question, not live state."
+    },
+    {
+      "version": 64,
+      "filename": "V000064__gcp04_privacy_cleanup_worker_role.sql",
+      "sha256": "9b791ae6950dd9f23d87c31ae59dcbeb1feb9d85631ac21fa95e1e9a6a4763bf",
+      "objects_and_effects": "Creates or validates NOLOGIN, no-membership worker role; grants narrow queue/evidence column privileges and CONNECT/USAGE; SECURITY DEFINER finalizer checks current role, locks request/execution, waits for pending files, updates completion and replay registry.",
+      "authority_owners_roles_acl_public_defaults": "Explicit checks role flags/memberships; function PUBLIC revoked and EXECUTE granted only worker. Table grants enumerate columns; migration owner/function owner and effective inherited ACL remain live unknown.",
+      "go_consumers": "internal/adapters/postgres/identity/suppression_worker.go:22 constructor; :26 FinalizeSuppressionCleanup; identity/suppression.go:691 FinishSuppression.",
+      "tests_inspected_source_only": "internal/adapters/postgres/identity/gcp04_worker_login_integration_test.go (worker login integration; exact test name not established).",
+      "irreversible_data_preconditions": "Creates role and durable procedure; requires role attributes/membership safe, source tables/columns and related migration order; no reset of existing role.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: SQL expects SET ROLE exact name. Whether runtime login can assume it depends on external membership/bootstrap, unproven here."
+    },
+    {
+      "version": 65,
+      "filename": "V000065__gcp06_bootstrap_audit_actor.sql",
+      "sha256": "b1f7126f125bc9694e30d43205a509f34aa9e39ad8257456f666a431f5492fd8",
+      "objects_and_effects": "Replaces bootstrap event actor-type CHECK to allow cli_local and cli_gcp06.",
+      "authority_owners_roles_acl_public_defaults": "No grants/role changes; existing table ACL/owner unchanged by source; effective ACL unknown.",
+      "go_consumers": "No durable Go consumer definition found in bounded source review; migration supports bootstrap audit vocabulary.",
+      "tests_inspected_source_only": "No version-specific test definition established in source review.",
+      "irreversible_data_preconditions": "Drops then adds constraint; existing rows outside new allowed set would block new CHECK, though old constraint should constrain prior rows.",
+      "confirmed_issue_vs_hypothesis": "Confirmed source effect is constraint vocabulary expansion; no separate runtime behavior inferred."
+    },
+    {
+      "version": 66,
+      "filename": "V000066__gcp06_test_access_reset.sql",
+      "sha256": "05a751e9d9ab73bf2babadd0b3ad9ab170ee44ddf8ca7d441625d516f4cadcb6",
+      "objects_and_effects": "Creates/validates isolated NOLOGIN test-access role, rejects memberships/ownership/object ACLs; grants narrow credential/session/token operations; adds aggregate-only batch audit and SECURITY DEFINER selector/owner-readiness/idempotency functions; PUBLIC revoked on helpers.",
+      "authority_owners_roles_acl_public_defaults": "Explicit role/ACL preflight and column grants; helper functions SECURITY DEFINER. Effective role grant path, function owner and live object state unknown.",
+      "go_consumers": "internal/gcp06testaccess/service.go and service_integration_test.go (definition lines require exact line readback before relying); migration defines allowed operations, no general app consumer asserted.",
+      "tests_inspected_source_only": "internal/gcp06testaccess/service_integration_test.go (service integration; exact test name not established).",
+      "irreversible_data_preconditions": "Persistent role/functions/table and audit are additive; precondition owner identity exact in function, synthetic targets, pre-existing role clean; selector includes all non-desidentificado accounts.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: owner readiness hardcodes email and requires active/unblocked global admin. Hypothesis: this role is safe only when external candidate scope is independently enforced."
+    },
+    {
+      "version": 67,
+      "filename": "V000067__inmuebles_residential_rentals.sql",
+      "sha256": "0d5052cee2e9c45911c00bd32ee97cc3eb9c656c0a680b998911fbbdb48e0bcb",
+      "objects_and_effects": "Inserts category inmuebles and version-1 category profile JSON with residential rental attributes; data catalog extension.",
+      "authority_owners_roles_acl_public_defaults": "No ACL/role/owner changes stated; table defaults/constraints and live privilege state unknown.",
+      "go_consumers": "internal/adapters/postgres/spaces/repository.go (category/profile SQL consumer, exact definition not established); no consumer attribution beyond inspected source.",
+      "tests_inspected_source_only": "No version-specific test definition established in source review.",
+      "irreversible_data_preconditions": "Permanent catalog seed; requires category/profile uniqueness keys not already occupied and category schema accepts JSON.",
+      "confirmed_issue_vs_hypothesis": "Confirmed data seed; duplicate/conflict behavior is not guarded in migration."
+    },
+    {
+      "version": 68,
+      "filename": "V000068__img_01b_media_schema.sql",
+      "sha256": "5eeda41115017b5ba292db13215304f1e576002e015b6d46352ebd2de98f2626",
+      "objects_and_effects": "Creates media_asset, media_variant, space_media, profile_media, gallery_item_order; adds cover relation; trigger functions enforce media relation scope and gallery slot reservation; backfills gallery order; grants runtime table operations conditionally and revokes trigger function EXECUTE PUBLIC.",
+      "authority_owners_roles_acl_public_defaults": "Conditional grants to espacigo_runtime; explicit PUBLIC function revokes. No owner assignment; trigger function/objects owner and effective inherited ACL are live unknown.",
+      "go_consumers": "internal/adapters/postgres/media/repository.go:108 Reserve; :472 ListSpace; :822 ClaimCleanup; gallery/repository.go:22 ReserveCandidate.",
+      "tests_inspected_source_only": "internal/adapters/postgres/media/repository_integration_test.go:18 TestIMG01DProfileTriggerAndNullableCover.",
+      "irreversible_data_preconditions": "Large additive schema plus data backfill and triggers; requires old synthetic/gallery IDs relations conform and slot uniqueness; backfill/unique constraints may reject duplicates.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: migration retains legacy synthetic gallery integration while adding media entities; no claim all media payload is object-store encrypted."
+    },
+    {
+      "version": 69,
+      "filename": "V000069__img_01c_local_media_provider.sql",
+      "sha256": "9dc863b5e4b1edd7cd32bf1c2e48ecce6f9e36d6bc13072a3bf3e5cd8a433493",
+      "objects_and_effects": "Adds local-media provider support/columns to media_variant (full exact columns in migration); no new object family.",
+      "authority_owners_roles_acl_public_defaults": "No explicit role/ACL change; table ACL inherited/live unknown.",
+      "go_consumers": "internal/adapters/postgres/media/repository.go:22 PlanVariant; :96 FinishVariantWrite; :765 GetVariant.",
+      "tests_inspected_source_only": "internal/adapters/postgres/media/repository_integration_test.go:85 TestIMG01CMigrationBackedRepositoryQueries.",
+      "irreversible_data_preconditions": "Schema expansion; precondition existing media_variant and constraints; no data rewrite indicated.",
+      "confirmed_issue_vs_hypothesis": "Confirmed provider is local-source schema capability, not proof of cloud provider operation."
+    },
+    {
+      "version": 70,
+      "filename": "V000070__img_01c_durable_media_write_intents.sql",
+      "sha256": "71bcbcd91091013b91a89b3be9a152a46bd9f86f71565a898b50cb95701f6cc6",
+      "objects_and_effects": "Creates media_variant_intent durable write-intent table and cleanup index; conditionally grants runtime SELECT/INSERT/UPDATE/DELETE.",
+      "authority_owners_roles_acl_public_defaults": "Conditional role existence guard; no PUBLIC revoke shown; live role/default privileges/owner unknown.",
+      "go_consumers": "internal/adapters/postgres/media/repository.go:22 PlanVariant; :96 FinishVariantWrite; media/repository_plan_variant_test.go:44 TestPlanVariantLocksMatchingPendingAssetBeforeIntentWrite.",
+      "tests_inspected_source_only": "internal/adapters/postgres/media/repository_plan_variant_test.go:44 TestPlanVariantLocksMatchingPendingAssetBeforeIntentWrite.",
+      "irreversible_data_preconditions": "New table/index additive; requires media_asset parent model and unique intent contract; persistent intents require cleanup/reconciliation.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: intent persistence is exercised by named test definition; tests not run."
+    },
+    {
+      "version": 71,
+      "filename": "V000071__img_01c_terminal_media_write_intents.sql",
+      "sha256": "30d355260611615324ca70336ced97498340b0e2725b7a8828147af6adc82d14",
+      "objects_and_effects": "Adds terminal state/columns/constraint to media_variant_intent and conditionally grants runtime CRUD (see SQL for exact check).",
+      "authority_owners_roles_acl_public_defaults": "Conditional runtime grant only; no PUBLIC revoke/owner setting; effective privileges unknown.",
+      "go_consumers": "internal/adapters/postgres/media/repository.go:22 PlanVariant; :96 FinishVariantWrite.",
+      "tests_inspected_source_only": "internal/adapters/postgres/media/repository_integration_test.go:110 TestFinishVariantWriteSurvivesCleanupFence.",
+      "irreversible_data_preconditions": "ALTER existing intents may fail on legacy rows violating new check; inspect SQL constraints before deployment.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: terminal-state schema change; live row compatibility unknown."
+    },
+    {
+      "version": 72,
+      "filename": "V000072__img_01d_media_relation_trigger_scope.sql",
+      "sha256": "50b7f34d340c20a690c9506e68e9146a311363a526eb7449812d2674cf39f461",
+      "objects_and_effects": "Replaces img01b_check_media_relation_scope trigger function to constrain relation ownership/scope (trigger function only).",
+      "authority_owners_roles_acl_public_defaults": "No explicit ACL/role statements in function replacement; prior trigger bindings and PUBLIC ACL behavior remain source/live context.",
+      "go_consumers": "internal/adapters/postgres/media/repository.go:269 FinalizeSpace; :399 FinalizeProfile.",
+      "tests_inspected_source_only": "internal/adapters/postgres/media/repository_integration_test.go:18 TestIMG01DProfileTriggerAndNullableCover.",
+      "irreversible_data_preconditions": "CREATE OR REPLACE compatibility requirement for existing triggers/signature; no table data changes.",
+      "confirmed_issue_vs_hypothesis": "Confirmed function replacement; source alone does not establish currently attached triggers."
+    },
+    {
+      "version": 73,
+      "filename": "V000073__img_01e_privacy_media_cleanup.sql",
+      "sha256": "ac2bfc0ba17e97ee40297dc75d8aaaa25f8506e5602a2d281d09415158670ada",
+      "objects_and_effects": "Defines media cleanup worker column grants/revokes and claim/complete/fail SECURITY DEFINER routines; replaces suppression finalizer; claims via SKIP LOCKED, updates media lease/state and retries; worker receives EXECUTE.",
+      "authority_owners_roles_acl_public_defaults": "Explicit column grants and revokes broad media mutations; PUBLIC revoked on functions; role attributes/membership and function owner live unknown.",
+      "go_consumers": "internal/adapters/postgres/media/repository.go:822 ClaimCleanup; :867 CompleteCleanup; :878 FailCleanup; identity/suppression_worker.go:26 finalizer.",
+      "tests_inspected_source_only": "internal/adapters/postgres/media/repository_integration_test.go:110 TestFinishVariantWriteSurvivesCleanupFence.",
+      "irreversible_data_preconditions": "Functions and durable queues; requires worker role/tables and compatible media/suppression schema; external storage deletion and DB completion are separate effects.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: DB routines coordinate leases, not external object deletion itself."
+    },
+    {
+      "version": 74,
+      "filename": "V000074__first_business_action_roles.sql",
+      "sha256": "a91df632b305468e1389ee72831e77121382e4c467d2cc279ea393e1bdc57bf8",
+      "objects_and_effects": "Creates append-only-looking rol_usuario_evento event table with event identity/actor/role/action/time fields (per SQL); revokes PUBLIC table ACL and grants runtime INSERT only.",
+      "authority_owners_roles_acl_public_defaults": "Explicit PUBLIC revoke and runtime INSERT; no UPDATE/DELETE grant by migration; owner/default ACL live unknown.",
+      "go_consumers": "No durable consumer definition validated in current source review; avoid inferring service from identifier matches.",
+      "tests_inspected_source_only": "No version-specific test definition established in source review.",
+      "irreversible_data_preconditions": "New event table; requires caller-supplied required event fields and sequence/UUID defaults as declared.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: INSERT-only grant is source fact; broader effective access via memberships unknown."
+    },
+    {
+      "version": 75,
+      "filename": "V000075__auth_evaluation_consent_documents.sql",
+      "sha256": "d6396472df02f2dd2cddd43994be064e6b0705c3fa2cb044bed970fcc9992220",
+      "objects_and_effects": "Seeds version_terminos with consent/evaluation document rows and hashes (exact identifiers/content in SQL).",
+      "authority_owners_roles_acl_public_defaults": "No ACL/role changes; table owner and effective read access unknown.",
+      "go_consumers": "Authentication/consent consumer not validated to function definition in this audit; source seed alone is not consumer proof.",
+      "tests_inspected_source_only": "No version-specific test definition established in source review.",
+      "irreversible_data_preconditions": "Seeded immutable-ish contract data; uniqueness/duplicate constraints and prior rows are preconditions.",
+      "confirmed_issue_vs_hypothesis": "Confirmed data rows and hashes are SQL facts; acceptance/policy semantics are not inferred."
+    },
+    {
+      "version": 76,
+      "filename": "V000076__spaces_gallery_capacity_replacement_v2.sql",
+      "sha256": "c3ea6cbead8a41dfd283b5fe1393499228afb0e3447b4c2fccecc50ea39f7843",
+      "objects_and_effects": "Replaces gallery slot enforcement and alters order/media asset/intents for capacity and replacement flow; locks space-media/prior rows and enforces target/revision pairing; updates intent terminal semantics.",
+      "authority_owners_roles_acl_public_defaults": "Role grants/ACL changes are limited to statements in SQL; live owner/defaults unknown.",
+      "go_consumers": "internal/adapters/postgres/media/repository.go:108 Reserve; :269 FinalizeSpace; gallery/repository.go:118 candidateWriter.Add.",
+      "tests_inspected_source_only": "internal/adapters/postgres/media/repository_integration_test.go:166 TestSpacePhotoReplacementAtomic.",
+      "irreversible_data_preconditions": "Replacement and order changes are persistent; existing pair/capacity data must satisfy new constraints; transactional locking serializes competing writes.",
+      "confirmed_issue_vs_hypothesis": "Confirmed source implementation changes enforcement; no guarantee historic rows are canonical without data inspection."
+    },
+    {
+      "version": 77,
+      "filename": "V000077__img01b_gallery_slot_record_guard.sql",
+      "sha256": "22b98284b303f7a9e69e88afc83c978a5bbab1840e1ed12097b9fe24f653218c",
+      "objects_and_effects": "Adds/replaces gallery slot record guard trigger/function to validate slot records (per exact SQL).",
+      "authority_owners_roles_acl_public_defaults": "No new role/ACL facts beyond SQL; existing trigger function ACL/owner live unknown.",
+      "go_consumers": "internal/adapters/postgres/gallery/repository.go:118 candidateWriter.Add; :250 List.",
+      "tests_inspected_source_only": "internal/adapters/postgres/gallery/repository_integration_test.go:83 TestSyntheticGalleryOwnerLimitIdempotencyAndRecoverableCleanup.",
+      "irreversible_data_preconditions": "Trigger/function replacement requires existing referenced relation and compatible legacy rows; no tests run.",
+      "confirmed_issue_vs_hypothesis": "Confirmed guard is database-side; exact rollout data suitability unverified."
+    },
+    {
+      "version": 78,
+      "filename": "V000078__img01b_gallery_replay_expected_revision.sql",
+      "sha256": "6cb99e5b21db0d4c975d1419596b4850410fb47f7cb2d104481334a9eb082c9e",
+      "objects_and_effects": "Adds replacement_expected_revision and trigger guard requiring target/revision consistency for replay/update.",
+      "authority_owners_roles_acl_public_defaults": "No role/ACL changes; effective table grants unknown.",
+      "go_consumers": "internal/adapters/postgres/media/repository.go:269 FinalizeSpace; :581 UpdateSpacePhotoCAS; media/replacement_test.go:23 TestReplacementReplayRequiresConsistentTargetRevisionPair.",
+      "tests_inspected_source_only": "internal/adapters/postgres/media/replacement_test.go:23 TestReplacementReplayRequiresConsistentTargetRevisionPair.",
+      "irreversible_data_preconditions": "Additive column plus trigger; legacy requests may have null revision; migration’s exact nullable/default behavior governs compatibility.",
+      "confirmed_issue_vs_hypothesis": "Confirmed explicit replay pair test exists; execution not performed."
+    },
+    {
+      "version": 79,
+      "filename": "V000079__document_verification_cases.sql",
+      "sha256": "248ecdd6eac067a704871d24148d850b5a603a6577e59e89d9b03d9a74130e5b",
+      "objects_and_effects": "Creates case, file, job, reviewer_grant, append-only event and grant-event tables; immutable/audit/actor guard triggers; runtime table grants include broad SELECT on case/file/grant and jobs, but mutation privileges are column-limited.",
+      "authority_owners_roles_acl_public_defaults": "PUBLIC ALL revoked on six tables/functions; conditional grants to espacigo_runtime. No owner assignment; effective runtime role membership and default ACL/live RLS unknown.",
+      "go_consumers": "internal/adapters/postgres/documentverification (service/repository definitions are source consumers; no DB privacy conclusion from SELECT alone); SQL GRANT SELECT includes row data, while application auth/DTO boundary must be assessed separately.",
+      "tests_inspected_source_only": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go (test definitions not line-verified); repository_test.go (not test-name verified).",
+      "irreversible_data_preconditions": "New tables/indexes/triggers; requires exact roles and existing sequence owner; no backfill. Sensitive file metadata and reviewer grants make server-side scope/DTO important.",
+      "confirmed_issue_vs_hypothesis": "Confirmed: SQL grants broad table SELECT to runtime; not itself proof of user-facing disclosure. Hypothesis: privacy defect only if application query/authorization/DTO exposes cross-scope rows."
+    },
+    {
+      "version": 80,
+      "filename": "V000080__document_verification_space_ownership_supersession.sql",
+      "sha256": "fc2c3eacf10bc99d6ad4c66a7a5aa2c80a0592b45eeee6e938400c95f613c401",
+      "objects_and_effects": "Adds superseded_at/revision; audit event fields/action; trigger on espacio.propietario_id supersedes prior-owner cases, shortens retention and reschedules/cancels jobs; runtime narrow UPDATE grants.",
+      "authority_owners_roles_acl_public_defaults": "PUBLIC EXECUTE revoked on trigger function; conditional runtime column UPDATE grants. Live function owner and inherited access unknown.",
+      "go_consumers": "internal/adapters/postgres/documentverification/repository.go (trace actual methods); documentverification/v81_ownership_race_integration_test.go test definition.",
+      "tests_inspected_source_only": "internal/adapters/postgres/documentverification/v81_ownership_race_integration_test.go (test definitions not line-verified).",
+      "irreversible_data_preconditions": "Transfer trigger mutates all prior owner cases/files/jobs; retention deadlines/data and existing job states are material preconditions.",
+      "confirmed_issue_vs_hypothesis": "Confirmed intended ownership-transfer effects; actual deployed trigger/ACL unknown."
+    },
+    {
+      "version": 81,
+      "filename": "V000081__document_verification_runtime_scope_helpers.sql",
+      "sha256": "7b9700b546532854ab7569654d05039c1df832a6a80154ae053d13b5cea43967",
+      "objects_and_effects": "Creates private schema and helper role; validates migrator/schema-owner/runtime/helper roles and narrow owner-granted column ACLs; adds SECURITY DEFINER actor/space lock/ownership helpers, revokes PUBLIC and grants runtime EXECUTE; restores schema-owner role.",
+      "authority_owners_roles_acl_public_defaults": "Strong source preflight checks role flags, membership, object grants/owners, schema privileges, ledger ACL; helper NOLOGIN minimal. Live check outcome unknown.",
+      "go_consumers": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go (helper coverage); documentverification/v81_ownership_race_integration_test.go (ownership race).",
+      "tests_inspected_source_only": "internal/adapters/postgres/documentverification/v81_helpers_integration_test.go (test definitions not line-verified).",
+      "irreversible_data_preconditions": "Requires exact pre-provisioned role topology and helper private-schema permissions; any mismatch aborts. Helpers lock actor/space rows.",
+      "confirmed_issue_vs_hypothesis": "Confirmed prerequisite guards reject drift; no claim actual deployment satisfies them."
+    },
+    {
+      "version": 82,
+      "filename": "V000082__document_verification_retention_precedence.sql",
+      "sha256": "b53fe7f6f03af4d9081e4a378053ad0780d8b532962326488108201eb098ed96",
+      "objects_and_effects": "Replaces ownership-change trigger: preserves earlier retention deadline, caps malware retention at inspected+24h (missing/future inspection immediate), cancels scans, requires retention_deleted event before treating completed deletion job as success; F5 exception preserves target PUBLIC ACL.",
+      "authority_owners_roles_acl_public_defaults": "Migration identity guard for dedicated migrator or exact F5 gate; PUBLIC EXECUTE revoked except F5 database; schema-owner restored. Live ACL and identity not observed.",
+      "go_consumers": "internal/adapters/postgres/documentverification/v82_retention_precedence_integration_test.go (test definition); documentverification repository retention worker consumer.",
+      "tests_inspected_source_only": "internal/adapters/postgres/documentverification/v82_retention_precedence_integration_test.go (test definitions not line-verified).",
+      "irreversible_data_preconditions": "Rewrites trigger function, then on owner transfer changes cases/files/jobs transactionally. Trigger execution can enqueue/revive jobs; requires event history integrity.",
+      "confirmed_issue_vs_hypothesis": "Confirmed source-only V82 exception is database-name scoped. V82 UPDATE alias defect is repaired forward by V83, not retroactively."
+    },
+    {
+      "version": 83,
+      "filename": "V000083__document_verification_lock_and_transfer_fix.sql",
+      "sha256": "405c2f02f8a29e962421a44cbbd07e6e7fae4aa4696483e9d45ab209e82e9333",
+      "objects_and_effects": "Forward replaces V82 trigger using separate file_policy CTE; migration/runtime role guards; adds UPDATE(id) on reviewer_grant for locking SELECT semantics; restores schema-owner.",
+      "authority_owners_roles_acl_public_defaults": "Requires dedicated migrator or exact F5 context and pre-provisioned restricted NOLOGIN runtime; narrow UPDATE(id) grant only. Actual ACL/role context unknown.",
+      "go_consumers": "internal/adapters/postgres/documentverification/v83_runtime_lock_privilege_integration_test.go:16 TestPostgresV83ReviewerGrantLockPrivilegeIsMinimal; v81 ownership-race tests cover locking.",
+      "tests_inspected_source_only": "internal/adapters/postgres/documentverification/v83_runtime_lock_privilege_integration_test.go:16 TestPostgresV83ReviewerGrantLockPrivilegeIsMinimal.",
+      "irreversible_data_preconditions": "Forward-only repair; migration identity/topology prerequisites; existing V82 deployed function remains until this version applied.",
+      "confirmed_issue_vs_hypothesis": "Confirmed SQL corrects UPDATE FROM scope and locking privilege; no native DDL/application execution in this audit."
+    },
+    {
+      "version": 84,
+      "filename": "V000084__didit_identity_verification_schema.sql",
+      "sha256": "d8cc68f3ea73c6e351a31bd8f88fd0606e8217c028777d5ebca7b406bb852b8f",
+      "objects_and_effects": "Creates identity_verification_attempts with FK cascade to usuario and declared identity/decision/session fields; creates unique event_id webhook inbox with raw JSON payload/signature/error/session URL capable fields; indexes; conditional broad runtime SELECT/INSERT/UPDATE.",
+      "authority_owners_roles_acl_public_defaults": "Conditional grant only if runtime role exists; no PUBLIC revoke, owner, column-level minimization or RLS defined. Effective access/default ACL live unknown.",
+      "go_consumers": "No durable service/repository consumer found; current Didit handler is in-memory per inspected implementation, so migration has no confirmed durable application consumer.",
+      "tests_inspected_source_only": "No durable-consumer test definition established; implementation currently in-memory.",
+      "irreversible_data_preconditions": "New tables; PII/identity plaintext-capable columns and raw webhook payload persist; cascade deletes attempts; retention/suppression and migration compatibility need policy.",
+      "confirmed_issue_vs_hypothesis": "Confirmed schema allows sensitive plaintext-capable fields; durable consumer absent in source reviewed. Concern is confirmed schema property; live exposure/retention harm unproven."
+    }
+  ]
+}

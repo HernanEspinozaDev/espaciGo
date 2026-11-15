@@ -7,6 +7,7 @@ import unittest
 from migration_execution import proposal,verify_execution,contract,prepare_application
 from test_backup_readiness import snapshot as backup_snapshot
 from migration_release_manifest import FORMAT,IMAGES,REGISTRY,TARGET
+from test_migration_release_manifest import v95_release_fixture
 from migration_job_plan import SECRET,SERVICE_ACCOUNT
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -39,7 +40,36 @@ def verify(m,b,e,logs,name):
     return verify_execution(m,b,BUILD,'1',UID,name,e,logs,NOW)
 
 
+def tail_fixture():
+    m,b,e,logs,name=fixture()
+    entries=m['migration_inventory']['migrations']
+    _,tail_plan=v95_release_fixture()
+    authority=copy.deepcopy(tail_plan['identity_ddl_authority'])
+    b['applied']=entries[:94]
+    b['pending']=entries[94:]
+    b['identity_ddl_authority']=authority
+    after=copy.deepcopy(b)
+    after['applied']=entries
+    after['pending']=[]
+    after.pop('identity_ddl_authority')
+    report=logs[0]['jsonPayload']
+    report.update(contract=contract(m,b),before=b,after=after,applied=[95,96],identity_ddl_authority=copy.deepcopy(authority))
+    e['spec']['template']['spec']['containers'][0]['args']=proposal(m,b,BUILD,'1')['args']
+    return m,b,e,logs,name
+
+
 class MigrationExecutionTests(unittest.TestCase):
+    def test_v95_v96_execution_requires_matching_apply_time_authority(self):
+        m,b,e,logs,name=tail_fixture()
+        self.assertEqual(verify(m,b,e,logs,name)['applied'],[95,96])
+        for mutate,reason in [
+            (lambda report:report.pop('identity_ddl_authority'),'authority is missing'),
+            (lambda report:report['identity_ddl_authority'].update(event_owner='postgres'),'differs from reviewed preflight'),
+        ]:
+            m,b,e,logs,name=tail_fixture()
+            mutate(logs[0]['jsonPayload'])
+            with self.assertRaisesRegex(ValueError,reason):verify(m,b,e,logs,name)
+
     def test_pinned_job_and_successful_execution_contract(self):
         m,b,e,logs,name=fixture();p=proposal(m,b,BUILD,'1')
         self.assertFalse(p['executed']);self.assertIn('--wait',p['execute_argv'])

@@ -101,7 +101,7 @@ const routePath = await compile(
   ],
 );
 
-const { POST, HEAD } = await import(pathToFileURL(routePath).href);
+const { GET, POST, HEAD } = await import(pathToFileURL(routePath).href);
 
 const originalFetch = globalThis.fetch;
 
@@ -135,6 +135,51 @@ function makeContext(segments) {
     params: Promise.resolve({ path: segments }),
   };
 }
+
+test("retired provider routes fail closed without calling the backend", async () => {
+  let upstreamCalls = 0;
+  globalThis.fetch = async () => {
+    upstreamCalls++;
+    return new Response(JSON.stringify({ unexpected: true }), { status: 200 });
+  };
+  const cases = [
+    { method: "GET", path: ["verifications", "didit", "intent"] },
+    { method: "POST", path: ["verifications", "didit", "intent"] },
+    {
+      method: "GET",
+      path: [
+        "verifications",
+        "didit",
+        "intent",
+        "770e8400-e29b-41d4-a716-446655440011",
+      ],
+    },
+    {
+      method: "GET",
+      path: [
+        "verifications",
+        "didit",
+        "intent",
+        "770e8400-e29b-41d4-a716-446655440011",
+        "refresh",
+      ],
+    },
+    { method: "POST", path: ["verifications", "didit", "webhook"] },
+    { method: "POST", path: ["webhooks", "didit"] },
+  ];
+
+  for (const { method, path } of cases) {
+    const request = makeRequest(`/api/backend/${path.join("/")}`, method, {
+      synthetic: true,
+    });
+    const handler = method === "GET" ? GET : POST;
+    const response = await handler(request, makeContext(path));
+    assert.equal(response.status, 404);
+    assert.equal((await response.json()).error.code, "route_not_allowed");
+  }
+
+  assert.equal(upstreamCalls, 0);
+});
 
 test("POST /auth/verification 204 with text/plain preserves 204, no-store, x-request-id and empty body", async (t) => {
   let upstreamCalls = 0;

@@ -43,9 +43,9 @@ func NewUploadService(cases *Service, inspector UploadInspector, store UploadDoc
 }
 
 // Upload inspects and stores normalized bytes before atomically adding pending
-// metadata. A failed CAS or database write compensates by removing only the
-// immutable object created for this upload.
-func (s *UploadService) Upload(ctx context.Context, actor, caseID string, expectedRevision uint64, raw []byte) (UploadReceipt, error) {
+// metadata. Ambiguous storage writes and failed CAS/database writes compensate
+// by removing only the immutable object created for this upload.
+func (s *UploadService) Upload(ctx context.Context, actor, caseID string, expectedRevision uint64, role EvidenceRole, raw []byte) (UploadReceipt, error) {
 	if s == nil || s.cases == nil || s.inspector == nil || s.store == nil || ctx == nil ||
 		ValidateID(actor) != nil || ValidateID(caseID) != nil || len(raw) == 0 {
 		return UploadReceipt{}, ErrInvalid
@@ -61,6 +61,11 @@ func (s *UploadService) Upload(ctx context.Context, actor, caseID string, expect
 	if err != nil {
 		return UploadReceipt{}, err
 	}
+	if snapshot.ID != caseID || snapshot.SubjectID != actor ||
+		(snapshot.Purpose == PurposeIdentity && snapshot.SpaceID != "") ||
+		(snapshot.Purpose == PurposeSpace && ValidateID(snapshot.SpaceID) != nil) {
+		return UploadReceipt{}, ErrNotFound
+	}
 	if snapshot.Revision != expectedRevision || snapshot.Revision == ^uint64(0) {
 		return UploadReceipt{}, ErrConflict
 	}
@@ -70,6 +75,14 @@ func (s *UploadService) Upload(ctx context.Context, actor, caseID string, expect
 	if snapshot.Purpose != PurposeIdentity && snapshot.Purpose != PurposeSpace {
 		return UploadReceipt{}, ErrInvalid
 	}
+	typedIdentity := snapshot.Purpose == PurposeIdentity && snapshot.DocumentFormatDeclared != ""
+	if typedIdentity {
+		if !validEvidenceRole(role) {
+			return UploadReceipt{}, ErrInvalid
+		}
+	} else if role != "" {
+		return UploadReceipt{}, ErrInvalid
+	}
 	if err := ValidateQuota(snapshot.Purpose, snapshot.Files); err != nil {
 		return UploadReceipt{}, err
 	}
@@ -77,7 +90,16 @@ func (s *UploadService) Upload(ctx context.Context, actor, caseID string, expect
 	if snapshot.Purpose == PurposeSpace {
 		limit = 10
 	}
-	if len(snapshot.Files) >= limit {
+	replacingRole := false
+	if typedIdentity {
+		for _, existing := range snapshot.Files {
+			if existing.EvidenceRole == role {
+				replacingRole = true
+				break
+			}
+		}
+	}
+	if len(snapshot.Files) >= limit && !replacingRole {
 		return UploadReceipt{}, ErrQuota
 	}
 	if s.newID == nil {
@@ -92,9 +114,23 @@ func (s *UploadService) Upload(ctx context.Context, actor, caseID string, expect
 	if err != nil {
 		return UploadReceipt{}, ErrInvalid
 	}
+	if typedIdentity && file.MIME != "image/jpeg" && file.MIME != "image/png" {
+		return UploadReceipt{}, ErrInvalid
+	}
+	file.EvidenceRole = role
+	filesForQuota := append([]File(nil), snapshot.Files...)
+	if replacingRole {
+		for i := range filesForQuota {
+			if filesForQuota[i].EvidenceRole == role {
+				filesForQuota = append(filesForQuota[:i], filesForQuota[i+1:]...)
+				break
+			}
+		}
+	}
+	filesForQuota = append(filesForQuota, file)
 	if len(normalized) == 0 || len(normalized) > MaxUploadBytes || file.ID != fileID ||
 		file.State != FilePending || file.Size != int64(len(normalized)) ||
-		file.ContentSHA256 != sha256.Sum256(normalized) || ValidateQuota(snapshot.Purpose, append(append([]File(nil), snapshot.Files...), file)) != nil {
+		file.ContentSHA256 != sha256.Sum256(normalized) || ValidateQuota(snapshot.Purpose, filesForQuota) != nil {
 		return UploadReceipt{}, ErrInvalid
 	}
 	if err := ctx.Err(); err != nil {
@@ -109,23 +145,28 @@ func (s *UploadService) Upload(ctx context.Context, actor, caseID string, expect
 		putErr = s.store.PutSpaceDocument(ctx, snapshot.SubjectID, snapshot.SpaceID, snapshot.ID, file.ID, normalized)
 	}
 	if putErr != nil {
+		_ = s.cleanupStoredObject(snapshot, file.ID)
 		return UploadReceipt{}, ErrDocumentStorage
 	}
 
 	if err := s.cases.AddFile(ctx, actor, snapshot.ID, snapshot.Purpose, expectedRevision, file); err != nil {
-		cleanupCtx, cancel := context.WithTimeout(context.Background(), uploadCleanupTimeout)
-		defer cancel()
-		var cleanupErr error
-		switch snapshot.Purpose {
-		case PurposeIdentity:
-			cleanupErr = s.store.DeleteIdentityDocument(cleanupCtx, snapshot.SubjectID, snapshot.ID, file.ID)
-		case PurposeSpace:
-			cleanupErr = s.store.DeleteSpaceDocument(cleanupCtx, snapshot.SubjectID, snapshot.SpaceID, snapshot.ID, file.ID)
-		}
-		if cleanupErr != nil {
+		if cleanupErr := s.cleanupStoredObject(snapshot, file.ID); cleanupErr != nil {
 			return UploadReceipt{}, ErrDocumentStorage
 		}
 		return UploadReceipt{}, err
 	}
 	return UploadReceipt{File: file, Revision: expectedRevision + 1}, nil
+}
+
+func (s *UploadService) cleanupStoredObject(snapshot Snapshot, fileID string) error {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), uploadCleanupTimeout)
+	defer cancel()
+	switch snapshot.Purpose {
+	case PurposeIdentity:
+		return s.store.DeleteIdentityDocument(cleanupCtx, snapshot.SubjectID, snapshot.ID, fileID)
+	case PurposeSpace:
+		return s.store.DeleteSpaceDocument(cleanupCtx, snapshot.SubjectID, snapshot.SpaceID, snapshot.ID, fileID)
+	default:
+		return ErrInvalid
+	}
 }

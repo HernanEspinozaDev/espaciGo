@@ -1,0 +1,600 @@
+{
+  "schema": "espacigo.migration_semantic_review.v1",
+  "scope": "V011–V020 source-only; SQL completo leído, Go SQL consumidores y definiciones de tests rastreados. No se ejecutaron tests ni SQL. No DB/network/cloud/credentials/git mutation.",
+  "rows": [
+    {
+      "version": 11,
+      "filename": "V000011__m06_local_booking_trial.sql",
+      "sha256": "7d6e5dfda683164f434c70b415c7383a48d16120abc4d2d10ef0c64db710f452",
+      "behavior": "Fixture de allowlist singleton y participantes distintos; cotización, reserva, transiciones y pagos simulados; incluye FK circular diferida ocupacion↔reserva.",
+      "objects": [
+        "cotizacion_reserva_ensayo",
+        "cotizacion_reserva_ensayo_titular_idx",
+        "ocupacion",
+        "reserva_ensayo_local",
+        "reserva_ensayo_local_anfitrion_idx",
+        "reserva_ensayo_local_arrendatario_idx",
+        "reserva_ensayo_local_fixture",
+        "reserva_ensayo_transicion",
+        "reserva_ensayo_transicion_historial_idx",
+        "reserva_pago_ensayo"
+      ],
+      "dependencies": "Fixture allowlist singleton, cotización, reserva, transiciones, pagos simulados; FKs diferidas circulares ocupacion/reserva.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminlocal/service.go",
+          "line": 319,
+          "excerpt": "rows, err := tx.Query(ctx, `SELECT estado,count(*) FROM public.reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2 GROUP BY estado ORDER BY estado`, p.From.UTC(), p.Until.UTC())",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 577,
+          "excerpt": "GRANT SELECT, INSERT, UPDATE ON public.ocupacion TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de ocupacion"
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "line": 99,
+          "excerpt": "if err = tx.QueryRow(ctx, `SELECT count(*) FROM reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2`, p.From, p.Until).Scan(&cohortCount); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/gcp03scratch/restore_rehearsal_integration_test.go",
+          "line": 183,
+          "excerpt": "if _, err := source.Exec(ctx, \"ALTER TABLE public.ocupacion OWNER TO \"+pgx.Identifier{ownerRole}.Sanitize()); err != nil {",
+          "reason": "SQL consumidor/fixture de ocupacion"
+        },
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 380,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": ""
+    },
+    {
+      "version": 12,
+      "filename": "V000012__m06_local_booking_conditions_snapshot.sql",
+      "sha256": "daa604294fbab0c9d3ac027e3e2629a366c93c78795ea7f5edd75733dfd3a1cd",
+      "behavior": "Agrega snapshot de reglas a cotización/reserva; backfill desde espacio y cotización, luego elimina defaults.",
+      "objects": [
+        "cotizacion_reserva_ensayo",
+        "reserva_ensayo_local"
+      ],
+      "dependencies": "Añade condiciones_snapshot a quote/reserva; backfill por espacio/quote y elimina defaults.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "Tablas y FKs referidas ya existentes; backfills dependen de las filas coincidentes descritas.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminlocal/service.go",
+          "line": 319,
+          "excerpt": "rows, err := tx.Query(ctx, `SELECT estado,count(*) FROM public.reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2 GROUP BY estado ORDER BY estado`, p.From.UTC(), p.Until.UTC())",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 580,
+          "excerpt": "GRANT SELECT, DELETE ON public.reserva_ensayo_local_fixture TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "line": 99,
+          "excerpt": "if err = tx.QueryRow(ctx, `SELECT count(*) FROM reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2`, p.From, p.Until).Scan(&cohortCount); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adminglobal/resources.go",
+          "line": 166,
+          "excerpt": "return `SELECT id::text AS id,'reservation'::text AS kind,espacio_id::text AS space_id,id::text AS reservation_id,estado AS state,CASE WHEN anfitrion_id=$1 THEN 'arrendador' ELSE 'arrendatario' END AS participant,creada_en AS occurred_at FROM public.reserva_ensayo_local WHERE anfitrion_id=$1 OR arrendatario_id=$1`, true",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "line": 423,
+          "excerpt": "SELECT r.id,r.anfitrion_id account_id FROM public.reserva_ensayo_local r JOIN page p ON p.id=r.anfitrion_id",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 243,
+          "excerpt": "EXISTS(SELECT 1 FROM public.reserva_ensayo_local r WHERE r.espacio_id=$1",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 380,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 338,
+          "excerpt": "if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, raceQuote.ID).Scan(&racedReservations); err != nil || racedReservations != 0 {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": ""
+    },
+    {
+      "version": 13,
+      "filename": "V000013__m06_booking_history_sequence.sql",
+      "sha256": "8aaa68c5b3f06a8b363bc8332bb7574e937417616610d5dc4df8ac26365f30de",
+      "behavior": "secuencia por reserva con row_number ordenado por creada_en,id; NOT NULL/positiva/única; recrea índice.",
+      "objects": [
+        "reserva_ensayo_transicion",
+        "reserva_ensayo_transicion_historial_idx"
+      ],
+      "dependencies": "Añade secuencia, backfill row_number por fecha,id, NOT NULL/unique; recrea índice.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "Tablas y FKs referidas ya existentes; backfills dependen de las filas coincidentes descritas.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 586,
+          "excerpt": "GRANT SELECT, INSERT ON public.reserva_ensayo_transicion, public.reserva_pago_ensayo TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "line": 181,
+          "excerpt": "FROM reserva_ensayo_transicion",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "line": 237,
+          "excerpt": "if _, err = w.tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 478,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 795,
+          "excerpt": "if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) VALUES('90000000-0000-4000-8000-000000000005',$1,(SELECT COALESCE(max(secuencia),0)+1 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),'cancelada_por_pago','finalizada',$2,'ensayo_terminal_para_prueba_de_eliminacion',clock_timestamp())`, reservation.ID, other); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": ""
+    },
+    {
+      "version": 14,
+      "filename": "V000014__m06_deterministic_history_backfill.sql",
+      "sha256": "c5b25c4d450f7ff5f60ebac401e85506a8835ade8e80c3043d0ddd2706682ccb",
+      "behavior": "Recalcula secuencia por creada_en y estado/motivo; ORDER BY no es único. No inferir resecuenciación: estado nativo read-only reportado count=0 ties.",
+      "objects": [
+        "reserva_ensayo_transicion"
+      ],
+      "dependencies": "Quita unique temporal; row_number por fecha, prioridad estado anterior, estado nuevo, anterior y motivo; vuelve a unique.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "V14: esquema/tablas V11–V13 y conteo de ties nativo reportado 0; sin inferir mutación.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 586,
+          "excerpt": "GRANT SELECT, INSERT ON public.reserva_ensayo_transicion, public.reserva_pago_ensayo TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "line": 181,
+          "excerpt": "FROM reserva_ensayo_transicion",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "path": "internal/adapters/postgres/operations/repository.go",
+          "line": 237,
+          "excerpt": "if _, err = w.tx.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 478,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en)",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 795,
+          "excerpt": "if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_ensayo_transicion(id,reserva_id,secuencia,estado_anterior,estado_nuevo,actor_id,motivo,creada_en) VALUES('90000000-0000-4000-8000-000000000005',$1,(SELECT COALESCE(max(secuencia),0)+1 FROM public.reserva_ensayo_transicion WHERE reserva_id=$1),'cancelada_por_pago','finalizada',$2,'ensayo_terminal_para_prueba_de_eliminacion',clock_timestamp())`, reservation.ID, other); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_transicion"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": "La clave de orden no es única cuando tiempos, estados y motivo coinciden; conteo nativo de ties informado 0 en lectura solo-lectura; no equivale a reordenar la historia."
+    },
+    {
+      "version": 15,
+      "filename": "V000015__m05_local_synthetic_catalog.sql",
+      "sha256": "55c2641621ca6dcba8c00108fb0d3bd607730a1544417f79388d2942c2a18525",
+      "behavior": "Convierte fixture a allowlist por espacio; cotización añade categoría/perfil snapshot, backfill JOIN espacio+características y exige NOT NULL/FK/check. Nativo reportado V76 aplicado y 0 snapshots null; V85 no omite una V15 fallida anterior.",
+      "objects": [
+        "cotizacion_reserva_ensayo",
+        "reserva_ensayo_local_fixture",
+        "reserva_ensayo_local_fixture_enabled_idx"
+      ],
+      "dependencies": "Transforma fixture singleton a PK espacio/habilitada; añade snapshots categoría/perfil a quotes, backfill JOIN espacio_caracteristicas, luego NOT NULL/FK/check.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "V15: espacio_caracteristicas para cada quote previo; ledger secuencial, no se salta fallo previo.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 580,
+          "excerpt": "GRANT SELECT, DELETE ON public.reserva_ensayo_local_fixture TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "line": 29,
+          "excerpt": "const publicCatalogVisibleExpr = `(e.estado='activa' AND c.activa AND u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local bl WHERE bl.cuenta_id=u.id) AND EXISTS(SELECT 1 FROM public.tarifa_espacio tr WHERE tr.espacio_id=e.id) AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local el JOIN public.verificacion v ON v.id=el.verificacion_id AND v.usuario_id=el.usuario_id AND v.tipo=el.tipo AND v.estado='aprobada' WHERE el.usuario_id=u.id AND el.tipo='kyc' AND el.estado='elegible') AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture fx WHERE fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.habilitada))`",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 269,
+          "excerpt": "err = tx.QueryRow(ctx, `SELECT habilitada FROM public.reserva_ensayo_local_fixture WHERE espacio_id=$1 FOR UPDATE`, id).Scan(&fixtureEnabled)",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 380,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 365,
+          "excerpt": "if _, err = adminPool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, fixtureDraft.ID, owner, other); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": "Precondición de datos: cada cotización existente debe encontrar espacio y espacio_caracteristicas. La aplicación secuencial impide que V85 supere un fallo previo en V15."
+    },
+    {
+      "version": 16,
+      "filename": "V000016__m09_local_reservation_messages.sql",
+      "sha256": "21772b55240bd9e42dcee9a0c60267f87e0c5652e9d20a2d4d84526994cc4a06",
+      "behavior": "Mensajes textuales de reserva, idempotencia y secuencia identity; persistencia sin TTL automático.",
+      "objects": [
+        "mensaje_reserva_ensayo",
+        "mensaje_reserva_ensayo_hilo_idx"
+      ],
+      "dependencies": "mensaje_reserva_ensayo con secuencia identity, idempotencia, reserva/autor y cuerpo; índice hilo.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 624,
+          "excerpt": "GRANT SELECT, INSERT, DELETE ON public.mensaje_reserva_ensayo TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "line": 41,
+          "excerpt": "rows, err := r.pool.Query(ctx, `SELECT `+messageColumns+` FROM public.mensaje_reserva_ensayo",
+          "reason": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/privacy_export.go",
+          "line": 11,
+          "excerpt": "\"messages_written_by_owner\": `SELECT COALESCE(jsonb_agg(jsonb_build_object('reservation_id',m.reserva_id::text,'sequence',m.secuencia,'body',m.cuerpo,'created_at',m.creada_en) ORDER BY m.reserva_id,m.secuencia),'[]'::jsonb) FROM public.mensaje_reserva_ensayo m WHERE m.autor_id=$1`,",
+          "reason": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 503,
+          "excerpt": "(SELECT count(*) FROM public.mensaje_reserva_ensayo m",
+          "reason": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 537,
+          "excerpt": "if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.mensaje_reserva_ensayo','SELECT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','INSERT'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','UPDATE'),has_table_privilege(current_user,'public.mensaje_reserva_ensayo','DELETE')`).Scan(&messagesRead, &messagesInsert, &messagesUpdate, &messagesDelete); err != nil {",
+          "reason": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 783,
+          "excerpt": "if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.mensaje_reserva_ensayo(id,reserva_id,autor_id,clave_idempotencia,huella_solicitud,cuerpo,creada_en) VALUES ($1,$2,$3,$4,decode(repeat('44',32),'hex'),$5,$6)`, \"82000000-0000-4000-8000-\"+key[len(key)-12:], reservationID, actor, \"archive-message-\"+actor, \"Mensaje propio de prueba \"+actor, h.now); err != nil {",
+          "reason": "SQL consumidor/fixture de mensaje_reserva_ensayo"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": ""
+    },
+    {
+      "version": 17,
+      "filename": "V000017__m09_reservation_message_read_cursor.sql",
+      "sha256": "d22702994f854621e3eca912ce07a320a3b83e7c9bf1ad2910f82d8ef3cfe127",
+      "behavior": "Cursor por reserva/participante, FK y PK; DDL no verifica pertenencia ni máximo secuencia.",
+      "objects": [
+        "reserva_mensaje_lectura"
+      ],
+      "dependencies": "reserva_mensaje_lectura cursor por reserva/participante, FKs.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 626,
+          "excerpt": "GRANT SELECT, INSERT, UPDATE, DELETE ON public.reserva_mensaje_lectura TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/repository.go",
+          "line": 85,
+          "excerpt": "err := r.pool.QueryRow(ctx, `INSERT INTO public.reserva_mensaje_lectura(reserva_id,participante_id,ultima_secuencia_leida,actualizada_en)",
+          "reason": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        },
+        {
+          "path": "internal/adapters/postgres/conversation/privacy_export.go",
+          "line": 12,
+          "excerpt": "\"conversation_read_cursors\": `SELECT COALESCE(jsonb_agg(jsonb_build_object('reservation_id',c.reserva_id::text,'last_sequence_read',c.ultima_secuencia_leida,'updated_at',c.actualizada_en) ORDER BY c.reserva_id),'[]'::jsonb) FROM public.reserva_mensaje_lectura c WHERE c.participante_id=$1`,",
+          "reason": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 505,
+          "excerpt": "AND m.secuencia>COALESCE((SELECT c.ultima_secuencia_leida FROM public.reserva_mensaje_lectura c",
+          "reason": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 544,
+          "excerpt": "if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_mensaje_lectura','SELECT'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','INSERT'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','UPDATE'),has_table_privilege(current_user,'public.reserva_mensaje_lectura','DELETE')`).Scan(&cursorRead, &cursorInsert, &cursorUpdate, &cursorDelete); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        },
+        {
+          "path": "internal/adapters/postgres/identity/auth_service_integration_test.go",
+          "line": 791,
+          "excerpt": "if _, err := h.pool.Exec(h.ctx, `INSERT INTO public.reserva_mensaje_lectura(reserva_id,participante_id,ultima_secuencia_leida,actualizada_en) VALUES ($1,$2,$3,$4)`, reservationID, hostID, hostSeq, h.now); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_mensaje_lectura"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": ""
+    },
+    {
+      "version": 18,
+      "filename": "V000018__m05_synthetic_fixture_locations.sql",
+      "sha256": "65ff0d76bafb9b7e78207aac40172cb45443291b2903c71165650174c9eac89b",
+      "behavior": "Extensión PostGIS; tabla de ubicación sintética derivada de coordenadas categóricas; índice GiST; inserta ubicaciones para fixtures habilitados.",
+      "objects": [
+        "reserva_ensayo_local_ubicacion_gist",
+        "reserva_ensayo_local_ubicacion_sintetica"
+      ],
+      "dependencies": "postgis; tabla ubicación sintética geography generada; índice gist; backfill coordenadas por categoría para fixtures habilitados, conflict ignore.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 582,
+          "excerpt": "GRANT SELECT ON public.reserva_ensayo_local_ubicacion_sintetica TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_ubicacion_sintetica"
+        },
+        {
+          "path": "internal/dbbootstrap/observer.go",
+          "line": 289,
+          "excerpt": "report.Spatial.ExpectedIndex = \"public.reserva_ensayo_local_ubicacion_gist\"",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_ubicacion_gist"
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository.go",
+          "line": 68,
+          "excerpt": "LEFT JOIN public.reserva_ensayo_local_ubicacion_sintetica g ON g.espacio_id=e.id AND f.habilitada AND g.es_sintetica",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_ubicacion_sintetica"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/gcp03scratch/lifecycle_integration_test.go",
+          "line": 187,
+          "excerpt": "observation.Spatial.ExpectedIndex != \"public.reserva_ensayo_local_ubicacion_gist\" {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_ubicacion_gist"
+        },
+        {
+          "path": "internal/gcp03scratch/retired_observer_ndjson_test.go",
+          "line": 162,
+          "excerpt": "ExpectedIndex: \"public.reserva_ensayo_local_ubicacion_gist\", ActualIndex: \"reserva_ensayo_local_ubicacion_gist\",",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_ubicacion_gist"
+        },
+        {
+          "path": "internal/dbbootstrap/observer_ndjson_test.go",
+          "line": 71,
+          "excerpt": "ExpectedIndex: \"public.reserva_ensayo_local_ubicacion_gist\", ActualIndex: \"reserva_ensayo_local_ubicacion_gist\",",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_ubicacion_gist"
+        },
+        {
+          "path": "internal/adapters/postgres/booking/repository_integration_test.go",
+          "line": 551,
+          "excerpt": "if err = pool.QueryRow(ctx, `SELECT has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','SELECT'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','INSERT'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','UPDATE'),has_table_privilege(current_user,'public.reserva_ensayo_local_ubicacion_sintetica','DELETE')`).Scan(&fixtureLocationRead, &fixtureLocationInsert, &fixtureLocationUpdate, &fixtureLocationDelete); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_ubicacion_sintetica"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": ""
+    },
+    {
+      "version": 19,
+      "filename": "V000019__m06_local_weekly_hours.sql",
+      "sha256": "99d516ecae702fd158204d985662d1cc0c70104a9cd520a926009860dc160d57",
+      "behavior": "Horario semanal/tramos con exclusión de solapes; funciones y triggers protegen zona/modalidad/fixture hora.",
+      "objects": [
+        "espacio_horario_semanal",
+        "espacio_horario_semanal_tramo",
+        "espacio_modalidad_horario_semanal_guard",
+        "espacio_zona_horario_semanal_guard",
+        "guardar_modalidad_horario_activo",
+        "guardar_zona_sin_horario_activo",
+        "horario_semanal_fixture_hora_guard",
+        "rechazar_cambio_tarifa_con_horario_activo",
+        "tarifa_horario_semanal_guard",
+        "validar_horario_semanal_fixture_hora"
+      ],
+      "dependencies": "horario semanal y tramos no solapados; funciones/4 triggers para zona, modalidad y fixture/tarifa.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "Objetos base previos y disponibilidad de privilegios/extension que requiere DDL.",
+      "consumer_refs": [
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 575,
+          "excerpt": "GRANT SELECT, INSERT, UPDATE, DELETE ON public.espacio_horario_semanal, public.espacio_horario_semanal_tramo TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de espacio_horario_semanal"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 293,
+          "excerpt": "if _, err = tx.Exec(ctx, `DELETE FROM public.espacio_horario_semanal WHERE espacio_id=$1`, id); err != nil {",
+          "reason": "SQL consumidor/fixture de espacio_horario_semanal"
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/repository.go",
+          "line": 373,
+          "excerpt": "FROM public.espacio_horario_semanal_tramo s WHERE s.espacio_id=e.id AND s.dia_iso=d.weekday",
+          "reason": "SQL consumidor/fixture de espacio_horario_semanal"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/migrator/integration_test.go",
+          "line": 1024,
+          "excerpt": "if _, err := conn.Exec(ctx, `INSERT INTO public.espacio_horario_semanal(espacio_id,activo) VALUES($1,true)`, spaces[0].id); err != nil {",
+          "reason": "SQL consumidor/fixture de espacio_horario_semanal"
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/wizard_native_read_test.go",
+          "line": 157,
+          "excerpt": "rows, err := tx.Query(ctx, `SELECT dia_iso, apertura_minuto, cierre_minuto FROM public.espacio_horario_semanal_tramo WHERE espacio_id=$1 ORDER BY dia_iso, orden`, id)",
+          "reason": "SQL consumidor/fixture de espacio_horario_semanal_tramo"
+        },
+        {
+          "path": "internal/adapters/postgres/publiccatalog/weekly_schedule_query_test.go",
+          "line": 15,
+          "excerpt": "if strings.Index(query, \"LEFT JOIN public.espacio_horario_semanal\") >= 0 {",
+          "reason": "SQL consumidor/fixture de espacio_horario_semanal"
+        },
+        {
+          "path": "internal/migrator/current_schema_integration_test.go",
+          "line": 472,
+          "excerpt": "func TestCurrentSchemaMigrationV19WeeklyHours(t *testing.T) {",
+          "reason": "Test PostgreSQL aislado que aplica V1–V19 y valida restricciones, exclusión y los cuatro guards originales de V19; el scope v19 pasó 11 resultados obligatorios sin skips.",
+          "assertion_anchor": {
+            "line": 598,
+            "excerpt": "\t\t\t\t\"23514\", \"zona_horaria_horario_semanal_activo\", validFixture)"
+          },
+          "kind": "named_postgres_integration_test"
+        }
+      ],
+      "status": "source_audit_plus_disposable_postgres_v19",
+      "issues": "La prueba weekly_schedule_query_test sigue siendo solo de composición de consulta; la cobertura específica de triggers ahora corresponde al test PostgreSQL V1–V19 desechable."
+    },
+    {
+      "version": 20,
+      "filename": "V000020__m06_local_flexible_cancellation.sql",
+      "sha256": "a594aa744d8fa8ffcf1884561d4e0f0730ea1a35098f422b55b46b4e933570d0",
+      "behavior": "Snapshots de política; monto pago default 0 y backfill de éxitos; tablas de cancelación, devolución e intentos simulados.",
+      "objects": [
+        "cotizacion_reserva_ensayo",
+        "reserva_cancelacion_ensayo",
+        "reserva_devolucion_ensayo",
+        "reserva_devolucion_intento_ensayo",
+        "reserva_devolucion_intento_historial_idx",
+        "reserva_ensayo_local",
+        "reserva_ensayo_local_fixture",
+        "reserva_pago_ensayo"
+      ],
+      "dependencies": "Añade política cancelación snapshots; importe pago default 0 y backfill éxitos; tablas cancelación/devolución/intentos.",
+      "authority": "DDL ejecutado por contexto/SET ROLE del migrador; sin OWNER, GRANT, REVOKE ni ALTER ROLE explícitos en SQL. ACL/PUBLIC/default ACL no definidos aquí.",
+      "data_preconditions": "Tablas y FKs referidas ya existentes; backfills dependen de las filas coincidentes descritas.",
+      "consumer_refs": [
+        {
+          "path": "internal/adminlocal/service.go",
+          "line": 319,
+          "excerpt": "rows, err := tx.Query(ctx, `SELECT estado,count(*) FROM public.reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2 GROUP BY estado ORDER BY estado`, p.From.UTC(), p.Until.UTC())",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/dbbootstrap/runtime_permissions.go",
+          "line": 580,
+          "excerpt": "GRANT SELECT, DELETE ON public.reserva_ensayo_local_fixture TO espacigo_runtime;",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adminglobal/reports.go",
+          "line": 99,
+          "excerpt": "if err = tx.QueryRow(ctx, `SELECT count(*) FROM reserva_ensayo_local WHERE creada_en >= $1 AND creada_en < $2`, p.From, p.Until).Scan(&cohortCount); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adminglobal/resources.go",
+          "line": 166,
+          "excerpt": "return `SELECT id::text AS id,'reservation'::text AS kind,espacio_id::text AS space_id,id::text AS reservation_id,estado AS state,CASE WHEN anfitrion_id=$1 THEN 'arrendador' ELSE 'arrendatario' END AS participant,creada_en AS occurred_at FROM public.reserva_ensayo_local WHERE anfitrion_id=$1 OR arrendatario_id=$1`, true",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adminglobal/publications.go",
+          "line": 29,
+          "excerpt": "const publicCatalogVisibleExpr = `(e.estado='activa' AND c.activa AND u.estado='activo' AND NOT EXISTS(SELECT 1 FROM public.bloqueo_cuenta_administrativo_local bl WHERE bl.cuenta_id=u.id) AND EXISTS(SELECT 1 FROM public.tarifa_espacio tr WHERE tr.espacio_id=e.id) AND EXISTS(SELECT 1 FROM public.elegibilidad_verificacion_local el JOIN public.verificacion v ON v.id=el.verificacion_id AND v.usuario_id=el.usuario_id AND v.tipo=el.tipo AND v.estado='aprobada' WHERE el.usuario_id=u.id AND el.tipo='kyc' AND el.estado='elegible') AND NOT EXISTS(SELECT 1 FROM public.reserva_ensayo_local_fixture fx WHERE fx.espacio_id=e.id AND fx.anfitrion_id=e.propietario_id AND fx.habilitada))`",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local_fixture"
+        },
+        {
+          "path": "internal/adminglobal/service.go",
+          "line": 423,
+          "excerpt": "SELECT r.id,r.anfitrion_id account_id FROM public.reserva_ensayo_local r JOIN page p ON p.id=r.anfitrion_id",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/repository.go",
+          "line": 243,
+          "excerpt": "EXISTS(SELECT 1 FROM public.reserva_ensayo_local r WHERE r.espacio_id=$1",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "test_refs": [
+        {
+          "path": "internal/adminglobal/service_integration_test.go",
+          "line": 380,
+          "excerpt": "if _, err = pool.Exec(ctx, `INSERT INTO public.reserva_ensayo_local_fixture(espacio_id,anfitrion_id,arrendatario_id,habilitada) VALUES($1,$2,$3,true)`, publicationB, landlord, renter); err != nil {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        },
+        {
+          "path": "internal/adapters/postgres/spaces/publication_integration_test.go",
+          "line": 338,
+          "excerpt": "if err = adminPool.QueryRow(ctx, `SELECT count(*) FROM public.reserva_ensayo_local WHERE cotizacion_id=$1`, raceQuote.ID).Scan(&racedReservations); err != nil || racedReservations != 0 {",
+          "reason": "SQL consumidor/fixture de reserva_ensayo_local"
+        }
+      ],
+      "status": "source_audit_only",
+      "issues": ""
+    }
+  ]
+}
